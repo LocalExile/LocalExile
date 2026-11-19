@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static async Task<bool> Desecrate(ClientState conn,
+    public static async Task<bool> Desecrate(Player conn,
         ushort source, (int X, int Y) aim, Func<bool> current, bool triggered = false)
     {
         var gem = SupportedSkill(conn, source);

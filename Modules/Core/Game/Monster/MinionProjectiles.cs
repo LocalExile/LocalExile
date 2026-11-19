@@ -8,7 +8,7 @@ public static partial class Game
     /// <summary>Releases a player minion's catalogue projectile at its rig contact toward the hostile target captured
     /// by the accepted swing. The shared runtime owns flight, walls and moving-target contact; this payload only names
     /// the source-owned minion, and the existing minion damage/outcome pipeline owns every contact.</summary>
-    public static bool ReleaseMinionProjectile(ClientState conn, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
+    public static bool ReleaseMinionProjectile(Player conn, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
     {
         if (!MinionProjectileAttackCurrent(conn, attack)) return false;
         var session = ProjectilesFor(conn);
@@ -24,7 +24,7 @@ public static partial class Game
         return released is not null;
     }
 
-    static bool MinionProjectileAttackCurrent(ClientState conn, PlayerMinions.Attack attack)
+    static bool MinionProjectileAttackCurrent(Player conn, PlayerMinions.Attack attack)
     {
         var (id, m, _, targetId, targetMonster, _, _) = attack;
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0

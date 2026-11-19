@@ -8,7 +8,7 @@ public static partial class Game
         MonsterPoisons.Settings Poison, int PoisonChance);
     static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
 
-    static void MinionAilmentsLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,
+    static void MinionAilmentsLocked(Player conn, GolemState.Golem fighter, GolemState.Ability ability,
         uint id, SpawnedMonster target, bool critical, double now)
     {
         if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;

@@ -12,8 +12,8 @@ public static partial class Game
         public readonly Dictionary<int, double> ReadyAt = [];
         public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
     }
-    static readonly Store<ClientState, LinkedTriggerState> LinkedTriggers = new();
-    static LinkedTriggerState LinkedTriggersOf(ClientState conn)
+    static readonly Store<Player, LinkedTriggerState> LinkedTriggers = new();
+    static LinkedTriggerState LinkedTriggersOf(Player conn)
     {
         if (LinkedTriggers.TryGetValue(conn, out var state) && state.Epoch == conn.ProjectileEpoch
             && ReferenceEquals(state.Rules, CombatLifetime)) return state;
@@ -23,12 +23,12 @@ public static partial class Game
     }
     static bool SupportHas(GemSupports.Applied support, string name) => Stats.Key(name) is uint key
         && support.Stats.Any(s => s.Key == key && s.Value != 0);
-    static bool LinkedSourceCurrent(ClientState conn, LinkedTriggerSource source) => CurrentGameRules
+    static bool LinkedSourceCurrent(Player conn, LinkedTriggerSource source) => CurrentGameRules
         && source.Epoch == conn.ProjectileEpoch && ReferenceEquals(source.Rules, CombatLifetime)
         && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
         && SameTriggerSource(source.Gem, SupportedSkill(conn, source.Skill));
 
-    public static LinkedTriggerSource? CaptureCriticalTriggerSource(ClientState conn, ushort skill)
+    public static LinkedTriggerSource? CaptureCriticalTriggerSource(Player conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         if (!SkillsFor(conn).IsAttack(gem.Effect) || gem.SourceGem is null || PlacedKind(gem) is not (false, false)
@@ -36,7 +36,7 @@ public static partial class Game
         var spells = CaptureLinkedSpells(conn, gem, "cast_linked_spells_on_attack_crit_%", "cast_spell_on_linked_attack_crit");
         return spells.Length == 0 ? null : new(skill, gem, spells, conn.ProjectileEpoch, CombatLifetime);
     }
-    static LinkedSpell[] CaptureLinkedSpells(ClientState conn, SupportedGem source, string sourceFlag, string spellFlag) =>
+    static LinkedSpell[] CaptureLinkedSpells(Player conn, SupportedGem source, string sourceFlag, string spellFlag) =>
         [.. GemSkillEffects(conn).Select(s => new LinkedSpell(s.Id, SupportedSkill(conn, s.Id)))
             .Where(s => s.Gem.Host == source.Host && s.Gem.Group == source.Group
                 && TriggeredSpellExecutable(conn, s.Skill, s.Gem)
@@ -44,14 +44,14 @@ public static partial class Game
                     && source.Supports.Any(driver => driver.Gem.Socket == trigger.Gem.Socket && SupportHas(driver, sourceFlag))))];
 
     // Called only after attack accuracy, block and critical confirmation, including lethal critical hits.
-    public static bool ReleaseCriticalTrigger(ClientState conn, ProjectileSession session, LinkedTriggerSource? source,
+    public static bool ReleaseCriticalTrigger(Player conn, ProjectileSession session, LinkedTriggerSource? source,
         bool critical, bool hostile, (int X, int Y) aim, double at)
     {
         if (!critical || !hostile || source is null || !LinkedSourceCurrent(conn, source) || !session.Active) return false;
         return ReleaseLinkedSpell(conn, session, source, "CoC", aim, at, "cast_spell_on_linked_attack_crit");
     }
 
-    static bool ReleaseLinkedSpell(ClientState conn, ProjectileSession session, LinkedTriggerSource source,
+    static bool ReleaseLinkedSpell(Player conn, ProjectileSession session, LinkedTriggerSource source,
         string family, (int X, int Y) aim, double at, string spellFlag)
     {
         var state = LinkedTriggersOf(conn);

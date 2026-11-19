@@ -26,10 +26,10 @@ public sealed class MadnessState
     }
 }
 
-public sealed record MadnessExplosion(object Owner, ClientState Killer, IReadOnlyDictionary<uint, int> Player,
+public sealed record MadnessExplosion(object Owner, Player Killer, IReadOnlyDictionary<uint, int> Player,
     GameServer.Core.World.DamagePacket Raw, double Radius, (int X, int Y) At);
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public readonly MadnessState Madness = new();
 }

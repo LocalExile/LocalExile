@@ -11,9 +11,9 @@ public static partial class Game
         public double NextAt = at + interval;
         public (int X, int Y) Aim = aim;
     }
-    static readonly Store<ClientState, ChannelTrigger> ChannelTriggers = new();
+    static readonly Store<Player, ChannelTrigger> ChannelTriggers = new();
 
-    public static void BeginChannelTriggers(ClientState conn, ProjectileSession session, ushort skill,
+    public static void BeginChannelTriggers(Player conn, ProjectileSession session, ushort skill,
         int action, int generation, (int X, int Y) aim, double at)
     {
         ChannelTriggers.Remove(conn);
@@ -27,14 +27,14 @@ public static partial class Game
             action, generation, milliseconds / 1000d, at, aim));
     }
 
-    public static void AimChannelTriggers(ClientState conn, (int X, int Y) aim)
+    public static void AimChannelTriggers(Player conn, (int X, int Y) aim)
     {
         lock (conn.Monsters)
             if (ChannelTriggers.TryGetValue(conn, out var state)) state.Aim = aim;
     }
 
     // Runs on the existing projectile pump, independently of channel attack/cast speed and monster contact.
-    public static void TickChannelTriggers(ClientState conn, ProjectileSession session, double at)
+    public static void TickChannelTriggers(Player conn, ProjectileSession session, double at)
     {
         lock (conn.Monsters)
         {

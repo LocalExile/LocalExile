@@ -12,7 +12,7 @@ public sealed class MonsterContagion
     /// the caster's Contagion skin art drawn at each spread (null: the default). Caster owns it, also through spreads: a
     /// kill by its damage and its owner-only gains are that player's, never the connection running the world.</summary>
     public sealed record Cast(double DamagePerSecond, double Seconds, int Radius, double SpreadMore = 1, ushort SkillId = 0,
-        string? SpreadAo = null, ClientState? Caster = null);
+        string? SpreadAo = null, Player? Caster = null);
 
     // Each application counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];

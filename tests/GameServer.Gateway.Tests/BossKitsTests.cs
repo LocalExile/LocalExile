@@ -145,7 +145,7 @@ public sealed class BossKitsTests
     }
 
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
-    static void InGame(Action<ClientState> body)
+    static void InGame(Action<Player> body)
     {
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
@@ -154,7 +154,7 @@ public sealed class BossKitsTests
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-            body(new ClientState(new(1, "kit", 100, 100, 10, 10, null, []), 1, 1));
+            body(new Player(new(1, "kit", 100, 100, 10, 10, null, []), 1, 1));
         }
         finally
         {

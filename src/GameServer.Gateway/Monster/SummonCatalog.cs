@@ -115,7 +115,7 @@ public sealed class SummonedMinions
         GolemState.MinionResourceSnapshot? Resources = null, uint? Host = null, int? Socket = null);
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     SummonedMinions? summons;
     public SummonedMinions Summons => System.Threading.LazyInitializer.EnsureInitialized(ref summons);

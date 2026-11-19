@@ -19,7 +19,7 @@ public static partial class Game
 
     // The trap's skill: its own stats with the trap flags cleared, as the player's proxy is (PlaceSkill), so the object
     // plays the skill rather than another throw.
-    static GrantedSkill? MonsterTrapSkill(ClientState conn, uint owner, MonsterAttack a, int effect, byte level,
+    static GrantedSkill? MonsterTrapSkill(Player conn, uint owner, MonsterAttack a, int effect, byte level,
         IReadOnlyDictionary<uint, int> stats)
     {
         var payload = new Dictionary<uint, int>(stats);
@@ -32,7 +32,7 @@ public static partial class Game
 
     /// <summary>The throw at the action's contact: 1 + number_of_additional_traps_to_throw traps toward the aim, the oldest of
     /// the owner's beyond Monster.ot's three (plus number_of_additional_traps_allowed) taken away.</summary>
-    static async Task ThrowMonsterTraps(ClientState conn,
+    static async Task ThrowMonsterTraps(Player conn,
         uint id, SpawnedMonster m, MonsterAttack a, MonsterAttack payload, (int X, int Y) aim)
     {
         if (a.Effect is not int effect) return;
@@ -89,7 +89,7 @@ public static partial class Game
 
     /// <summary>Each tick: traps land and arm, leave when their time is up or their owner is gone, and go off when the
     /// player or one of their minions stands within the trigger radius.</summary>
-    static async Task MonsterTrapsTick(ClientState conn)
+    static async Task MonsterTrapsTick(Player conn)
     {
         if (conn.MonsterPlaced.Traps.Count == 0) return;
         List<(MonsterPlacedObjects.Trap Trap, (int X, int Y) Aim)> fired = [];

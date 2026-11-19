@@ -22,7 +22,7 @@ public sealed class AccountHideoutTests : IDisposable
         return account;
     }
 
-    ClientState Player(Account account, string name, int order, string? area = null, string league = "Standard")
+    Player Player(Account account, string name, int order, string? area = null, string league = "Standard")
     {
         var created = DateTimeOffset.UnixEpoch.AddMinutes(order);
         store.AddCharacter(new(Guid.NewGuid(), account.Id, name, CharacterClass.Witch, 1, league,
@@ -33,7 +33,7 @@ public sealed class AccountHideoutTests : IDisposable
             { Account = account.Name, Character = name, League = league };
     }
 
-    static ClientState Visit(ClientState player, ClientState owner) => new(owner.Layout, 1, 1)
+    static Player Visit(Player player, Player owner) => new(owner.Layout, 1, 1)
         { Account = player.Account, Character = player.Character, League = player.League, InstanceOwner = owner.Character };
 
     [Fact]

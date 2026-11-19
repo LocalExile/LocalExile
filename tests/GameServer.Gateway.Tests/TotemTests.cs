@@ -24,7 +24,7 @@ public sealed class TotemTests
     public void EveryTotemSkillCarriesSummonsTotemAndResolvesToASupportedVariety()
     {
         var skills = new SkillCatalog(); var monsters = new MonsterCatalog();
-        var conn = new ClientState(new(1, "totem-catalog", 1000, 1000, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "totem-catalog", 1000, 1000, 100, 100, null, []), 1, 1);
         int rejuvenation = skills.EffectRow("RejuvenationTotem");
         Assert.True(rejuvenation >= 0);
         // The old gate's only key: TotemAuras held RejuvenationTotem and nothing else.
@@ -52,7 +52,7 @@ public sealed class TotemTests
         using var wire = new Wire();
         Saves.Open(path); Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "totem-runtime", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "totem-runtime", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TotemRuntime", Instance = new(), PlayerLife = 10000, PlayerMana = 10000, PlayerSent = true,
             Experience = CharacterStats.ExperienceFor(100),
@@ -103,7 +103,7 @@ public sealed class TotemTests
 
             // /totems reads the same collection through the same call the command makes, so the listing carries the
             // fields the task needs — a totem the lab can see at all. (The Monsters array of /state cannot list one:
-            // a totem never enters ClientState.Monsters.)
+            // a totem never enters Player.Monsters.)
             string listing = Game.TotemsListing(conn);
             Assert.Contains("0x", listing);
             Assert.Contains(variety!.Id, listing);

@@ -13,7 +13,7 @@ public static partial class Game
     static ushort SentinelSourceGroup(ushort source) =>
         (ushort)(((source & 0xc000) == 0xc000 ? 0x8000 : 0xc000) | (source & 0x3fff));
 
-    static IEnumerable<GrantedSkill> SentinelSourceSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
+    static IEnumerable<GrantedSkill> SentinelSourceSkills(Player conn, IReadOnlyList<GrantedSkill> skills)
     {
         var gems = GemSkillEffects(conn).ToArray();
         foreach (var vaal in gems.Where(g => SkillsFor(conn).EffectId(g.Effect) is "VaalAbsolution" or "VaalDomination"))
@@ -32,7 +32,7 @@ public static partial class Game
         }
     }
 
-    internal static byte[]? SentinelOwnershipPresentation(ClientState conn)
+    internal static byte[]? SentinelOwnershipPresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -68,7 +68,7 @@ public static partial class Game
         }
     }
 
-    static Task SendSentinelOwnership(ClientState conn,
+    static Task SendSentinelOwnership(Player conn,
         Func<bool> current) => SendWorldRecord(conn, PlayerId, [], "owned sentinel roster",
             atGate: () => current() ? SentinelOwnershipPresentation(conn) : null);
 }

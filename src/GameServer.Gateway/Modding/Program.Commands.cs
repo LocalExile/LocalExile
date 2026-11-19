@@ -20,15 +20,15 @@ public partial class Program
 
     // The same for one connection that ended: it is out of InGame, so no later unload reaches its table, and its state can
     // stay in memory long after its socket closed.
-    public static void ForgetCommands(ClientState left)
+    public static void ForgetCommands(Player left)
     {
         if (left.Commands is { } commands) left.Commands = commands.Emptied();
     }
 
-    static Session WireOrNone(ClientState? conn) => conn is null ? Session.None : conn.Session;
+    static Session WireOrNone(Player? conn) => conn is null ? Session.None : conn.Session;
 
     // The chat commands of one connection (ChatCommands.cs).
-    public static ChatCommands Commands(ClientState conn)
+    public static ChatCommands Commands(Player conn)
     {
         // With no connection (the list of usages): no wire, nothing is sent.
         var (remote, stream, ciphers) = WireOrNone(conn);

@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    internal static bool SignalPreyLocked(ClientState conn, ushort source, SupportedGem gem,
+    internal static bool SignalPreyLocked(Player conn, ushort source, SupportedGem gem,
         (int X, int Y) aim, uint target, double now)
     {
         bool Valid(SpawnedMonster m) => m.Hostile && !m.Dead && m.Life > 0 && !m.Invulnerable;
@@ -23,7 +23,7 @@ public static partial class Game
         return true;
     }
 
-    static void ClearPreyLocked(ClientState conn)
+    static void ClearPreyLocked(Player conn)
     {
         if (conn.Summons.SignalledPrey is not { } prey) return;
         if (conn.Monsters.GetValueOrDefault(prey.Id) == prey.Monster)
@@ -31,12 +31,12 @@ public static partial class Game
         conn.Summons.SignalledPrey = null;
     }
 
-    static bool IsPrey(ClientState conn, GolemState.Golem fighter, uint id, SpawnedMonster monster, double now) =>
+    static bool IsPrey(Player conn, GolemState.Golem fighter, uint id, SpawnedMonster monster, double now) =>
         GolemStat(fighter.Own, "support_minion_use_focussed_target") != 0
         && conn.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
         && ReferenceEquals(prey.Monster, monster) && conn.Monsters.GetValueOrDefault(id) == monster;
 
-    static double MinionTacticsBaseDamage(ClientState conn, GolemState.Golem fighter, double now)
+    static double MinionTacticsBaseDamage(Player conn, GolemState.Golem fighter, double now)
     {
         double more = Math.Max(0, 1 + GolemStat(fighter.Own, "deathmark_minion_damage_+%_final") / 100d);
         if (conn.PlayerLife > 0 && (now < conn.Summons.FeedingFrenzyUntil
@@ -47,7 +47,7 @@ public static partial class Game
         return more;
     }
 
-    static double MinionTacticsDamage(ClientState conn, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
+    static double MinionTacticsDamage(Player conn, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
         double more = MinionTacticsBaseDamage(conn, fighter, now);
         if (IsPrey(conn, fighter, id, target, now))
@@ -55,7 +55,7 @@ public static partial class Game
         return more;
     }
 
-    internal static void FeedingFrenzyOnHitLocked(ClientState conn, GolemState.Golem fighter, double now)
+    internal static void FeedingFrenzyOnHitLocked(Player conn, GolemState.Golem fighter, double now)
     {
         int chance = GolemStat(fighter.Own, "minion_grant_puppet_master_buff_to_parent_on_hit_%");
         if (conn.PlayerLife == 0 || chance <= 0 || conn.Minions.Random.Next(100) >= chance) return;
@@ -72,7 +72,7 @@ public static partial class Game
         if (starting) RefreshMinionTacticsLocked(conn);
     }
 
-    static void RefreshMinionTacticsLocked(ClientState conn)
+    static void RefreshMinionTacticsLocked(Player conn)
     {
         conn.Minions.StatRevision++;
         conn.Golems.RefreshAt = conn.Summons.RefreshAt = 0;
@@ -81,7 +81,7 @@ public static partial class Game
         foreach (var fighter in UtilityFighters(conn)) RefreshGolemLocked(conn, fighter, player);
     }
 
-    static void MinionTacticsTick(ClientState conn, double now)
+    static void MinionTacticsTick(Player conn, double now)
     {
         if (conn.Summons.FeedingFrenzyBuff != 0 && (conn.PlayerLife == 0 || now >= conn.Summons.FeedingFrenzyUntil))
         {

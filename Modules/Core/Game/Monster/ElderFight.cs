@@ -10,7 +10,7 @@ using static Game;
 /// <para>Damage comes from the effects' own stat sets at the area's level, the pacing from each clip's cast time
 /// (the tentacles 5 s, the siphon 8.5 s, the nova 3.83 s), the same way <see cref="ShaperFight"/> does it.</para>
 /// </summary>
-sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasBossFight(id, boss, conn)
+sealed class ElderFight(uint id, SpawnedMonster boss, Player conn) : AtlasBossFight(id, boss, conn)
 {
     protected override string Name => "[Elder]";
     protected override ushort ImmunityRow => AtlasBosses.ElderImmunityRow;
@@ -18,7 +18,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
     protected override string ShieldOffArt => AtlasBosses.ElderShieldOffArt;
     // The blink of an intermission goes to the arena's middle marker, not to the layout's spawn (the map entry).
     (int X, int Y)? stage;
-    protected override (int X, int Y) Stage(ClientState conn) => stage ??= ArenaCentre(conn, boss);
+    protected override (int X, int Y) Stage(Player conn) => stage ??= ArenaCentre(conn, boss);
 
     double nextMelee, nextSiphon, nextTentacles, nextNova, nextVolley, nextDoom, nextChase;
     // The siphon's degen: the ground under the player burns for as long as the Elder channels, and a quarter of what it
@@ -33,7 +33,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
     double waveAt;
     int waves;
 
-    protected override async Task Ticks(ClientState conn, double now)
+    protected override async Task Ticks(Player conn, double now)
     {
         foreach (var slam in pending.Where(p => p.At <= now).ToArray())
         {
@@ -59,7 +59,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
         if (healed > 0) lock (conn.Monsters) boss.Life = Math.Min(boss.MaxLife, boss.Life + healed / 4);
     }
 
-    protected override async Task Act(ClientState conn, double now)
+    protected override async Task Act(Player conn, double now)
     {
         var watchers = Watchers();
         if (watchers.Length == 0) return;
@@ -119,7 +119,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>The siphon (9058): the Elder channels at the player's ground for three seconds; whatever stands there
     /// takes the skill's physical degen on a 0.5 s tick and heals him for a quarter of it.</summary>
-    async Task Siphon(ClientState conn, (int X, int Y) at, double now)
+    async Task Siphon(Player conn, (int X, int Y) at, double now)
     {
         var dot = AtlasBosses.DamageOverTime(conn, AtlasBosses.SiphonEffect, boss.Level);
         if (dot.MaxTotal <= 0) return;
@@ -134,7 +134,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>The slamming tentacles (9062): five portals open around the player and slam where they opened, a 5 unit
     /// area each, their physical damage 1.2x the melee's, one second after the cast.</summary>
-    async Task Tentacles(ClientState conn, (int X, int Y) player, double now, int count)
+    async Task Tentacles(Player conn, (int X, int Y) player, double now, int count)
     {
         var slam = Attack(conn, AtlasBosses.SlammingTentaclesEffect);
         slam = slam with { Damage = slam.Damage.Scale(1.2) };
@@ -152,7 +152,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>The expanding nova (9066): a ring that leaves the Elder and damages everything within 22 units once it
     /// has passed: the player walks out of it, the way the original's is dodged.</summary>
-    async Task Nova(ClientState conn, (int X, int Y) player, double now)
+    async Task Nova(Player conn, (int X, int Y) player, double now)
     {
         var pos = boss.Walk.Position(now);
         var attack = Attack(conn, AtlasBosses.ExpandingNovaEffect);
@@ -163,7 +163,7 @@ sealed class ElderFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
         _ = player;
     }
 
-    protected override async Task Intermission(ClientState conn, double now)
+    protected override async Task Intermission(Player conn, double now)
     {
         if (!intermission)
         {

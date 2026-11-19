@@ -1,7 +1,7 @@
 namespace GameServer.Modules.Survivors;
 
 /// <summary>One run's authority over a connection. Captured before asynchronous work, never recovered afterward.</summary>
-sealed class SurvivorsOwnership(ClientState conn, SurvivorsRun run, CancellationTokenSource cancellation)
+sealed class SurvivorsOwnership(Player conn, SurvivorsRun run, CancellationTokenSource cancellation)
 {
     internal SurvivorsRun Run => run;
     internal CancellationTokenSource Cancellation => cancellation;

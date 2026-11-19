@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed partial class ReservationCurseSummonTests
 {
-    static void SiphoningFixture(ClientState template, ModuleLifetime lifetime)
+    static void SiphoningFixture(Player template, ModuleLifetime lifetime)
     {
         string character = "Siphoning" + Guid.NewGuid().ToString("N");
         PlayerInventories.SetClass(character, 1);
@@ -15,7 +15,7 @@ public sealed partial class ReservationCurseSummonTests
         var priorContext = Game.AreaUpdateContext.Value;
         var updates = new PlayerUpdatesState(lifetime, schedule);
         Game.AreaUpdateContext.Value = updates;
-        var conn = new ClientState(template.Layout, 1, 1)
+        var conn = new Player(template.Layout, 1, 1)
         {
             Character = character, CharacterId = Guid.NewGuid(), Account = "siphoning", ClassRow = 1,
             League = "Standard", LeagueForm = "Standard", Instance = new(), PlayerLife = 1,

@@ -13,7 +13,7 @@ public static partial class Game
     /// <paramref name="player"/> is the character's final stats; <paramref name="own"/> a selected attack gem's own
     /// stats, whose flat/increased accuracy and critical increases join as they do for the main hand.
     /// </summary>
-    public static List<(string Stat, int Value)>? OffHandPanelStats(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static List<(string Stat, int Value)>? OffHandPanelStats(Player conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<string, int> mainLocal, IReadOnlyDictionary<string, int> offLocal,
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
         OffHandPanelStats(() => OffhandWeaponFor(conn), () => ActiveOffHand(conn), () => conn.Pools,

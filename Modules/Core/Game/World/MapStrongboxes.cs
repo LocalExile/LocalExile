@@ -24,7 +24,7 @@ public static class MapStrongboxes
         public List<Box>? Boxes;
     }
     static readonly Store<InstanceState, Area> Areas = new();
-    static readonly Store<ClientState, HashSet<uint>> Presented = new();
+    static readonly Store<Player, HashSet<uint>> Presented = new();
 
     public static void Opening(MapOpening request)
     {
@@ -64,13 +64,13 @@ public static class MapStrongboxes
         return result;
     }
 
-    static void Keep(ClientState conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
+    static void Keep(Player conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
 
-    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
-        .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
+    static IEnumerable<Player> Members(Player conn) => conn.Instance.PlayersExcept(conn.PeerId)
+        .Select(p => p.Owner).OfType<Player>().Prepend(conn)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
 
-    public static async Task Enter(ClientState conn)
+    public static async Task Enter(Player conn)
     {
         if (MapModsOf(conn) is not { } mods || mods.Get(CountStat) <= 0) return;
         var area = Areas.GetOrCreateValue(conn.Instance);
@@ -98,7 +98,7 @@ public static class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
-    static async Task Present(ClientState conn, Box box, bool replace = false)
+    static async Task Present(Player conn, Box box, bool replace = false)
     {
         var shown = Presented.GetOrCreateValue(conn);
         if (!replace && shown.Contains(box.Id)) return;
@@ -113,7 +113,7 @@ public static class MapStrongboxes
         shown.Add(box.Id);
     }
 
-    public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetId) is not { } box) return false;
         if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
@@ -158,7 +158,7 @@ public static class MapStrongboxes
         return true;
     }
 
-    public static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box)
+    public static List<AreaPopulation.Spawn> Guards(Player conn, Box box)
     {
         if (Packs.For(conn.Layout.Id) is not { } packs || StrongboxCatalog.Find(box.Type) is not { } type) return [];
         var pool = packs.Scattered.Where(p => p.Pack.Entries.Count > 0
@@ -183,7 +183,7 @@ public static class MapStrongboxes
 
     public static bool ClosesAgain(int chance, Random random) => random.Next(100) < chance;
 
-    static async Task SpawnPending(ClientState conn, Area area, Box box)
+    static async Task SpawnPending(Player conn, Area area, Box box)
     {
         byte level = (byte)Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
         while (box.Pending.Count > 0 && !conn.Closed && !conn.LeavingArea)
@@ -199,7 +199,7 @@ public static class MapStrongboxes
         }
     }
 
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is null || conn.Closed || conn.LeavingArea) return;
         await area.Gate.WaitAsync();
@@ -242,7 +242,7 @@ public static class MapStrongboxes
         _ => true,
     };
 
-    static async Task Rewards(ClientState conn, Box box)
+    static async Task Rewards(Player conn, Box box)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return;
         int level = Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
@@ -271,11 +271,11 @@ public static class MapStrongboxes
         }
     }
 
-    public static void Describe(ClientState conn, JsonObject state)
+    public static void Describe(Player conn, JsonObject state)
     {
         if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is null) return;
         state["strongboxes"] = JsonSerializer.SerializeToNode(area.Boxes);
     }
 
-    public static void Leave(ClientState conn) => Presented.Remove(conn);
+    public static void Leave(Player conn) => Presented.Remove(conn);
 }

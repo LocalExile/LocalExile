@@ -6,7 +6,7 @@ using GameServer.Core.Diagnostics;
 
 static partial class QuestobjectsRules
 {
-    internal static async Task TrySpawnTutorialChest(ClientState conn)
+    internal static async Task TrySpawnTutorialChest(Player conn)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts) return;
         try
@@ -33,7 +33,7 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] tutorial chest: {ex.Message}"); }
     }
 
-    internal static async Task RunOpeningScene(ClientState conn,uint id,SpawnedNpc npc,double biteAt,Task skipped)
+    internal static async Task RunOpeningScene(Player conn,uint id,SpawnedNpc npc,double biteAt,Task skipped)
     {
         try
         {
@@ -60,7 +60,7 @@ static partial class QuestobjectsRules
         finally { conn.TutorialSceneRunning=false; conn.TutorialDialogueSkipped=null; }
     }
 
-    internal static async Task SpawnTutorialZombie(ClientState conn)
+    internal static async Task SpawnTutorialZombie(Player conn)
     {
         if(Environment.GetEnvironmentVariable("Game_MONSTERS")=="0" || conn.TutorialZombiePlacement is not { } spawn) return;
         lock(conn.Monsters) if(conn.Monsters.Values.Any(m=>m.Variety?.Id==TutorialObjects.Zombie)) return;
@@ -68,7 +68,7 @@ static partial class QuestobjectsRules
             await SpawnMonster(conn,zombie,1,MonsterRarity.Normal,spawn.X,spawn.Y);
     }
 
-    internal static GlyphQuest.Layout? LoadGlyphLayout(ClientState conn)
+    internal static GlyphQuest.Layout? LoadGlyphLayout(Player conn)
     {
         try { return GlyphQuest.Load(conn.Layout.Id, conn.Seed); }
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
@@ -78,7 +78,7 @@ static partial class QuestobjectsRules
         }
     }
 
-    internal static async Task CreateGlyphObjects(ClientState conn, GlyphQuest.Layout layout)
+    internal static async Task CreateGlyphObjects(Player conn, GlyphQuest.Layout layout)
     {
         try
         {
@@ -122,10 +122,10 @@ static partial class QuestobjectsRules
 
     // A nest's glyph on the instance's ground, unless the character no longer needs it (QuestItems.Drops: the glyphs are
     // placed, or a copy is carried or on this instance's ground): a glyph lost another way drops again.
-    internal static Task DropGlyph(ClientState conn, GlyphQuest.Nest nest) =>
+    internal static Task DropGlyph(Player conn, GlyphQuest.Nest nest) =>
         DropQuestItem(conn, GlyphQuest.Glyphs[nest.Glyph], (nest.At.X, nest.At.Y), $"the Rhoa Nest at ({nest.At.X}, {nest.At.Y})");
 
-    internal static async Task PlaceGlyphs(ClientState conn)
+    internal static async Task PlaceGlyphs(Player conn)
     {
         var items = ItemsOf(conn);
         List<(byte Row, InventoryItem Item)>? removed;
@@ -148,12 +148,12 @@ static partial class QuestobjectsRules
 
 
 
-    internal static async Task DropTutorialGem(ClientState conn,bool support,int x,int y)
+    internal static async Task DropTutorialGem(Player conn,bool support,int x,int y)
     {
         foreach (var output in CommitTutorialGem(conn,support,x,y)) await SendWorldReceipt(conn, output);
     }
 
-    internal static List<PlayerMinions.Output> CommitTutorialGem(ClientState conn,bool support,int x,int y)
+    internal static List<PlayerMinions.Output> CommitTutorialGem(Player conn,bool support,int x,int y)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts && support) return [];
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial || (support ? tutorial.SupportClaimed : tutorial.SkillClaimed)) return [];

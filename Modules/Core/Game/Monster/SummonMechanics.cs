@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static Dictionary<uint, int> WithSummonBuffs(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithSummonBuffs(Player conn, Dictionary<uint, int> sources)
     {
         lock (conn.Monsters)
         {
@@ -31,7 +31,7 @@ public static partial class Game
         }
     }
 
-    static void HolyRelicsOnHitLocked(ClientState conn, uint target, SpawnedMonster victim, double now)
+    static void HolyRelicsOnHitLocked(Player conn, uint target, SpawnedMonster victim, double now)
     {
         if (conn.PlayerLife == 0 || InTown(conn)) return;
         foreach (var relic in conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == "HolyRelic" && !g.Monster.Dead && g.Pending is null))
@@ -52,7 +52,7 @@ public static partial class Game
             }
     }
 
-    public static void HolyRelicRegenerationLocked(ClientState conn, GolemState.Golem relic, GolemState.Ability nova, double now)
+    public static void HolyRelicRegenerationLocked(Player conn, GolemState.Golem relic, GolemState.Ability nova, double now)
     {
         double duration = GolemStat(nova.Stats, "base_skill_effect_duration") / 1000d;
         double until = now + duration;
@@ -73,7 +73,7 @@ public static partial class Game
             { ally.HolyRegenerationUntil = until; ally.HolyRegenerationPerSecond = GolemStat(relic.Own, "holy_relic_nova_minion_life_regeneration_rate_per_second"); }
     }
 
-    static bool ReaperConsumeLocked(ClientState conn, GolemState.Golem reaper, double now)
+    static bool ReaperConsumeLocked(Player conn, GolemState.Golem reaper, double now)
     {
         if (reaper.Definition.Kind != "Reaper" || reaper.Definition.Id == "SummonReaperAltX") return false;
         if (reaper.WrathUntil > 0 && now >= reaper.WrathUntil)
@@ -93,7 +93,7 @@ public static partial class Game
         return true;
     }
 
-    static void ReaperConsumedLocked(ClientState conn, GolemState.Golem reaper, GolemState.Action action, double now)
+    static void ReaperConsumedLocked(Player conn, GolemState.Golem reaper, GolemState.Action action, double now)
     {
         if (OwnedFighter(conn, action.Target) is not { } meal || meal.Monster.Dead || meal.Monster.Life == 0) return;
         GolemDieLocked(conn, meal, now);

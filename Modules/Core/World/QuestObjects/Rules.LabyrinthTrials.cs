@@ -11,17 +11,17 @@ static partial class QuestobjectsRules
     const int MapStatueReach = 100;
 
     // Whether the six Normal trials are done (Labyrinths RequiredTrials; the character's flag or the league's).
-    static bool NormalTrialsDone(ClientState conn, out int done, out int count) => LabyrinthTrialsDone(conn, 1, out done, out count);
+    static bool NormalTrialsDone(Player conn, out int done, out int count) => LabyrinthTrialsDone(conn, 1, out done, out count);
 
     // The plaza's device (Act3Objects.LabyrinthSelect): the Labyrinth's choice of difficulty (0x7b kind 0x10,
     // LabyrinthSelectWindow); the choice comes back as C→S 0x212 (ChooseLabyrinth).
-    internal static async Task UseLabyrinthSelect(ClientState conn) =>
+    internal static async Task UseLabyrinthSelect(Player conn) =>
         await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
 
     // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): the Labyrinth's two ascendancy points (once per tier; Izaro
     // is not fought yet, so reaching the font is enough), then 0x7b kind 0x0a: the client opens its class selector for an
     // unascended character (its choice comes back as C→S 0x39, ChooseAscendancyClass), else the passive tree.
-    internal static async Task UseAscendancyFont(ClientState conn)
+    internal static async Task UseAscendancyFont(Player conn)
     {
         if (LabyrinthDay.DifficultyOf(conn.Layout.Id) is not int tier) return;
         try
@@ -38,7 +38,7 @@ static partial class QuestobjectsRules
 
     // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town") and the Ascendancy Chamber's
     // (Act3Objects.ChamberPortal): to the character's last town, else Act 3's.
-    internal static async Task UsePlazaReturnPortal(ClientState conn)
+    internal static async Task UsePlazaReturnPortal(Player conn)
     {
         ushort town = conn.LastTown != 0 ? conn.LastTown : AreaTransitionCatalog.HashOf(Act3Areas.SarnEncampment) ?? 0;
         if (town != 0) await ChangeArea(conn, new PendingTransfer(town, 0, false), "the plaza's portal back to town");
@@ -47,7 +47,7 @@ static partial class QuestobjectsRules
     // The Sarn Encampment's Ascendancy plaque (Act3Objects.LabyrinthPlaque), once the player is at it: with the six Normal
     // trials done (the character's flag or the league's) the statue opens for good (Act3Objects.StatueOpened, which the
     // statue, the plaque and the way to the plaza follow); before, the trials done (the Trial Plaque window).
-    internal static async Task UseSarnPlaque(ClientState conn)
+    internal static async Task UseSarnPlaque(Player conn)
     {
         bool all = NormalTrialsDone(conn, out int done, out int count);
         Console.WriteLine($"[gateway] {conn.Remote} Sarn plaque: {done} of {count} Normal trials done");
@@ -68,7 +68,7 @@ static partial class QuestobjectsRules
     // The Labyrinth's own rooms (LabyrinthTrials.InLabyrinth) have the same traps, levers and doors, run the same way. The
     // objects are the Gateway's generated rooms' with their links (LabyrinthWiring), for a trial too when the Gateway
     // generates its area (else data/room-points.json's, unlinked; it keeps only the Labyrinth's rooms with points).
-    internal static async Task SpawnTrialObjects(ClientState conn)
+    internal static async Task SpawnTrialObjects(Player conn)
     {
         var trial = LabyrinthTrials.For(conn.Layout.Id);
         bool labyrinth = LabyrinthTrials.InLabyrinth(conn.Layout.Id);
@@ -206,13 +206,13 @@ static partial class QuestobjectsRules
     }
 
     // A Labyrinth room area's roomba scratch decals (LabyrinthTrials.ScratchedRuns), from the Gateway's placed doodads.
-    static List<(int X, int Y)> LabyrinthScratches(ClientState conn) =>
+    static List<(int X, int Y)> LabyrinthScratches(Player conn) =>
         [.. (ServerLevels.For(conn.Layout.Id, conn.Seed)?.Doodads ?? [])
             .Where(d => d.Model.Contains("LabyrinthRoombaKit/R_scratch", StringComparison.OrdinalIgnoreCase)).Select(d => (d.X, d.Y))];
 
     // A Labyrinth room area's server objects, as the Gateway generated its rooms (ServerLevels: the area is in the levelgen
     // gate's baseline), with each line's scale and fixed height, and their links (indexes in the list returned).
-    static List<AreaPopulation.RoomObject> LabyrinthRoomObjects(ClientState conn, List<string> notes, List<PlacedLink> links)
+    static List<AreaPopulation.RoomObject> LabyrinthRoomObjects(Player conn, List<string> notes, List<PlacedLink> links)
     {
         if (ServerLevels.For(conn.Layout.Id, conn.Seed) is not { } level)
         {
@@ -243,11 +243,11 @@ static partial class QuestobjectsRules
         }
     }
 
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, RoomWiring> Wirings = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, RoomWiring> Wirings = new();
 
     // The room objects' wiring as this instance left it: what it turned on is on again (passing it on sets the counters,
     // the disabled levers and the spent cranks), and a crank still down comes back up (its timer ran on this connection).
-    static RoomWiring WireRoomObjects(ClientState conn, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
+    static RoomWiring WireRoomObjects(Player conn, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
         var wiring = new RoomWiring(new LabyrinthWiring([.. all.Select(o => o.Type)], links), all, links);
         for (int i = 0; i < all.Count; i++)
@@ -262,7 +262,7 @@ static partial class QuestobjectsRules
     // (a lever then did nothing until the next area): it is built again from what the connection keeps, the room's
     // objects and links, what this instance turned on, and the ids its placed objects have. A crank still down comes
     // up here as on a new entry; the old module's timer brings it up on the client.
-    static bool TryWiring(ClientState conn, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out RoomWiring? wiring)
+    static bool TryWiring(Player conn, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out RoomWiring? wiring)
     {
         if (Wirings.TryGetValue(conn, out wiring)) return true;
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
@@ -293,7 +293,7 @@ static partial class QuestobjectsRules
     static bool HasLinks(RoomWiring wiring, AreaPopulation.RoomObject from) => LinkedFrom(wiring, from, _ => true).Count > 0;
 
     // The placed objects of these room indexes.
-    static List<(uint Id, AreaPopulation.RoomObject Object)> Placed(ClientState conn, RoomWiring wiring, IEnumerable<int> indexes)
+    static List<(uint Id, AreaPopulation.RoomObject Object)> Placed(Player conn, RoomWiring wiring, IEnumerable<int> indexes)
     {
         lock (conn.Monsters)
             return [.. indexes.Where(i => wiring.Ids.TryGetValue(i, out uint id) && conn.TrialObjects.ContainsKey(id)).Select(i => (wiring.Ids[i], wiring.All[i]))];
@@ -301,7 +301,7 @@ static partial class QuestobjectsRules
 
     // The sawblades the pulled levers stop by the room links (live 2026-11-01, the original: the Chamber of Sins trial's
     // as its links say): each pulled lever's pause, and on along each stopped sawblade's own pause.
-    static HashSet<int> PausedSaws(ClientState conn, RoomWiring wiring)
+    static HashSet<int> PausedSaws(Player conn, RoomWiring wiring)
     {
         var stopped = new HashSet<int>();
         var todo = new Stack<int>(wiring.Links.Where(l => l.Name == "pause" && wiring.All[l.From].Type is LabyrinthTrials.Switch
@@ -314,7 +314,7 @@ static partial class QuestobjectsRules
 
     // A wired lever, Switch_Once_Multi or crank used: it turns on and passes it on (LabyrinthWiring); a crank comes back up
     // after its seconds unless a counter spent it meanwhile. A used, disabled or spent one does nothing.
-    static async Task PullWired(ClientState conn, RoomWiring wiring, int index)
+    static async Task PullWired(Player conn, RoomWiring wiring, int index)
     {
         if (wiring.Graph.IsOn(index) || wiring.Graph.IsDisabled(index) || wiring.Graph.IsSpent(index)) return;
         await ApplyWiring(conn, wiring, wiring.Graph.Turn(index, true));
@@ -332,7 +332,7 @@ static partial class QuestobjectsRules
 
     // The wiring's changes in this instance and on the client: a door opens (OpenTrialObject), anything else takes its
     // Transitionable state (on 2, off 1, a disabled lever 2, a spent crank 3).
-    static async Task ApplyWiring(ClientState conn, RoomWiring wiring,
+    static async Task ApplyWiring(Player conn, RoomWiring wiring,
         List<(int Index, LabyrinthWiring.Change Change)> changes)
     {
         foreach (var (index, change) in changes)
@@ -394,7 +394,7 @@ static partial class QuestobjectsRules
 
     // Each swap piece's levers as the piece stands in this instance (LabyrinthTrials.OnFirstArm): the one by the part of
     // the track the spinner does not run is pulled, its gears turning.
-    static void SetSwapLevers(ClientState conn, IReadOnlyList<AreaPopulation.RoomObject> all, IReadOnlyList<PlacedLink> links)
+    static void SetSwapLevers(Player conn, IReadOnlyList<AreaPopulation.RoomObject> all, IReadOnlyList<PlacedLink> links)
     {
         foreach (var swap in all.Where(o => o.Type == LabyrinthTrials.RailSwitchSwapped))
         {
@@ -410,7 +410,7 @@ static partial class QuestobjectsRules
     // A lever by a swap piece pulled: when it is the one by the part the spinner runs, the piece turns to the other part
     // (the spinner goes over when it next comes by), this lever and its gears start and the other lever and its gears
     // stop. The pulled one does nothing.
-    static async Task TurnSwap(ClientState conn, AreaPopulation.RoomObject lever,
+    static async Task TurnSwap(Player conn, AreaPopulation.RoomObject lever,
         uint swapId, AreaPopulation.RoomObject swap)
     {
         if (conn.Instance.Transitioned(lever.Type, lever.X, lever.Y)) return;
@@ -439,9 +439,9 @@ static partial class QuestobjectsRules
     // The Crematorium trial's hot plates, all together, over and over (LabyrinthTrials.LavaHeatSeconds and the rest): each
     // heats (Transitionable 2), stays at its peak LavaBurnSeconds, cools (1) and rests cold. A player in a burning area
     // (LabyrinthTrials.Burns) while the lava lies (LavaSpillSeconds into the heating to LavaDrainSeconds into the cooling) burns
-    // (LabyrinthTrials.LavaDamagePerSecond less their fire resistance, ClientState.TrapDegenPerSecond) with its
+    // (LabyrinthTrials.LavaDamagePerSecond less their fire resistance, Player.TrapDegenPerSecond) with its
     // labyrinth_lava_aura buff.
-    static async Task RunHotPlates(ClientState conn,
+    static async Task RunHotPlates(Player conn,
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> plates, List<AreaPopulation.RoomObject> burning)
     {
         var degen = new TrapDegen();
@@ -490,7 +490,7 @@ static partial class QuestobjectsRules
     // A trial object used: the player walks up to it, then the trial's door (or a plain door) opens, a lever opens the nearest locked door,
     // the plaque completes the trial (its flag) and opens the portal (every use), and the open portal returns to the trial's door.
     // False when the object is not a trial's.
-    internal static async Task<bool> UseTrialObject(ClientState conn,
+    internal static async Task<bool> UseTrialObject(Player conn,
         InstanceTransfer.UseSkillOnObject use)
     {
         AreaPopulation.RoomObject? o;
@@ -614,7 +614,7 @@ static partial class QuestobjectsRules
 
     // Transitions a trial object once in this instance: its Transitionable steps to the open state (the client plays the
     // .ot's on_transition), a door also unblocks (0x1c6) and leaves the server's walk estimate. False when already open.
-    static async Task<bool> OpenTrialObject(ClientState conn, uint id,
+    static async Task<bool> OpenTrialObject(Player conn, uint id,
         AreaPopulation.RoomObject o)
     {
         if (!conn.Instance.Transition(o.Type, o.X, o.Y)) return false;
@@ -636,7 +636,7 @@ static partial class QuestobjectsRules
     // (0x1b2 at speed 0), turned as the statue, out of the AI. It wakes as the player comes within
     // LabyrinthTrials.StatueWakeCells or hits it: its Emerge (the .act's wake clip: stepping down), busy until it has
     // played. The instance keeps the statue spent once its monster stands (the monster is kept with the others).
-    static async Task WakeStatues(ClientState conn,
+    static async Task WakeStatues(Player conn,
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> statues)
     {
         byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
@@ -693,7 +693,7 @@ static partial class QuestobjectsRules
 
     // The smashable walls within reach of a cast the player makes break (LabyrinthTrials.SmashReach: the cast stands for its
     // hit, Smashable's transition_on_damage_taken).
-    internal static async Task BreakSmashableWalls(ClientState conn, (int X, int Y) from)
+    internal static async Task BreakSmashableWalls(Player conn, (int X, int Y) from)
     {
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> walls;
         lock (conn.Monsters)
@@ -708,7 +708,7 @@ static partial class QuestobjectsRules
     // An opened Locked Door's opening lifts the bars out of the way, so once it has played the door goes (0x2bd), and a
     // later entry does not create an opened one. (Its cells once stayed closed after 0x1c6, live 2026-10-31, while its
     // Positioned had a static position: LabyrinthTrials.Blob.)
-    static async Task RemoveOpenedDoor(ClientState conn, uint id)
+    static async Task RemoveOpenedDoor(Player conn, uint id)
     {
         await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
         if (conn.Closed) return;
@@ -724,7 +724,7 @@ static partial class QuestobjectsRules
     // lane's (LabyrinthTrials.SwitchedSaws); pulled back, the cage opens and they run on. The Crypt trial's levers
     // (Switch, Switch_Multi) move the rail switches nearest them (LabyrinthTrials.SwitchedRails) the same way: its
     // spinners read them as they come (SpinnerTrack). This instance keeps where it all stands.
-    static async Task ToggleTrialSwitch(ClientState conn, uint id,
+    static async Task ToggleTrialSwitch(Player conn, uint id,
         AreaPopulation.RoomObject o)
     {
         // With the room links, what the lever drives is theirs (its next, transitionN and pause links); without, the nearest.
@@ -824,7 +824,7 @@ static partial class QuestobjectsRules
     // the angle and scale the blob sends, which has no mirroring, and the ring under the player's 2), or a walk went
     // through it on the server and round it on the client, and the player jumped about. model: the one the blob names,
     // null for the .ot's own.
-    static void BarStaticHull(ClientState conn, uint id, string type, string? model, int x, int y, float angle, float scale)
+    static void BarStaticHull(Player conn, uint id, string type, string? model, int x, int y, float angle, float scale)
     {
         if (QuestObjectTypes.Find(type) is not { Static: true } info || (model ?? info.AnimatedModel) is not { } stamped
             || conn.Layout.Walkable is not { } walkable
@@ -840,7 +840,7 @@ static partial class QuestobjectsRules
 
     // A shut cage (Door_Open) closes its own walk Hull on the server's walk estimate, as its TriggerableBlockage does on
     // the client's.
-    static void BarCage(ClientState conn, uint id, AreaPopulation.RoomObject cage, bool shut)
+    static void BarCage(Player conn, uint id, AreaPopulation.RoomObject cage, bool shut)
     {
         lock (conn.Monsters)
         {
@@ -856,7 +856,7 @@ static partial class QuestobjectsRules
     // is in the area (RunSpikeTraps). Their chains and triggers are the room links' (LabyrinthTrials.LinkedSpikes); without
     // links (room-points.json's objects) the traps a room's Trigger_* line takes fire on its timer
     // (LabyrinthTrials.TriggeredSpikes), the others as the trials' chains (LabyrinthTrials.SpikeChains).
-    static async Task SpawnTrialTraps(ClientState conn,
+    static async Task SpawnTrialTraps(Player conn,
         List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors, List<AreaPopulation.RoomObject> triggers,
         List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
@@ -935,7 +935,7 @@ static partial class QuestobjectsRules
     // (the ones that do are another trap). A stretched Emerge animation (0x1d1) plays the spikes; while they are up
     // (LabyrinthTrials.SpikeHitWindow) a player in the square is hit once (SpikeTrapHit); the square is a wall until they
     // are down (LabyrinthTrials.SpikeWallWindow).
-    static async Task RunSpikeTraps(ClientState conn,
+    static async Task RunSpikeTraps(Player conn,
         List<SpikeTrap> traps)
     {
         const int Wave = 0, Block = 1, Unblock = 2, Fired = 3;
@@ -1012,7 +1012,7 @@ static partial class QuestobjectsRules
 
     // The Labyrinth's abyss edge blades: each swings on its timer (LabyrinthTrials.EdgeBladeTimer) with its Emerge clip
     // (0x1d1) and, at the clip's impact, hits a player in its strip once (LabyrinthTrials.EdgeBladeDamage), who bleeds.
-    static async Task SpawnEdgeBlades(ClientState conn,
+    static async Task SpawnEdgeBlades(Player conn,
         List<AreaPopulation.RoomObject> blades)
     {
         if (blades.Count == 0) return;
@@ -1029,7 +1029,7 @@ static partial class QuestobjectsRules
         _ = RunEdgeBlades(conn, placed);
     }
 
-    static async Task RunEdgeBlades(ClientState conn,
+    static async Task RunEdgeBlades(Player conn,
         List<(uint Id, AreaPopulation.RoomObject Blade, HashSet<(int X, int Y)> Strip)> blades)
     {
         double start = conn.Clock.Elapsed.TotalSeconds + 1;
@@ -1074,10 +1074,10 @@ static partial class QuestobjectsRules
     // after the start by its place): the doorway rollers and the abyss edges' blades. While out they close their strip
     // (0x1c6 and the server's walk estimate, as a spike trap's square, not under a player in it).
     // The dropping roller (idle_top, down, idle_bottom, up by 0x1b2) throws a player under it out as it lands and cuts
-    // whoever is in or by its strip while down, as a roomba (ClientState.TrapDegenPerSecond, the roomba's buff and its
+    // whoever is in or by its strip while down, as a roomba (Player.TrapDegenPerSecond, the roomba's buff and its
     // blood). The rising spikes (LabyrinthTrials.RisingSpikes) and the blades hit a player in the strip once a strike, from
     // the strike to the next (the last's until they are gone), with bleed, each throwing them a little back.
-    static async Task SpawnTileTraps(ClientState conn,
+    static async Task SpawnTileTraps(Player conn,
         List<AreaPopulation.RoomObject> traps)
     {
         if (traps.Count == 0) return;
@@ -1109,7 +1109,7 @@ static partial class QuestobjectsRules
         public int Struck = -1, Played = -1;
     }
 
-    static async Task RunTileTraps(ClientState conn, List<TileTrap> traps)
+    static async Task RunTileTraps(Player conn, List<TileTrap> traps)
     {
         var degen = new TrapDegen();
         double first = conn.Clock.Elapsed.TotalSeconds + 1;
@@ -1208,7 +1208,7 @@ static partial class QuestobjectsRules
     // as it closes is thrown back out first (throwOut: the dropping roller), or keeps the cells under them open, as a spike
     // trap's square does (the collision escape would throw them off).
     // Called every tick: the cells left open under a player close once they are out of the strip.
-    static async Task BlockTileTrap(ClientState conn, TileTrap t, bool blocked,
+    static async Task BlockTileTrap(Player conn, TileTrap t, bool blocked,
         bool throwOut)
     {
         bool changed = t.Blocked != blocked;
@@ -1233,7 +1233,7 @@ static partial class QuestobjectsRules
 
     // A rising roller's or a blade's strike on the player in its strip: a spike's hit (a blade's its own), with the bleed,
     // and thrown a little back.
-    static async Task TileTrapHit(ClientState conn, TileTrap t, bool blade, double now)
+    static async Task TileTrapHit(Player conn, TileTrap t, bool blade, double now)
     {
         uint life;
         int damage;
@@ -1254,7 +1254,7 @@ static partial class QuestobjectsRules
     // Throws the player across a tile trap's strip, back the way they stand from its middle: a hit's
     // LabyrinthTrials.KnockbackCells, or (outOfStrip) out of it, LabyrinthTrials.ThrowOutCells beyond; onto a walkable cell,
     // the other way if not; nowhere to go, they stay.
-    static async Task Knockback(ClientState conn, TileTrap t, bool outOfStrip)
+    static async Task Knockback(Player conn, TileTrap t, bool outOfStrip)
     {
         (int X, int Y) to;
         lock (conn.Monsters)
@@ -1280,7 +1280,7 @@ static partial class QuestobjectsRules
 
     // A pressure spike trap's click: spiketrap_trigger.ao, whose default clip plays the Trigger sound, as an effect object
     // on the trap for as long as it plays.
-    static async Task PressureClick(ClientState conn, AreaPopulation.RoomObject trap)
+    static async Task PressureClick(Player conn, AreaPopulation.RoomObject trap)
     {
         uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -1292,7 +1292,7 @@ static partial class QuestobjectsRules
 
     // Risen spikes are impassable (wiki: "Spike traps are impassable and block movement while they are out"): the trap's
     // TriggerableBlockage (0x1c6) for the client, and its square's walkable cells on the server's walk estimate.
-    static async Task BlockSpikeTrap(ClientState conn, SpikeTrap t,
+    static async Task BlockSpikeTrap(Player conn, SpikeTrap t,
         bool blocked)
     {
         // The client stamps the square under a player on it too: its walker stops at its next step (0x141e35a50) and its
@@ -1333,7 +1333,7 @@ static partial class QuestobjectsRules
 
     // A player in a spike trap's square while its spikes are up takes the trap's share of life and energy shield
     // (LabyrinthTrials.SpikeDamage) as physical damage, energy shield first, and may die of it.
-    static async Task SpikeTrapHit(ClientState conn, SpikeTrap spike)
+    static async Task SpikeTrapHit(Player conn, SpikeTrap spike)
     {
         var (id, trap) = (spike.Id, spike.Trap);
         uint life;
@@ -1355,7 +1355,7 @@ static partial class QuestobjectsRules
     // The monsters in a spike trap's square while its spikes are up: each is hit once for the trap's share of its life
     // (LabyrinthTrials.SpikeDamageToMonster) and held there until the spikes are down, as the player is. Not the player's
     // own minions, nor a monster not yet in the world.
-    static async Task SpikeTrapHitMonsters(ClientState conn, SpikeTrap spike, double now)
+    static async Task SpikeTrapHitMonsters(Player conn, SpikeTrap spike, double now)
     {
         List<(uint Id, SpawnedMonster M, int Damage)> hits = [];
         lock (conn.Monsters)
@@ -1376,7 +1376,7 @@ static partial class QuestobjectsRules
 
     // Under conn.Monsters: a trap's hit of so much physical damage on the player, energy shield first, which may kill them.
     // The life left, or null when the player is dead already (or a hardcore death holds them).
-    internal static uint? TrapHitLocked(ClientState conn, int damage, double now)
+    internal static uint? TrapHitLocked(Player conn, int damage, double now)
     {
         if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) return null;
         long before = conn.PlayerLife, lifeDamage = DamagePlayerHitTyped(conn, damage, 0, 0, now, CharacterPlayerStats(conn),
@@ -1389,7 +1389,7 @@ static partial class QuestobjectsRules
 
     // A trap's hit as the client shows it: the hit from the trap (0x1af), the pools and, when it killed, the death screen.
     // True while the player lives.
-    static async Task<bool> PresentTrapHit(ClientState conn, uint id,
+    static async Task<bool> PresentTrapHit(Player conn, uint id,
         string trap, int damage, uint life)
     {
         var taken = GameServer.Core.World.DamagePacket.Empty.Add(GameServer.Core.World.DamageType.Physical, new(damage, damage));
@@ -1408,7 +1408,7 @@ static partial class QuestobjectsRules
 
     // Whether the player cannot bleed (the character panel's cannot_gain_bleeding, virtual_immune_to_bleeding: a flask's
     // immunity too): no spike trap bleed. A roomba's cut is no bleed: it harms such a player too (live 2026-11-01).
-    static bool CannotBleed(ClientState conn)
+    static bool CannotBleed(Player conn)
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -1417,7 +1417,7 @@ static partial class QuestobjectsRules
 
     // A trial hit contributes to the shared incoming ailment owner. The recovery writer advances it;
     // the owner therefore survives failed transfers without a detached pre-transfer ticker reviving.
-    static Task SpikeBleed(ClientState conn, int hit,
+    static Task SpikeBleed(Player conn, int hit,
         double share = LabyrinthTrials.SpikeBleedPerSecond, double seconds = LabyrinthTrials.SpikeBleedSeconds)
     {
         if (!CannotBleed(conn))
@@ -1428,7 +1428,7 @@ static partial class QuestobjectsRules
 
     // A trial's dart traps (LabyrinthTrials.ArrowTrap, the Imperial Gardens' 14 turrets): created at rest, then all fire
     // together every LabyrinthTrials.ArrowVolleySeconds for as long as the player is in the area.
-    static async Task SpawnArrowTraps(ClientState conn,
+    static async Task SpawnArrowTraps(Player conn,
         List<AreaPopulation.RoomObject> traps)
     {
         if (traps.Count == 0) return;
@@ -1455,7 +1455,7 @@ static partial class QuestobjectsRules
     // them, stops them at walls and turrets and hands a contact to ArrowHit. A player stepping on a pressure plate presses
     // it (Transitionable 2) and fires the wall darts its room's plates fire (LabyrinthTrials.TriggeredArrowTrap), one dart
     // ahead each; the plate comes up as its kind does (LabyrinthTrials.PlateDownSeconds).
-    static async Task RunArrowTraps(ClientState conn,
+    static async Task RunArrowTraps(Player conn,
         List<(uint Id, AreaPopulation.RoomObject Trap)> traps)
     {
         var skills = SkillsFor(conn);
@@ -1587,7 +1587,7 @@ static partial class QuestobjectsRules
     }
 
     // A dart contributes one independently expiring stack to the shared incoming ailment owner.
-    static Task ArrowPoison(ClientState conn, int hit)
+    static Task ArrowPoison(Player conn, int hit)
     {
         if (hit <= 0) return Task.CompletedTask;
         var stats = CharacterPlayerStats(conn);
@@ -1606,11 +1606,11 @@ static partial class QuestobjectsRules
         public double Until;
         public ushort Buff;
     }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, DartSlow> DartSlows = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, DartSlow> DartSlows = new();
 
     // PlayerStatSources: a slowed player's final movement modifier (LabyrinthTrials.ArrowSlowStat), which the pools apply
     // to their whole movement speed.
-    internal static Dictionary<uint, int> WithDartSlow(ClientState conn, Dictionary<uint, int> sources)
+    internal static Dictionary<uint, int> WithDartSlow(Player conn, Dictionary<uint, int> sources)
     {
         if (DartSlows.TryGetValue(conn, out var slow) && slow.Active && Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint key)
             sources[key] = sources.GetValueOrDefault(key) + LabyrinthTrials.ArrowSlowPercent;
@@ -1619,7 +1619,7 @@ static partial class QuestobjectsRules
 
     // A dart's slow (LabyrinthTrials.ArrowSlowPercent for ArrowSlowSeconds from the latest hit, not stacking): it starts
     // with the first hit, a later one moves its end, and it ends then or at a death.
-    static async Task ArrowSlow(ClientState conn)
+    static async Task ArrowSlow(Player conn)
     {
         var slow = DartSlows.GetValue(conn, _ => new());
         lock (conn.Monsters)
@@ -1648,7 +1648,7 @@ static partial class QuestobjectsRules
 
     // The slow came or went: the pools again (WithDartSlow), the walk estimate's speed, the client's stats (its own walk
     // and the panel read movement_velocity_+%) and the invisible labyrinth_arrow_slow buff.
-    static async Task DartSlowChanged(ClientState conn, DartSlow slow)
+    static async Task DartSlowChanged(Player conn, DartSlow slow)
     {
         bool on;
         lock (conn.Monsters)
@@ -1671,7 +1671,7 @@ static partial class QuestobjectsRules
     // pulled lever (Switch) stops in this instance starts stopped (LabyrinthTrials.SwitchedSaws: the levers and the
     // trial's door). With the room links, the rails join as they link (next, previous, teleport), and a roomba with a
     // reset rail goes its links' way from there (LabyrinthTrials.LinkedPath).
-    static async Task SpawnRoombas(ClientState conn,
+    static async Task SpawnRoombas(Player conn,
         List<AreaPopulation.RoomObject> roombas, List<AreaPopulation.RoomObject> rails, List<(int X, int Y)> switches, (int X, int Y) entrance,
         List<(int X, int Y)>? scratches, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
@@ -1735,7 +1735,7 @@ static partial class QuestobjectsRules
     }
 
     // A connection's roombas and sawblades on their rails, for its levers to stop and start.
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, List<RoombaRun>> TrapRuns = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, List<RoombaRun>> TrapRuns = new();
 
     // A roomba or sawblade on its rails: its object (a stopped sawblade starts again as a new one), the leg it is on (from
     // where, to which rail, when it set out and arrives), which way it goes along a chain, and whether a lever wants it
@@ -1801,10 +1801,10 @@ static partial class QuestobjectsRules
 
     // Each roomba or sawblade glides rail to rail (0x1ba; a roomba turned to where it goes with 0x1b9) and waits
     // LabyrinthTrials.RoombaPauseSeconds at each; a player within LabyrinthTrials.TrapRadius of a running one degenerates
-    // for as long as they stay (ClientState.TrapDegenPerSecond). A sawblade a lever stops winds its spin down
+    // for as long as they stay (Player.TrapDegenPerSecond). A sawblade a lever stops winds its spin down
     // (Transitionable 2) where it is; started again, it is created anew there, spinning (its .ot plays nothing on the way
     // back to state 1), and goes on to the rail it was heading for.
-    static async Task RunRoombas(ClientState conn, List<RoombaRun> runs)
+    static async Task RunRoombas(Player conn, List<RoombaRun> runs)
     {
         var degen = new TrapDegen();
         try
@@ -1875,18 +1875,18 @@ static partial class QuestobjectsRules
         finally { lock (conn.Monsters) conn.Degens[degen] = 0; }
     }
 
-    // A trap's degeneration on the player while they are in it (StartResourceRecovery deals ClientState.TrapDegenPerSecond)
+    // A trap's degeneration on the player while they are in it (StartResourceRecovery deals Player.TrapDegenPerSecond)
     // and the trap's buff shown on them (its instance and row).
     sealed class TrapDegen
     {
         (ushort Instance, ushort Row)? shown;
-        // This trap runner's share of ClientState.TrapDegenPerSecond: the runners (hot plates, roombas, doorway rollers)
+        // This trap runner's share of Player.TrapDegenPerSecond: the runners (hot plates, roombas, doorway rollers)
         // add theirs up, so one out of its traps does not cancel another's.
         double mine;
 
         // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
         // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
-        public async Task Set(ClientState conn, double perSecond, ushort? row,
+        public async Task Set(Player conn, double perSecond, ushort? row,
             string where)
         {
             bool was, degen;
@@ -1921,12 +1921,12 @@ static partial class QuestobjectsRules
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on
     // after the player walks away): S→C 0x84 with its only NPCTalk row's index (0, "Read") opens the talk on that row.
-    internal static Task ReadTrialMonograph(ClientState conn, uint id,
+    internal static Task ReadTrialMonograph(Player conn, uint id,
         SpawnedNpc npc) =>
         Send(conn, InstanceNpcs.Talk(id, LabyrinthTrials.GlyphTalk), $"0x0084 read trial monograph 0x{id:x} {npc.Npc.Id}");
 
     // The trial object of this type nearest to a cell, closed or not in this instance.
-    static (uint Id, AreaPopulation.RoomObject Object)? NearestTrialObject(ClientState conn, string type, (int X, int Y) at, bool closed)
+    static (uint Id, AreaPopulation.RoomObject Object)? NearestTrialObject(Player conn, string type, (int X, int Y) at, bool closed)
     {
         lock (conn.Monsters)
             return conn.TrialObjects.Where(t => t.Value.Type == type && (!closed || !conn.Instance.Transitioned(type, t.Value.X, t.Value.Y)))

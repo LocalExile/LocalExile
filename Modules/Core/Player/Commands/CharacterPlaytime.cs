@@ -7,7 +7,7 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
 {
     public const string SaveKey = "commands.played-seconds";
     readonly Func<double> now = time ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
-    readonly Dictionary<ClientState, Session> sessions = [];
+    readonly Dictionary<Player, Session> sessions = [];
     bool retired;
     sealed class Session(string character, double at)
     {
@@ -15,14 +15,14 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
         public double At = at;
     }
 
-    public void Begin(ClientState conn)
+    public void Begin(Player conn)
     {
         lock (sessions)
             if (!retired && !conn.Controlled && conn.Character is { Length: > 0 } name && !conn.Closed && !conn.LeavingArea)
                 sessions.TryAdd(conn, new(name, now()));
     }
 
-    public void Step(ClientState conn)
+    public void Step(Player conn)
     {
         if (!conn.PlayerSent) return;
         Begin(conn);
@@ -36,7 +36,7 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
 
     static double Saved(string name) => Parse(CharacterSaves.ModuleData(name, SaveKey));
 
-    public double Seconds(ClientState conn)
+    public double Seconds(Player conn)
     {
         Begin(conn);
         Session? session;
@@ -58,7 +58,7 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
         }
     }
 
-    public void End(ClientState conn)
+    public void End(Player conn)
     {
         Session? session;
         lock (sessions) sessions.Remove(conn, out session);

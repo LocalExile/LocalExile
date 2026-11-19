@@ -16,7 +16,7 @@ static partial class QuestobjectsRules
     // down on it (his Hide clip, the elevator's lower) while the doors open. The last trial he dies saying his line, and the
     // tier's flags are set. Either way the arena's ways out show (IzaroFights.Beaten, Game.TransitionFlag) and the run's
     // map loses his icon there. With the trial won in this instance the doors and the gate stand open, the elevator down.
-    internal static async Task RunIzaroArena(ClientState conn,
+    internal static async Task RunIzaroArena(Player conn,
         List<AreaPopulation.RoomObject> all)
     {
         if (IzaroFights.For(conn.Layout.Id, conn.Seed) is not { } trial) return;
@@ -79,7 +79,7 @@ static partial class QuestobjectsRules
 
     // The corridor's gate used (UseTrialObject): it opens for good in this instance and the way into the arena shows (no
     // line: the original says none there, live 2026-11-08).
-    internal static async Task OpenIzaroGate(ClientState conn, uint id,
+    internal static async Task OpenIzaroGate(Player conn, uint id,
         AreaPopulation.RoomObject gate)
     {
         if (!conn.Instance.SetState(IzaroFights.GateOpen)) return;
@@ -91,7 +91,7 @@ static partial class QuestobjectsRules
     }
 
     // A shut door's cells on the server's walk map (its hull, as the client's TriggerableBlockage closes it), and opened.
-    static void CloseIzaroDoor(ClientState conn, uint id, AreaPopulation.RoomObject door)
+    static void CloseIzaroDoor(Player conn, uint id, AreaPopulation.RoomObject door)
     {
         if (conn.Layout.Walkable is not { } walk) return;
         var (halfX, halfY) = LabyrinthTrials.DoorHull(door.Model);
@@ -103,7 +103,7 @@ static partial class QuestobjectsRules
     }
 
     // An elevator's state change, with its blockage: closed on the client (0x1c6) and on the server's walk map while it moves.
-    static byte[] LiftState(ClientState conn, uint id, AreaPopulation.RoomObject lift, byte state)
+    static byte[] LiftState(Player conn, uint id, AreaPopulation.RoomObject lift, byte state)
     {
         bool moving = IzaroFights.LiftMoving(state);
         if (moving && conn.Layout.Walkable is { } walk)
@@ -123,7 +123,7 @@ static partial class QuestobjectsRules
         return [.. InstanceEntities.TransitionableUpdate(id, IzaroFights.TransitionableIndex, state), .. InstanceEntities.BlockageUpdate(id, moving)];
     }
 
-    static void OpenIzaroDoor(ClientState conn, uint id)
+    static void OpenIzaroDoor(Player conn, uint id)
     {
         lock (conn.Monsters)
         {
@@ -138,7 +138,7 @@ static partial class QuestobjectsRules
         Stats.Key("virtual_phase_through_objects") is uint phases ? [(phases, 1)] : null;
 
     // What Izaro says (S→C 0x1c7), from his object or (0) globally.
-    static async Task IzaroSays(ClientState conn, uint from, string? line)
+    static async Task IzaroSays(Player conn, uint from, string? line)
     {
         if (line is null) return;
         if (IzaroFights.Speech(from, line) is { } speech) await Send(conn, speech, $"0x01c7 Izaro says {line}");
@@ -150,7 +150,7 @@ static partial class QuestobjectsRules
     const string PrefightSpeech = "Metadata/Terrain/Labyrinth/Objects/IzaroSpeech/BossPrefight";
     static readonly string PrefightSaid = Quests.InstanceFlag("IzaroPrefight");
 
-    static async Task IzaroPrefight(ClientState conn, AreaLayout layout,
+    static async Task IzaroPrefight(Player conn, AreaLayout layout,
         IzaroFights.Trial trial, AreaPopulation.RoomObject speech)
     {
         bool Here() => !conn.Closed && !conn.LeavingArea && ReferenceEquals(conn.Layout, layout);
@@ -187,7 +187,7 @@ static partial class QuestobjectsRules
     // The Izaros this instance still has: the arena spawns his variety alone, so any monster of it is a leftover from an
     // earlier entry. He is retired rather than forgotten: dead, out of life so no hit lands on the body, with his actions
     // stopped, out of the instance's monsters and origins, and every player in the instance is told he is gone.
-    static List<uint> LeftoverIzaro(ClientState conn, IzaroFights.Trial trial)
+    static List<uint> LeftoverIzaro(Player conn, IzaroFights.Trial trial)
     {
         var ids = new List<uint>();
         lock (conn.Monsters)
@@ -213,7 +213,7 @@ static partial class QuestobjectsRules
 
     // His second line at a trial's end (the arena's mechanic's, IzaroFinish…), after the first has played (the original:
     // both, one after the other).
-    static async Task IzaroSaysLater(ClientState conn, string? line, Func<bool> here)
+    static async Task IzaroSaysLater(Player conn, string? line, Func<bool> here)
     {
         if (line is null) return;
         await Task.Delay(TimeSpan.FromSeconds(IzaroFights.LineSeconds));
@@ -222,7 +222,7 @@ static partial class QuestobjectsRules
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
     }
 
-    static async Task IzaroTrial(ClientState conn, AreaLayout layout,
+    static async Task IzaroTrial(Player conn, AreaLayout layout,
         IzaroFights.Trial trial, AreaPopulation.RoomObject elevator, uint lift, List<(uint Id, AreaPopulation.RoomObject Door)> doors,
         IzaroArena mechanics)
     {
@@ -359,7 +359,7 @@ static partial class QuestobjectsRules
 
     // A trial before the last ends: his line, his swing played out, the walk to the elevator's middle, a stand, then down on
     // the elevator while the doors open; he is gone when it is down.
-    static async Task IzaroLeaves(ClientState conn, IzaroFights.Trial trial,
+    static async Task IzaroLeaves(Player conn, IzaroFights.Trial trial,
         AreaPopulation.RoomObject elevator, uint lift, List<(uint Id, AreaPopulation.RoomObject Door)> doors, uint izaro, SpawnedMonster boss,
         int action, double free, byte transitionable, Func<bool> here)
     {
@@ -403,7 +403,7 @@ static partial class QuestobjectsRules
 
     // The trial won: the instance keeps it, the doors open, the ways out show, the run's map loses his icon there, and the
     // last trial sets the tier's flags.
-    static async Task WinIzaroTrial(ClientState conn, IzaroFights.Trial trial,
+    static async Task WinIzaroTrial(Player conn, IzaroFights.Trial trial,
         List<(uint Id, AreaPopulation.RoomObject Door)> doors)
     {
         if (!conn.Instance.SetState(IzaroFights.Beaten)) return;

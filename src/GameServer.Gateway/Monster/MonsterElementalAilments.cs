@@ -354,7 +354,7 @@ public sealed class MonsterElementalAilments
     }
 
     /// <summary>The buff instance each kind always has on its monster: the top of the range, which
-    /// <see cref="ClientState.NextBuff"/> never hands out, so a monster's frequent ailment changes take nothing from the
+    /// <see cref="Player.NextBuff"/> never hands out, so a monster's frequent ailment changes take nothing from the
     /// connection's counter and never meet another buff's instance on the same object.</summary>
     public static ushort Instance(Kind kind) => (ushort)(FirstInstance + (int)kind);
     public const ushort FirstInstance = ushort.MaxValue - 2;

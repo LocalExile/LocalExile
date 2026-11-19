@@ -75,7 +75,7 @@ public sealed class LeadershipConsumersTests
             new Dictionary<uint, int>(), new Dictionary<uint, int>()));
 
         // Rakiata's Leadership: the level 1 spirit's 10 is "action speed cannot be modified below 110% of base value".
-        var conn = new ClientState(new(1, "leadership", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "leadership", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "LeadershipConsumers", PlayerLife = 1000,
         };

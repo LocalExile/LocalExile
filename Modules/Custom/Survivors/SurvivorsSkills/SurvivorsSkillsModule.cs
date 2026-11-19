@@ -39,11 +39,11 @@ public sealed class SurvivorsSkillsModule : IModule
 static partial class SurvivorsSkills
 {
     internal static CancellationToken SkillsStopping, RewardsStopping;
-    static readonly ConditionalWeakTable<ClientState, SurvivorsState> States = new();
+    static readonly ConditionalWeakTable<Player, SurvivorsState> States = new();
 
-    internal static SurvivorsState StateOf(ClientState conn) => States.GetOrCreateValue(conn);
+    internal static SurvivorsState StateOf(Player conn) => States.GetOrCreateValue(conn);
 
-    internal static IReadOnlyList<GrantedSkill> GrantedSkills(ClientState conn) =>
+    internal static IReadOnlyList<GrantedSkill> GrantedSkills(Player conn) =>
         StateOf(conn) is { Survivors: { } run, SurvivorsCatalog: { } catalog }
             ? SurvivorsGrantedSkills(conn, run, catalog) : [];
 }

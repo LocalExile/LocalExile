@@ -30,7 +30,7 @@ public static partial class Game
         return GemSupports.Matches(rule.Allowed, types, true) && !GemSupports.Matches(rule.Excluded, types, false);
     }
 
-    static bool MinionMelee(ClientState conn, GolemState.Ability a) =>
+    static bool MinionMelee(Player conn, GolemState.Ability a) =>
         !a.Attack.Spell && a.Projectile is null && SkillsFor(conn).IsMelee(a.Effect);
 
     static GolemState.Ability MinionDamageScale(GolemState.Ability original, double hitMore, double ailmentMore,
@@ -59,7 +59,7 @@ public static partial class Game
         return scaled;
     }
 
-    static GolemState.Ability MinionSupportAction(ClientState conn, GolemState.Golem fighter, GolemState.Action action)
+    static GolemState.Ability MinionSupportAction(Player conn, GolemState.Golem fighter, GolemState.Action action)
     {
         var original = action.Original ?? action.Ability;
         if (!MinionMelee(conn, original)) return original;
@@ -86,7 +86,7 @@ public static partial class Game
         return MinionDamageScale(original, action.UseDamageMore * more, action.UseAilmentMore * more, stats);
     }
 
-    static bool RepeatMinionAttackLocked(ClientState conn, GolemState.Golem fighter, double now)
+    static bool RepeatMinionAttackLocked(Player conn, GolemState.Golem fighter, double now)
     {
         if (fighter.Repeat is not { } repeat) return false;
         fighter.Repeat = null;

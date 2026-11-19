@@ -15,17 +15,17 @@ public static partial class Game
     /// The accepted stance use owns its exact source identity, module, action and projectile epoch. A later source
     /// replacement or invalidation suppresses delayed presentation/acknowledgement without erasing the committed event.
     /// </summary>
-    public sealed record StanceUseReceipt(ClientState Owner, GameServer.Modding.IModuleLifetime Rules,
+    public sealed record StanceUseReceipt(Player Owner, GameServer.Modding.IModuleLifetime Rules,
         PlayerSkillSource Source, AuraCatalog.Aura Aura, ushort SkillId, int Effect, int ActionToken, int ProjectileEpoch,
         double AcceptedAt, string Selected, bool Changed)
     {
-        public bool Current(ClientState conn)
+        public bool Current(Player conn)
         {
             if (!ReferenceEquals(Owner, conn)) return false;
             lock (conn.Monsters) return CurrentLocked(conn);
         }
 
-        public bool CurrentLocked(ClientState conn) =>
+        public bool CurrentLocked(Player conn) =>
             ReferenceEquals(Owner, conn) && CurrentGameRules && ReferenceEquals(Rules, CombatLifetime)
             && Rules.IsActive && conn.ProjectileActive(ProjectileEpoch) && !conn.Closed && !conn.LeavingArea
             && !conn.RageRetired && conn.PlayerLife != 0 && !conn.Paused && conn.PendingTransfer is null
@@ -42,7 +42,7 @@ public static partial class Game
     /// Resolve the exact current gem/requirement/source snapshot for a stance use. This is deliberately stricter than
     /// finding an aura-catalog row or merely checking that some item still exists.
     /// </summary>
-    public static StanceSourceSnapshot? CurrentStanceSourceLocked(ClientState conn, ushort skillId, int effect)
+    public static StanceSourceSnapshot? CurrentStanceSourceLocked(Player conn, ushort skillId, int effect)
     {
         var equipment = ItemsOf(conn).EquipmentSnapshot();
         var requirements = CurrentGemRequirements(conn, equipment);
@@ -60,7 +60,7 @@ public static partial class Game
     /// <summary>
     /// Build the complete state change before a cooldown or action is spent. Applying the returned plan cannot refuse.
     /// </summary>
-    public static bool TryPlanStanceLocked(ClientState conn, ushort skillId, int effect, double acceptedAt,
+    public static bool TryPlanStanceLocked(Player conn, ushort skillId, int effect, double acceptedAt,
         out StanceAdmissionPlan? plan)
     {
         plan = null;
@@ -106,7 +106,7 @@ public static partial class Game
         return true;
     }
 
-    public static StanceUseReceipt ApplyStancePlanLocked(ClientState conn, ushort skillId,
+    public static StanceUseReceipt ApplyStancePlanLocked(Player conn, ushort skillId,
         StanceAdmissionPlan plan, int action, int projectEpoch)
     {
         var proposed = plan.ProposedAuras.Select(a =>
@@ -140,14 +140,14 @@ public static partial class Game
             plan.ProjectileEpoch, plan.AcceptedAt, conn.Stance, plan.Changed);
     }
 
-    public static void ReconcileStanceSelectionLocked(ClientState conn, bool persist)
+    public static void ReconcileStanceSelectionLocked(Player conn, bool persist)
     {
         bool owned = conn.Auras.Values.Any(a => StanceCatalog.IsStance(a.EffectId));
         conn.Stance = owned ? StanceCatalog.Selected(conn.Auras.Values) : StanceCatalog.BloodSelection;
         if (persist) CharacterSaves.SetActiveStance(CharacterName(conn), owned ? conn.Stance : null);
     }
 
-    static AuraCatalog.Aura StanceAura(ClientState conn, ushort skillId, int effect, string name, string selected,
+    static AuraCatalog.Aura StanceAura(Player conn, ushort skillId, int effect, string name, string selected,
         SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         var supported = SupportedSkill(conn, skillId);
@@ -179,7 +179,7 @@ public static partial class Game
             Stance = selected,
         };
 
-    public static async Task<bool> PublishStanceUse(ClientState conn, StanceUseReceipt receipt, string name)
+    public static async Task<bool> PublishStanceUse(Player conn, StanceUseReceipt receipt, string name)
     {
         if (!receipt.Current(conn)) return false;
         await SendOwnAuraChanges(conn);
@@ -196,7 +196,7 @@ public static partial class Game
     /// active gem's exact GEPL/constant-source rows, scaled by the gem's buff effect, and remain isolated to melee area
     /// attacks so bow and spell skills cannot inherit them.
     /// </summary>
-    public static void ApplyBloodAndSandMeleeStats(ClientState conn, int skillEffect, Dictionary<uint, int> own)
+    public static void ApplyBloodAndSandMeleeStats(Player conn, int skillEffect, Dictionary<uint, int> own)
     {
         if (!SkillsFor(conn).IsAttack(skillEffect) || !SkillsFor(conn).IsMelee(skillEffect)
             || Supports.Of(skillEffect)?.Types.Contains(7) != true) return;

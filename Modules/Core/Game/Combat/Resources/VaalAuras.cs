@@ -16,13 +16,13 @@ public static partial class Game
         ["VaalDiscipline"] = new(160, 329, "energy_shield_recharge_not_delayed_by_damage"),
     };
     internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
-    internal static readonly Store<ClientState, VaalAuraState> VaalAuraStates = new();
+    internal static readonly Store<Player, VaalAuraState> VaalAuraStates = new();
 
     static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n))
         * Math.Max(0, 1 + ((long)GolemStat(player, "buff_duration_+%") + GolemStat(own, "buff_duration_+%")) / 100d);
 
-    static void WithVaalAura(ClientState conn, StatMap stats)
+    static void WithVaalAura(Player conn, StatMap stats)
     {
         if (!VaalAuraStates.TryGetValue(conn, out var aura)) return;
         lock (conn.Monsters)
@@ -36,7 +36,7 @@ public static partial class Game
         }
     }
 
-    static async Task<bool> ActivateVaalAura(ClientState conn,
+    static async Task<bool> ActivateVaalAura(Player conn,
         ushort skillId, Func<bool> current)
     {
         var gem = SupportedSkill(conn, skillId);
@@ -80,7 +80,7 @@ public static partial class Game
         return true;
     }
 
-    internal static byte[]? ExpireVaalAura(ClientState conn, double now)
+    internal static byte[]? ExpireVaalAura(Player conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -96,7 +96,7 @@ public static partial class Game
         }
     }
 
-    static async Task SendVaalAuraExpiry(ClientState conn)
+    static async Task SendVaalAuraExpiry(Player conn)
     {
         if (!VaalAuraStates.TryGetValue(conn, out var aura) || aura.Buff == 0) return;
         using var fresh = new PlayerStatScope(conn, fresh: true);

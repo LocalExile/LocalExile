@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static async Task<bool> CommitTravelLanding(ClientState conn, (int X, int Y) landing, Func<bool> current)
+    static async Task<bool> CommitTravelLanding(Player conn, (int X, int Y) landing, Func<bool> current)
     {
         bool committed = false;
         await SendWorldRecord(conn, PlayerId, [], "travel skill landing", atGate: () =>
@@ -30,7 +30,7 @@ public static partial class Game
         internal (int X, int Y) LastWarpDestination;
     }
 
-    static bool ScheduleLightningWarp(ClientState conn,
+    static bool ScheduleLightningWarp(Player conn,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         Func<bool> current, SkillCriticalRoll? critical)
     {

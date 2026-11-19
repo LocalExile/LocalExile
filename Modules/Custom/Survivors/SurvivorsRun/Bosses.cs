@@ -43,7 +43,7 @@ static partial class SurvivorsRunRules
     };
 
     /// <summary>Spawns the stage's gate boss where the player can see it, with its own servants and controller.</summary>
-    internal static async Task<SurvivorsBossFight?> SpawnSurvivorsGateBoss(ClientState conn, SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde,
+    internal static async Task<SurvivorsBossFight?> SpawnSurvivorsGateBoss(Player conn, SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde,
         CancellationToken token)
     {
         if (SurvivorsSpawnCell(conn, 24) is not { } cell)
@@ -102,7 +102,7 @@ static partial class SurvivorsRunRules
     /// One gate fight: the controller owns the boss's actions (the ordinary AI skips a scripted monster), cycles its
     /// moves, summons servants and enrages it below half life. The player's own skills still cast from the run loop.
     /// </summary>
-    internal sealed class SurvivorsBossFight(ClientState conn, SurvivorsRun run, SurvivorsRoster roster, int stage, SurvivorsBossKit kit, uint bossId,
+    internal sealed class SurvivorsBossFight(Player conn, SurvivorsRun run, SurvivorsRoster roster, int stage, SurvivorsBossKit kit, uint bossId,
         CancellationToken token)
     {
         double _nextMove, _nextSummon;

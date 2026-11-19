@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 /// <summary>The game's login rule: one connection holds a character, and a newer login takes it from the older one.</summary>
 public sealed class CharacterSessionTests
 {
-    static ClientState Connection(Guid character) =>
+    static Player Connection(Guid character) =>
         new(new(1, "session", 1000, 1000, 100, 100, null, []), 1, 1) { CharacterId = character, Character = "Held" };
 
     [Fact]
@@ -27,7 +27,7 @@ public sealed class CharacterSessionTests
 
         // A connection without a character (a refused admission, a bot) holds nothing, and the holder claiming its own
         // character displaces nobody.
-        var anonymous = new ClientState(new(1, "session", 1000, 1000, 100, 100, null, []), 1, 1);
+        var anonymous = new Player(new(1, "session", 1000, 1000, 100, 100, null, []), 1, 1);
         Assert.Empty(Rules.ClaimCharacter(anonymous));
         Assert.Empty(Rules.ClaimCharacter(third));
 

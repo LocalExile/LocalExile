@@ -12,13 +12,13 @@ public static partial class Game
 
     public readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
 
-    static GolemOwnerResistances GolemOwnerResistancesFor(ClientState conn)
+    static GolemOwnerResistances GolemOwnerResistancesFor(Player conn)
     {
         int Capped(DamageType type) => DamageModel.Capped(Resistance(conn, type), MaxResistance(conn, type));
         return new(Capped(DamageType.Fire), Capped(DamageType.Cold), Capped(DamageType.Lightning), Capped(DamageType.Chaos));
     }
 
-    public static MonsterModSet GolemModifiers(ClientState conn, GolemState.Golem golem,
+    public static MonsterModSet GolemModifiers(Player conn, GolemState.Golem golem,
         IReadOnlyDictionary<uint, int> player, double at = double.NegativeInfinity,
         GolemOwnerResistances? ownerResistances = null)
     {
@@ -120,7 +120,7 @@ public static partial class Game
         Stats.Key("maximum_energy_shield") is uint key
             ? (uint)Math.Max(0, monster.Stats?.FirstOrDefault(stat => stat.Key == key).Value ?? 0) : 0;
 
-    internal static void PublishEnergyShieldLocked(ClientState conn, GolemState.Golem golem)
+    internal static void PublishEnergyShieldLocked(Player conn, GolemState.Golem golem)
     {
         if (!conn.MinionOrigins.TryGetValue(golem.Id, out var origin)) return;
         var current = golem.Shield;
@@ -143,10 +143,10 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new([], "golem energy shield", golem.Id, golem.Monster, PlayerMinions.OutputKind.EnergyShield));
     }
 
-    public static byte[]? GolemEnergyShieldPresentation(ClientState conn, PlayerMinions.Output output) =>
+    public static byte[]? GolemEnergyShieldPresentation(Player conn, PlayerMinions.Output output) =>
         GolemEnergyShieldRecords(conn, output) is { } records ? [.. records.SelectMany(p => p)] : null;
 
-    static byte[][]? GolemEnergyShieldRecords(ClientState conn, PlayerMinions.Output output)
+    static byte[][]? GolemEnergyShieldRecords(Player conn, PlayerMinions.Output output)
     {
         if (output.TargetId is not uint id || output.Target is null) return null;
         GolemState.Golem? golem = conn.Golems.All.GetValueOrDefault(id)
@@ -161,7 +161,7 @@ public static partial class Game
             : [maximumStat, InstanceProtocol.LifeUpdate(id, current, pool: 2)];
     }
 
-    static int SkeletonShieldChaos(ClientState conn, GolemState.Golem fighter, IReadOnlyDictionary<uint, int> player)
+    static int SkeletonShieldChaos(Player conn, GolemState.Golem fighter, IReadOnlyDictionary<uint, int> player)
     {
         if (fighter.Definition.Kind != "Skeleton") return 0;
         int percent = GolemStat(player, "your_skeletons_gain_added_chaos_damage_equal_to_%_of_energy_shield_on_shield");
@@ -172,11 +172,11 @@ public static partial class Game
         return (int)Math.Min(int.MaxValue, (long)localShield * percent / 100);
     }
 
-    public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GolemState.Ability> GolemAbilities(Player conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, DamageType element) =>
         GolemAbilities(conn, variety, level, golem, player, at: null, prismatic: element);
 
-    public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GolemState.Ability> GolemAbilities(Player conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, double? at = null,
         GolemOwnerResistances? ownerResistances = null, DamageType prismatic = DamageType.Fire)
     {
@@ -342,7 +342,7 @@ public static partial class Game
         _ => null,
     };
 
-    public static IReadOnlyList<GrantedSkill> GolemNativeSkills(ClientState conn, byte level, IReadOnlyList<GolemState.Ability> abilities)
+    public static IReadOnlyList<GrantedSkill> GolemNativeSkills(Player conn, byte level, IReadOnlyList<GolemState.Ability> abilities)
     {
         var result = new List<GrantedSkill>();
         foreach (var ability in abilities)
@@ -362,7 +362,7 @@ public static partial class Game
         return result;
     }
 
-    static void RefreshGolemLocked(ClientState conn, GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, double? at = null)
+    static void RefreshGolemLocked(Player conn, GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, double? at = null)
     {
         double now = at ?? AreaTime(conn);
         golem.Auras = MinionAuraStats(conn, golem);

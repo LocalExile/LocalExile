@@ -20,15 +20,15 @@ abstract class AtlasBossFight
     internal readonly SemaphoreSlim Gate = new(1, 1);
     protected readonly uint id;
     protected readonly SpawnedMonster boss;
-    protected readonly List<ClientState> players = [];
-    readonly HashSet<ClientState> bound = [];
+    protected readonly List<Player> players = [];
+    readonly HashSet<Player> bound = [];
     protected readonly List<(uint Id, double Ends)> effects = [];
     protected double busyUntil;
     bool stopped, cleaned, shielding;
     ushort shieldBuff;
     uint shieldEffect;
 
-    protected AtlasBossFight(uint id, SpawnedMonster boss, ClientState conn)
+    protected AtlasBossFight(uint id, SpawnedMonster boss, Player conn)
     {
         this.id = id;
         this.boss = boss;
@@ -46,7 +46,7 @@ abstract class AtlasBossFight
     /// <summary>Where a phase change puts him back: the arena's own middle marker when the area places one, else the
     /// cell he stood on when the fight began. Never the layout's spawn: that is the map entry, and the Shaper stands
     /// 1050 cells from it, so a "blink to the middle" landed him at the door. The Brine King reads the same marker.</summary>
-    protected static (int X, int Y) ArenaCentre(ClientState conn, SpawnedMonster boss)
+    protected static (int X, int Y) ArenaCentre(Player conn, SpawnedMonster boss)
     {
         var placed = new QuestObjectTypes.AreaPlacements(conn.Layout.Id, conn.Seed, []);
         if (placed.Of("Metadata/MiscellaneousObjects/ArenaMiddle").FirstOrDefault() is { } middle) return (middle.X, middle.Y);
@@ -55,10 +55,10 @@ abstract class AtlasBossFight
     }
 
     // Where the boss stands when it enters an intermission: the middle of the arena, away from the player.
-    protected abstract (int X, int Y) Stage(ClientState conn);
+    protected abstract (int X, int Y) Stage(Player conn);
 
     /// <summary>Adds a player that just entered (or a second one joining the arena) and gives it the boss bar.</summary>
-    internal async Task Bind(ClientState conn)
+    internal async Task Bind(Player conn)
     {
         if (!bound.Add(conn)) return;
         lock (players) players.Add(conn);
@@ -72,7 +72,7 @@ abstract class AtlasBossFight
 
     /// <summary>The runner's step: the phase the boss is in decides what happens, everything else is the rotation of
     /// <see cref="Act"/>.</summary>
-    internal async Task Step(ClientState conn, double now)
+    internal async Task Step(Player conn, double now)
     {
         if (stopped || cleaned) return;
         if (boss.Dead || boss.Life == 0) { await Cleanup(conn); return; }
@@ -97,24 +97,24 @@ abstract class AtlasBossFight
 
     /// <summary>Whatever a skill already cast still owes the fight: a degen's ticks, a slam landing after its telegraph.
     /// Called on every step, before the rotation.</summary>
-    protected virtual Task Ticks(ClientState conn, double now) => Task.CompletedTask;
+    protected virtual Task Ticks(Player conn, double now) => Task.CompletedTask;
 
     /// <summary>The rotation outside an intermission (the boss is free to act: <see cref="busyUntil"/> has passed).</summary>
-    protected abstract Task Act(ClientState conn, double now);
+    protected abstract Task Act(Player conn, double now);
     /// <summary>One step of an intermission, entered when a life threshold is crossed and left through
     /// <see cref="EndIntermission"/>.</summary>
-    protected abstract Task Intermission(ClientState conn, double now);
+    protected abstract Task Intermission(Player conn, double now);
     // Kept for the classes below: an intermission that has played all of its waves closes its own gate.
     protected void EndIntermission() => Phases.Finish();
 
     /// <summary>Plays one of the boss's skills. The clip's own cast time keeps the boss busy; the method returns at once
     /// (MonsterSwing awaits the clip and lands the hit, which must not hold the instance's tick).</summary>
-    protected void Swing(ClientState conn, int effect, bool area = false, double radius = 0) =>
+    protected void Swing(Player conn, int effect, bool area = false, double radius = 0) =>
         SwingWith(conn, Attack(conn, effect), effect, area, radius);
 
     /// <summary>The same, for a skill whose numbers the controller adjusts (a slam that hits harder than the melee it is
     /// built from); <paramref name="effect"/> still names the clip.</summary>
-    protected void SwingWith(ClientState conn, MonsterAttack attack, int effect, bool area = false, double radius = 0)
+    protected void SwingWith(Player conn, MonsterAttack attack, int effect, bool area = false, double radius = 0)
     {
         int action;
         lock (conn.Monsters)
@@ -128,7 +128,7 @@ abstract class AtlasBossFight
         _ = Run(conn, action, attack, area, radius, effect);
     }
 
-    async Task Run(ClientState conn,
+    async Task Run(Player conn,
         int action, MonsterAttack attack, bool area, double radius, int effect)
     {
         try
@@ -142,11 +142,11 @@ abstract class AtlasBossFight
         }
     }
 
-    protected MonsterAttack Attack(ClientState conn, int effect) =>
+    protected MonsterAttack Attack(Player conn, int effect) =>
         AtlasBosses.Attack(conn, Variety, boss.Level, effect, boss.Attack);
 
     /// <summary>Walks the boss towards the player, one order per call (the step decides when).</summary>
-    protected async Task Move(ClientState conn, (int X, int Y) to, double now)
+    protected async Task Move(Player conn, (int X, int Y) to, double now)
     {
         lock (conn.Monsters) boss.Walk.Order(to.X, to.Y, now);
         await All(InstanceProtocol.ActionStarted(id, boss.Walk.Position(now).X, boss.Walk.Position(now).Y, to.X, to.Y,
@@ -154,7 +154,7 @@ abstract class AtlasBossFight
     }
 
     /// <summary>Blinks the boss (0x1d4): the walk estimate and the client's actor both move, no action is played.</summary>
-    protected async Task Teleport(ClientState conn, (int X, int Y) to, double now)
+    protected async Task Teleport(Player conn, (int X, int Y) to, double now)
     {
         lock (conn.Monsters) boss.Walk.Teleport(to.X, to.Y, now);
         await All(InstanceProtocol.Teleport(id, to.X, to.Y));
@@ -162,7 +162,7 @@ abstract class AtlasBossFight
 
     /// <summary>The intermission shield: an invisible cannot-be-damaged buff (the boss's own row, so the client shows the
     /// right icon) plus the shield .ao around it. Damage never lands while it is up, the phase gate stops it anyway.</summary>
-    protected async Task Shield(ClientState conn, bool on)
+    protected async Task Shield(Player conn, bool on)
     {
         if (on == shielding) return;
         shielding = on;
@@ -186,7 +186,7 @@ abstract class AtlasBossFight
         }
     }
 
-    protected async Task<uint> Effect(ClientState conn, (int X, int Y) at, string ao, double life, float scale = 1)
+    protected async Task<uint> Effect(Player conn, (int X, int Y) at, string ao, double life, float scale = 1)
     {
         uint effect;
         lock (conn.Monsters) effect = conn.NextObjectId++;
@@ -211,7 +211,7 @@ abstract class AtlasBossFight
 
     /// <summary>A single hit from one of the boss's skills, on the player the skill lands on (a degen tick or a slam the
     /// action did not carry: the contact of a swing goes through MonsterSwing).</summary>
-    protected async Task Hit(ClientState conn, MonsterAttack attack, (int X, int Y) from)
+    protected async Task Hit(Player conn, MonsterAttack attack, (int X, int Y) from)
     {
         Game.MonsterHitOutcome? outcome = null;
         await Send(conn, [], null, atGate: () =>
@@ -230,7 +230,7 @@ abstract class AtlasBossFight
     }
 
     /// <summary>The players the boss can see now (in the instance, awake, alive).</summary>
-    protected ClientState[] Watchers() =>
+    protected Player[] Watchers() =>
         [.. players.Where(p => !p.Closed && !p.LeavingArea && p.PlayerLife > 0)];
 
     protected async Task All(byte[] bytes, bool monster = false)
@@ -244,14 +244,14 @@ abstract class AtlasBossFight
         }
     }
 
-    protected bool Awake(ClientState conn)
+    protected bool Awake(Player conn)
     {
         lock (conn.Monsters) return conn.MonsterViews.ContainsKey(id) && !conn.AsleepMonsters.Contains(id);
     }
 
     /// <summary>The boss left the fight (killed, or the instance emptied): the shield comes off so nothing stays locked
     /// behind a phase gate, and the walk estimate keeps the boss's own speed.</summary>
-    protected async Task Cleanup(ClientState conn)
+    protected async Task Cleanup(Player conn)
     {
         if (cleaned) return;
         cleaned = true;

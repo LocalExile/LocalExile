@@ -56,7 +56,7 @@ enters the instance (that player's client is told `01D3 00`).
 
 ## 3. What the Gateway pauses
 
-Per connection (one connection is one area), `ClientState.Paused` is "the Clock is stopped":
+Per connection (one connection is one area), `Player.Paused` is "the Clock is stopped":
 
 | What | While paused |
 |---|---|

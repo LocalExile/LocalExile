@@ -8,7 +8,7 @@ namespace GameServer.Gateway.Tests;
 // steps are replayed in time order as before. Frames are 33 ms long and end at 0.033, 0.066, 0.099, 0.132, ...
 public class LockstepStepTests
 {
-    static ClientState Connection(bool lockstep, (double Start, double End) sending) => new(new(1, "steps", 300, 300, 100, 100, null, []), 1, 1)
+    static Player Connection(bool lockstep, (double Start, double End) sending) => new(new(1, "steps", 300, 300, 100, 100, null, []), 1, 1)
     {
         Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep, LockstepFrame = sending,
     };

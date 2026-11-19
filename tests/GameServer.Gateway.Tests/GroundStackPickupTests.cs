@@ -11,7 +11,7 @@ public sealed class GroundStackPickupTests
         var chaos = Program.Items.Find("Metadata/Items/Currency/CurrencyRerollRare")!;
         var item = new WorldItemObject(100, 100, ItemCatalog.Create(chaos) with { StackSize = 3 });
         uint id = f.Conn.Instance.Ground.Add(item, f.Conn, shared: false);
-        var other = new ClientState(f.Conn.Layout, 2, 1) { LockstepClient = false, Instance = f.Conn.Instance };
+        var other = new Player(f.Conn.Layout, 2, 1) { LockstepClient = false, Instance = f.Conn.Instance };
         Assert.Null(Game.TakeGroundStack(other, id, item));
         Assert.Null(Game.TakeGroundStack(f.Conn, id, item with { GridX = 101 }));
         int Count() => Game.ItemsOf(f.Conn).Items(PlayerInventories.MainInventory)
@@ -65,7 +65,7 @@ public sealed class GroundStackPickupTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly string saves = Path.Combine(Path.GetTempPath(), $"ground-stack-{Guid.NewGuid():N}.db");
         readonly ModuleLifetime rules = new("Game");
-        internal readonly ClientState Conn = new(new(1, "pickup", 300, 300, 100, 100, null, []), 1, 1)
+        internal readonly Player Conn = new(new(1, "pickup", 300, 300, 100, 100, null, []), 1, 1)
         { LockstepClient = false, PlayerSent = true, PlayerLife = 300, Instance = new(), Character = "Pickup" + Guid.NewGuid().ToString("N") };
         internal Fixture()
         {

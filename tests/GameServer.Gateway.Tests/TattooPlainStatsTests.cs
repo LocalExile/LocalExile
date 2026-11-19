@@ -41,7 +41,7 @@ public sealed class TattooPlainStatsTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "tattoo-plain", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "tattoo-plain", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TattooPlainChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),

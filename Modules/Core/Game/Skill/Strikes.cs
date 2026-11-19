@@ -12,7 +12,7 @@ public static partial class Game
     // (StrikeTargets): the spirit strikes (Ancestral Reach) and the previous location to strike again (Ancestral Echo),
     // whose use also records this one. The returned message, when not null, adds the skill's skill_location_memory buff.
     // A non-Strike gets nothing. Call under the Monsters lock.
-    static (List<uint> Spirit, (int X, int Y)? Echo, byte[]? MemoryBuff) StrikeExtrasLocked(ClientState conn, ushort skillId,
+    static (List<uint> Spirit, (int X, int Y)? Echo, byte[]? MemoryBuff) StrikeExtrasLocked(Player conn, ushort skillId,
         int effect, IReadOnlyDictionary<uint, int> ownStats, (int X, int Y) player, (int X, int Y) centre, ushort sequence,
         uint mainTarget, double now)
     {

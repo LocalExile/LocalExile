@@ -31,7 +31,7 @@ public static partial class Game
 
     static WornGrantedSkills.Grant BeastSourceIdentity(WornGrantedSkills.Grant grant) => grant;
 
-    static bool BeastSourceEligible(ClientState conn, WornGrantedSkills.Grant grant) =>
+    static bool BeastSourceEligible(Player conn, WornGrantedSkills.Grant grant) =>
         CurrentGameWork
         && grant.Host != 0
         && IsSummonBeastialCompanionEffect(grant.EffectId)
@@ -42,7 +42,7 @@ public static partial class Game
     /// Reconciles the live worn grants without building CharacterPlayerStats or SupportedSkill. A missing eligible grant
     /// retires its generation irrevocably and drops pending/active ownership in the same observation.
     /// </summary>
-    public static void ReconcileBeastCompanionsLocked(ClientState conn)
+    public static void ReconcileBeastCompanionsLocked(Player conn)
     {
         var live = AllWornGrantedSkillsOf(conn).Where(g => BeastSourceEligible(conn, g)).ToArray();
         var identities = live.Select(BeastSourceIdentity).ToHashSet();
@@ -69,14 +69,14 @@ public static partial class Game
             conn.Beasts.Pending = null;
     }
 
-    static BeastCompanions.SourceGeneration? CurrentBeastSourceLocked(ClientState conn, WornGrantedSkills.Grant grant)
+    static BeastCompanions.SourceGeneration? CurrentBeastSourceLocked(Player conn, WornGrantedSkills.Grant grant)
     {
         ReconcileBeastCompanionsLocked(conn);
         return conn.Beasts.SourceGenerations.TryGetValue(BeastSourceIdentity(grant), out var owner)
             && !owner.Retired ? owner : null;
     }
 
-    static bool BeastSourceGenerationCurrentLocked(ClientState conn, BeastCompanions.Source source)
+    static bool BeastSourceGenerationCurrentLocked(Player conn, BeastCompanions.Source source)
     {
         if (!CurrentGameWork || source.Owner.Retired) return false;
         return conn.Beasts.SourceGenerations.TryGetValue(BeastSourceIdentity(source.Grant), out var owner)
@@ -84,7 +84,7 @@ public static partial class Game
     }
 
     /// <summary>The actual worn source generation remains current, without rebuilding player stats.</summary>
-    static bool BeastSourceCurrent(ClientState conn, BeastCompanions.Source source)
+    static bool BeastSourceCurrent(Player conn, BeastCompanions.Source source)
     {
         lock (conn.Monsters)
         {
@@ -93,12 +93,12 @@ public static partial class Game
         }
     }
 
-    static bool BeastGrantCurrent(ClientState conn, WornGrantedSkills.Grant grant)
+    static bool BeastGrantCurrent(Player conn, WornGrantedSkills.Grant grant)
     {
         lock (conn.Monsters) return CurrentBeastSourceLocked(conn, grant) is not null;
     }
 
-    public static bool HasSourceValidBeastMinion(ClientState conn)
+    public static bool HasSourceValidBeastMinion(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -117,14 +117,14 @@ public static partial class Game
     }
 
     /// <summary>Rejects a stale worn-host activation before cooldown or resource payment.</summary>
-    public static bool BeastCompanionAdmissionCurrent(ClientState conn, SupportedGem gem, ushort skillId) =>
+    public static bool BeastCompanionAdmissionCurrent(Player conn, SupportedGem gem, ushort skillId) =>
         gem.WornGrant is { } grant
         && gem.RequirementsMet
         && BeastGrantCurrent(conn, grant)
         && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
 
     /// <summary>Captures accepted work under the same Monsters lock that paid for it.</summary>
-    public static void QueueBeastCompanionLocked(ClientState conn, SupportedGem gem, ushort skillId, int? actionToken)
+    public static void QueueBeastCompanionLocked(Player conn, SupportedGem gem, ushort skillId, int? actionToken)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
             || gem.WornGrant is not { } grant
@@ -140,7 +140,7 @@ public static partial class Game
             { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 
-    public static async Task TickBeastCompanions(ClientState conn, double now, object? rules)
+    public static async Task TickBeastCompanions(Player conn, double now, object? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
         if (!Current() || conn.Closed || conn.LeavingArea) return;
@@ -232,7 +232,7 @@ public static partial class Game
             Own = new(stats), Gear = new(intrinsic.Stats), GemLevel = source.Level,
         };
 
-    static GolemState.Ability? BeastSupportedAttack(ClientState conn, uint id, SpawnedMonster monster,
+    static GolemState.Ability? BeastSupportedAttack(Player conn, uint id, SpawnedMonster monster,
         MonsterAttack attack, double now)
     {
         if (conn.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, monster)
@@ -244,7 +244,7 @@ public static partial class Game
             ?? abilities.FirstOrDefault(a => a.Attack.Spell == attack.Spell);
     }
 
-    static bool BeastPendingCurrentLocked(ClientState conn, BeastCompanions.PendingSummon pending, object? rules)
+    static bool BeastPendingCurrentLocked(Player conn, BeastCompanions.PendingSummon pending, object? rules)
     {
         // The paid create may resume after equipment inventory outputs. Observe the live worn source again under the
         // Monsters lock so the retained generation map cannot admit a source that is already no longer equipped.
@@ -260,7 +260,7 @@ public static partial class Game
             && BeastSourceGenerationCurrentLocked(conn, pending.Source);
     }
 
-    static void RetireBeastCompanionLocked(ClientState conn, BeastCompanions.ActiveBeast active, double now, bool output)
+    static void RetireBeastCompanionLocked(Player conn, BeastCompanions.ActiveBeast active, double now, bool output)
     {
         if (ReferenceEquals(conn.Beasts.Active, active)) conn.Beasts.Active = null;
         if (conn.Minions.All.FirstOrDefault(m => m.Id == active.Id
@@ -269,7 +269,7 @@ public static partial class Game
         RetireBeastMonsterLocked(conn, active.Id, active.Monster, now, output);
     }
 
-    static void RetireOwnedMinionLocked(ClientState conn, PlayerMinions.Minion owned, double now, bool output = true)
+    static void RetireOwnedMinionLocked(Player conn, PlayerMinions.Minion owned, double now, bool output = true)
     {
         var m = owned.Monster;
         bool current = conn.Monsters.TryGetValue(owned.Id, out var held) && ReferenceEquals(held, m);
@@ -278,7 +278,7 @@ public static partial class Game
         RetireBeastMonsterLocked(conn, owned.Id, m, now, output);
     }
 
-    static void RetireBeastMonsterLocked(ClientState conn, uint id, SpawnedMonster m, double now, bool output)
+    static void RetireBeastMonsterLocked(Player conn, uint id, SpawnedMonster m, double now, bool output)
     {
         m.Aggro = false;
         m.Dead = true;

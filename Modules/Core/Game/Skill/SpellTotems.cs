@@ -6,16 +6,16 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    internal static bool NativeProjectileTotem(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "HolyFlameTotem";
+    internal static bool NativeProjectileTotem(Player conn, int effect) => SkillsFor(conn).EffectId(effect) == "HolyFlameTotem";
     static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
-    public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
+    public static bool SpellTotemEffect(Player conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(conn, effect) is not null || GolemData.Find(SkillsFor(conn).EffectId(effect)) is not null
             || (SkillsFor(conn).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit);
 
-    static SummonCatalog.Definition? TotemSummon(ClientState conn, int effect) =>
+    static SummonCatalog.Definition? TotemSummon(Player conn, int effect) =>
         SummonData.Find(SkillsFor(conn).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
     static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
         && a.Effect == b.Effect && a.Quality == b.Quality
@@ -23,7 +23,7 @@ public static partial class Game
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
         && a.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality))
             .SequenceEqual(b.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality)));
-    public static void BindTotemSource(ClientState conn, TotemState.Totem totem)
+    public static void BindTotemSource(Player conn, TotemState.Totem totem)
     {
         TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
     }
@@ -39,7 +39,7 @@ public static partial class Game
         return caster;
     }
 
-    public static double? TotemCastSeconds(ClientState conn, ushort skill)
+    public static double? TotemCastSeconds(Player conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         if (SkillsFor(conn).IsAttack(gem.Effect)) return TotemAttackSeconds(conn, skill);
@@ -56,7 +56,7 @@ public static partial class Game
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }
 
-    public static GrantedSkill? TotemProxy(ClientState conn, ushort skill)
+    public static GrantedSkill? TotemProxy(Player conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         var payload = new Dictionary<uint, int>(gem.Stats);
@@ -81,7 +81,7 @@ public static partial class Game
         return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
     }
 
-    public static bool SpellTotemCurrent(ClientState conn, TotemState.Totem totem)
+    public static bool SpellTotemCurrent(Player conn, TotemState.Totem totem)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
             || !totem.Alive(conn.Clock.Elapsed.TotalSeconds)) return false;
@@ -96,14 +96,14 @@ public static partial class Game
             && IsTotemSkill(conn, totem.SkillId);
     }
 
-    public static void TickSpellTotemsLocked(ClientState conn, List<byte> bytes)
+    public static void TickSpellTotemsLocked(Player conn, List<byte> bytes)
     {
         var records = new WorldRecordBuilder(conn, null);
         TickSpellTotemsLocked(conn, records);
         bytes.AddRange(records.Bytes());
     }
 
-    static void TickSpellTotemsLocked(ClientState conn, WorldRecordBuilder bytes)
+    static void TickSpellTotemsLocked(Player conn, WorldRecordBuilder bytes)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var totem in conn.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())

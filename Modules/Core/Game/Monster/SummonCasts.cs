@@ -2,7 +2,7 @@ static partial class Game
 {
     /// <summary>A triggered summon is released at once and never repeats: it has no cast time, and a trigger support
     /// adds the Triggered type, which Spell Echo excludes.</summary>
-    static async Task<bool> RepeatSummonCast(ClientState conn, ushort source, int recovery,
+    static async Task<bool> RepeatSummonCast(Player conn, ushort source, int recovery,
         Func<bool> current, bool triggered, Func<Task<bool>> release)
     {
         var gem = SupportedSkill(conn, source);

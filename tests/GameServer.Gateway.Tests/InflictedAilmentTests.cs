@@ -160,7 +160,7 @@ public class InflictedAilmentTests
         Assert.Equal(12, Radius(Freeze, With(("spread_freeze_to_nearby_enemies", 1))));
         Assert.Equal(21, MonsterElementalAilments.SpreadRadius(Chill, spreading, area: 2));   // 15 × 1.41
 
-        var conn = new ClientState(new(1, "spread", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "spread", 300, 300, 100, 100, null, []), 1, 1);
         // Speed 1, as NewMonsterWalk's floor: a chill re-times the walk.
         SpawnedMonster At(int x, params (string, int)[] stats) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
             { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
@@ -187,7 +187,7 @@ public class InflictedAilmentTests
         // effect and remaining duration, which does not spread.
         var berek = new Dictionary<uint, int>
             { [Program.Stats.Key("shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy")!.Value] = 1 };
-        var area = new ClientState(new(1, "berek", 300, 300, 100, 100, null, []), 1, 1);
+        var area = new Player(new(1, "berek", 300, 300, 100, 100, null, []), 1, 1);
         var (killed, close, away) = (At(200), At(220), At(221));
         id = 0;
         foreach (var m in new[] { killed, close, away }) area.Monsters[++id] = m;
@@ -212,7 +212,7 @@ public class InflictedAilmentTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
-            var reflected = new ClientState(new(1, "reflected", 300, 300, 100, 100, null, []), 1, 1)
+            var reflected = new Player(new(1, "reflected", 300, 300, 100, 100, null, []), 1, 1)
                 { PlayerLife = 1000, Pools = new(10, 1000, 100, 1, 0) };
             const double now = 0;
             MonsterElementalAilments.Effect[] incoming = [new(Freeze, 0, 1, 100), new(Shock, 0, 2, 20)];

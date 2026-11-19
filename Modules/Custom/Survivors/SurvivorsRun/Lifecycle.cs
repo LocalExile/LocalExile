@@ -8,14 +8,14 @@ namespace GameServer.Modules.Survivors;
 static partial class SurvivorsRunRules
 {
     internal static IModuleLifetime? Lifetime;
-    static readonly ConcurrentDictionary<ClientState, byte> Active = new();
-    internal static readonly ConcurrentDictionary<ClientState, SurvivorsCarry> PendingRuns = new();
+    static readonly ConcurrentDictionary<Player, byte> Active = new();
+    internal static readonly ConcurrentDictionary<Player, SurvivorsCarry> PendingRuns = new();
 
-    internal static string? TravelRefusal(ClientState conn, PendingTransfer transfer) =>
+    internal static string? TravelRefusal(Player conn, PendingTransfer transfer) =>
         StateOf(conn).Survivors is not null && !ReferenceEquals(StateOf(conn).StageTransfer, transfer)
             ? "Finish the Survivors stage; the run opens the next area after its boss falls." : null;
 
-    internal static async Task TransferResolved(ClientState conn, PendingTransfer transfer, ControlResponse response)
+    internal static async Task TransferResolved(Player conn, PendingTransfer transfer, ControlResponse response)
     {
         if (!PendingRuns.TryRemove(conn, out var carry)) return;
         if (response.Ok)
@@ -32,10 +32,10 @@ static partial class SurvivorsRunRules
         }
     }
 
-    internal static bool Enabled(ClientState conn) => Lifetime?.IsActive == true
+    internal static bool Enabled(Player conn) => Lifetime?.IsActive == true
         && LeagueFor(conn).Modules.Contains("SurvivorsRun");
 
-    internal static bool TryClaimAdmission(ClientState conn)
+    internal static bool TryClaimAdmission(Player conn)
     {
         if (!Enabled(conn)) return false;
         lock (conn.Monsters)
@@ -46,7 +46,7 @@ static partial class SurvivorsRunRules
         }
     }
 
-    internal static async Task EnterArea(ClientState conn)
+    internal static async Task EnterArea(Player conn)
     {
         if (!TryClaimAdmission(conn) || conn.Closed || conn.LeavingArea) return;
         if (InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
@@ -64,7 +64,7 @@ static partial class SurvivorsRunRules
     /// empty character and the first-skill choice. The "in town" button's own area change hands the start to the town's
     /// area hook, so no second transfer is queued.
     /// </summary>
-    internal static async Task Resurrected(ClientState conn)
+    internal static async Task Resurrected(Player conn)
     {
         if (!Enabled(conn)) return;
         StateOf(conn).Stage = 0;
@@ -75,7 +75,7 @@ static partial class SurvivorsRunRules
         }
     }
 
-    internal static void StartRunner(ClientState conn, Func<CancellationToken, Task> run)
+    internal static void StartRunner(Player conn, Func<CancellationToken, Task> run)
     {
         var state = StateOf(conn);
         var expected = state.Survivors;
@@ -101,9 +101,9 @@ static partial class SurvivorsRunRules
 
     /// <summary>The Game module's conn.ProjectileRuntime, read here without it: the 10.0.1xx SDKs, the ones Linux distributions ship,
     /// cannot use another assembly's internal extension member (CS0570), though newer ones can.</summary>
-    static ProjectileSession? ProjectileSessionOf(ClientState conn) => conn.ProjectileRuntimeState as ProjectileSession;
+    static ProjectileSession? ProjectileSessionOf(Player conn) => conn.ProjectileRuntimeState as ProjectileSession;
 
-    internal static SurvivorsOwnership BindRun(ClientState conn, SurvivorsRun run)
+    internal static SurvivorsOwnership BindRun(Player conn, SurvivorsRun run)
     {
         lock (conn.Monsters)
         {
@@ -125,7 +125,7 @@ static partial class SurvivorsRunRules
         }
     }
 
-    internal static void Release(ClientState conn, SurvivorsRun? expected = null)
+    internal static void Release(Player conn, SurvivorsRun? expected = null)
     {
         ushort[] buffs;
         uint[] orbs;

@@ -29,7 +29,7 @@ public static partial class Game
     /// <summary>A Cruelty-supported skill's hit on a living monster (under the Monsters lock): an instance of this
     /// hit's strength for the full duration (a hit of a running strength refreshes it). Minions cannot gain Cruelty, so
     /// a totem's or a monster's hit never calls this. <paramref name="skill"/> is the supported skill's stats.</summary>
-    public static void CrueltyOnHitLocked(ClientState conn, ushort skillId, double damage, uint lifeBefore,
+    public static void CrueltyOnHitLocked(Player conn, ushort skillId, double damage, uint lifeBefore,
         uint maximumLife, IReadOnlyDictionary<uint, int> skill, double now)
     {
         int Get(string name) => Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
@@ -53,6 +53,6 @@ public static partial class Game
     /// <summary>The running Cruelty value every Cruelty-supported skill gets: the strongest running instance any of
     /// them granted, as the one buff on the character shows it (BuffDefinitions 1815: "Skills supported by Cruelty
     /// Support deal more damage over time"); 0 when none is running. The caller checks the skill's own support.</summary>
-    public static int CrueltyActivePct(ClientState conn, ushort skillId) =>
+    public static int CrueltyActivePct(Player conn, ushort skillId) =>
         conn.SupportGems.CrueltyActiveAt(conn.Clock.Elapsed.TotalSeconds).Pct;
 }

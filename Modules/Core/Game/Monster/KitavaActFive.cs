@@ -14,9 +14,9 @@ static class KitavaActFive
     internal const string Complete = "a5q6-CompletedBoss";
     static readonly int[] Effects = [6598, 6599, 6600, 6601, 6602, 6590, 6594, 6636, 6638, 6603, 6604, 6619, 6622, 6586];
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly Store<ClientState, Exposure> Exposures = new();
+    static readonly Store<Player, Exposure> Exposures = new();
     static readonly RuleTable<AreaLayout, Anchor> Anchors = new();
-    static readonly Store<ClientState, DockCleanup> Docks = new();
+    static readonly Store<Player, DockCleanup> Docks = new();
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
     sealed record Anchor(int X, int Y, float Rotation);
     sealed class Exposure { public double Dps; }
@@ -28,8 +28,8 @@ static class KitavaActFive
     {
         First => new([50]), Second => new([75, 50]), Heart => new([50, 1]), _ => null,
     };
-    internal static (int X, int Y) SpawnPoint(ClientState c, (int X, int Y) fallback) => AnchorOf(c, fallback) is var a ? (a.X, a.Y) : fallback;
-    static Anchor AnchorOf(ClientState c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
+    internal static (int X, int Y) SpawnPoint(Player c, (int X, int Y) fallback) => AnchorOf(c, fallback) is var a ? (a.X, a.Y) : fallback;
+    static Anchor AnchorOf(Player c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
     {
         if (c.LaterFormPoints.TryGetValue(First, out var supplied)) return new(supplied.X, supplied.Y, 0);
         var points = AreaPopulation.LoadPoints(Area, c.Seed, []);
@@ -37,11 +37,11 @@ static class KitavaActFive
         return point is null ? new(fallback.X, fallback.Y, 0) : new(point.X, point.Y, point.Angle);
     });
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
-    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
+    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(ClientState c, int effect, byte level, string name) =>
+    static int Stat(Player c, int effect, byte level, string name) =>
         Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
-    internal static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var row = Data(c, effect, level);
         bool spell = effect == 6586;
@@ -74,14 +74,14 @@ static class KitavaActFive
                 new ContactPoint(0, -600, -323.675f), false) : null,
         };
     }
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level)
     {
         if (v.Id is not (First or Second)) return null;
         var catalog = Game.SkillsFor(c);
         return [.. Effects.Where(e => v.Id == Second || Array.IndexOf(Effects, e) < 11).Select(e => catalog.FindByRow(Skill(e), e,
             catalog.MaxLevelAt(e, level), WithBehaviourVariation(c, e, MonsterProjectileSkillStats(c, e, catalog.MaxLevelAt(e, level), Attack(c, v, level, e))))).OfType<GrantedSkill>()];
     }
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         if (c.HasQuestFlag(Complete) && c.Clock.Elapsed.TotalSeconds >= Docks.GetOrCreateValue(c).Next)
@@ -100,7 +100,7 @@ static class KitavaActFive
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
         finally { f.Gate.Release(); }
     }
-    internal static List<uint> RetireDockCreatures(ClientState c)
+    internal static List<uint> RetireDockCreatures(Player c)
     {
         var points = c.Layout.Level?.RoomObjects.Where(o => o.Type is "Metadata/Terrain/Act5/Area8/Objects/LandingZone"
             or "Metadata/NPC/Act5/SinKitava" or "Metadata/NPC/Act5/Lilly").Select(o => (o.X, o.Y)).ToArray() ?? [];
@@ -119,7 +119,7 @@ static class KitavaActFive
             return [.. gone.Select(m => m.Key)];
         }
     }
-    static async Task ClearDock(ClientState c)
+    static async Task ClearDock(Player c)
     {
         foreach (uint id in RetireDockCreatures(c))
         {
@@ -127,7 +127,7 @@ static class KitavaActFive
             await SendWorldRemoval(c, id, "[Kitava A5] dock creature retired without rewards");
         }
     }
-    public static Task Leaving(ClientState c)
+    public static Task Leaving(Player c)
     {
         if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.Degens[e] = 0; e.Dps = 0; }
         return Task.CompletedTask;
@@ -137,7 +137,7 @@ static class KitavaActFive
     {
         public void Dispose() { foreach (var f in Fights) f.Value.Stop(); foreach (var p in Exposures) _ = Leaving(p.Key); }
     }
-    internal static bool? GateShown(ClientState c, AreaTransitionObject t)
+    internal static bool? GateShown(Player c, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area) return null;
         // The room includes a decorative Steam portal doodad. It is not a usable telepad.
@@ -153,15 +153,15 @@ static class KitavaActFive
     internal sealed class Fight
     {
         internal readonly SemaphoreSlim Gate = new(1);
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> bound = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> bound = [];
         readonly List<Hit> hits = [];
         readonly List<Patch> patches = [];
         readonly List<Visual> visuals = [];
         readonly HashSet<uint> adds = [];
-        readonly HashSet<ClientState> struckPlayers = [];
-        readonly HashSet<(ClientState, uint)> struckMinions = [];
-        readonly Dictionary<(ClientState, uint), double> carry = [];
+        readonly HashSet<Player> struckPlayers = [];
+        readonly HashSet<(Player, uint)> struckMinions = [];
+        readonly Dictionary<(Player, uint), double> carry = [];
         uint id, heartId, signId;
         SpawnedMonster body;
         SpawnedMonster? heart;
@@ -172,7 +172,7 @@ static class KitavaActFive
         int stage, rotation;
         internal int Stage => stage;
         // 0 emerge, 1 first body, 2 change form, 3 second body, 4 expose, 5 heart, 6 recover, 7 enrage, 8 beam, 9 rescue, 10 complete.
-        public Fight(uint objectId, SpawnedMonster monster, ClientState c)
+        public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; body = monster; anchor = AnchorOf(c, monster.Walk.Position(c.Clock.Elapsed.TotalSeconds));
             var sign = c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == Sign);
@@ -191,9 +191,9 @@ static class KitavaActFive
                 if (c.Instance.HasState(Flag("Complete"))) stage = 10;
             }
         }
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(ClientState p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
-        public async Task Bind(ClientState c)
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
+        bool Awake(Player p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
+        public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(c)) { players.Add(c); foreach (var fx in visuals) await CreateFx(c, fx); }
@@ -214,7 +214,7 @@ static class KitavaActFive
             foreach (var p in Present.ToArray())
             { await SendWorldRemoval(p, target); }
         }
-        async Task Basic(ClientState c, ushort skill, double now, double seconds, uint? target = null)
+        async Task Basic(Player c, ushort skill, double now, double seconds, uint? target = null)
         {
             lock (c.Monsters) { body.ActionGeneration++; body.SwingGeneration = null; body.BusyUntil = now + seconds; }
             await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, signAt.X, signAt.Y, skill, c.NextActionSequence(), 0x0408, targetObjectId: target), InstanceProtocol.ActionEnded(id)], true);
@@ -234,7 +234,7 @@ static class KitavaActFive
                 if (shown) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id);
             }
         }
-        async Task Swap(ClientState c, string type, double now)
+        async Task Swap(Player c, string type, double now)
         {
             uint previous = id;
             lock (c.Monsters)
@@ -251,7 +251,7 @@ static class KitavaActFive
             await Bar(false);
             Console.WriteLine($"[Kitava A5] form {type.Split('/')[^1]} at ({anchor.X}, {anchor.Y})");
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused) return;
             foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await AllRemoval(fx.Id); }
@@ -378,13 +378,13 @@ static class KitavaActFive
             if (effect is 6636 or 6638) nextDebris = now + cooldown;
             await Cast(target, effect, now);
         }
-        async Task Expose(ClientState c, double now)
+        async Task Expose(Player c, double now)
         {
             stage = 4; body.EntranceGrace = true; championSpawned = false; hits.Clear(); patches.Clear(); await Bar(false);
             await All(signId, InstanceProtocol.AnimationUpdate(signId, 0, 1, 1));
             await Basic(c, 5828, now, 5); deadline = now + 5;
         }
-        async Task SpawnWave(ClientState c, double now)
+        async Task SpawnWave(Player c, double now)
         {
             // The heart's guards are real monsters: their attacks and deaths use the ordinary monster rules.
             string[] types = ["Metadata/Monsters/RaisedSkeletons/KitavaSkeleton", "Metadata/Monster/KitavaDemon/KitavaDemon"];
@@ -405,7 +405,7 @@ static class KitavaActFive
             }
             nextAdds = now + 12;
         }
-        async Task RetireAdds(ClientState c)
+        async Task RetireAdds(Player c)
         {
             foreach (uint add in adds)
             {
@@ -415,7 +415,7 @@ static class KitavaActFive
             }
             adds.Clear();
         }
-        async Task Finish(ClientState p, double now)
+        async Task Finish(Player p, double now)
         {
             await Leaving(p);
             await SetQuestFlags(p, [Complete]);
@@ -426,7 +426,7 @@ static class KitavaActFive
             lock (p.Monsters) { Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, now); }
             await SendWorldRecord(p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Kitava A5] rescued {CharacterName(p)} to Sin and Lilly at {to}");
         }
-        async Task Cast(ClientState c, int effect, double now)
+        async Task Cast(Player c, int effect, double now)
         {
             var aim = c.Walk.Position(now); var attack = Attack(c, body.Variety!, body.Level, effect); int generation;
             struckPlayers.Clear(); struckMinions.Clear();
@@ -478,7 +478,7 @@ static class KitavaActFive
             return (anchor.X + (int)Math.Round((x * cos - y * sin) / WorldUnits.PerCell),
                 anchor.Y + (int)Math.Round((x * sin + y * cos) / WorldUnits.PerCell));
         }
-        async Task Damage(ClientState p, Hit hit, double now)
+        async Task Damage(Player p, Hit hit, double now)
         {
             MonsterHitOutcome? outcome = null; var attack = Attack(p, body.Variety!, body.Level, hit.Effect);
             bool Inside((int X, int Y) at) => hit.Effect == 6586 ? Distance(at, hit.Aim) <= hit.Radius
@@ -500,7 +500,7 @@ static class KitavaActFive
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
-        async Task Ground(ClientState c, double now)
+        async Task Ground(Player c, double now)
         {
             if (now < lastGround + .25) return;
             double seconds = Math.Clamp(now - lastGround, 0, 1);
@@ -535,12 +535,12 @@ static class KitavaActFive
             }
             await Task.CompletedTask;
         }
-        async Task Fx(ClientState c, (int X, int Y) at, string model, uint clip, double until)
+        async Task Fx(Player c, (int X, int Y) at, string model, uint clip, double until)
         {
             var fx = new Visual(c.TakeObjectId(), at, model, clip, until); visuals.Add(fx);
             foreach (var p in Present) await CreateFx(p, fx);
         }
-        static async Task CreateFx(ClientState p, Visual fx)
+        static async Task CreateFx(Player p, Visual fx)
         {
             var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model);
             await SendWorldCreate(p, fx.Id, () => InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));

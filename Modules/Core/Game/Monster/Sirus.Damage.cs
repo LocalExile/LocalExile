@@ -7,7 +7,7 @@ static partial class Sirus
 {
     // Elemental ailments travel with the attack's native settings through the ordinary incoming-hit application.
     // Corrupted blood is the beam's separate stacking debuff.
-    internal static void ApplyCorruptedBloodOnHit(ClientState c, SpawnedMonster m, MonsterAttack attack, DamagePacket baseHit,
+    internal static void ApplyCorruptedBloodOnHit(Player c, SpawnedMonster m, MonsterAttack attack, DamagePacket baseHit,
         bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (!IsActor(m.Variety) || blocked || c.Immune || c.PlayerLife == 0 || InGracePeriod(c)) return;
@@ -32,7 +32,7 @@ static partial class Sirus
     static bool BloodImmune(Func<string, int> get) => get("cannot_be_inflicted_by_corrupted_blood") != 0
         || get("immune_to_corrupted_blood") != 0;
 
-    static void BloodIcon(ClientState c, Exposure e, double now)
+    static void BloodIcon(Player c, Exposure e, double now)
     {
         if (e.BloodBuff != 0)
             c.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, e.BloodBuff), null, WorldId: PlayerId));
@@ -43,7 +43,7 @@ static partial class Sirus
                 "[Sirus] corrupted blood", WorldId: PlayerId));
     }
 
-    internal static DamagePacket Dot(ClientState c, int effect, bool minion)
+    internal static DamagePacket Dot(Player c, int effect, bool minion)
     {
         var packet = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
@@ -59,7 +59,7 @@ static partial class Sirus
 
     internal sealed partial class Fight
     {
-        DamagePacket Ground(ClientState c, (int X, int Y) at, bool minion, double now)
+        DamagePacket Ground(Player c, (int X, int Y) at, bool minion, double now)
         {
             var packet = DamagePacket.Empty;
             if (storms.Any(s => Distance(at, s.Monster.Walk.Position(now)) < 38)) packet = packet.Add(Dot(c, minion ? 10981 : 6833, minion));
@@ -72,7 +72,7 @@ static partial class Sirus
             return packet;
         }
 
-        async Task GroundDamage(ClientState p, double now, double seconds)
+        async Task GroundDamage(Player p, double now, double seconds)
         {
             bool died = false, shieldChanged = false;
             await SendWorldRecord(p, PlayerId, [], null, atGate: () =>

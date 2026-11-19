@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed partial class ReservationCurseSummonTests
 {
-    static async Task AvianAspectFixture(ClientState template, ModuleLifetime lifetime)
+    static async Task AvianAspectFixture(Player template, ModuleLifetime lifetime)
     {
         string character = "AvianRuntime" + Guid.NewGuid().ToString("N");
         PlayerInventories.SetClass(character, 1);
@@ -16,7 +16,7 @@ public sealed partial class ReservationCurseSummonTests
         var previousContext = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = updates;
         using var wire = new Wire();
-        var conn = new ClientState(template.Layout, 0xA710, 1)
+        var conn = new Player(template.Layout, 0xA710, 1)
         {
             Character = character, CharacterId = Guid.NewGuid(), Account = "avian-runtime",
             League = "Standard", LeagueForm = "Standard", ClassRow = 1, Instance = new(),
@@ -149,7 +149,7 @@ public sealed partial class ReservationCurseSummonTests
         }
     }
 
-    static async Task CrabAspectFixture(ClientState template, ModuleLifetime lifetime)
+    static async Task CrabAspectFixture(Player template, ModuleLifetime lifetime)
     {
         string character = "CrabRuntime" + Guid.NewGuid().ToString("N");
         PlayerInventories.SetClass(character, 1);
@@ -160,7 +160,7 @@ public sealed partial class ReservationCurseSummonTests
         var previousContext = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = updates;
         using var wire = new Wire();
-        var conn = new ClientState(template.Layout, 0xC2AB, 1)
+        var conn = new Player(template.Layout, 0xC2AB, 1)
         {
             Character = character, CharacterId = Guid.NewGuid(), Account = "crab-runtime",
             League = "Standard", LeagueForm = "Standard", ClassRow = 1, Instance = new(),

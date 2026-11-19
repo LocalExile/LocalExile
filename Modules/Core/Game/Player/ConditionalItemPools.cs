@@ -12,11 +12,11 @@ public static partial class Game
             LifeReservation.FromInputs(MaximumLife, itemPercent, EfficiencyPct, Auras, AdditionalSkillReserved);
     }
 
-    public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
+    public static IReadOnlyDictionary<string, bool> ItemConditionFlags(Player conn, double now,
         IEnumerable<Item>? activeItems = null) =>
         ItemConditionFlags(conn, now, activeItems, out _);
 
-    public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
+    public static IReadOnlyDictionary<string, bool> ItemConditionFlags(Player conn, double now,
         IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
     {
         // The active items are worked out once: every check below would otherwise ask each worn item again.
@@ -145,7 +145,7 @@ public static partial class Game
     // Qualification can change the active item set after the coherent condition snapshot. Recompute only the
     // reservation predicate from that set and the captured pool/aura inputs; never re-read a timer or expiry owner.
     public static IReadOnlyDictionary<string, bool> RequalifyLifeReservation(
-        IReadOnlyDictionary<string, bool> captured, ClientState conn, IEnumerable<Item> activeItems,
+        IReadOnlyDictionary<string, bool> captured, Player conn, IEnumerable<Item> activeItems,
         LifeReservationConditionSnapshot snapshot)
     {
         int itemPercent = snapshot.ItemPercentOverride
@@ -157,7 +157,7 @@ public static partial class Game
         return flags;
     }
 
-    static LifeReservation.Value LifeReservationForConditions(ClientState conn, IEnumerable<Item>? activeItems,
+    static LifeReservation.Value LifeReservationForConditions(Player conn, IEnumerable<Item>? activeItems,
         out LifeReservationConditionSnapshot snapshot)
     {
         int? itemPercentOverride = null;
@@ -170,7 +170,7 @@ public static partial class Game
         return LifeReservation.FromInputs(maximumLife, itemPercent, efficiency, auras, additionalSkillReserved);
     }
 
-    static int ItemReservationPercent(ClientState conn, IEnumerable<Item>? activeItems)
+    static int ItemReservationPercent(Player conn, IEnumerable<Item>? activeItems)
     {
         var active = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
@@ -206,11 +206,11 @@ public static partial class Game
         public int AppliedOnslaughtEffect;
     }
 
-    static readonly Store<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
+    static readonly Store<Player, ConditionalItemPoolState> ConditionalItemPools = new();
 
     // A changed condition must reach the final pools as well as the raw stat dictionary. Compare effective sources:
     // another hit can extend the same four-second window without requiring another pool build.
-    public static bool EnsureConditionalItemPools(ClientState conn)
+    public static bool EnsureConditionalItemPools(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -255,7 +255,7 @@ public static partial class Game
         }
     }
 
-    static async Task SendConditionalItemStats(ClientState conn)
+    static async Task SendConditionalItemStats(Player conn)
     {
         long revision;
         ConditionalItemPoolState state;

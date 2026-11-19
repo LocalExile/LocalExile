@@ -5,7 +5,7 @@ public interface ITransferCombatState : ITransientCombatState
     void Resume(double at);
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public ITransferCombatState? ResourceEffectsState;
     public ConnectionWorker ResourceEffectsLease { get; } = new("resource-effects");

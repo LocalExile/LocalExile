@@ -4,10 +4,10 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static GolemState.Golem? OwnedFighter(ClientState conn, uint id) =>
+    static GolemState.Golem? OwnedFighter(Player conn, uint id) =>
         conn.Golems.All.GetValueOrDefault(id) ?? conn.Reservations.Fighters.GetValueOrDefault(id) ?? conn.Summons.Fighters.GetValueOrDefault(id);
 
-    static Dictionary<uint, int> ReservationMinionStats(ClientState conn, AuraCatalog.Aura aura, string kind)
+    static Dictionary<uint, int> ReservationMinionStats(Player conn, AuraCatalog.Aura aura, string kind)
     {
         var own = new Dictionary<uint, int>(SupportedSkill(conn, aura.SkillId).Stats);
         if (kind == "Agony")
@@ -21,7 +21,7 @@ public static partial class Game
         return own;
     }
 
-    static async Task SummonReservationFighter(ClientState conn,
+    static async Task SummonReservationFighter(Player conn,
         AuraCatalog.Aura aura, string kind)
     {
         string path = kind switch
@@ -93,14 +93,14 @@ public static partial class Game
             });
     }
 
-    static void RemoveReservationFighterLocked(ClientState conn, GolemState.Golem fighter, double now)
+    static void RemoveReservationFighterLocked(Player conn, GolemState.Golem fighter, double now)
     {
         conn.Reservations.Fighters.Remove(fighter.Id);
         conn.Reservations.Until.Remove(fighter.Id);
         RemoveGolemLocked(conn, fighter, now);
     }
 
-    static async Task ReservationFightersTick(ClientState conn, double now)
+    static async Task ReservationFightersTick(Player conn, double now)
     {
         var state = conn.Reservations;
         using (ProjectileMutation(conn))
@@ -173,7 +173,7 @@ public static partial class Game
         };
     }
 
-    static void ReservationStackBuffLocked(ClientState conn, ref ushort instance, ref int shown, int count, ushort row)
+    static void ReservationStackBuffLocked(Player conn, ref ushort instance, ref int shown, int count, ushort row)
     {
         if (shown == count) return;
         if (instance != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, instance), null, WorldId: PlayerId));

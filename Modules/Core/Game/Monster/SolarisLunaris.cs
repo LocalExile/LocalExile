@@ -14,10 +14,10 @@ public static class SolarisLunaris
     static readonly Store<InstanceState, Fight> Fights = new();
     public static bool IsBody(MonsterCatalog.Variety? v) => v?.Id is Sun or Moon;
     public static bool IsCelestial(MonsterCatalog.Variety? v) => v?.Id is Root + "SolarisCelestialForm" or Root + "LunarisCelestialForm";
-    public static bool Held(ClientState c, SpawnedMonster m) => c.Layout.Id == Area && IsBody(m.Variety) && m.EntranceGrace;
-    public static byte StartState(ClientState c, MonsterCatalog.Variety v, byte otherwise) =>
+    public static bool Held(Player c, SpawnedMonster m) => c.Layout.Id == Area && IsBody(m.Variety) && m.EntranceGrace;
+    public static byte StartState(Player c, MonsterCatalog.Variety v, byte otherwise) =>
         c.Layout.Id == Area && IsBody(v) ? (byte)1 : otherwise;
-    internal static IReadOnlyList<GrantedSkill> AddSkills(ClientState c, MonsterCatalog.Variety v, byte level,
+    internal static IReadOnlyList<GrantedSkill> AddSkills(Player c, MonsterCatalog.Variety v, byte level,
         IReadOnlyList<GrantedSkill> skills)
     {
         if (c.Layout.Id != Area || !IsBody(v)) return skills;
@@ -26,7 +26,7 @@ public static class SolarisLunaris
         var stats = MonsterActionSkillStats(c, effect, rank, BossKits.AttackFor(c, v, level, effect, TransformSkill));
         return catalog.FindByRow(TransformSkill, effect, rank, stats) is { } transform ? [.. skills, transform] : skills;
     }
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         if (!Fights.TryGetValue(c.Instance, out var f))
@@ -46,19 +46,19 @@ public static class SolarisLunaris
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
     sealed class Cleanup : IDisposable { public void Dispose() { foreach (var f in Fights) f.Value.Stop(); } }
-    internal sealed class Fight(uint sunId, SpawnedMonster sun, uint moonId, SpawnedMonster moon, ClientState owner)
+    internal sealed class Fight(uint sunId, SpawnedMonster sun, uint moonId, SpawnedMonster moon, Player owner)
     {
         internal readonly SemaphoreSlim Gate = new(1);
-        readonly HashSet<ClientState> players = [];
+        readonly HashSet<Player> players = [];
         int active = owner.Instance.HasState(MoonActive) ? 1 : 0;
         bool initialized, changing, stopped, entering;
         CelestialHazards? celestial;
         double nextSwap, deadline;
         (uint Id, SpawnedMonster Monster) Body(int index) => index == 0 ? (sunId, sun) : (moonId, moon);
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
         static bool Alive(SpawnedMonster m) => !m.Dead && m.Life > 0;
-        public async Task Bind(ClientState c) { players.Add(c); if (celestial is not null) await celestial.Bind(c); }
-        async Task State(ClientState c, int index, byte state)
+        public async Task Bind(Player c) { players.Add(c); if (celestial is not null) await celestial.Bind(c); }
+        async Task State(Player c, int index, byte state)
         {
             var (id, m) = Body(index);
             lock (c.Monsters)
@@ -75,7 +75,7 @@ public static class SolarisLunaris
             if (wasHidden != m.WorldHidden) foreach (var p in Present.ToArray())
                 await SyncInstanceMonsters(p);
         }
-        static void Hold(ClientState c, SpawnedMonster m, bool held, double now)
+        static void Hold(Player c, SpawnedMonster m, bool held, double now)
         {
             lock (c.Monsters)
             {
@@ -86,7 +86,7 @@ public static class SolarisLunaris
                 var at = m.Walk.Position(now); m.Walk.Teleport(at.X, at.Y, now);
             }
         }
-        async Task RemoveOrbs(ClientState c)
+        async Task RemoveOrbs(Player c)
         {
             if (celestial is not null) { await celestial.Clear(); celestial.Stop(); celestial = null; }
             uint[] ids;
@@ -103,7 +103,7 @@ public static class SolarisLunaris
                     if (shown) { await SendWorldRemoval(p, id, "[Sisters] celestial form leaves"); }
                 }
         }
-        async Task Orb(ClientState c, int index, double now)
+        async Task Orb(Player c, int index, double now)
         {
             var (_, body) = Body(index); string type = body.Variety!.Id + "CelestialForm";
             lock (c.Monsters) if (c.Monsters.Values.Any(m => m.Variety?.Id == type && Alive(m))) return;
@@ -117,7 +117,7 @@ public static class SolarisLunaris
                 foreach (var p in Present.ToArray()) await celestial.Bind(p);
             }
         }
-        async Task Activate(ClientState c, double now)
+        async Task Activate(Player c, double now)
         {
             await RemoveOrbs(c);
             int other = 1 - active;
@@ -127,7 +127,7 @@ public static class SolarisLunaris
             entering = true; changing = false; deadline = now + EntranceSeconds; nextSwap = deadline + RotationSeconds;
             if (active == 1) c.Instance.SetState(MoonActive); else c.Instance.ClearState(MoonActive);
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused) return;
             if (celestial is not null) await celestial.Step(c, now);

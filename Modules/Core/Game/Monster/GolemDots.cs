@@ -4,7 +4,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     /// <summary>The owned GolemState actor for this id and exact monster lifetime, if any.</summary>
-    public static bool OwnedGolemActor(ClientState conn, uint id, SpawnedMonster monster)
+    public static bool OwnedGolemActor(Player conn, uint id, SpawnedMonster monster)
     {
         GolemState.Golem? golem = conn.Golems.All.GetValueOrDefault(id)
             ?? conn.Reservations.Fighters.GetValueOrDefault(id)
@@ -27,12 +27,12 @@ public static partial class Game
     static bool GolemHasDots(GolemState.Golem golem) =>
         !golem.Monster.Ignites.Idle || !golem.Monster.Bleeds.Idle || !golem.Monster.Poisons.Idle;
 
-    static void QueueGolemDotPacket(ClientState conn, GolemState.Golem golem, byte[] packet, string? log = null) =>
+    static void QueueGolemDotPacket(Player conn, GolemState.Golem golem, byte[] packet, string? log = null) =>
         conn.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
 
     /// <summary>Advances every owned ailment set once, applies its positive whole typed damage to ES then Life, and
     /// interrupts recharge at the latest positive subinterval end.</summary>
-    public static void GolemDotsLocked(ClientState conn, GolemState.Golem golem, double from, double to)
+    public static void GolemDotsLocked(Player conn, GolemState.Golem golem, double from, double to)
     {
         var m = golem.Monster;
         if (!(to > from) || !GolemCurrent(conn, golem) || m.Dead || m.Life == 0) return;
@@ -72,7 +72,7 @@ public static partial class Game
         UpdateGolemDotBuffsLocked(conn, golem, to);
     }
 
-    static void UpdateGolemDotBuffsLocked(ClientState conn, GolemState.Golem golem, double now)
+    static void UpdateGolemDotBuffsLocked(Player conn, GolemState.Golem golem, double now)
     {
         var m = golem.Monster;
         if (!m.Ignites.Burning && m.Ignites.Buff is ushort ignited)
@@ -104,7 +104,7 @@ public static partial class Game
             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, m.Poisons.Until - now))));
     }
 
-    static void ShowGolemDotBuffLocked(ClientState conn, GolemState.Golem golem, ref ushort? shown, ushort row, uint source,
+    static void ShowGolemDotBuffLocked(Player conn, GolemState.Golem golem, ref ushort? shown, ushort row, uint source,
         double seconds, ushort stacks = 1)
     {
         if (shown is ushort old) QueueGolemDotPacket(conn, golem, InstanceEntities.RemoveBuff(golem.Id, old));
@@ -114,7 +114,7 @@ public static partial class Game
     }
 
     /// <summary>Shows the moved sets once on their new actor, using only their remaining absolute lifetimes.</summary>
-    public static void PresentTransferredGolemDotBuffsLocked(ClientState conn, GolemState.Golem golem, double now)
+    public static void PresentTransferredGolemDotBuffsLocked(Player conn, GolemState.Golem golem, double now)
     {
         var m = golem.Monster;
         if (m.Ignites.Until > now)
@@ -139,7 +139,7 @@ public static partial class Game
 
     /// <summary>Admits hostile bleed and poison from an accepted contact's real source effects onto the golem's own
     /// monster ailment sets, using the player pipeline's frozen chance, damage and duration contract.</summary>
-    public static void GolemHostileAilmentsLocked(ClientState conn, GolemState.Golem golem, uint attacker,
+    public static void GolemHostileAilmentsLocked(Player conn, GolemState.Golem golem, uint attacker,
         SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now)
     {
         var target = golem.Monster;

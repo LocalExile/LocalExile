@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed partial class ReservationCurseSummonTests
 {
-    static async Task MadnessFixture(ClientState template, ModuleLifetime lifetime)
+    static async Task MadnessFixture(Player template, ModuleLifetime lifetime)
     {
         string character = "MadnessRuntime" + Guid.NewGuid().ToString("N");
         PlayerInventories.SetClass(character, 1);
@@ -16,7 +16,7 @@ public sealed partial class ReservationCurseSummonTests
         var previousContext = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = updates;
         using var wire = new Wire();
-        var conn = new ClientState(template.Layout, 0xBAD0, 1)
+        var conn = new Player(template.Layout, 0xBAD0, 1)
         {
             Character = character, CharacterId = Guid.NewGuid(), Account = "madness-runtime",
             League = "Standard", LeagueForm = "Standard", ClassRow = 1, Instance = new(),

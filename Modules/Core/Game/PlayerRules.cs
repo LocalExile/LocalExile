@@ -1,12 +1,12 @@
 /// <summary>What the connection holds for the game's rules, in the rules' types. A reload gives new types: what an old one holds starts over.</summary>
-public static class ClientStateRules
+public static class PlayerRules
 {
     // The last passive and equipment stat sum and its inputs (CharacterStatSources), per connection. A rule table rather
     // than a field of the connection: a closed connection that something still refers to (a monster of a kept instance)
     // would hold the value, and with it the rules that made it, in memory after a reload.
-    static readonly Store<ClientState, Game.StatSourcesResult> StatSources = new();
+    static readonly Store<Player, Game.StatSourcesResult> StatSources = new();
 
-    extension(ClientState conn)
+    extension(Player conn)
     {
         public RampageWorld RampageWorld
         {

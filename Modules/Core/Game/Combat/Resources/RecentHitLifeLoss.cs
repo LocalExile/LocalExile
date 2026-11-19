@@ -32,11 +32,11 @@ public sealed class RecentHitLifeLossState
 public static partial class Game
 {
     public const string LifeLossIfHitRecently = "life_loss_%_per_minute_if_have_been_hit_recently";
-    static readonly Store<ClientState, RecentHitLifeLossState> RecentHitLifeLossStates = new();
+    static readonly Store<Player, RecentHitLifeLossState> RecentHitLifeLossStates = new();
     public sealed record CarriedRecentHitLifeLoss(double Pending);
-    public static RecentHitLifeLossState RecentHitLifeLossOf(ClientState conn) => RecentHitLifeLossStates.GetOrCreateValue(conn);
+    public static RecentHitLifeLossState RecentHitLifeLossOf(Player conn) => RecentHitLifeLossStates.GetOrCreateValue(conn);
 
-    static void ConfigureRecentHitLifeLoss(ClientState conn, IReadOnlyList<ItemModStats.Worn> worn, HashSet<uint> inactive)
+    static void ConfigureRecentHitLifeLoss(Player conn, IReadOnlyList<ItemModStats.Worn> worn, HashSet<uint> inactive)
     {
         double now = ResourceEffectsTime(conn);
         var state = RecentHitLifeLossOf(conn);
@@ -67,7 +67,7 @@ public static partial class Game
         (state.Started, state.Until) = window ?? (now, now);
     }
 
-    public static void RecentHitLifeLossOnHitLocked(ClientState conn, double now)
+    public static void RecentHitLifeLossOnHitLocked(Player conn, double now)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
         var state = RecentHitLifeLossOf(conn);
@@ -77,7 +77,7 @@ public static partial class Game
         state.Started = now; state.Until = now + RecentEvents.WindowSeconds;
     }
 
-    public static uint AdvanceRecentHitLifeLossLocked(ClientState conn, double now)
+    public static uint AdvanceRecentHitLifeLossLocked(Player conn, double now)
     {
         if (!RecentHitLifeLossStates.TryGetValue(conn, out var state)) return 0;
         if (!CurrentGameWork || conn.Closed || conn.RageRetired || conn.PlayerLife == 0
@@ -95,14 +95,14 @@ public static partial class Game
         return lost;
     }
 
-    public static CarriedRecentHitLifeLoss? CaptureRecentHitLifeLoss(ClientState conn, double at)
+    public static CarriedRecentHitLifeLoss? CaptureRecentHitLifeLoss(Player conn, double at)
     {
         if (!RecentHitLifeLossStates.TryGetValue(conn, out var state)) return null;
         state.Settle(at, conn.PlayerMaxLife);
         return state.Pending > 0 ? new(state.Pending) : null;
     }
 
-    public static void PauseRecentHitLifeLoss(ClientState conn, double at)
+    public static void PauseRecentHitLifeLoss(Player conn, double at)
     {
         if (!RecentHitLifeLossStates.TryGetValue(conn, out var state)) return;
         state.Settle(at, conn.PlayerMaxLife); state.Frozen = true;
@@ -110,7 +110,7 @@ public static partial class Game
 
     // Existing generic recent histories belong to an area connection. Transfer carries only already accrued loss;
     // a refused load can resume that connection's remaining history, without charging any loading time.
-    public static void RestoreRecentHitLifeLoss(ClientState conn, CarriedRecentHitLifeLoss? value, double at)
+    public static void RestoreRecentHitLifeLoss(Player conn, CarriedRecentHitLifeLoss? value, double at)
     {
         var state = RecentHitLifeLossOf(conn); state.Clear(at);
         state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch;
@@ -118,7 +118,7 @@ public static partial class Game
         (state.Started, state.Until) = conn.RecentEvents.LastWindow(StatConditions.BeenHit) ?? (at, at);
     }
 
-    public static void RetireRecentHitLifeLoss(ClientState conn)
+    public static void RetireRecentHitLifeLoss(Player conn)
     {
         if (RecentHitLifeLossStates.TryGetValue(conn, out var state)) state.Clear(ResourceEffectsTime(conn));
     }

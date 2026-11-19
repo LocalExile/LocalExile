@@ -979,7 +979,7 @@ regeneration stat does not make the visible life value advance between these upd
 250 ms player tick therefore made /god recovery jump by roughly one quarter of maximum life.
 
 `StartResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
-Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `ClientState.Clock`
+Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `Player.Clock`
 time, including scheduler delays; the clock stops during pause. `RecoveryPool` retains fractional
 points, discards overflow at a full pool and negative carry at RF's one-life floor, and never revives
 dead life. Only changed whole values generate 0x1b1. The unreserved mana cap is unchanged.

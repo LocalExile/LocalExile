@@ -6,7 +6,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static void ReleaseRampageProjectiles(ClientState conn, RampageWorld.Job job)
+    static void ReleaseRampageProjectiles(Player conn, RampageWorld.Job job)
     {
         var own = job.Tier.Skill.AtLevel(job.Level)!;
         var metadata = SkillsFor(conn).ProjectileFor(job.Tier.Skill.Row);
@@ -35,7 +35,7 @@ public static partial class Game
                     NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(conn)) } });
     }
 
-    static async Task AdvanceRampageWeapons(ClientState conn)
+    static async Task AdvanceRampageWeapons(Player conn)
     {
         List<(uint Id, SpawnedMonster Actor, RampageWorld.Actor Plan, uint TargetId, SpawnedMonster Target)> swings = [];
         List<(uint Id, (int X, int Y) From, (int X, int Y) To)> moves = [];

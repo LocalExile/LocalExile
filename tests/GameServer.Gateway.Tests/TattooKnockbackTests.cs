@@ -24,7 +24,7 @@ public sealed class TattooKnockbackTests
         Assert.Null(Game.KnockbackDestination((3, 3), (3, 3), 2, (_, _) => true));
 
         // A player hit with the tattoo's 10% chance made certain shoves a monster the wiki's minimum 0.4 m (four cells) away.
-        var conn = new ClientState(new(1, "tattoo-knockback", 1000, 1000, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "tattoo-knockback", 1000, 1000, 100, 100, null, []), 1, 1);
         conn.Monsters[1] = new SpawnedMonster("kb", conn.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100);
         var stats = new Dictionary<uint, int> { [Program.Stats.Key("base_global_chance_to_knockback_%")!.Value] = 100 };
         var target = conn.Monsters[1];

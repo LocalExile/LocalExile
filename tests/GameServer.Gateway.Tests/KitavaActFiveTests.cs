@@ -23,7 +23,7 @@ public sealed class KitavaActFiveTests
                     new("Metadata/Terrain/Act5/Area8/Objects/LandingZone", "", 3000, 1000, 0, 0)],
             },
         };
-        var c = new ClientState(layout, 1, 1) { Character = "KitavaRegression", PlayerSent = true, PlayerLife = 1000000,
+        var c = new Player(layout, 1, 1) { Character = "KitavaRegression", PlayerSent = true, PlayerLife = 1000000,
             Instance = new(), Pools = new(45, 1000000, 100, 1, 0), Session = new("kitava", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.LaterFormPoints[KitavaActFive.First] = (2000, 2000);
         var v = Game.Monsters.Find(KitavaActFive.First)!;
@@ -84,7 +84,7 @@ public sealed class KitavaActFiveTests
     public void Each_earned_Kitava_penalty_rebuilds_immediately_and_never_stacks_with_its_alias_or_repeated_flag()
     {
         using var runtime = new Runtime();
-        var c = new ClientState(new(1, "penalty", 100, 100, 20, 20, null, []), 1, 1)
+        var c = new Player(new(1, "penalty", 100, 100, 20, 20, null, []), 1, 1)
         { Character = "KitavaPenaltyRegression", Pools = new(45, 1000, 100, 1, 0) };
         runtime.Player = c;
         c.QuestFlags.Add(Quests.EndGameAvailable); c.UnearnedQuestFlags.Add(Quests.EndGameAvailable);
@@ -112,7 +112,7 @@ public sealed class KitavaActFiveTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        public ClientState? Player;
+        public Player? Player;
         public Runtime() { Saves.Open(saves); Game.CombatLifetime = lifetime; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic()); }
         public void Dispose() { if (Player is { } c) c.Closed = true; lifetime.Stop(ex => throw ex); Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previousLogic!); TestEnvironment.ReleaseSaves(saves); }
     }

@@ -53,7 +53,7 @@ public sealed class ReservationState
     public long CatRevision, PresentedCatRevision;
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public readonly ReservationState Reservations = new();
 }

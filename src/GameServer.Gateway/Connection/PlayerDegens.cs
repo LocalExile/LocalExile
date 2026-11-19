@@ -1,5 +1,5 @@
 /// <summary>
-/// The player's degeneration by source, points a second (ClientState.Degens). Each source sets its own share under its
+/// The player's degeneration by source, points a second (Player.Degens). Each source sets its own share under its
 /// own key and sets 0 when it ends, so one source ending does not cancel another's (a trial's hot plate and a roomba, a
 /// Brine King tide and a ground). The total is what the player's recovery deals.
 /// </summary>

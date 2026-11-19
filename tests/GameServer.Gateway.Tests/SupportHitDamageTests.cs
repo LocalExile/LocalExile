@@ -74,7 +74,7 @@ public sealed class SupportHitDamageTests
 
         // A hit on a low-life enemy gets Behead's more damage.
         {
-            var conn = new ClientState(new(1, "behead", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "behead", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };

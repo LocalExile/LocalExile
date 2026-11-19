@@ -21,7 +21,7 @@ public static partial class Game
 
     /// <summary>"while a Unique Enemy is in your Presence": a living hostile Unique monster within Character.ot's
     /// fixed base_presence_radius (80 cells, the wiki's 8 metres) of the player. Under the Monsters lock.</summary>
-    public static bool UniqueInPresenceLocked(ClientState conn, double now)
+    public static bool UniqueInPresenceLocked(Player conn, double now)
     {
         var here = conn.Walk.Position(now);
         return conn.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0
@@ -30,7 +30,7 @@ public static partial class Game
 
     // The Presence-gated Loyalty triggers (maximum Rage, Travel Skill, Energy Shield Recharge, Low Life). Under the
     // Monsters lock; false without a Unique in the player's presence.
-    static bool LoyaltyInPresenceTriggerLocked(ClientState conn, string trigger, double now)
+    static bool LoyaltyInPresenceTriggerLocked(Player conn, string trigger, double now)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return false;
         return TriggerSpiritChieftainLocked(conn, trigger, CharacterPlayerStats(conn));
@@ -38,7 +38,7 @@ public static partial class Game
 
     /// <summary>"Trigger ... when you reach Maximum Rage while a Unique Enemy is in your Presence" (Loyalty Tattoo of
     /// Akoya): called when Rage reaches its maximum. Under the Monsters lock.</summary>
-    public static void LoyaltyMaxRageLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static void LoyaltyMaxRageLocked(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         double now = AreaTime(conn);
         if (!CurrentGameWork || conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return;
@@ -46,7 +46,7 @@ public static partial class Game
     }
 
     /// <summary>"when you use a Travel Skill while a Unique Enemy is in your Presence" (Loyalty Tattoo of Ikiaho).</summary>
-    public static void LoyaltyTravelSkillTriggered(ClientState conn)
+    public static void LoyaltyTravelSkillTriggered(Player conn)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0) return;
         lock (conn.Monsters) LoyaltyInPresenceTriggerLocked(conn, TravelSkillInPresenceTrigger, AreaTime(conn));
@@ -54,7 +54,7 @@ public static partial class Game
 
     /// <summary>The once-per-transition Loyalty checks (Energy Shield Recharge starting, Low Life reached) from the
     /// player's recovery tick. Under the Monsters lock.</summary>
-    public static void LoyaltyResourceStateLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, double now)
+    public static void LoyaltyResourceStateLocked(Player conn, IReadOnlyDictionary<uint, int> stats, double now)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0)
         {
@@ -73,12 +73,12 @@ public static partial class Game
 
     /// <summary>"when you Suppress Spell Damage from a Unique Enemy" (Loyalty Tattoo of Ahuana): after a Unique's spell
     /// hit was suppressed. Under the Monsters lock.</summary>
-    public static void LoyaltySuppressedHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
+    public static void LoyaltySuppressedHitLocked(Player conn, IReadOnlyDictionary<uint, int> stats) =>
         TriggerSpiritChieftainLocked(conn, SuppressHitFromUniqueTrigger, stats);
 
     /// <summary>"on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata): the target is a living
     /// Unique and carries a Mark the player applied (Mark curses are modelled by Curses). Under the Monsters lock.</summary>
-    public static void LoyaltyCritVsMarkedUniqueLocked(ClientState conn, SpawnedMonster m,
+    public static void LoyaltyCritVsMarkedUniqueLocked(Player conn, SpawnedMonster m,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0 || m.Rarity != MonsterRarity.Unique) return;
@@ -92,7 +92,7 @@ public static partial class Game
     /// defender's when-hit effects), and taking it as a Savage Hit (it removed at least 15% of maximum Life; Energy
     /// Shield, Ward and Mana do not count, wiki Savage hit) Spirit of Utula. True when one triggered.
     /// </summary>
-    public static bool SpiritChieftainsWhenHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, bool blocked,
+    public static bool SpiritChieftainsWhenHitLocked(Player conn, IReadOnlyDictionary<uint, int> stats, bool blocked,
         bool critical, long lifeLost)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0) return false;
@@ -103,7 +103,7 @@ public static partial class Game
 
     // The allocated Spirit skill with this trigger, if its shared cooldown is ready: its Leadership for its duration
     // (base_skill_effect_duration with the player's skill effect and minion duration: these skills are CreatesMinion), the cooldown with the player's recovery.
-    static bool TriggerSpiritChieftainLocked(ClientState conn, string trigger, IReadOnlyDictionary<uint, int> stats)
+    static bool TriggerSpiritChieftainLocked(Player conn, string trigger, IReadOnlyDictionary<uint, int> stats)
     {
         if (!CurrentGameWork) return false;
         double now = AreaTime(conn);
@@ -128,7 +128,7 @@ public static partial class Game
     }
 
     // The running Leadership's stats join the player's (CharacterPlayerStatsCore), while he lives.
-    static void AddSpiritLeadershipStats(ClientState conn, StatMap stats)
+    static void AddSpiritLeadershipStats(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
             if (conn.PlayerLife > 0 && conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) is { } buff)
@@ -141,7 +141,7 @@ public static partial class Game
 
     // The Leadership buff on the player (S→C 0x1c1 with its remaining seconds, 0x1c2 when it ends or the player dies) and
     // the player's stats with or without its stats. Sent after a trigger and as a stat presentation.
-    public static byte[]? SpiritChieftainPresentation(ClientState conn)
+    public static byte[]? SpiritChieftainPresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -164,7 +164,7 @@ public static partial class Game
         }
     }
 
-    static async Task SendSpiritChieftain(ClientState conn)
+    static async Task SendSpiritChieftain(Player conn)
     {
         await Send(conn, [], null, atGate: () => SpiritChieftainPresentation(conn));
         if (!CurrentGameWork) return;
@@ -178,7 +178,7 @@ public static partial class Game
     /// his minion modifiers (minion_damage_+%, minion_attack_speed_+%, minion_attack_and_cast_speed_+%,
     /// minion_movement_speed_+%) as its own, until its Leadership ends. It is immortal: nothing on the server damages it.
     /// </summary>
-    public static async Task SpiritChieftainMinion(ClientState conn)
+    public static async Task SpiritChieftainMinion(Player conn)
     {
         var bytes = new List<byte>();
         SpiritChieftains.Summon? summon;

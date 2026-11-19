@@ -20,7 +20,7 @@ public static partial class Game
     public static bool IsBlasphemySupport(string effect) => effect is "SupportBlasphemy"
         or "SupportAwakenedBlasphemy" or "SupportEldritchBlasphemy" or "SupportBlasphemyPlus";
 
-    public static (bool Life, int Efficiency) ReservationContext(ClientState conn, ushort skill)
+    public static (bool Life, int Efficiency) ReservationContext(Player conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         var player = CharacterStatSources(conn).Stats;
@@ -53,11 +53,11 @@ public static partial class Game
         return (life, efficiency);
     }
 
-    public static bool ReservationBudgetFits(ClientState conn) => ReservationBudgetFits(conn,
+    public static bool ReservationBudgetFits(Player conn) => ReservationBudgetFits(conn,
         conn.PetrifiedBlood.Active ? conn.PetrifiedBlood.ManaPercent : 0,
         conn.PetrifiedBlood.ReservesLife, conn.PetrifiedBlood.ReservationEfficiencyPct);
 
-    public static bool ReservationBudgetFits(ClientState conn, int percent, bool reservesLife, int efficiency)
+    public static bool ReservationBudgetFits(Player conn, int percent, bool reservesLife, int efficiency)
     {
         int mana = reservesLife ? 0 : PetrifiedBlood.Required(conn.Pools.Mana, conn.Pools.ManaReservationEfficiencyPct, percent, efficiency);
         int proposedLife = reservesLife
@@ -69,12 +69,12 @@ public static partial class Game
             && (long)lifeReservation.Required + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true) < conn.Pools.Life;
     }
 
-    public static int AdditionalLifeReservation(ClientState conn) => (int)Math.Clamp(
+    public static int AdditionalLifeReservation(Player conn) => (int)Math.Clamp(
         (long)PetrifiedBlood.RequiredLife(conn.Pools, conn.PetrifiedBlood)
         + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true),
         0, int.MaxValue);
 
-    public static void ClampReservedResources(ClientState conn)
+    public static void ClampReservedResources(Player conn)
     {
         conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));

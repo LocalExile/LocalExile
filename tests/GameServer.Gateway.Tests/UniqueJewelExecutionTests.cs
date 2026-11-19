@@ -35,7 +35,7 @@ public class UniqueJewelExecutionTests
         Saves.Open(path);
         try
         {
-            var conn = new ClientState(new(1, "escape", 100, 100, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "escape", 100, 100, 100, 100, null, []), 1, 1)
                 { Character = $"Escape{Guid.NewGuid():N}" };
             var tree = Game.PassivesFor(conn);
             var socket = tree.JewelNodeForSlot(2)!.Value;

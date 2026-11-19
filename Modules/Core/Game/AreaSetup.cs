@@ -18,7 +18,7 @@ public static class AreaSetup
         module.Lifetime.Own(new Removal(source));
     }
 
-    static void Start(GameArea area, ClientState conn, IModuleLifetime source)
+    static void Start(GameArea area, Player conn, IModuleLifetime source)
     {
         // A reload reaches an area that already has this module's systems from an earlier start.
         if (area.Systems.All.Any(s => ReferenceEquals(s.Source, source))) return;
@@ -55,7 +55,7 @@ public static class AreaSetup
 
     /// <summary>Whether this connection's area runs the game's systems of the rules loaded now: the loops they replace
     /// (each connection's AI, its tick's monster damage over time, ...) then leave that work to the area.</summary>
-    public static bool Runs(ClientState conn) =>
+    public static bool Runs(Player conn) =>
         conn.Instance is not null && conn.Frames.Running && conn.Frames.Area is { } area
         && Running.TryGetValue(area, out var source) && ReferenceEquals(source, Game.CombatLifetime);
 

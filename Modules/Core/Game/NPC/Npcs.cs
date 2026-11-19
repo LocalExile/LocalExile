@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Creates one NPC (0x2bb, its NPCs.dat Id is an .ot type) and puts it in the wake zone; kept for clicks and /npcs.
-    public static async Task<uint> SpawnNpc(ClientState conn, NpcCatalog.Npc npc,
+    public static async Task<uint> SpawnNpc(Player conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
         uint id = conn.TakeObjectId();
@@ -21,7 +21,7 @@ public static partial class Game
     }
 
     // The town's NPCs (NpcCatalog.In) at their cells.
-    public static async Task SpawnTownNpcs(ClientState conn)
+    public static async Task SpawnTownNpcs(Player conn)
     {
         var notes = new List<string>();
         var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
@@ -44,7 +44,7 @@ public static partial class Game
     }
 
     // A click on an NPC (C→S 0x24 on its object): the client walks to it first; follow it and answer once the player is there.
-    public static async Task TalkToNpc(ClientState conn,
+    public static async Task TalkToNpc(Player conn,
         InstanceTransfer.UseSkillOnObject use, SpawnedNpc npc, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, npc.X, npc.Y, Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size), out var objectWalk)) return;
@@ -90,7 +90,7 @@ public static partial class Game
     // C→S 0x85: the dialogue window was closed or, while a talk plays, Continue was pressed. The client stays in its dialogue
     // state (and the player cannot move) until the server answers: back to the option list (0x84 0xff) after a talk, else
     // 0x84 with object 0, which ends the dialogue.
-    public static async Task CloseNpcDialogue(ClientState conn)
+    public static async Task CloseNpcDialogue(Player conn)
     {
         if (await GameEvents.AnyRewardClosing(conn)) return;
         await GameEvents.RunNpcDialogueClosing(conn);
@@ -128,7 +128,7 @@ public static partial class Game
         }
     }
 
-    public static async Task<bool> ContinueQuestConversation(ClientState conn, uint id)
+    public static async Task<bool> ContinueQuestConversation(Player conn, uint id)
     {
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
@@ -141,7 +141,7 @@ public static partial class Game
     }
 
     // C→S 0x82: an option picked in the NPC dialogue window (an NPCTalk row of the NPC talked to).
-    public static async Task ChooseNpcOption(ClientState conn, byte index)
+    public static async Task ChooseNpcOption(Player conn, byte index)
     {
         uint id = conn.TalkingTo;
         SpawnedNpc? npc;
@@ -155,11 +155,11 @@ public static partial class Game
         await ExecuteQuestConversation(conn, id, npc, talk);
     }
 
-    public static Task ExecuteQuestConversation(ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk) => RunNpcOption(conn, id, npc, talk);
+    public static Task ExecuteQuestConversation(Player conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk) => RunNpcOption(conn, id, npc, talk);
 
     // An NPCTalk row takes effect: picked from the list (0x82), next in a quest's talk, or the click's shortcut
     // (onClick: no talk is open). False when the row is not for this character now, or nothing answers it.
-    static async Task<bool> RunNpcOption(ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk, bool onClick = false)
+    static async Task<bool> RunNpcOption(Player conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk, bool onClick = false)
     {
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return false;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return false;
@@ -200,7 +200,7 @@ public static partial class Game
     }
 
     // A quest's reward window (0xc0 and 0x87). False when the offer has nothing for this character, or was taken.
-    public static async Task<bool> OfferNpcReward(ClientState conn, int offer)
+    public static async Task<bool> OfferNpcReward(Player conn, int offer)
     {
         var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
@@ -232,7 +232,7 @@ public static partial class Game
 
     // An NPC's Identify Items: the main inventory's unidentified items become identified (their explicit mods and rare names
     // are sent from now on). Removing and adding the same ids in one 0xbf replaces them on the client (see UseItemOn).
-    public static async Task IdentifyInventory(ClientState conn, SpawnedNpc npc)
+    public static async Task IdentifyInventory(Player conn, SpawnedNpc npc)
     {
         const byte row = PlayerInventories.MainInventory;
         var items = ItemsOf(conn);
@@ -261,7 +261,7 @@ public static partial class Game
 
     // What a price took from the stash (ItemMoves.Price.Stash), to the client: one 0xbf per tab this connection has the
     // contents of (the others come whole when it asks, 0xc7).
-    public static async Task SendStashPayment(ClientState conn, AccountStash stash, AccountStash.Payment? paid)
+    public static async Task SendStashPayment(Player conn, AccountStash stash, AccountStash.Payment? paid)
     {
         foreach (var (tab, (removed, changed)) in paid?.Tabs ?? new Dictionary<int, (List<uint>, List<InventoryItem>)>())
             if (TabsSentOf(conn, stash).Contains(tab))

@@ -8,7 +8,7 @@ public static partial class Game
 
     // Called synchronously inside the lethal damage mutation, before its first network write. The player sees the death screen and
     // stays connected; the character (only: stashes stay) moves to the parent league once they have left (CommitHardcoreDeath).
-    public static void RecordHardcoreDeath(ClientState conn)
+    public static void RecordHardcoreDeath(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -25,7 +25,7 @@ public static partial class Game
     }
 
     // The connection has ended (the death screen's Exit, or any other way out).
-    public static void CommitHardcoreDeath(ClientState conn)
+    public static void CommitHardcoreDeath(Player conn)
     {
         if (!conn.HardcoreDeathRecorded) return;
         string name = CharacterName(conn);
@@ -40,7 +40,7 @@ public static partial class Game
     }
 
     // A connection of a character that died and whose move a crash interrupted: it moves now, and this connection does not go on.
-    public static void RefuseInterruptedHardcoreDeath(ClientState conn)
+    public static void RefuseInterruptedHardcoreDeath(Player conn)
     {
         if (!conn.Hardcore || CharacterSaves.ModuleData(CharacterName(conn), HardcoreDeathMark) is not { Length: > 0 }) return;
         conn.HardcoreDeathRecorded = true;

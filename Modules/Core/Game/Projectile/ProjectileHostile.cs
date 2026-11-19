@@ -154,7 +154,7 @@ public static partial class Game
     /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now
     /// from <paramref name="origin"/> toward the player while <paramref name="still"/> holds; its flight then lands the
     /// monster's hit as any of its shots does.</summary>
-    public static void LaunchDetachedMonsterProjectile(ClientState conn,
+    public static void LaunchDetachedMonsterProjectile(Player conn,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, (int X, int Y) origin,
         Func<bool> still, ushort sequence)
     {
@@ -165,7 +165,7 @@ public static partial class Game
             () => MonsterProjectileUse(session, id, m, a, projectile, action, sequence: sequence, releasedFrom: origin));
     }
 
-    public static void LaunchMonsterProjectile(ClientState conn,
+    public static void LaunchMonsterProjectile(Player conn,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)
     {

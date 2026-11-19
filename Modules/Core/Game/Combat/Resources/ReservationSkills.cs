@@ -5,7 +5,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static void EndReservationRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
+    static void EndReservationRuntimeLocked(Player conn, AuraCatalog.Aura aura)
     {
         EndCatAspectRuntimeLocked(conn, aura);
         EndAvianAspectLocked(conn, aura);
@@ -21,10 +21,10 @@ public static partial class Game
             RemoveReservationFighterLocked(conn, fighter, AreaTime(conn));
     }
 
-    static AuraCatalog.Aura? ReservationAura(ClientState conn, string effect) =>
+    static AuraCatalog.Aura? ReservationAura(Player conn, string effect) =>
         conn.PlayerLife > 0 && !InTown(conn) ? conn.Auras.Values.FirstOrDefault(a => a.EffectId == effect) : null;
 
-    static int ReservationStat(ClientState conn, AuraCatalog.Aura aura, string name) => Stats.Key(name) is uint key
+    static int ReservationStat(Player conn, AuraCatalog.Aura aura, string name) => Stats.Key(name) is uint key
         ? SkillsFor(conn).EffectStats(aura.Effect, aura.Level, aura.Quality).FirstOrDefault(p => p.Item1 == key).Item2 : 0;
 
     public static void ReservationKill(KillContext kill)
@@ -45,7 +45,7 @@ public static partial class Game
         }
     }
 
-    static double ReservationDuration(ClientState conn, AuraCatalog.Aura aura, string name, int fallback)
+    static double ReservationDuration(Player conn, AuraCatalog.Aura aura, string name, int fallback)
     {
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
@@ -56,7 +56,7 @@ public static partial class Game
             * Math.Max(0, 1 + Get("support_reduced_duration_skill_effect_duration_+%_final") / 100.0));
     }
 
-    static void ReservationHitLocked(ClientState conn, SpawnedMonster target)
+    static void ReservationHitLocked(Player conn, SpawnedMonster target)
     {
         if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(conn).Any(a => a.EffectId == "Zealotry")
             && RandomRolls.Chance(GolemStat(CharacterPlayerStats(conn), "create_consecrated_ground_on_hit_%_vs_rare_or_unique_enemy"), 100, Random.Shared))
@@ -72,7 +72,7 @@ public static partial class Game
             conn.Reservations.Procs.Enqueue(new(purity.SkillId, target.Walk.Position(AreaTime(conn))));
     }
 
-    static void ReservationPoisonLocked(ClientState conn, double now)
+    static void ReservationPoisonLocked(Player conn, double now)
     {
         if (conn.Reservations.Secondary || ReservationAura(conn, "HeraldOfAgony") is not { } agony) return;
         int maximum = ReservationStat(conn, agony, "maximum_virulence_stacks")
@@ -81,7 +81,7 @@ public static partial class Game
         conn.Reservations.Virulence = Math.Clamp(conn.Reservations.Virulence, 0, Math.Max(0, maximum));
     }
 
-    static void ReservationWhenHitLocked(ClientState conn, uint attacker, SpawnedMonster monster, bool blocked, double now)
+    static void ReservationWhenHitLocked(Player conn, uint attacker, SpawnedMonster monster, bool blocked, double now)
     {
         if (ReservationAura(conn, "ArcticArmour") is { } arctic)
             monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
@@ -92,7 +92,7 @@ public static partial class Game
     }
 
     // Secondary damage never borrows a weapon or spell-only increases, added damage or supports.
-    public static DamagePacket ReservationHitPacket(ClientState conn, AuraCatalog.Aura aura)
+    public static DamagePacket ReservationHitPacket(Player conn, AuraCatalog.Aura aura)
     {
         if (aura.EffectId == "TempestShield") return SupportedHitFor(conn, aura.SkillId, suppress: false);
         var skill = SupportedSkill(conn, aura.SkillId);
@@ -100,7 +100,7 @@ public static partial class Game
     }
 
     // One proc captures the raw secondary packet and its source modifiers before selecting any target.
-    static Func<long, int, bool, bool, bool, ReservationDamageProfile> ReservationSecondaryProfiles(ClientState conn, AuraCatalog.Aura aura,
+    static Func<long, int, bool, bool, bool, ReservationDamageProfile> ReservationSecondaryProfiles(Player conn, AuraCatalog.Aura aura,
         SupportedGem skill, IReadOnlyDictionary<uint, int> player)
     {
         var stats = MergeSkillStats(player, skill.Stats);
@@ -135,7 +135,7 @@ public static partial class Game
     public sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
-    static double ReservationRadius(ClientState conn, AuraCatalog.Aura aura, int fallback)
+    static double ReservationRadius(Player conn, AuraCatalog.Aura aura, int fallback)
     {
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
@@ -144,7 +144,7 @@ public static partial class Game
         return SkillArea.Radius(basis > 0 ? basis : fallback, Get, spell: false);
     }
 
-    static void ReservationDamageLocked(ClientState conn,
+    static void ReservationDamageLocked(Player conn,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
         using var statScope = new PlayerStatScope(conn, fresh: true);
@@ -244,7 +244,7 @@ public static partial class Game
         finally { conn.Reservations.Secondary = false; }
     }
 
-    static void ReservationAshLocked(ClientState conn, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
+    static void ReservationAshLocked(Player conn, AuraCatalog.Aura aura, (int X, int Y) at, uint overkill, double now)
     {
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
@@ -268,7 +268,7 @@ public static partial class Game
             }
     }
 
-    public static async Task ReservationSkillsTick(ClientState conn, double now)
+    public static async Task ReservationSkillsTick(Player conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
         bool catChanged = false;
@@ -321,7 +321,7 @@ public static partial class Game
         await PublishMinionOutcomes(conn);
     }
 
-    static void ReservationArcticTrailLocked(ClientState conn, double now)
+    static void ReservationArcticTrailLocked(Player conn, double now)
     {
         var state = conn.Reservations;
         state.Trail.RemoveAll(patch => patch.Epoch is int epoch && epoch != conn.ProjectileEpoch);
@@ -348,7 +348,7 @@ public static partial class Game
                 m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10);
     }
 
-    static void AddChilledGroundLocked(ClientState conn, (int X, int Y) at, double until, int radius, string artPath)
+    static void AddChilledGroundLocked(Player conn, (int X, int Y) at, double until, int radius, string artPath)
     {
         if (radius <= 0) return;
         uint obj = conn.TakeObjectId();
@@ -360,7 +360,7 @@ public static partial class Game
         conn.Reservations.Trail.Add(new(at, until, obj, radius, conn.ProjectileEpoch));
     }
 
-    static byte[] RecallTemporalRiftLocked(ClientState conn)
+    static byte[] RecallTemporalRiftLocked(Player conn)
     {
         var history = conn.Reservations.Echoes;
         if (!history.TryPeek(out var old) || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(old.X, old.Y, 0)) return [];

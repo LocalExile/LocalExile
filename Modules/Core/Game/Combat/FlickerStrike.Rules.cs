@@ -7,7 +7,7 @@ public static partial class Game
 {
     // The client's Flicker Strike action selects these MiscAnimated resources by skill_art_variation.
     // In is the departure effect and Out is the arrival effect (their sound events confirm the direction).
-    internal static async Task FlickerArt(ClientState conn,
+    internal static async Task FlickerArt(Player conn,
         uint gem, (int X, int Y) from, (int X, int Y) to)
     {
         int variation = SkillArtVariation(conn, gem);
@@ -40,7 +40,7 @@ public static partial class Game
 
     /// <summary>Where Flicker Strike takes the player: the monster the client's action picks (FlickerStrike) and the
     /// landing next to it. Null when no monster is in range: the use is then refused (FlickerRefused).</summary>
-    public static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
+    public static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(Player conn, int effect,
         ushort skillId, (int X, int Y) player, (int X, int Y) aim, uint clicked, double now)
     {
         var stats = SupportedSkill(conn, skillId).Stats;
@@ -60,7 +60,7 @@ public static partial class Game
 
     // A Flicker Strike use refused for want of a monster in range (the client sent it for one it had not yet seen die):
     // nothing is paid, so the mana the client spent when it started the use is given back, as for an attack-move.
-    public static Task FlickerRefused(ClientState conn,
+    public static Task FlickerRefused(Player conn,
         string skill)
     {
         Console.WriteLine($"[gateway] {conn.Remote} {skill}: refused, no monster in range");
@@ -73,14 +73,14 @@ public static partial class Game
     // the server sends (the pools, FlickerMovementPct) while the buff lasts, as Shield Charge's does.
     const ushort FlickerSpeedBuffRow = 1344;
     sealed class FlickerSpeed { public int Percent, Token; public ushort Buff; }
-    static readonly Store<ClientState, FlickerSpeed> FlickerSpeeds = new();
+    static readonly Store<Player, FlickerSpeed> FlickerSpeeds = new();
 
     // The running buff's movement bonus, for the pools (PoolsFor); 0 when none runs.
-    public static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;
+    public static int FlickerMovementPct(Player conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;
 
     // After an accepted Flicker Strike use: the buff and the faster movement speed, and both gone when it runs out
     // (a later use's buff takes over).
-    public static async Task GrantFlickerSpeed(ClientState conn,
+    public static async Task GrantFlickerSpeed(Player conn,
         ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;

@@ -7,7 +7,7 @@ public static partial class Game
     static double MirageDamageFactor(IReadOnlyDictionary<uint, int> stats) =>
         Stats.Key("support_mirage_archer_damage_+%_final") is uint k ? Math.Max(0, 1 + stats.GetValueOrDefault(k) / 100d) : 1;
 
-    static ProjectileOffense MirageOffense(ClientState conn, ProjectileOffense shot)
+    static ProjectileOffense MirageOffense(Player conn, ProjectileOffense shot)
     {
         double factor = MirageDamageFactor(shot.SkillStats);
         var caster = new Dictionary<uint, int>(CharacterPlayerStats(conn));

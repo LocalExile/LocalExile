@@ -180,7 +180,7 @@ Switches are plain Gateway members, held under the owner's id until it unloads:
 | `GameEventOwners.Own(id, disposable)` | anything else the owner wants released when it unloads |
 | `CharacterBuildApi.For(mod).Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes; `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
 
-A connection (`ClientState`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
+A connection (`Player`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
 its `IPlayerWorld`, both the Gateway's (character, account,
 league, level, area, position, `Tell`, `Send`). An area change is a new connection.
 A subscriber that throws is logged as `[events] <owner> <event> failed (skipped)` with its stack trace; a failed command

@@ -172,12 +172,12 @@ public class HinekoraLockGatewayTests
         Explicit("LocalIncreasedPhysicalDamagePercent1"), Explicit("IncreasedManaWeapon1"),
         Explicit("LocalIncreasedAttackSpeed1"), Explicit("Intelligence1")) with { ItemLevel = 1 };
 
-    static async Task WithSession(Func<ClientState, PlayerInventories, AccountStash, Func<byte[], Task>,
+    static async Task WithSession(Func<Player, PlayerInventories, AccountStash, Func<byte[], Task>,
         Func<byte[], Task>, Func<Task<Preview>>, Task> action)
     {
         using var save = new SaveFixture();
         string name = "Hinekora" + Guid.NewGuid().ToString("N");
-        var conn = new ClientState(new(ushort.MaxValue, "HinekoraTest", 128, 128, 32, 32, null, []), 0, 1)
+        var conn = new Player(new(ushort.MaxValue, "HinekoraTest", 128, 128, 32, 32, null, []), 0, 1)
         { Character = name, Account = name, League = "Standard" };
         var items = PlayerInventories.For(name, Program.Items);
         var stash = AccountStash.For(name, Program.Items);

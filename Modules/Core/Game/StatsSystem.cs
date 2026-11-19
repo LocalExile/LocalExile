@@ -7,19 +7,19 @@
 /// </summary>
 public static partial class Game
 {
-    /// <summary>Takes the framework's stat-change hand-over (ClientState.StatsChanged) for this module's lifetime.</summary>
+    /// <summary>Takes the framework's stat-change hand-over (Player.StatsChanged) for this module's lifetime.</summary>
     public static void LoadStats(GameServer.Modding.IModuleContext module)
     {
-        Action<ClientState, StatInput> mark = PlayerStatInputChanged;
-        ClientState.StatsChanged = mark;
+        Action<Player, StatInput> mark = PlayerStatInputChanged;
+        Player.StatsChanged = mark;
         module.Lifetime.Own(new StatsHandOver(mark));
     }
-    sealed class StatsHandOver(Action<ClientState, StatInput> mark) : IDisposable
+    sealed class StatsHandOver(Action<Player, StatInput> mark) : IDisposable
     {
-        public void Dispose() { if (ClientState.StatsChanged == mark) ClientState.StatsChanged = null; }
+        public void Dispose() { if (Player.StatsChanged == mark) Player.StatsChanged = null; }
     }
 
-    public static void StartStats(GameArea area, ClientState conn, object source)
+    public static void StartStats(GameArea area, Player conn, object source)
     {
         var monsters = conn.Monsters;
         var frames = conn.Frames;

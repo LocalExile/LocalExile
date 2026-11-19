@@ -80,16 +80,16 @@ public static partial class Game
     /// <summary>"Enemies within 3 metres" (10 cells to the metre).</summary>
     public const int PoisonSpreadRadius = 30;
 
-    static readonly Store<ClientState, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
+    static readonly Store<Player, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
     static readonly RuleTable<SpawnedMonster, SpreadPoisonRegeneration> AllySpreadPoisonRegenerations = new();
-    public static SpreadPoisonRegeneration SpreadPoisonRegenerationOf(ClientState conn) =>
+    public static SpreadPoisonRegeneration SpreadPoisonRegenerationOf(Player conn) =>
         SpreadPoisonRegenerations.GetValue(conn, _ => new());
 
     // The ordinary monster regeneration step also owns minion and other allied-monster recovery. No second timer.
     static double SpreadPoisonRecovery(SpawnedMonster monster, double now) =>
         AllySpreadPoisonRegenerations.TryGetValue(monster, out var regeneration) ? regeneration.Recover(now) * PanelStats.LifeRegenerationMultiplier(name => monster.Effects[name]) : 0;
 
-    static int SourceStat(ClientState conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
+    static int SourceStat(Player conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>Bino's Kitchen Knife (GameEvents.Kill): the player killed a poisoned enemy, so its strongest poison stack
@@ -146,7 +146,7 @@ public static partial class Game
         * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100);
 
     /// <summary>The regeneration's Life per minute while it applies (CharacterStatSources).</summary>
-    static Dictionary<uint, int> WithSpreadPoisonRegeneration(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithSpreadPoisonRegeneration(Player conn, Dictionary<uint, int> sources)
     {
         if (conn.PlayerLife == 0 || !SpreadPoisonRegenerationOf(conn).Applied || Stats.Key("base_life_regeneration_rate_per_minute") is not uint key)
             return sources;
@@ -155,7 +155,7 @@ public static partial class Game
         return result;
     }
 
-    public static byte[]? SpreadPoisonRegenerationPresentation(ClientState conn)
+    public static byte[]? SpreadPoisonRegenerationPresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -193,6 +193,6 @@ public static partial class Game
         }
     }
 
-    public static Task SendSpreadPoisonRegeneration(ClientState conn) =>
+    public static Task SendSpreadPoisonRegeneration(Player conn) =>
         Send(conn, [], null, atGate: () => SpreadPoisonRegenerationPresentation(conn));
 }

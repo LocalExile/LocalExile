@@ -132,7 +132,7 @@ public static class BossKits
     /// <param name="defaultAttack">The attack the monster would have swung without a kit: the kit's first entry is that
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     /// <param name="unique">A hostile unique monster (a Rogue Exile): it plays its kit like a boss, bar or not.</param>
-    public static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<MonsterKitSkill> Kit(Player conn, MonsterCatalog.Variety variety, byte level,
         int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
     {
         var catalog = SkillsFor(conn);
@@ -224,7 +224,7 @@ public static class BossKits
     /// <param name="setOff">Shape what a trap of the skill plays once set off, rather than the throw.</param>
     /// <param name="body">Shape it as the body summoned for it uses it (a totem's: <see cref="BodyAttack"/>), not as a
     /// summon.</param>
-    public static MonsterAttack? Shaped(ClientState conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack,
+    public static MonsterAttack? Shaped(Player conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack,
         bool setOff = false, bool body = false)
     {
         var catalog = SkillsFor(conn);
@@ -318,7 +318,7 @@ public static class BossKits
     /// <summary>What a summoned body (a monster's totem) does with the skill it was summoned for: that skill at the
     /// summoner's level, as a unique plays it (<see cref="Shaped"/>), from as far as base_totem_range reaches when the
     /// skill names one (cells, as the player's totems target: Game.TotemTargetRange). Null when it would do nothing.</summary>
-    public static MonsterAttack? BodyAttack(ClientState conn, MonsterCatalog.Variety? body, byte level, int effect, ushort id)
+    public static MonsterAttack? BodyAttack(Player conn, MonsterCatalog.Variety? body, byte level, int effect, ushort id)
     {
         if (body is null) return null;
         var catalog = SkillsFor(conn);
@@ -374,7 +374,7 @@ public static class BossKits
 
     /// <summary>The kit as the actor's skill list: 0x4000 + the kit index names the action, as the campaign's own kits do
     /// (DepravedTrinity.Skill).</summary>
-    public static IReadOnlyList<GrantedSkill> SkillsOf(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill> SkillsOf(Player conn, MonsterCatalog.Variety variety, byte level,
         IReadOnlyList<MonsterKitSkill> kit)
     {
         var catalog = SkillsFor(conn);
@@ -392,7 +392,7 @@ public static class BossKits
     /// <summary>One action of a kit, built the way a monster's default attack is (DepravedTrinity.Attack): the skill's
     /// own damage and cast time at the actor's level, the reach it reaches the player from, and the projectile whose flight
     /// carries the hit. Its id is the kit slot (0x4000 + the kit index), which is the one the actor's skill list names.</summary>
-    public static MonsterAttack AttackFor(ClientState conn, MonsterCatalog.Variety variety, byte actorLevel, int effect, ushort skillId)
+    public static MonsterAttack AttackFor(Player conn, MonsterCatalog.Variety variety, byte actorLevel, int effect, ushort skillId)
     {
         var catalog = SkillsFor(conn);
         var native = GolemData.Skill(catalog, effect, actorLevel);

@@ -6,7 +6,7 @@ public static partial class Game
 {
     // Only call while constructing an accepted player-stat packet inside the send gate. Pure stat
     // construction must not acknowledge anything: remember exactly the pair this packet encodes.
-    public static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
+    public static byte[] PlayerStatsUpdateAtGate(Player conn, IReadOnlyList<(uint Key, int Value)> stats)
     {
         // Under a trap's degeneration the pools only fall: the client steps them up by these rates between updates.
         if ((conn.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(conn) || ChargeDegenerationActive(conn)
@@ -35,7 +35,7 @@ public static partial class Game
     // way, at the start of the frame being sent, after the steps of the frames before it (tick trace 2026-11-10: four
     // setups of one segment in the frame a full snapshot arrived, three of them at an unchanged step time, and the walk
     // a cell to the side of the estimate's for the next eight frames).
-    public static void RelayWalkForStats(ClientState conn, byte[] bytes)
+    public static void RelayWalkForStats(Player conn, byte[] bytes)
     {
         if (!conn.LockstepClient || conn.LockstepFrame is not { } frame || bytes.Length < 13
             || (bytes[0] << 8 | bytes[1]) != InstanceEntities.StatsUpdateId
@@ -74,7 +74,7 @@ public static partial class Game
 
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
-    public static Task SendPlayerStatSnapshot(ClientState conn,
+    public static Task SendPlayerStatSnapshot(Player conn,
         Func<byte[]> packet, string? label) => SendWorldRecords(conn, PlayerId, () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "stats"))

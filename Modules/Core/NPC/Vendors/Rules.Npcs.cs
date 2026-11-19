@@ -12,7 +12,7 @@ static partial class VendorsRules
 
     internal static VendorRecipes VendorSales = default!;
 
-    internal static async Task ClaimNpcReward(ClientState conn, uint itemId,
+    internal static async Task ClaimNpcReward(Player conn, uint itemId,
         byte row = PlayerInventories.MainInventory)
     {
         if (conn.NpcRewardOffer is not int offer || !conn.NpcRewardItems.TryGetValue(itemId, out var reward)) return;

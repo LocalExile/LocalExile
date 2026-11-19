@@ -20,9 +20,9 @@ public static partial class Game
         public readonly MonsterAiCadence Cadence = new();
         public Task Pass = Task.CompletedTask;
     }
-    static readonly ConditionalWeakTable<ClientState, AreaAi> AreaAis = new();
+    static readonly ConditionalWeakTable<Player, AreaAi> AreaAis = new();
 
-    public static void StartMonsterAi(GameArea area, ClientState conn, object source)
+    public static void StartMonsterAi(GameArea area, Player conn, object source)
     {
         var frames = conn.Frames;
         area.Systems.Add("monster ai", AreaPhase.Ai, a =>
@@ -32,7 +32,7 @@ public static partial class Game
     }
 
 
-    static void AreaMonsterAi(GameArea area, ClientState player)
+    static void AreaMonsterAi(GameArea area, Player player)
     {
         if (!CurrentGameWork || player.Instance is null || player.Closed || player.LeavingArea || player.PendingTransfer is not null || !player.PlayerSent
             || player.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(player, updates)) return;
@@ -60,7 +60,7 @@ public static partial class Game
     }
 
     // The plan's records and actions, sent as the AI loop sent them: each order built at its frame's gate.
-    static async Task SendMonsterAiPlan(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
+    static async Task SendMonsterAiPlan(Player conn, MonsterAiCadence cadence, MonsterAiPlan plan)
     {
         foreach (var (packet, log) in plan.Ailments) await Send(conn, packet, log);
         foreach (uint id in plan.EndedActions)
@@ -71,7 +71,7 @@ public static partial class Game
     }
 
     // The pass's upkeep, before its plan as in the AI loop: summons running out, traps, markers, grounds, debuffs.
-    static async Task MonsterAiUpkeep(ClientState conn)
+    static async Task MonsterAiUpkeep(Player conn)
     {
         await ExpireSummonedMonsters(conn);
         await MonsterTrapsTick(conn);
@@ -84,7 +84,7 @@ public static partial class Game
     }
 
     // What the pass starts besides its orders: boss bars, swings (each waits for its contact on the player's frames).
-    static async Task MonsterAiActions(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
+    static async Task MonsterAiActions(Player conn, MonsterAiCadence cadence, MonsterAiPlan plan)
     {
         foreach (var (id, m) in plan.BossBars)
         {
@@ -103,7 +103,7 @@ public static partial class Game
     }
 
     // Work of the area's pass that sends, run as the player's: on their frame waits (AreaUpdateContext) and output guard.
-    static async Task AsPlayer(ClientState conn, PlayerUpdatesState updates, Func<Task> work)
+    static async Task AsPlayer(Player conn, PlayerUpdatesState updates, Func<Task> work)
     {
         AreaUpdateContext.Value = updates;
         Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(conn, updates);

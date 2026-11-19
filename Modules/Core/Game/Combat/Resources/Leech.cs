@@ -6,13 +6,13 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static readonly Store<ClientState, LeechSession> LeechSessions = new();
-    public static LeechSession LeechOf(ClientState conn) => LeechSessions.GetValue(conn, _ => new());
+    public static readonly Store<Player, LeechSession> LeechSessions = new();
+    public static LeechSession LeechOf(Player conn) => LeechSessions.GetValue(conn, _ => new());
 
     // Invisible BuffDefinitions rows for the leech overlay on the life, mana and energy-shield orbs.
     const ushort LifeLeechBuffRow = 39, ManaLeechBuffRow = 38, EnergyShieldLeechBuffRow = 40;
 
-    public static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(ClientState conn)
+    public static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -27,7 +27,7 @@ public static partial class Game
         }
     }
 
-    public static void WithLeechConditions(ClientState conn, StatMap stats)
+    public static void WithLeechConditions(Player conn, StatMap stats)
     {
         var state = LeechContext(conn);
         foreach (var (name, active) in new[] { ("is_life_leeching", state.Life), ("is_mana_leeching", state.Mana),
@@ -38,7 +38,7 @@ public static partial class Game
 
     // "X% increased Attack Speed while Leeching" (Endless Hunger): the client's increased attack speed sum (0x142704be0)
     // adds it while is_leeching. The server sends the final main-hand value, so it joins there.
-    public static int LeechingAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static int LeechingAttackSpeed(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         var state = LeechContext(conn);
         return (state.Life || state.Mana || state.EnergyShield) && Stats.Key("attack_speed_+%_while_leeching") is uint key
@@ -58,7 +58,7 @@ public static partial class Game
                 ? 1 : 0;
     }
 
-    public static void ConfigureLeech(ClientState conn, Func<string, int> get, bool onLowLife)
+    public static void ConfigureLeech(Player conn, Func<string, int> get, bool onLowLife)
     {
         lock (conn.Monsters)
         {
@@ -73,7 +73,7 @@ public static partial class Game
     }
 
     // Pool commits (including instant flasks/block gains) cannot leave ordinary leech alive until the next tick.
-    public static void TrimLeechLocked(ClientState conn)
+    public static void TrimLeechLocked(Player conn)
     {
         double now = ProjectileWorldTime(conn);
         if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
@@ -94,7 +94,7 @@ public static partial class Game
     }
 
     // Invoke only inside an accepted direct-hit transaction, after evasion/block and before impale reflection.
-    public static void LeechOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket taken,
+    public static void LeechOnHitLocked(Player conn, SpawnedMonster target, DamagePacket taken,
         int directDamage, LeechSources sources)
     {
         if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
@@ -141,7 +141,7 @@ public static partial class Game
     /// by Petrified Blood's Low Life recovery cap: the orb shows the leech's full potential while the server caps the
     /// actual pool update.
     /// </summary>
-    public static byte[]? LeechBuffPresentation(ClientState conn)
+    public static byte[]? LeechBuffPresentation(Player conn)
     {
         double now = ProjectileWorldTime(conn);
         var display = LeechOf(conn).Display(now);
@@ -175,7 +175,7 @@ public static partial class Game
     }
 
     // A stat presentation: on a granted or removed instance (DisplayChanged), and when the next one ends.
-    public static Task SendLeechBuffs(ClientState conn)
+    public static Task SendLeechBuffs(Player conn)
     {
         lock (conn.Monsters)
         {

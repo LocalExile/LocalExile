@@ -6,7 +6,7 @@ public static partial class Game
 {
     // number_of_active_links: one per link (each source buff's condition stat). The client's derived aura effect
     // (0x142829960) and PassiveBonus add non_curse_aura_effect_+%_while_linked (Absolution) only while it is nonzero.
-    static Dictionary<uint, int> WithLinks(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithLinks(Player conn, Dictionary<uint, int> sources)
     {
         int count;
         lock (conn.Monsters) count = conn.Links.Count;
@@ -16,7 +16,7 @@ public static partial class Game
 
     // A link gem's cast (CastGemSkill): the link starts at the end of its cast time, as a spell's effect lands, unless the
     // cast was interrupted (another action, death).
-    static async Task<bool> CastLink(ClientState conn,
+    static async Task<bool> CastLink(Player conn,
         ushort skillId, int effect, uint targetId, Func<bool> current)
     {
         if (CastMs(conn, effect, skillId) is not int ms) return false;
@@ -32,7 +32,7 @@ public static partial class Game
     /// (Deep Connections' +5 included) with the skill duration modifiers and <c>link_skill_duration_+%</c>, and costs the
     /// skill's <c>mana_cost_per_minute</c> while it lasts. False when nothing qualifies.
     /// </summary>
-    public static async Task<bool> StartLink(ClientState conn,
+    public static async Task<bool> StartLink(Player conn,
         ushort skillId, uint targetId)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return false;
@@ -77,7 +77,7 @@ public static partial class Game
     // The target a link cast takes. It qualifies as in the client's filter (0x141bfaf20): not the player, within the link
     // range, and, as there is no party play, one of his living minions while he has link_skills_can_target_minions
     // (they carry is_player_minion and is_semantic_minion, and none has cannot_be_damaged).
-    static uint? LinkTargetLocked(ClientState conn, uint aimed, Func<string, int> player, double now)
+    static uint? LinkTargetLocked(Player conn, uint aimed, Func<string, int> player, double now)
     {
         if (player("link_skills_can_target_minions") == 0) return null;
         var here = conn.Walk.Position(now);
@@ -89,12 +89,12 @@ public static partial class Game
             .Select(m => (uint?)m.Id).FirstOrDefault();
     }
 
-    static bool LinkTargetAliveLocked(ClientState conn, uint id) =>
+    static bool LinkTargetAliveLocked(Player conn, uint id) =>
         conn.Minions.All.FirstOrDefault(m => m.Id == id) is { } minion && conn.Monsters.TryGetValue(id, out var held)
         && ReferenceEquals(held, minion.Monster) && !held.Dead && held.Life > 0;
 
     // A link ends: both its buffs come off (the target's only while its object is there).
-    static void EndLinkLocked(ClientState conn, LinkSkills.Link link, List<byte> bytes)
+    static void EndLinkLocked(Player conn, LinkSkills.Link link, List<byte> bytes)
     {
         conn.Links.Remove(link.Target);
         bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, link.SourceBuff));
@@ -102,7 +102,7 @@ public static partial class Game
     }
 
     // The link count changed: Absolution's aura effect follows it, so the pools and the auras' stats are worked out again.
-    static void LinksChangedLocked(ClientState conn)
+    static void LinksChangedLocked(Player conn)
     {
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
         conn.ApplyMovementSpeed();
@@ -117,7 +117,7 @@ public static partial class Game
     /// break. Then a link ends with its duration, or after 4 s with its target out of range. Field Medicine's flask buffs on
     /// the targets end with their duration.
     /// </summary>
-    public static async Task LinkSkillsTick(ClientState conn, double now)
+    public static async Task LinkSkillsTick(Player conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -194,7 +194,7 @@ public static partial class Game
     // Flask's Onslaught too, and its stats at the flask's own increased effect but without the player's "applied to you"
     // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer). A minion target walks at their
     // movement speed (MinionFlaskSpeedLocked); their other stats have nothing to act on (paladin.md).
-    static void FlaskToLinkedTargetsLocked(ClientState conn,
+    static void FlaskToLinkedTargetsLocked(Player conn,
         Item flask, IReadOnlyDictionary<string, int> local, UtilityFlasks.Utility utility, Func<string, int> character)
     {
         if (flask.Rarity == ItemRarity.Unique || character("flasks_apply_to_your_linked_targets") == 0) return;
@@ -222,7 +222,7 @@ public static partial class Game
     // A minion's walk with the player's flasks on it (Field Medicine): its variety's speed × (1 + its mods' and the
     // flasks' base_movement_velocity_+%, the strongest of each flask effect), in the server's walk and, as
     // movement_velocity_+% (0xf5), in the client's, which walks every mover at its base × (1 + 0xf5 / 100) (0x141e827a0).
-    static void MinionFlaskSpeedLocked(ClientState conn, uint target, double now, List<byte> bytes)
+    static void MinionFlaskSpeedLocked(Player conn, uint target, double now, List<byte> bytes)
     {
         if (!conn.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;
         int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(conn.Links.Flasks.Where(f => f.Target == target)

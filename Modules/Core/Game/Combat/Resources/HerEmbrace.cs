@@ -31,11 +31,11 @@ public static partial class Game
     public const string HerEmbraceGain = "gain_her_embrace_for_x_ms_on_enemy_ignited";
     public const string HerEmbraceDegen = "%_maximum_es_and_life_taken_as_fire_damage_per_minute_per_level_while_in_her_embrace";
     public const ushort HerEmbraceBuffRow = 979;
-    static readonly Store<ClientState, HerEmbraceState> HerEmbraces = new();
-    public static HerEmbraceState HerEmbraceOf(ClientState conn) => HerEmbraces.GetOrCreateValue(conn);
+    static readonly Store<Player, HerEmbraceState> HerEmbraces = new();
+    public static HerEmbraceState HerEmbraceOf(Player conn) => HerEmbraces.GetOrCreateValue(conn);
     public sealed record CarriedHerEmbrace(uint[] Hosts, double Seconds, double Pending, double TakenCarry, double BypassCarry);
 
-    static Dictionary<string, bool> RequalifyHerEmbrace(ClientState conn, IReadOnlyDictionary<string, bool> flags,
+    static Dictionary<string, bool> RequalifyHerEmbrace(Player conn, IReadOnlyDictionary<string, bool> flags,
         IEnumerable<Item>? activeItems = null, IReadOnlyDictionary<uint, int>? raw = null)
     {
         if (conn.LeavingArea) return new(flags) { ["_while_in_her_embrace"] = false };
@@ -61,7 +61,7 @@ public static partial class Game
         return new(flags) { ["_while_in_her_embrace"] = embraced };
     }
 
-    public static void HerEmbraceOnIgniteLocked(ClientState conn, double now)
+    public static void HerEmbraceOnIgniteLocked(Player conn, double now)
     {
         if (conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 || !CurrentGameWork) return;
         var state = HerEmbraceOf(conn);
@@ -73,7 +73,7 @@ public static partial class Game
             * ((double)conn.PlayerMaxLife + conn.Pools.EnergyShield) / 6000d;
     }
 
-    static Dictionary<uint, int> WithHerEmbrace(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithHerEmbrace(Player conn, Dictionary<uint, int> sources)
     {
         var state = HerEmbraceOf(conn);
         if (conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") != true) return sources;
@@ -94,7 +94,7 @@ public static partial class Game
         return sources;
     }
 
-    public static int AdvanceHerEmbraceDamageLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static int AdvanceHerEmbraceDamageLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (!HerEmbraces.TryGetValue(conn, out var state) || state.Hosts.Length == 0
             || state.Until <= 0 && state.Pending <= 0) return 0;
@@ -114,29 +114,29 @@ public static partial class Game
         return life;
     }
 
-    public static CarriedHerEmbrace? CaptureHerEmbrace(ClientState conn, double at)
+    public static CarriedHerEmbrace? CaptureHerEmbrace(Player conn, double at)
     {
         var state = HerEmbraceOf(conn); state.Settle(at);
         return state.Hosts.Length > 0 && (state.Until > at || state.Pending > 0)
             ? new([.. state.Hosts], Math.Max(0, state.Until - at), state.Pending, state.TakenCarry, state.BypassCarry) : null;
     }
-    public static void RestoreHerEmbrace(ClientState conn, CarriedHerEmbrace value, double at)
+    public static void RestoreHerEmbrace(Player conn, CarriedHerEmbrace value, double at)
     {
         var state = HerEmbraceOf(conn); state.Clear();
         state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Hosts = [.. value.Hosts];
         state.At = at; state.Until = at + value.Seconds; state.Pending = value.Pending;
         state.TakenCarry = value.TakenCarry; state.BypassCarry = value.BypassCarry;
     }
-    public static void RetireHerEmbrace(ClientState conn)
+    public static void RetireHerEmbrace(Player conn)
     {
         if (!HerEmbraces.TryGetValue(conn, out var state)) return;
         state.Clear();
         foreach (ushort buff in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, buff));
         state.Retired.Clear();
     }
-    public static Task SendHerEmbrace(ClientState conn) =>
+    public static Task SendHerEmbrace(Player conn) =>
         SendWorldRecords(conn, PlayerId, () => HerEmbracePresentation(conn));
-    public static byte[][]? HerEmbracePresentation(ClientState conn)
+    public static byte[][]? HerEmbracePresentation(Player conn)
     {
         lock (conn.Monsters)
         {

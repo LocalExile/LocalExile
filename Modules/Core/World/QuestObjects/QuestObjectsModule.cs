@@ -48,7 +48,7 @@ public sealed class QuestObjectsModule : IModule
                 && kill.Conn.Instance.SetState(Act5Objects.ShortcutOpen))
             {
                 var instance = kill.Conn.Instance;
-                foreach (var player in instance.PlayersExcept(kill.Conn.PeerId).Select(p => p.Owner).OfType<ClientState>().Prepend(kill.Conn))
+                foreach (var player in instance.PlayersExcept(kill.Conn.PeerId).Select(p => p.Owner).OfType<Player>().Prepend(kill.Conn))
                     player.KillShares.Enqueue(async _ =>
                     {
                         if (player.Closed || player.LeavingArea || player.Instance != instance) return;

@@ -1,6 +1,6 @@
 public static partial class Game
 {
-    static Dictionary<string, bool> RequalifySourcePhasing(ClientState conn,
+    static Dictionary<string, bool> RequalifySourcePhasing(Player conn,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources,
         IReadOnlySet<string> recent,
         IReadOnlySet<string> auras, double now)

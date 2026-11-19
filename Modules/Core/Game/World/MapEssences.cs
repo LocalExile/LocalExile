@@ -25,7 +25,7 @@ public static class MapEssences
         public List<Monolith>? Monoliths;
     }
     static readonly Store<InstanceState, Area> Areas = new();
-    static readonly Store<ClientState, HashSet<uint>> Presented = new();
+    static readonly Store<Player, HashSet<uint>> Presented = new();
     sealed record Snapshot(string Text, List<Monolith> List);
     sealed class Parse { public volatile Snapshot? Last; }
     static readonly Store<InstanceState, Parse> Parsed = new();
@@ -43,12 +43,12 @@ public static class MapEssences
                 $"area={opening.Area.Id} content=Essence: release/reward lifecycle enabled; base essence multiplicity/weights use replica balance, corruption and specialised essence skills remain unsupported"));
     }
 
-    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
-        .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
+    static IEnumerable<Player> Members(Player conn) => conn.Instance.PlayersExcept(conn.PeerId)
+        .Select(p => p.Owner).OfType<Player>().Prepend(conn)
         .Where(c => !c.Closed && !c.LeavingArea && c.Instance == conn.Instance).Distinct();
-    static void Keep(ClientState conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Monoliths);
+    static void Keep(Player conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Monoliths);
 
-    public static int Count(ClientState conn)
+    public static int Count(Player conn)
     {
         if (MapRunOf(conn) is not { } map || conn.Instance.KeptAreaStats is not { } stats) return 0;
         // Loading the WorldAreas row costs ~3 ms on every new map instance; the row does not change.
@@ -58,7 +58,7 @@ public static class MapEssences
     }
 
     /// <summary>Replaces a planned natural rare before it exists; it earns no kill rewards until actually released and killed.</summary>
-    public static async Task<bool> Imprison(ClientState conn, AreaPopulation.Spawn spawn)
+    public static async Task<bool> Imprison(Player conn, AreaPopulation.Spawn spawn)
     {
         if (spawn.Rarity != MonsterRarity.Rare || MapModsOf(conn) is not { } mods
             || mods.Get("map_rare_monsters_trapped_in_essences") <= 0
@@ -95,7 +95,7 @@ public static class MapEssences
         finally { area.Gate.Release(); }
     }
 
-    public static async Task Enter(ClientState conn)
+    public static async Task Enter(Player conn)
     {
         if (MapRunOf(conn) is not { } map || MapModsOf(conn) is not { } mods) return;
         var area = Areas.GetValue(conn.Instance, _ => new());
@@ -133,7 +133,7 @@ public static class MapEssences
         finally { area.Gate.Release(); }
     }
 
-    static async Task Present(ClientState conn, Monolith monolith, bool replace = false)
+    static async Task Present(Player conn, Monolith monolith, bool replace = false)
     {
         var shown = Presented.GetValue(conn, _ => []);
         if (!replace && shown.Contains(monolith.Id)) return;
@@ -158,7 +158,7 @@ public static class MapEssences
         shown.Add(monolith.Id);
     }
 
-    public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (!Areas.TryGetValue(conn.Instance, out var area) || area.Monoliths?.FirstOrDefault(m => m.Id == use.TargetId) is not { } monolith) return false;
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return true;
@@ -223,10 +223,10 @@ public static class MapEssences
             if (MapEssenceCatalog.Find(row) is { } essence) roll.Items.Add(essence.Item);
     }
 
-    public static void Describe(ClientState conn, JsonObject state)
+    public static void Describe(Player conn, JsonObject state)
     {
         if (Areas.TryGetValue(conn.Instance, out var area) && area.Monoliths is not null)
             state["essences"] = JsonSerializer.SerializeToNode(area.Monoliths);
     }
-    public static void Leave(ClientState conn) => Presented.Remove(conn);
+    public static void Leave(Player conn) => Presented.Remove(conn);
 }

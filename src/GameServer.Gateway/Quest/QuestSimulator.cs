@@ -33,7 +33,7 @@ public sealed class QuestSimulator
     public string? Area { get; private set; }
     public int RefundPoints { get; private set; }
     /// <summary>The flags every character is given (<see cref="Quests.EveryCharacter"/>) that the play has not set yet: not
-    /// earned, as ClientState.UnearnedQuestFlags (Kitava's EndGameAvailable counts for his resistance penalty only once an
+    /// earned, as Player.UnearnedQuestFlags (Kitava's EndGameAvailable counts for his resistance penalty only once an
     /// event sets it).</summary>
     public HashSet<string> Unearned { get; } = new(Quests.EveryCharacter, StringComparer.Ordinal);
     readonly HashSet<string> credited = new(StringComparer.Ordinal);

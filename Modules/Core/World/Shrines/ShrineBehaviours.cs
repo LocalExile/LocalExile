@@ -17,7 +17,7 @@ sealed class GuardedPacksEffect : IShrineEffect
     public Task OnSpawn(ShrineContext ctx, ShrineInstance shrine) =>
         shrine.Definition.GuardPacks.Count == 0 ? Task.CompletedTask : SpawnGuards(ctx.Conn, shrine);
 
-    static async Task SpawnGuards(ClientState conn, ShrineInstance shrine)
+    static async Task SpawnGuards(Player conn, ShrineInstance shrine)
     {
         try
         {
@@ -55,7 +55,7 @@ sealed class GuardedPacksEffect : IShrineEffect
     /// <summary>The shrine's monster buff on one of its guards: the BuffDefinitions row the Shrines row names, and its
     /// BuffTemplates values as the monster's effects. <see cref="SpawnedMonster.EncounterStats"/> is where a monster's buff
     /// stats are read, keyed by stat name: the client key is a Stats row + 1, so the name comes back from Stats.</summary>
-    static async Task<bool> GuardBuff(ClientState conn, uint guard, ShrineCatalog.MonsterBuff buff)
+    static async Task<bool> GuardBuff(Player conn, uint guard, ShrineCatalog.MonsterBuff buff)
     {
         var stats = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (key, value) in buff.Stats)

@@ -5,13 +5,13 @@ using static Game;
 using static Program;
 using static ArenaHazards;
 
-internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState owner)
+internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owner)
 {
     const string Root = "Metadata/Monsters/Frog/FrogGod/";
     const ushort TurretSkill = 0x4ff0;
     internal const double PoolRadius = 12, FearRadius = 8;
-    readonly List<ClientState> players = [];
-    readonly Dictionary<ClientState, Exposure> exposure = [];
+    readonly List<Player> players = [];
+    readonly Dictionary<Player, Exposure> exposure = [];
     readonly HashSet<uint> owned = [];
     readonly HashSet<ProjectileSession> flights = [];
     readonly List<uint> turrets = [], orbs = [];
@@ -22,9 +22,9 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
     List<GlyphQuest.Placement>? pools;
     bool stopped, initialized;
     double nextMove, nextGround;
-    IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
     bool Current => !stopped && CurrentGameWork && !boss.Dead && boss.Life > 0;
-    internal async Task Bind(ClientState c)
+    internal async Task Bind(Player c)
     {
         if (!players.Contains(c)) players.Add(c);
         foreach (var s in scene)
@@ -40,7 +40,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
         foreach (var p in Present.ToArray())
         { await SendWorldRecord(p, id, [.. bytes], label); }
     }
-    async Task<uint> Spawn(ClientState c, string type, (int X, int Y) at, IReadOnlyList<GrantedSkill>? skills = null)
+    async Task<uint> Spawn(Player c, string type, (int X, int Y) at, IReadOnlyList<GrantedSkill>? skills = null)
     {
         uint id = await SpawnMonster(c, Monsters.Find(type)!, boss.Level,
             MonsterRarity.Normal, at.X, at.Y, unrisen: false, scripted: true, ownedSkills: skills,
@@ -50,7 +50,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
             await SyncInstanceMonsters(p);
         return id;
     }
-    async Task Initialize(ClientState c)
+    async Task Initialize(Player c)
     {
         pools = new QuestObjectTypes.AreaPlacements(Yugul.Area, c.Seed, []).Of(Root + "SilverPool");
         var placements = new QuestObjectTypes.AreaPlacements(Yugul.Area, c.Seed, []);
@@ -65,7 +65,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
         // Existing owned actors are retired on module unload; no controller adopts unrelated summons.
         initialized = true;
     }
-    internal async Task Step(ClientState c, double now)
+    internal async Task Step(Player c, double now)
     {
         if (stopped || c.Paused) return;
         if (!Current) { await Clear(); return; }
@@ -185,7 +185,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
             await Ground(p, e, now, (at, minion) => DamagePacket.Of(DamageType.Cold, perOrb * Fears(at) * (minion ? .5 : 1), perOrb * Fears(at) * (minion ? .5 : 1)), () => Current);
         }
     }
-    static Task AllBuff(ClientState p, byte[] bytes)
+    static Task AllBuff(Player p, byte[] bytes)
     { return SendWorldRecord(p, PlayerId, bytes, "[Yugul] Fearful"); }
     internal async Task Clear()
     {

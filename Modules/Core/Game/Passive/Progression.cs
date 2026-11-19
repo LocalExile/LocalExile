@@ -7,13 +7,13 @@ using DamageModel = GameServer.Core.World.DamageModel;
 public static partial class Game
 {
     // Called before inventory loading or any save normalization on a real connection.
-    public static void CheckAscendancyClientCompatibility(ClientState conn) =>
+    public static void CheckAscendancyClientCompatibility(Player conn) =>
         AscendancyClientCompatibility.RequirePlayable(conn, CharacterSaves.Load(CharacterName(conn))?.MainAscendancy?.Selection);
 
     // Read-only admission checks, shared with LoadProgress: no inventory normalization or gold migration. A saved
     // Intuitive Leap/Thread of Hope needs the saved items to prove its bypass nodes, so PlayerInventories.For may load
     // them read-only here; a save-less character has no passives and does not build a start kit.
-    public static void ValidateSavedProgress(ClientState conn, CharacterSaves.Save? save)
+    public static void ValidateSavedProgress(Player conn, CharacterSaves.Save? save)
     {
         // Without the tree the saved passives can't be checked; dropping them would lose them at the next save.
         if (save?.Passives is { Count: > 0 } && !PassivesFor(conn).Loaded)
@@ -36,7 +36,7 @@ public static partial class Game
     // The character's experience and passives from its save; returns its level. The saved experience decides the level: the
     // account's (the ticket's) is only a copy for the character list, which a failed update at a level-up leaves behind. A save
     // without experience (an older one) starts at the account's level. Passives beyond the level's points are dropped.
-    public static int LoadProgress(ClientState conn, int level)
+    public static int LoadProgress(Player conn, int level)
     {
         ImportedProgress.Restore(CharacterName(conn));
         var save = CharacterSaves.Load(CharacterName(conn));
@@ -137,7 +137,7 @@ public static partial class Game
     // The character's stats from its allocated passives and the global mods of its active equipped items (ItemModStats),
     // by client stat key. Worn items whose requirements the class, the passives and the other active items do not meet are
     // inactive (ItemModStats.Inactive): remembered per character for the weapon profile and the gem skills.
-    public static (Dictionary<uint, int> Stats, AttributeModifiers Attributes) CharacterStatSources(ClientState conn,
+    public static (Dictionary<uint, int> Stats, AttributeModifiers Attributes) CharacterStatSources(Player conn,
         IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
@@ -190,13 +190,13 @@ public static partial class Game
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
     public static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
         List<ItemModStats.Worn> Worn) EquipmentStatSources(
-        ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        Player conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IEnumerable<ushort>? nodes = null, int? level = null) =>
         EquipmentStatSources(conn, equipment, nodes, level, null);
 
     public static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
         List<ItemModStats.Worn> Worn) EquipmentStatSources(
-        ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        Player conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IEnumerable<ushort>? nodes, int? level, Action? afterConditionCapture)
     {
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
@@ -826,7 +826,7 @@ public static partial class Game
         return (sources, attributes, inactive, wornItems);
     }
 
-    static int ActiveNonVaalSkillMinionCountLocked(ClientState conn, double now)
+    static int ActiveNonVaalSkillMinionCountLocked(Player conn, double now)
     {
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return 0;
         var skills = SkillsFor(conn);
@@ -842,7 +842,7 @@ public static partial class Game
         return count;
     }
 
-    static void PublishQualifiedItemLifeReservationPercent(ClientState conn, int percent)
+    static void PublishQualifiedItemLifeReservationPercent(Player conn, int percent)
     {
         lock (conn.Monsters) conn.QualifiedItemLifeReservationPercent = percent;
     }
@@ -853,7 +853,7 @@ public static partial class Game
     public static int ScaledRequirement(int requirement, int increasedPct) =>
         requirement <= 0 ? requirement : (int)Math.Max(0, (long)requirement * (100 + increasedPct) / 100);
 
-    public static int AttributeRequirementsPct(ClientState conn)
+    public static int AttributeRequirementsPct(Player conn)
     {
         if (Stats.Key(AttributeRequirementsStat) is not uint key) return 0;
         lock (conn.Monsters)
@@ -875,7 +875,7 @@ public static partial class Game
 
     sealed record AttributeRequirementSource(PassiveTree Tree, ushort[] Ordinary, ushort[] Ascendancy,
         Dictionary<ushort, ushort> Masteries, int Value);
-    static readonly Store<ClientState, AttributeRequirementSource> AttributeRequirementSources = new();
+    static readonly Store<Player, AttributeRequirementSource> AttributeRequirementSources = new();
 
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     public sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
@@ -967,7 +967,7 @@ public static partial class Game
     public static AttributeModifiers AttributeInputs(IReadOnlyDictionary<string, long> raw) =>
         AttributeModifiers.FromWide(name => raw.GetValueOrDefault(name));
 
-    public static CharacterStats.Pools PoolsFor(ClientState conn, int level)
+    public static CharacterStats.Pools PoolsFor(Player conn, int level)
     {
         lock (conn.Monsters)
         {
@@ -985,7 +985,7 @@ public static partial class Game
         }
     }
 
-    public static CharacterStats.Pools BuildPoolsFor(ClientState conn, int level)
+    public static CharacterStats.Pools BuildPoolsFor(Player conn, int level)
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
@@ -1442,7 +1442,7 @@ public static partial class Game
     // /add_passive_points; the client computes the same from the level in 0x33 and its extra_skill_points field), the
     // allocated nodes and the selected mastery effects. The client allows that many nodes plus the points the allocated
     // nodes grant themselves.
-    public static (ushort Points, ushort RefundPoints, List<ushort> Nodes, Dictionary<ushort, ushort> Masteries) PassiveState(ClientState conn)
+    public static (ushort Points, ushort RefundPoints, List<ushort> Nodes, Dictionary<ushort, ushort> Masteries) PassiveState(Player conn)
     {
         lock (conn.Monsters)
             return ((ushort)Math.Min(ushort.MaxValue, Progression.PassivePoints(conn.Pools.Level) + conn.ExtraPassivePoints + QuestPassivePoints(conn)),
@@ -1450,7 +1450,7 @@ public static partial class Game
     }
 
     // Drops the last allocated passives beyond the level's points (call under the Monsters lock).
-    public static void TrimPassives(ClientState conn, int level)
+    public static void TrimPassives(Player conn, int level)
     {
         int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints + QuestPassivePoints(conn) + AscendancyOrdinaryPoints(conn);
         TrimOrdinaryPassives(conn, conn.Passives, points);
@@ -1458,7 +1458,7 @@ public static partial class Game
         NormalizePassiveJewels(conn);
     }
 
-    public static void ValidateOrdinaryPassives(ClientState conn, IEnumerable<ushort> nodes, AscendancyProgress ascendancy,
+    public static void ValidateOrdinaryPassives(Player conn, IEnumerable<ushort> nodes, AscendancyProgress ascendancy,
         IReadOnlyDictionary<ushort, HashSet<ushort>>? bypass = null)
     {
         var candidate = nodes as IReadOnlyCollection<ushort> ?? nodes.ToArray();
@@ -1472,7 +1472,7 @@ public static partial class Game
     // with the socket(s) of the jewels that grant each one. The candidate set decides whether the jewel's own socket
     // is still allocated; skipItemId simulates taking that jewel out before the item move validates the remaining
     // tree.
-    public static Dictionary<ushort, HashSet<ushort>> AllocationBypassNodes(ClientState conn, IEnumerable<ushort> candidate,
+    public static Dictionary<ushort, HashSet<ushort>> AllocationBypassNodes(Player conn, IEnumerable<ushort> candidate,
         uint? skipItemId = null)
     {
         var allocated = candidate.ToHashSet();
@@ -1523,7 +1523,7 @@ public static partial class Game
 
     // A batch may list its leaf before its prerequisite. Removing the last allocation alone could orphan that leaf.
     // Keep the historical last-first preference, but only remove a node whose remaining tree is still connected.
-    public static void TrimOrdinaryPassives(ClientState conn, List<ushort> nodes, int points,
+    public static void TrimOrdinaryPassives(Player conn, List<ushort> nodes, int points,
         AscendancyProgress? ascendancy = null)
     {
         ascendancy ??= conn.MainAscendancy;
@@ -1556,7 +1556,7 @@ public static partial class Game
 
     // Chooses the main ascendancy (/ascendancy, the Ascendancy Chamber's class selector) and saves it; the caller reloads
     // the area to show its tree. An AscendancyRuleException leaves everything as it was.
-    public static void SelectMainAscendancy(ClientState conn, AscendancyCatalog.Definition chosen)
+    public static void SelectMainAscendancy(Player conn, AscendancyCatalog.Definition chosen)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
         AscendancyClientCompatibility.RequirePlayable(conn, chosen.Identity);
@@ -1580,7 +1580,7 @@ public static partial class Game
     }
 
     // Earns the Labyrinth tiers' ascendancy points (two each, once: AscendancyRules.AwardKeys), saved, and sends the tree.
-    public static async Task<int> AwardAscendancyPoints(ClientState conn,
+    public static async Task<int> AwardAscendancyPoints(Player conn,
         IEnumerable<string> awards)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
@@ -1610,7 +1610,7 @@ public static partial class Game
     /// unlock flag and for a refunded layer. The GM mod's /descendancy bypasses this through
     /// <see cref="SelectDescendancyForDevelopment"/>.
     /// </summary>
-    public static bool CanSelectDescendancy(ClientState conn, byte row, out string? reason)
+    public static bool CanSelectDescendancy(Player conn, byte row, out string? reason)
     {
         var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row);
         if (row == 0 || definition is null) { reason = $"no Descendancy row {row}"; return false; }
@@ -1634,7 +1634,7 @@ public static partial class Game
     }
 
     /// <summary>Chooses the second ascendancy layer after an offer from the server; the caller reloads the area.</summary>
-    public static void SelectDescendancy(ClientState conn, byte row)
+    public static void SelectDescendancy(Player conn, byte row)
     {
         lock (conn.Monsters)
         {
@@ -1645,7 +1645,7 @@ public static partial class Game
 
     /// <summary>The GM mod's unrestricted selection: any existing row, without an offer or its unlock flag, and a switch
     /// clears the old layer's nodes. Never used by a client packet.</summary>
-    public static void SelectDescendancyForDevelopment(ClientState conn, byte row)
+    public static void SelectDescendancyForDevelopment(Player conn, byte row)
     {
         if (row != 0 && Descendancies.Rows.All(r => r.Index != row))
             throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
@@ -1654,7 +1654,7 @@ public static partial class Game
 
     // Starts are implicit for both layers; an explicit start node would count as an allocated node and cost a point.
     // The caller holds conn.Monsters: a switch saves the row and the cleared nodes before publishing them.
-    static void ApplyDescendancy(ClientState conn, byte row)
+    static void ApplyDescendancy(Player conn, byte row)
     {
         if (row == conn.DescendancyRow) return;
         if (CharacterName(conn) is { Length: > 0 } character)
@@ -1665,7 +1665,7 @@ public static partial class Game
 
     /// <summary>Offers a Descendancy row to the client (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) and records
     /// it as the only row C→S 0x3a may accept in this area.</summary>
-    public static async Task OpenDescendancySelector(ClientState conn, byte row)
+    public static async Task OpenDescendancySelector(Player conn, byte row)
     {
         var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row)
             ?? throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
@@ -1681,7 +1681,7 @@ public static partial class Game
 
     // C→S 0x3a: the Descendancy class selector (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) accepted a
     // Descendancy.dat row. The second ascendancy layer: selects it, saves, and reloads so the client builds its tree.
-    internal static async Task ChooseDescendancy(ClientState conn, byte row)
+    internal static async Task ChooseDescendancy(Player conn, byte row)
     {
         Console.WriteLine($"[gateway] {conn.Remote} <= 0x003a descendancy row {row} chosen");
         if (!CanSelectDescendancy(conn, row, out string? reason))
@@ -1701,7 +1701,7 @@ public static partial class Game
 
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
     // Ascendancy.dat row. Only in a Labyrinth's last room, for an unascended character; the area reloads with the new class.
-    public static async Task ChooseAscendancyClass(ClientState conn, byte row)
+    public static async Task ChooseAscendancyClass(Player conn, byte row)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
         var chosen = Ascendancies.Choices(baseClass).FirstOrDefault(d => d.Identity.Family == AscendancyFamily.Normal && d.TableRow == row);
@@ -1716,7 +1716,7 @@ public static partial class Game
         await ChangeArea(conn, AscendancyReload(conn), $"ascendancy {chosen.Name} chosen at the font");
     }
 
-    public static PendingTransfer AscendancyReload(ClientState conn)
+    public static PendingTransfer AscendancyReload(Player conn)
     {
         lock (conn.Monsters)
             return new(conn.Layout.Hash, conn.InstanceNumber, false, ArriveAt: conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
@@ -1724,7 +1724,7 @@ public static partial class Game
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the
     // tree's start) and the allocated nodes.
-    public static async Task SendPassives(ClientState conn)
+    public static async Task SendPassives(Player conn)
     {
         if (QuestKillCommitOutput is { } output)
         {
@@ -1743,7 +1743,7 @@ public static partial class Game
     /// tree socket, a medium one in a large tree socket or in a large jewel's socket, and so on), and their ids are the
     /// client's layout indices (202, 206 live), never a PassiveSkillGraphId.
     /// </summary>
-    public static async Task ChangeClusterPassive(ClientState conn,
+    public static async Task ChangeClusterPassive(Player conn,
         ushort node, bool allocate)
     {
         bool socketed = false;
@@ -1781,7 +1781,7 @@ public static partial class Game
     /// below the PassiveSkillGraphId range of the tree's nodes.</summary>
     public const ushort MaxClusterNodeId = 0xFFF;
 
-    public static (byte[] Bytes, string Label) PassivesMessage(ClientState conn)
+    public static (byte[] Bytes, string Label) PassivesMessage(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -1822,13 +1822,13 @@ public static partial class Game
     }
 
     // The native family selector is a world stat, independently of the character's stored league.
-    public static IReadOnlyDictionary<uint, int>? LeagueStatsFor(ClientState conn) =>
+    public static IReadOnlyDictionary<uint, int>? LeagueStatsFor(Player conn) =>
         AscendancyPolicies.AreaStats(conn, conn.MainAscendancy.Selection);
 
-    public static int AscendancyOrdinaryPoints(ClientState conn) =>
+    public static int AscendancyOrdinaryPoints(Player conn) =>
         Game.AscendancyRules.OrdinaryPointsGranted((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, conn.MainAscendancy);
 
-    public static byte PackedClass(ClientState conn)
+    public static byte PackedClass(Player conn)
     {
         byte baseClass = (byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId;
         byte number = Game.AscendancyRules.Validate(baseClass, conn.MainAscendancy)?.ClassNo ?? 0;
@@ -1839,7 +1839,7 @@ public static partial class Game
     // points and complete ordinary/ascendancy connectivity, then saved, applied to the stats and sent back (0x33).
     // A gold respec (goldRespec) refunds only allocated nodes and charges their cost (PassiveTree.GoldRespecCost); a
     // refund-point refund (refundPoints) spends one saved point per node. /reset_passives sets neither.
-    public static async Task<string?> ChangePassives(ClientState conn,
+    public static async Task<string?> ChangePassives(Player conn,
         IReadOnlyList<ushort> nodes, bool allocate, string why, ushort? masteryEffect = null, bool goldRespec = false,
         bool refundPoints = false)
     {
@@ -2030,7 +2030,7 @@ public static partial class Game
     // Experience from a kill: added (up to the last level), sent as the Player component's experience (0x2bc; the client
     // derives the level and plays the level up from it), saved, and at a new level the level's stats, life and passive
     // points from current experience and the account's level (Auth set_level, for the character list).
-    public static async Task GainExperience(ClientState conn, uint gain, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
+    public static async Task GainExperience(Player conn, uint gain, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         if (RecordExperienceGain(conn, gain) is { } change)
             await CompleteExperienceGain(conn, change, why, control);
@@ -2045,14 +2045,14 @@ public static partial class Game
     // item's own component has no skill gems. Sent as the socket's equipment row 0x00bf item change, the same item id removed
     // and added again (the replace idiom: an addition of a known id alone is dropped as a duplicate, so the client would keep
     // the stale gem), so the client's gem XP bar and tooltip follow; the next save keeps it.
-    public static async Task GainGemExperience(ClientState conn, uint gain)
+    public static async Task GainGemExperience(Player conn, uint gain)
     {
         var (packets, leveled) = CommitGemExperience(conn, gain);
         foreach (var packet in packets) await Send(conn, packet, "gem experience");
         if (leveled) await SendSkills(conn);
     }
 
-    public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain,
+    public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(Player conn, uint gain,
         List<(byte Row, uint[] Items)>? projectRows = null)
     {
         lock (conn.Monsters)

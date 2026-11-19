@@ -10,7 +10,7 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 public partial class Program
 {
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
-    public static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
+    public static string CharacterName(Player conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
 
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
@@ -18,7 +18,7 @@ public partial class Program
     /// <summary>The player whose work this is: set by their handlers (RunHandlers) and the loops and tasks run as theirs,
     /// and flows into what those start. What a player causes in the area can name them as its source by it (a monster's
     /// ailment); the area's own systems run with none.</summary>
-    public static readonly AsyncLocal<ClientState?> ActingPlayer = new();
+    public static readonly AsyncLocal<Player?> ActingPlayer = new();
 
     public static void SaveUnsavedProgressNow(string? why)
     {
@@ -51,7 +51,7 @@ public partial class Program
         Console.WriteLine($"[gateway] CONNECT {remote} at {DateTime.Now:HH:mm:ss.fff}");
         long total = 0;
         uint ticket = 0;
-        ClientState? left = null;
+        Player? left = null;
         InstanceState? entered = null;
         bool prepared = false;
         long connectedAt = Stopwatch.GetTimestamp();
@@ -125,7 +125,7 @@ public partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level) };
+                var conn = new Player(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level) };
                 conn.Session = new(remote, stream, ciphers) { Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Session.Packets);
@@ -291,7 +291,7 @@ public partial class Program
                 left.Ended.TrySetResult();
             }
         }
-        else if (entered is not null) Instances.Leave(entered);   // ended before its ClientState existed
+        else if (entered is not null) Instances.Leave(entered);   // ended before its Player existed
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder
             ? left.Session.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
@@ -303,7 +303,7 @@ public partial class Program
     // The read loop's part: decrypts one read, frames it (InstanceProtocol.SplitClientMessages), answers its 0x1b ticks with
     // 0x1c at once and queues the rest for RunHandlers. readAt is when the read completed: a tick answered more than
     // ClientInbox.SlowAfter later is logged.
-    public static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
+    public static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, Player conn,
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
@@ -344,7 +344,7 @@ public partial class Program
 
     // The connection's handler task: every message but the ticks, one read at a time and in order (ClientInbox). A handler
     // that runs longer than ClientInbox.SlowAfter is logged. An error or 0x153 closes the connection by cancelling the read.
-    public static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, Player conn,
         ClientInbox inbox, CancellationTokenSource reading)
     {
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
@@ -405,7 +405,7 @@ public partial class Program
     // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
     // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
     // Positions are the server's estimates (PlayerWalk at MonsterVarieties MovementSpeed cells/s).
-    public static async Task WhilePaused(ClientState conn)
+    public static async Task WhilePaused(Player conn)
     {
         while (conn.Paused && !conn.Closed) await Task.Delay(100);
     }
@@ -418,9 +418,9 @@ public partial class Program
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
     /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
     /// clients); it must copy what it keeps.</summary>
-    public static Action<ClientState, byte[]>? Outgoing;
-    /// <summary>The player each connection's ciphers send for (ClientState.Session), for <see cref="Outgoing"/>.</summary>
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ClientState> PlayersByCiphers = new();
+    public static Action<Player, byte[]>? Outgoing;
+    /// <summary>The player each connection's ciphers send for (Player.Session), for <see cref="Outgoing"/>.</summary>
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, Player> PlayersByCiphers = new();
     [ThreadStatic] public static WorldOutput.Packet? WritingWorldRecord;
 
     // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
@@ -428,7 +428,7 @@ public partial class Program
     public const double SyncPublishMilliseconds = 100;
 
     /// <summary>Sends to the player's client (<see cref="Send(string, NetworkStream, ConnectionCiphers, byte[], string?, Func{bool}?, Func{byte[]?}?, string?)"/>).</summary>
-    public static Task Send(ClientState conn, byte[] bytes, string? log,
+    public static Task Send(Player conn, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null) =>
         Send(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, still, atGate, sync);
 
@@ -491,7 +491,7 @@ public partial class Program
     }
 
     // Called under SendGate. Diagnostics and the shared-object observer see actual transmission, not queueing.
-    public static Task WritePacket(ClientState conn, byte[] bytes, string? log, WorldOutput.Packet? record = null) =>
+    public static Task WritePacket(Player conn, byte[] bytes, string? log, WorldOutput.Packet? record = null) =>
         WritePacket(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, record);
 
     public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -533,7 +533,7 @@ public partial class Program
     /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
-    public static Task<bool> SendBatched(ClientState conn, Func<Task<bool>> body) =>
+    public static Task<bool> SendBatched(Player conn, Func<Task<bool>> body) =>
         SendBatched(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, body);
 
     public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
@@ -643,7 +643,7 @@ public partial class Program
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
-    public static Task SendPong(ClientState conn, byte[] bytes) => Write(conn.Session.Stream, conn.Session.Ciphers, bytes);
+    public static Task SendPong(Player conn, byte[] bytes) => Write(conn.Session.Stream, conn.Session.Ciphers, bytes);
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

@@ -143,7 +143,7 @@ public sealed class PartyFollowerTests
         Assert.True(Game.KeepControlledFollowerNear(delayed, leader, 1.3));
         Assert.True(Game.Dist(delayed.Walk.Position(1.3), (100, 100)) < 32);
         // Formation search cannot cross a disconnected wall into an apparently clear pocket.
-        var isolated = new ClientState(new(1, "pocket", 300, 300, 100, 100,
+        var isolated = new Player(new(1, "pocket", 300, 300, 100, 100,
             (x, y) => x <= 105 || x >= 115, []), 1, 1);
         Assert.True(Game.ControlledFollowerPoint(isolated, leader, arrival: true).X <= 105);
         await ControlledPlayerBuildChecks.VerifyReservationAttackSelection(runtime, wire);
@@ -198,19 +198,19 @@ public sealed class PartyFollowerTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        readonly List<ClientState> players = [];
+        readonly List<Player> players = [];
         public Runtime()
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
         // peer: a fixed id for a rule that is seeded by it; otherwise the next id of the process.
-        public ClientState Connection(InstanceState instance, Wire wire, string? character = null, uint? peer = null)
+        public Player Connection(InstanceState instance, Wire wire, string? character = null, uint? peer = null)
         {
             AreaLayout layout = new(1, "follower", 300, 300, 100, 100, null, []);
             var conn = peer is { } id
-                ? new ClientState(layout, 1, 1) { Instance = instance, Character = character, PeerId = id }
-                : new ClientState(layout, 1, 1) { Instance = instance, Character = character };
+                ? new Player(layout, 1, 1) { Instance = instance, Character = character, PeerId = id }
+                : new Player(layout, 1, 1) { Instance = instance, Character = character };
             conn.PlayerLife = 1000; conn.PlayerSent = true; conn.Controlled = true;
             conn.Session = new("follower-test", wire.Stream, wire.Ciphers);
             players.Add(conn); Program.InGame.TryAdd(conn, 0);

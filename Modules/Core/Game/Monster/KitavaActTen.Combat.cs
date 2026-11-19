@@ -11,13 +11,13 @@ static partial class KitavaActTen
     internal static readonly int[] Effects = [6587, 6592, 6596, 8484, 6589, 8508, 8510, 8512, 8486, 8488, 8490, 8492, 8494,
         8496, 8498, 8500, 8502, 8504, 8506, 6625, 6629, 6633, 8678, 8682, 8686, 8691, 8693, 8680, 8684, 8688];
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
-    static readonly Store<ClientState, Exposure> Exposures = new();
+    static readonly Store<Player, Exposure> Exposures = new();
     sealed class Exposure { public double Dps; }
-    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
+    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(ClientState c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
+    static int Stat(Player c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
-    internal static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var row = Data(c, effect, level); bool spell = effect is not (6592 or 6596);
         var damage = DamagePacket.Empty;
@@ -45,7 +45,7 @@ static partial class KitavaActTen
         seconds /= Math.Max(.01, 1 + Stat(c, effect, level, spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
         return new(Skill(effect), Math.Max(.1, seconds), 170, damage) { Spell = spell, Scripted = true };
     }
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level)
     {
         if (v.Id == Body)
             return [.. Effects.Select(e => Game.SkillsFor(c).FindByRow(Skill(e), e, Data(c, e, level).Level,
@@ -96,8 +96,8 @@ static partial class KitavaActTen
         readonly List<Patch> patches = [];
         readonly List<Visual> visuals = [];
         readonly List<Orb> orbs = [];
-        readonly HashSet<(int, ClientState, uint)> struck = [];
-        readonly Dictionary<(ClientState, uint), double> carry = [];
+        readonly HashSet<(int, Player, uint)> struck = [];
+        readonly Dictionary<(Player, uint), double> carry = [];
         int rotation, group;
         double lastGround;
         readonly Dictionary<int, double> cooldowns = [];
@@ -108,7 +108,7 @@ static partial class KitavaActTen
             return (anchor.X + (int)Math.Round((x * cos - y * sin) / WorldUnits.PerCell),
                 anchor.Y + (int)Math.Round((x * sin + y * cos) / WorldUnits.PerCell));
         }
-        async Task Combat(ClientState c, double now)
+        async Task Combat(Player c, double now)
         {
             if (now < ready || InGracePeriod(c)) return;
             int[] cycle = Round switch
@@ -182,7 +182,7 @@ static partial class KitavaActTen
                 }
             }
         }
-        async Task CombatMaintenance(ClientState c, double now)
+        async Task CombatMaintenance(Player c, double now)
         {
             foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await AllRemoval(fx.Id); }
             patches.RemoveAll(p => p.Until <= now); orbs.RemoveAll(o => o.Until <= now);
@@ -241,7 +241,7 @@ static partial class KitavaActTen
                     }
                 }
         }
-        async Task Damage(ClientState p, Hit hit)
+        async Task Damage(Player p, Hit hit)
         {
             MonsterHitOutcome? outcome = null; var attack = Attack(p, body.Variety!, body.Level, hit.Effect);
             bool Inside((int X, int Y) at) => hit.Cross ? Distance(at, hit.Aim) <= hit.Radius
@@ -263,12 +263,12 @@ static partial class KitavaActTen
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
-        async Task Fx(ClientState c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
+        async Task Fx(Player c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
         {
             var fx = new Visual(c.Instance.World.NewMonsterId(), at, model, clip ?? uint.MaxValue, until, rotation); visuals.Add(fx);
             foreach (var p in Present.ToArray()) await CreateFx(p, fx);
         }
-        static async Task CreateFx(ClientState p, Visual fx)
+        static async Task CreateFx(Player p, Visual fx)
         {
             var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model) { Rotation = fx.Rotation };
             await SendWorldCreate(p, fx.Id, () => InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));

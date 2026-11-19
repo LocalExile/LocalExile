@@ -8,7 +8,7 @@ public static partial class Game
     // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
     // Reusing this flask replaces its timer; another flask of the same kind keeps its own, strongest effect applies.
-    public static async Task<bool> UseUtilityFlaskCore(ClientState conn, uint slot,
+    public static async Task<bool> UseUtilityFlaskCore(Player conn, uint slot,
         InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility, FlaskAutomationStep? signal = null)
     {
         var owner = CombatLifetime;
@@ -99,7 +99,7 @@ public static partial class Game
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
     // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
-    public static int IncreasedItemRarity(ClientState conn, SpawnedMonster? monster = null)
+    public static int IncreasedItemRarity(Player conn, SpawnedMonster? monster = null)
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -113,7 +113,7 @@ public static partial class Game
     // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls
     // (ItemDrops.Roll). A kill made with a supported skill adds the skill's own
     // base_killed_monster_dropped_item_quantity_+% (Item Quantity Support).
-    public static double ItemQuantityFactor(ClientState conn, SpawnedMonster? monster = null)
+    public static double ItemQuantityFactor(Player conn, SpawnedMonster? monster = null)
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -126,7 +126,7 @@ public static partial class Game
 
     // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the
     // equipment changed.
-    public static void RecomputePoolsAndSpeed(ClientState conn)
+    public static void RecomputePoolsAndSpeed(Player conn)
     {
         RefreshRighteousFireProfileLocked(conn);
         using (new PlayerStatScope(conn, fresh: true))
@@ -144,7 +144,7 @@ public static partial class Game
 
     // The already-owned resource writer advances utility deadlines. During Stop/Start there is no writer;
     // the unchanged accepted effect is claimed by the replacement, even if its deadline passed in that gap.
-    public static void AdvanceUtilityFlasks(ClientState conn, PlayerUpdatesState updates)
+    public static void AdvanceUtilityFlasks(Player conn, PlayerUpdatesState updates)
     {
         lock (conn.Monsters)
         {
@@ -171,7 +171,7 @@ public static partial class Game
         state.Packets.AddRange(UtilityFlasks.EndPackets(effect, PlayerId)
             .Select(p => new FlaskOutput(p, $"0x01c2 player buff: {effect.Name} (flask {effect.Slot}) effect ends ({why})", WorldId: PlayerId)));
 
-    public static async Task PublishFlaskChanges(ClientState conn)
+    public static async Task PublishFlaskChanges(Player conn)
     {
         var state = Automation(conn);
         lock (conn.Monsters)

@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 /// (LocalExile-Mods).</summary>
 static class CommandsFeature
 {
-    internal static ChatCommands Register(ChatCommands commands, ClientState conn, GameServer.Modules.M_commands.CharacterPlaytime played)
+    internal static ChatCommands Register(ChatCommands commands, Player conn, GameServer.Modules.M_commands.CharacterPlaytime played)
     {
         return commands
         .Add("played", "/played (time spent online with this character)", async _ =>

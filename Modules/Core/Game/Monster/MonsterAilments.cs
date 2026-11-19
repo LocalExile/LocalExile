@@ -25,7 +25,7 @@ public static partial class Game
     /// Berek's Respite). Within the Tempest (enemy_shock_on_kill): it is shocked through the player's modifiers, and its
     /// corpse spreads that shock by the player's own area of effect. <paramref name="player"/> is the caller's
     /// CharacterPlayerStats, so a kill computes no stats of its own. Under the Monsters lock.</summary>
-    public static void ShockOnKillLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
+    public static void ShockOnKillLocked(Player conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         // Before Within the Tempest's, which comes after the death.
@@ -69,7 +69,7 @@ public static partial class Game
     /// spreading chill's, freeze's or shock's own radius (cells, 10 to the metre) of the monster it is on, a corpse
     /// included, has the strongest of each kind that reaches it until that ends (MonsterElementalAilments.Proliferated).
     /// Under the Monsters lock.</summary>
-    static void ProliferateLocked(ClientState conn, double now)
+    static void ProliferateLocked(Player conn, double now)
     {
         var sources = new List<(SpawnedMonster M, (int X, int Y) At, MonsterElementalAilments.Effect Ailment)>();
         foreach (var m in conn.Monsters.Values)
@@ -89,7 +89,7 @@ public static partial class Game
     /// spreading ignite's own radius (cells) of the monster it is on, a corpse included, burns with the strongest that
     /// reaches it (MonsterIgnites.Proliferated). A monster that starts burning from it gets the ignited buff. Under the
     /// Monsters lock.</summary>
-    static void ProliferateIgnitesLocked(ClientState conn, double now, List<(byte[] Packet, string Log)> packets)
+    static void ProliferateIgnitesLocked(Player conn, double now, List<(byte[] Packet, string Log)> packets)
     {
         var sources = new List<(uint Id, SpawnedMonster M, (int X, int Y) At, double Dps, double Until, int Radius)>();
         foreach (var (id, m) in conn.Monsters)
@@ -167,14 +167,14 @@ public static partial class Game
     /// whose hits land together (<see cref="ReflectAilmentsLocked"/>). <paramref name="poison"/>: the hit's poison rows
     /// (<see cref="PoisonOnHitLocked"/>); a hit without them does not poison.
     /// </summary>
-    public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static void AilmentsOnHitLocked(Player conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null, bool playerHit = true) =>
         AilmentsOnHitLocked(conn, targetId, m, mitigated, spell, critical, criticalMultiplier, player, skill,
             now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit);
 
-    public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static void AilmentsOnHitLocked(Player conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null, bool playerHit = true)
@@ -252,7 +252,7 @@ public static partial class Game
         else ReflectAilmentsLocked(conn, added, now, player, random);
     }
 
-    internal static void ReflectPendingAilmentsLocked(ClientState conn, List<MonsterElementalAilments.Effect> pending,
+    internal static void ReflectPendingAilmentsLocked(Player conn, List<MonsterElementalAilments.Effect> pending,
         double now, IReadOnlyDictionary<uint, int> player, Random random)
     {
         if (pending.Count == 0) return;
@@ -264,7 +264,7 @@ public static partial class Game
     /// <summary>Mirrored: the ailments a hit added act on the player as well (wiki Reflect), as they landed, then through
     /// the player's own modifiers; the exact reflected magnitude is not verified. A new freeze cancels the player's action.
     /// Under the Monsters lock.</summary>
-    public static void ReflectAilmentsLocked(ClientState conn, IEnumerable<MonsterElementalAilments.Effect> added, double now,
+    public static void ReflectAilmentsLocked(Player conn, IEnumerable<MonsterElementalAilments.Effect> added, double now,
         IReadOnlyDictionary<uint, int> player, Random random)
     {
         if (conn.PlayerLife == 0) return;
@@ -285,13 +285,13 @@ public static partial class Game
     /// clip by zero); on a predictive client the AI stops the monster instead, and on a lockstep client nothing stops it,
     /// the estimate's walk included (07 §6). Under the Monsters lock.
     /// </summary>
-    public static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now) =>
+    public static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(Player conn, double now) =>
         [.. AreaAilmentChangesLocked(conn, now).Select(c => (ForObserver(c.Packet, conn), c.Log))];
 
     /// <summary>A monster's buff (0x1c1) as one player's client is to see it: its source, a player by their PeerId (0 for
     /// none), is the local player there (PlayerId) when it is them, and when none is known, as it always was before
     /// ailments kept their source; any other player stays as the others know them. Other messages go as they are.</summary>
-    public static byte[] ForObserver(byte[] packet, ClientState observer)
+    public static byte[] ForObserver(byte[] packet, Player observer)
     {
         if (packet.Length < 20 || (ushort)(packet[0] << 8 | packet[1]) != InstanceEntities.AddBuffId) return packet;
         uint source = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(16));
@@ -303,7 +303,7 @@ public static partial class Game
 
     /// <summary><see cref="MonsterAilmentChangesLocked"/> for the whole area: each ailment buff names its source by PeerId
     /// (0 for none), for <see cref="ForObserver"/> to show to each player.</summary>
-    public static List<(byte[] Packet, string Log)> AreaAilmentChangesLocked(ClientState conn, double now)
+    public static List<(byte[] Packet, string Log)> AreaAilmentChangesLocked(Player conn, double now)
     {
         ProliferateLocked(conn, now);
         var packets = new List<(byte[], string)>();
@@ -393,7 +393,7 @@ public static partial class Game
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), source, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
-    public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static void AilmentsOnHitLocked(Player conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, (int X, int Y)? hitOrigin = null) =>

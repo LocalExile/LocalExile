@@ -37,11 +37,11 @@ public class PartyAreaTests
         const ushort town = 0x235c, graveyard = 0xd801; // 1_1_town and The Ship Graveyard, as WorldAreas lists them.
         var presence = new InstancePresence();
         var instance = new InstanceState(presence);
-        var sent = new Dictionary<ClientState, List<byte[]>>();
-        var players = new List<ClientState>();
-        ClientState Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard", ulong? number = null)
+        var sent = new Dictionary<Player, List<byte[]>>();
+        var players = new List<Player>();
+        Player Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard", ulong? number = null)
         {
-            var c = new ClientState(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
+            var c = new Player(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
             {
                 Character = name, Account = name, League = league, Instance = world ?? instance, PlayerSent = true,
                 PlayerLife = 100, ClassRow = 0, Controlled = false, InstanceNumber = number ?? (ulong)players.Count + 10,

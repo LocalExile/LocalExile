@@ -10,7 +10,7 @@ using static Program;
 /// <para>Its stats join the player's stat sources (GameEvents.PlayerStatSources: resistances, damage taken, movement),
 /// and its <c>base_{type}_damage_taken_per_minute</c> (every ground_* row's: ground_fire_burn, caustic_cloud,
 /// ground_desecration) is degeneration, less the player's resistance to the type, which the recovery deals
-/// (ClientState.Degens).</para>
+/// (Player.Degens).</para>
 /// <para>A row that stacks (BuffRows.Row.Stacks: withered, tethered_debuff) adds an instance up to its limit, the one
 /// that ends first giving way past it; any other row has one instance, which a new application replaces. A held debuff
 /// (a ground's, while the player stands in it) has no time and ends when its holder lets go. None outlives the area.</para>
@@ -28,19 +28,19 @@ public static partial class Game
         public object? Area;
     }
 
-    static readonly ConditionalWeakTable<ClientState, PlayerDebuffSet> DebuffsOf = new();
+    static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
 
     /// <summary>A debuff for its time (seconds): a curse, Withered, an immobilise.</summary>
-    public static Task AddPlayerDebuff(ClientState conn, ushort row, uint caster, IReadOnlyDictionary<string, int> stats,
+    public static Task AddPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<string, int> stats,
         double seconds) => ApplyPlayerDebuff(conn, row, caster, stats, seconds, null);
 
     /// <summary>A debuff kept until <see cref="ReleasePlayerDebuff"/> with the same holder (a ground's, while the player
     /// stands in it). Holding the same row with the same stats again changes nothing.</summary>
-    public static Task HoldPlayerDebuff(ClientState conn, object holder, ushort row, uint caster, IReadOnlyDictionary<string, int> stats) =>
+    public static Task HoldPlayerDebuff(Player conn, object holder, ushort row, uint caster, IReadOnlyDictionary<string, int> stats) =>
         ApplyPlayerDebuff(conn, row, caster, stats, double.PositiveInfinity, holder);
 
     /// <summary>Ends the debuffs <paramref name="holder"/> keeps.</summary>
-    public static async Task ReleasePlayerDebuff(ClientState conn, object holder)
+    public static async Task ReleasePlayerDebuff(Player conn, object holder)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set)) return;
         List<ushort> gone;
@@ -54,7 +54,7 @@ public static partial class Game
     }
 
     /// <summary>Whether a debuff of this row is on the player now.</summary>
-    public static bool HasPlayerDebuff(ClientState conn, ushort row)
+    public static bool HasPlayerDebuff(Player conn, ushort row)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set)) return false;
         lock (conn.Monsters)
@@ -64,7 +64,7 @@ public static partial class Game
         }
     }
 
-    static async Task ApplyPlayerDebuff(ClientState conn, ushort row, uint caster, IReadOnlyDictionary<string, int> stats,
+    static async Task ApplyPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<string, int> stats,
         double seconds, object? holder)
     {
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn) || seconds <= 0) return;
@@ -115,7 +115,7 @@ public static partial class Game
 
     /// <summary>Each AI step: the debuffs whose time is up end; after an area change the old area's are dropped (the new
     /// instance has none of their looks to remove).</summary>
-    static async Task PlayerDebuffsTick(ClientState conn)
+    static async Task PlayerDebuffsTick(Player conn)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set)) return;
         List<ushort> gone = [];
@@ -138,7 +138,7 @@ public static partial class Game
         await EndPlayerDebuffs(conn, set, gone);
     }
 
-    static async Task EndPlayerDebuffs(ClientState conn, PlayerDebuffSet set, IReadOnlyList<ushort> instances)
+    static async Task EndPlayerDebuffs(Player conn, PlayerDebuffSet set, IReadOnlyList<ushort> instances)
     {
         if (!conn.Closed)
             foreach (ushort instance in instances)
@@ -147,7 +147,7 @@ public static partial class Game
     }
 
     /// <summary>The player's pools, movement and degeneration after the debuffs changed, and the stats the client shows.</summary>
-    static async Task RefreshDebuffedPlayer(ClientState conn)
+    static async Task RefreshDebuffedPlayer(Player conn)
     {
         if (conn.Closed) return;
         lock (conn.Monsters)
@@ -161,7 +161,7 @@ public static partial class Game
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over
     /// a minute, less the player's resistance to it (none for physical; nothing of a type the player is immune to).</summary>
-    static double DebuffDegenLocked(ClientState conn)
+    static double DebuffDegenLocked(Player conn)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set) || !ReferenceEquals(set.Area, conn.Layout)) return 0;
         double now = conn.Clock.Elapsed.TotalSeconds, total = 0;
@@ -178,7 +178,7 @@ public static partial class Game
     }
 
     /// <summary>GameEvents.PlayerStatSources: the debuffs on the player add their stats.</summary>
-    public static Dictionary<uint, int> PlayerDebuffStats(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> PlayerDebuffStats(Player conn, Dictionary<uint, int> sources)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set) || !ReferenceEquals(set.Area, conn.Layout)) return sources;
         double now = conn.Clock.Elapsed.TotalSeconds;

@@ -18,7 +18,7 @@ public sealed partial class ReservationCurseSummonTests
         Assert.Equal(100, AuraCatalog.RequiredLife(pools, [life, mana]));
         Assert.Equal(400, AuraCatalog.RequiredMana(pools, [life, mana]));
         Assert.Equal(67, AuraCatalog.RequiredLife(pools, [life with { ReservationEfficiencyPct = 100 }]));
-        var conn = new ClientState(new(1, "reserve-test", 100, 100, 10, 10, null, []), 1, 1) { Pools = pools, PlayerLife = 1200 };
+        var conn = new Player(new(1, "reserve-test", 100, 100, 10, 10, null, []), 1, 1) { Pools = pools, PlayerLife = 1200 };
         conn.Auras[1] = life;
         Assert.Equal(1100u, conn.PlayerUnreservedLife);
         double carry = 0;
@@ -67,7 +67,7 @@ public sealed partial class ReservationCurseSummonTests
     {
         public double At;
         public bool AdvanceOnWait = false;
-        public double Now(ClientState conn) => At;
+        public double Now(Player conn) => At;
         public Task Wait(int milliseconds, CancellationToken stopping)
         {
             if (AdvanceOnWait) At += milliseconds / 1000.0;

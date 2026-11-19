@@ -100,7 +100,7 @@ public static partial class Game
 
     /// <summary>Resolves Molten Strike's melee contact delay against the skill clip or the class ACT's defaultAttack pool
     /// (never clamped by EarlyAllowance or shifted earlier than the client's late pair view).</summary>
-    public static double MoltenStrikeContactDelay(ClientState conn, int effect, double attackSeconds, ushort sequence,
+    public static double MoltenStrikeContactDelay(Player conn, int effect, double attackSeconds, ushort sequence,
         out string? clip, out double fraction, out double earliestSeconds)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
@@ -128,7 +128,7 @@ public static partial class Game
         return fallback;
     }
 
-    public static Task ScheduleMoltenStrike(ClientState conn,
+    public static Task ScheduleMoltenStrike(Player conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
@@ -180,7 +180,7 @@ public static partial class Game
         return Task.WhenAll(jobs);
     }
 
-    public static async Task ExecuteMoltenStrikeSwing(ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    public static async Task ExecuteMoltenStrikeSwing(Player conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
         int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll criticalRoll, double? swingAt,
         int repeat, int totalRepeats, double attackSeconds, double repeatDelay, double ruthless,
@@ -459,7 +459,7 @@ public static partial class Game
     }
 
     /// <summary>Distributes and releases Molten Strike's balls across struck targets. Call under the Monsters lock.</summary>
-    public static int EmitMoltenStrikeBallsLocked(ClientState conn, ProjectileSession session, ushort skillId,
+    public static int EmitMoltenStrikeBallsLocked(Player conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) playerAt, (int X, int Y) aim, SkillCriticalRoll criticalRoll, ushort sequence,
         uint repeatsLeft, double releaseDelay, double repeatMore, IReadOnlyList<ProjectileVector> hitOrigins,

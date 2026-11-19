@@ -13,12 +13,12 @@ public partial class Program
     public static readonly TimeSpan EndingTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Ends <paramref name="conn"/> and completes after its cleanup, its save included (<see cref="ClientState.Ended"/>).
+    /// Ends <paramref name="conn"/> and completes after its cleanup, its save included (<see cref="Player.Ended"/>).
     /// <paramref name="message"/> reaches the client first, when it still can. A connection that is already ending is
     /// waited for, not ended twice. Throws <see cref="TimeoutException"/> when its cleanup does not finish within
     /// <see cref="EndingTimeout"/> (a hung handler), so the caller can refuse instead of waiting for ever.
     /// </summary>
-    public static async Task EndAsync(ClientState conn, string reason, string? message = null)
+    public static async Task EndAsync(Player conn, string reason, string? message = null)
     {
         if (!conn.Closed)
         {

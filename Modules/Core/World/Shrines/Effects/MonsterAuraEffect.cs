@@ -47,7 +47,7 @@ sealed class MonsterAuraEffect : IShrineEffect
     }
 
     // Its maximum life follows the aura's stats from the frame they are built in (SpawnedMonster.AfterStatsRebuild).
-    static void Change(ClientState conn, uint id, SpawnedMonster monster, Action change)
+    static void Change(Player conn, uint id, SpawnedMonster monster, Action change)
     {
         change();
         monster.AfterStatsRebuild((was, effects) =>

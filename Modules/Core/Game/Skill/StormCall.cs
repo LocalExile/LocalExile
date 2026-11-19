@@ -16,7 +16,7 @@ public static partial class Game
 
     const double StormCallImpactArtSeconds = 1.5;
 
-    static (string? Loop, string? Impact, int Variation) StormCallArt(ClientState conn, uint gem)
+    static (string? Loop, string? Impact, int Variation) StormCallArt(Player conn, uint gem)
     {
         int variation = SkillArtVariation(conn, gem);
         var (loop, impact) = StormCallArt(variation);
@@ -46,7 +46,7 @@ public static partial class Game
 
     sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore);
 
-    public static async Task PlaceStormCall(ClientState conn,
+    public static async Task PlaceStormCall(Player conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
         int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
         double sealDelay = 0, double damageMore = 1)
@@ -98,7 +98,7 @@ public static partial class Game
         _ = StrikeStormCallsWhenDue(conn, marker.StrikeAt, marker.Epoch);
     }
 
-    static async Task StrikeStormCallsWhenDue(ClientState conn,
+    static async Task StrikeStormCallsWhenDue(Player conn,
         double at, int epoch)
     {
         try
@@ -127,7 +127,7 @@ public static partial class Game
 
     // One marker's lightning: the impact art there and the skill's area hit around it, with the cast's critical roll and
     // repeat (Spell Echo's final-repeat damage). A dead player or a gem no longer socketed strikes nothing.
-    static async Task StormCallStrike(ClientState conn,
+    static async Task StormCallStrike(Player conn,
         StormCallMarkers.Marker marker, bool removeMarker)
     {
         if (removeMarker) await Send(conn, InstanceProtocol.RemoveObject(marker.Object), null);

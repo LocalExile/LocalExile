@@ -14,7 +14,7 @@ public class DormantMonsterTests
     [Fact]
     public void Untargetable_monsters_keep_their_native_blocking_bodies()
     {
-        var conn = new ClientState(new(1, "dormant-body", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "dormant-body", 300, 300, 100, 100, null, []), 1, 1)
         {
             LockstepClient = true, LockstepFrame = (0, .033),
         };
@@ -135,7 +135,7 @@ public class DormantMonsterTests
             var tide = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/WaterElemental/WaterElementalTidal"));
             foreach (bool lockstep in new[] { false, true })
             {
-                var rising = new ClientState(new(1, "emerge-duration", 300, 300, 100, 100, null, []), 1, 1)
+                var rising = new Player(new(1, "emerge-duration", 300, 300, 100, 100, null, []), 1, 1)
                 {
                     LockstepClient = lockstep,
                 };
@@ -247,7 +247,7 @@ public class DormantMonsterTests
             // it, Position would advance analytically through the dormant neighbour instead of stopping at 0.1 s.
             foreach (bool lockstep in new[] { false, true })
             {
-                var moving = new ClientState(new(1, "nonblocking-step", 300, 300, 100, 100, null, []), 1, 1)
+                var moving = new Player(new(1, "nonblocking-step", 300, 300, 100, 100, null, []), 1, 1)
                 {
                     LockstepClient = lockstep, LockstepFrame = (0.132, 0.165),
                 };
@@ -274,11 +274,11 @@ public class DormantMonsterTests
 
         // Both connections retain the same dormant roster and watch when the instance runner leaves.
         var instance = new InstanceState();
-        var firstClient = new ClientState(new(1, "shared-dormant", 300, 300, 100, 100, null, []), 1, 1)
+        var firstClient = new Player(new(1, "shared-dormant", 300, 300, 100, 100, null, []), 1, 1)
         {
             Instance = instance, PlayerSent = true, PlayerLife = 100,
         };
-        var secondClient = new ClientState(new(1, "shared-dormant", 300, 300, 100, 100, null, []), 1, 1)
+        var secondClient = new Player(new(1, "shared-dormant", 300, 300, 100, 100, null, []), 1, 1)
         {
             Instance = instance,
         };
@@ -322,7 +322,7 @@ public class DormantMonsterTests
         var previous = Game.CombatLifetime;
         var rules = new ModuleLifetime("Game");
         var instance = new InstanceState();
-        var conn = new ClientState(new(1, "emerge-reload", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "emerge-reload", 300, 300, 100, 100, null, []), 1, 1)
         {
             Instance = instance, PlayerSent = true, PlayerLife = 100,
         };
@@ -353,9 +353,9 @@ public class DormantMonsterTests
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
         var previousOutgoing = Program.Outgoing;
-        ClientState? peer = null;
+        Player? peer = null;
         var lifetime = new ModuleLifetime("Game");
-        var conn = new ClientState(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
         {
             LockstepClient = true, Instance = new(), Character = $"restore-cells-{Guid.NewGuid():N}",
         };
@@ -419,7 +419,7 @@ public class DormantMonsterTests
             {
                 if (ReferenceEquals(wire, peerCiphers)) sent.Add((byte[])bytes.Clone());
             };
-            peer = new ClientState(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
+            peer = new Player(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Instance = conn.Instance, Character = $"restore-peer-{Guid.NewGuid():N}", PlayerSent = true,
                 PlayerLife = 100, LockstepClient = true, LockstepFrame = (.99, 1.023),

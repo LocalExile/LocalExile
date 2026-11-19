@@ -71,7 +71,7 @@ static partial class Game
     internal static bool IsWinterOrb(int effect) =>
         Skills.EffectId(effect) is "WinterOrb" or "WinterOrbAltX" or "WinterOrbAltY";
 
-    static int WinterOrbStat(ClientState conn, ushort skillId, string name) =>
+    static int WinterOrbStat(Player conn, ushort skillId, string name) =>
         Stats.Key(name) is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
 
     /// <summary>
@@ -80,7 +80,7 @@ static partial class Game
     /// (PoE Wiki: 1/1.2 × (1 + 0.2 × stages past the first + cast speed) × 1.8). That multiplier belongs to the channel,
     /// so the caller passes the stages alone and the interval is slower once the button is up.
     /// </summary>
-    internal static double WinterOrbFireSeconds(ClientState conn, ushort skillId, int effect, int stages,
+    internal static double WinterOrbFireSeconds(Player conn, ushort skillId, int effect, int stages,
         bool channelling = true)
     {
         int Stat(string name) => WinterOrbStat(conn, skillId, name);
@@ -95,7 +95,7 @@ static partial class Game
     }
 
     /// <summary>The gem's 8 stages plus what quality adds, both from the data rather than from a constant.</summary>
-    static int WinterOrbMaxStages(ClientState conn, ushort skillId)
+    static int WinterOrbMaxStages(Player conn, ushort skillId)
     {
         int max = WinterOrbStat(conn, skillId, "frost_fury_max_number_of_stages");
         int extra = WinterOrbStat(conn, skillId, "frost_fury_additional_max_number_of_stages");
@@ -117,7 +117,7 @@ static partial class Game
     /// (0x1415d17d0 → 0x1417b6030), which reads entries 1 and 2 of the buff's list without checking its length (a
     /// non-totem, first-form visual is all zeroes). Nothing else consumes them.
     /// </summary>
-    internal static async Task WinterOrbPresentStages(ClientState conn)
+    internal static async Task WinterOrbPresentStages(Player conn)
     {
         byte[] packet;
         int stages;
@@ -144,7 +144,7 @@ static partial class Game
     /// second channel keeps the runtime it finds and only refreshes it — no second sphere, and the stages it already
     /// built are kept instead of being dropped.
     /// </summary>
-    internal static async Task<uint> WinterOrbStart(ClientState conn, ushort skillId,
+    internal static async Task<uint> WinterOrbStart(Player conn, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
     {
         WinterOrbRuntime runtime;
@@ -190,7 +190,7 @@ static partial class Game
     /// One more stage for this channel's cast tick, up to the maximum; the cast tick paces it, so a faster caster charges
     /// the orb sooner. The channel does not stop at the maximum.
     /// </summary>
-    internal static int WinterOrbStageStep(ClientState conn)
+    internal static int WinterOrbStageStep(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -210,7 +210,7 @@ static partial class Game
     /// repeats share the connection's channel generation (only a release or another action bumps it), so an older repeat
     /// ending must not release the orb the newest one has just taken.
     /// </summary>
-    internal static void WinterOrbRelease(ClientState conn, int generation, int action)
+    internal static void WinterOrbRelease(Player conn, int generation, int action)
     {
         lock (conn.Monsters)
         {
@@ -241,7 +241,7 @@ static partial class Game
     /// the buff draws, but no orb and no loop behind it (live 2026-11-09). Queue the instance for removal before the
     /// runtime goes: the combat worker flushes it after the respawn, when the client will accept it.
     /// </summary>
-    internal static void WinterOrbRetire(ClientState conn)
+    internal static void WinterOrbRetire(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -261,7 +261,7 @@ static partial class Game
     /// duration goes. It holds no channel reference, so moving, releasing or aiming elsewhere cannot end it early; death,
     /// an area change, a pause-menu reload or a connection close can.
     /// </summary>
-    static async Task RunWinterOrb(ClientState conn, WinterOrbRuntime runtime, long generation)
+    static async Task RunWinterOrb(Player conn, WinterOrbRuntime runtime, long generation)
     {
         bool Current()
         {
@@ -379,7 +379,7 @@ static partial class Game
     /// <c>frost_fury_duration_+%_per_stage</c> (30) as an increase, which is additive with the player's duration stats the
     /// way the game's duration system is, not a multiplication of the whole.
     /// </summary>
-    static double WinterOrbDuration(ClientState conn, WinterOrbRuntime runtime)
+    static double WinterOrbDuration(Player conn, WinterOrbRuntime runtime)
     {
         var supported = SupportedSkill(conn, runtime.SkillId);
         int Own(string name) => Stats.Key(name) is uint key ? supported.Stats.GetValueOrDefault(key) : 0;
@@ -392,7 +392,7 @@ static partial class Game
     }
 
     /// <summary>An impact's art at its landing cell, removed once FrostFuryExplode has played.</summary>
-    internal static async Task WinterOrbImpact(ClientState conn, (int X, int Y) at)
+    internal static async Task WinterOrbImpact(Player conn, (int X, int Y) at)
     {
         uint id;
         lock (conn.Monsters) id = conn.TakeObjectId();
@@ -425,7 +425,7 @@ static partial class Game
     /// The hit lands when the projectile does, not when the button does, so it carries neither the channel's action nor
     /// its generation: the orb keeps firing after the release, when the player has no such action any more.
     /// </summary>
-    internal static async Task WinterOrbVolley(ClientState conn, WinterOrbRuntime runtime)
+    internal static async Task WinterOrbVolley(Player conn, WinterOrbRuntime runtime)
     {
         ushort skillId = runtime.SkillId;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
@@ -476,7 +476,7 @@ static partial class Game
     /// The row's own speed through <see cref="ProjectileSpeed"/>, so projectile speed modifiers move the landing.
     /// Resolved once per volley: the player's stat sheet and the skill's row are the same for every mortar in it.
     /// </summary>
-    static float WinterOrbProjectileSpeed(ClientState conn, WinterOrbRuntime runtime)
+    static float WinterOrbProjectileSpeed(Player conn, WinterOrbRuntime runtime)
     {
         var own = SupportedSkill(conn, runtime.SkillId).Stats;
         var player = CharacterPlayerStats(conn);
@@ -503,7 +503,7 @@ static partial class Game
     /// <paramref name="seconds"/> (0x1ba carries a duration, not a speed). The projectile blob wakes the object, so it
     /// needs no 0x1a9 of its own.
     /// </summary>
-    static async Task<uint> WinterOrbProjectile(ClientState conn, (int X, int Y) from, (int X, int Y) to, double seconds)
+    static async Task<uint> WinterOrbProjectile(Player conn, (int X, int Y) from, (int X, int Y) to, double seconds)
     {
         uint id;
         lock (conn.Monsters) id = conn.TakeObjectId();
@@ -523,7 +523,7 @@ static partial class Game
     /// The mortar lands: its object goes, FrostFuryExplode plays and the skill's area hit lands at that cell. Death, an
     /// area change and a closed connection drop a shot that is still in the air.
     /// </summary>
-    static async Task LandWinterOrbProjectile(ClientState conn, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
+    static async Task LandWinterOrbProjectile(Player conn, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
         double seconds)
     {
         try

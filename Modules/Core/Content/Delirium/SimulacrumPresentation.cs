@@ -7,7 +7,7 @@ public sealed partial class DeliriumModule
     // AfflictionMinionBase's create_state_visible_0 disables rendering, independently of life and AI.
     public static StateMachineData? MonsterStates(StateMachineData? states) => states?.Set("visible", 1);
 
-    async Task RevealExisting(ClientState conn, Run run)
+    async Task RevealExisting(Player conn, Run run)
     {
         var updates = new List<(uint Id, byte Component, StateMachineData States)>();
         lock (conn.Monsters)
@@ -53,7 +53,7 @@ public sealed partial class DeliriumModule
           run.Wave == 15 && run.Rewarded ? 1 : 0, run.Wave == 15 && run.Rewarded ? 1 : 0 }, 0,
         new[] { "active", "wave", "hello", "goodbye", "play_interlude" }) { Overridden = new HashSet<int> { 0, 1, 2, 3, 4 } };
 
-    Run? Preview(ClientState conn, Run run)
+    Run? Preview(Player conn, Run run)
     {
         if (run.Active || run.Wave >= 15) return null;
         if (run.Next is not null) return run.Next;
@@ -61,10 +61,10 @@ public sealed partial class DeliriumModule
         lock (conn.Monsters) { run.Next ??= next; Save(conn, run); return run.Next; }
     }
 
-    void SaveView(ClientState conn, View view) => conn.Instance.ContentState[$"{StateKey}.view.{conn.PeerId}"] =
+    void SaveView(Player conn, View view) => conn.Instance.ContentState[$"{StateKey}.view.{conn.PeerId}"] =
         $"{view.Entity},{view.Stash},{view.At.X},{view.At.Y},{(view.Native ? 1 : 0)}";
 
-    async Task CreateStarter(ClientState conn, View view, Run run)
+    async Task CreateStarter(Player conn, View view, Run run)
     {
         if (view.Entity != 0)
         {
@@ -85,7 +85,7 @@ public sealed partial class DeliriumModule
         SaveView(conn, view);
     }
 
-    async Task PublishStarter(ClientState conn, Run run, bool recreate)
+    async Task PublishStarter(Player conn, Run run, bool recreate)
     {
         foreach (var peer in Clients(conn))
         {

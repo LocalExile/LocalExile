@@ -80,11 +80,11 @@ public sealed class KillOnslaught
 
 public static partial class Game
 {
-    public static readonly Store<ClientState, KillOnslaught> KillOnslaughts = new();
-    public static KillOnslaught KillOnslaughtOf(ClientState conn) => KillOnslaughts.GetValue(conn, _ => new());
+    public static readonly Store<Player, KillOnslaught> KillOnslaughts = new();
+    public static KillOnslaught KillOnslaughtOf(Player conn) => KillOnslaughts.GetValue(conn, _ => new());
 
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
-    public static void ConfigureKillOnslaught(ClientState conn, Func<string, int> get)
+    public static void ConfigureKillOnslaught(Player conn, Func<string, int> get)
     {
         var rolls = KillOnslaught.From(get);
         lock (conn.Monsters)
@@ -98,7 +98,7 @@ public static partial class Game
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
     // Random.Shared, so a projectile commit's own draws stay in order.
     // Onslaught from kills and hits lasts until its deadline (on the connection clock); the reading step runs again then.
-    static bool KillOnslaughtActiveLocked(ClientState conn)
+    static bool KillOnslaughtActiveLocked(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds, until = KillOnslaughtOf(conn).Until;
         if (conn.PlayerLife == 0 || now >= until) return false;
@@ -106,7 +106,7 @@ public static partial class Game
         return true;
     }
 
-    public static bool OnslaughtOnKill(ClientState conn)
+    public static bool OnslaughtOnKill(Player conn)
     {
         lock (conn.Monsters)
             return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared)
@@ -114,14 +114,14 @@ public static partial class Game
     }
 
     // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
-    public static bool OnslaughtOnHitLocked(ClientState conn, double now)
+    public static bool OnslaughtOnHitLocked(Player conn, double now)
     {
         lock (conn.Monsters) return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Hit(now) && Marked(conn, PlayerStatStep.Onslaught);
     }
 
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,
     // the strongest counts once. Its effect is the character's increased Onslaught effect.
-    public static IEnumerable<UtilityFlasks.Source> KillOnslaughtSources(ClientState conn, Func<string, int> character)
+    public static IEnumerable<UtilityFlasks.Source> KillOnslaughtSources(Player conn, Func<string, int> character)
     {
         bool applied;
         lock (conn.Monsters) applied = conn.PlayerLife > 0 && KillOnslaughtOf(conn).Applied;
@@ -131,7 +131,7 @@ public static partial class Game
 
     // The kill Onslaught's buff (timed like Adrenaline's) and, when it starts or ends, the pools, walk speed, stats and
     // skills it changes. A running Silver Flask or Mageblood's shows its own Onslaught buff, so this one hides meanwhile.
-    public static byte[]? KillOnslaughtPresentation(ClientState conn)
+    public static byte[]? KillOnslaughtPresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -160,9 +160,9 @@ public static partial class Game
         }
     }
 
-    public static Task SendKillOnslaught(ClientState conn) =>
+    public static Task SendKillOnslaught(Player conn) =>
         Send(conn, [], null, atGate: () => OnslaughtPresentation(conn));
 
-    public static byte[] OnslaughtPresentation(ClientState conn) =>
+    public static byte[] OnslaughtPresentation(Player conn) =>
         [.. KillOnslaughtPresentation(conn) ?? [], .. ChargeOnslaughtPresentation(conn) ?? []];
 }

@@ -72,7 +72,7 @@ public static partial class Game
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
     /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
-    public static MonsterIgnites.Settings SupportedBleed(ClientState conn, ushort skillId, bool spell,
+    public static MonsterIgnites.Settings SupportedBleed(Player conn, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false,
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
     {
@@ -93,7 +93,7 @@ public static partial class Game
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    public static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static MonsterIgnites.Settings DefaultAttackBleed(Player conn, IReadOnlyDictionary<uint, int> player,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -111,7 +111,7 @@ public static partial class Game
     // cannot_gain_bleeding stop it. First the hit aggravates the bleeds already on the target, whether or not it bleeds
     // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
     // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
-    public static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
+    public static List<byte[]>? BleedOnHitLocked(Player conn, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
@@ -143,7 +143,7 @@ public static partial class Game
 
     /// <summary>A sure bleed of so much physical damage a second for so long, from no skill (a trap's hit that always
     /// bleeds: the Labyrinth's spikes), as an attack hit's bleed lands: the target's avoidance and immunity still apply.</summary>
-    public static async Task BleedMonsterFor(ClientState conn,
+    public static async Task BleedMonsterFor(Player conn,
         uint id, SpawnedMonster m, double perSecond, double seconds)
     {
         List<byte[]>? packets;
@@ -198,6 +198,6 @@ public static partial class Game
 
     // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
-    public static Task BleedMonsters(ClientState conn) =>
+    public static Task BleedMonsters(Player conn) =>
         TickStrongestDots(conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
 }

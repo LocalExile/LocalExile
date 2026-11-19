@@ -8,7 +8,7 @@ public static partial class Game
 {
     public const string TwisterEffect = "Twister";
 
-    static void ReconcileTwisterSourcesLocked(ClientState conn)
+    static void ReconcileTwisterSourcesLocked(Player conn)
     {
         var state = conn.Twister;
         if (!ReferenceEquals(state.Owner, CombatLifetime))
@@ -27,7 +27,7 @@ public static partial class Game
 
     // Called once for an observed new phase, never for a duration/effect-only refresh. Long skips earn only the
     // currently observed gain, rather than replaying every missed phase as a burst after pause or a stalled tick.
-    public static void QueueTwisterGainLocked(ClientState conn)
+    public static void QueueTwisterGainLocked(Player conn)
     {
         ReconcileTwisterSourcesLocked(conn);
         var state = conn.Twister;
@@ -40,7 +40,7 @@ public static partial class Game
         }
     }
 
-    public static bool TwisterGainCurrentLocked(ClientState conn, TwisterState.Gain gain)
+    public static bool TwisterGainCurrentLocked(Player conn, TwisterState.Gain gain)
     {
         ReconcileTwisterSourcesLocked(conn);
         return !gain.Consumed && CurrentGameWork && ReferenceEquals(gain.Owner, CombatLifetime)
@@ -51,7 +51,7 @@ public static partial class Game
 
     // Admission and native acknowledgement share the send gate. No flight, cooldown spend, resource payment or
     // action interruption occurs before this final source/area/rules check.
-    public static byte[]? AdmitTwisterGainLocked(ClientState conn, TwisterState.Gain gain, ProjectileSession session)
+    public static byte[]? AdmitTwisterGainLocked(Player conn, TwisterState.Gain gain, ProjectileSession session)
     {
         if (!TwisterGainCurrentLocked(conn, gain) || !session.Active || !ReferenceEquals(conn.ProjectileRuntime, session)) return null;
         var grant = gain.Source.Grant;
@@ -86,7 +86,7 @@ public static partial class Game
         return InstanceProtocol.InstantAction(PlayerId, gem.Id, aim.Item1, aim.Item2, sequence: sequence, flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
     }
 
-    static async Task DrainTwisterGains(ClientState conn)
+    static async Task DrainTwisterGains(Player conn)
     {
         int count;
         lock (conn.Monsters) count = Math.Min(64, conn.Twister.Pending.Count);

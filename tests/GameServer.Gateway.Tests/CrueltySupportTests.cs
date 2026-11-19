@@ -32,7 +32,7 @@ public sealed class CrueltySupportTests
     [Fact]
     public void CrueltyOnHit_applies_the_strongest_running_instance_and_a_weaker_one_after_it()
     {
-        var conn = new ClientState(new(1, "cruelty", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "cruelty", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "CrueltyChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
         };

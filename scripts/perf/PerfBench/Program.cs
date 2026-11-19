@@ -123,10 +123,10 @@ static class PerfBench
         return lines;
     }
 
-    static ClientState Player(AreaLayout layout, uint seed)
+    static Player Player(AreaLayout layout, uint seed)
     {
         EnsureSaves();
-        var conn = new ClientState(layout, 1, seed)
+        var conn = new Player(layout, 1, seed)
         {
             Character = "PerfBench" + Guid.NewGuid().ToString("N"), ClassRow = 1, PlayerSent = true, Instance = new(),
         };
@@ -138,7 +138,7 @@ static class PerfBench
         return conn;
     }
 
-    static Task PopulateArea(Wire wire, ClientState conn) => Game.PopulateArea("perf", wire.Stream, wire.Ciphers, conn);
+    static Task PopulateArea(Wire wire, Player conn) => Game.PopulateArea("perf", wire.Stream, wire.Ciphers, conn);
 
     // A save database of its own for the run (the characters the scenarios create); Main deletes it.
     static string? _saves;
@@ -430,7 +430,7 @@ static class PerfBench
     // projectiles), Crowd of them around a player who keeps walking, so they chase, surround, swing and shoot, and Idle
     // more farther away, as the rest of an area's population. (PopulateArea is not used: its placement is seeded with
     // the process's randomized HashCode.)
-    static async Task<(Wire Wire, ClientState Conn, (int X, int Y)[] Path)> BusyInstance()
+    static async Task<(Wire Wire, Player Conn, (int X, int Y)[] Path)> BusyInstance()
     {
         _ = ConsoleLog.Value;
         var wire = new Wire();

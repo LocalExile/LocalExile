@@ -1,4 +1,4 @@
-public sealed partial class ClientState
+public sealed partial class Player
 {
     /// <summary>Winter Orb's orb, its stages and its firing loop (Modules Core, WinterOrb.cs). It lives past the channel
     /// that made it, so it is retired with the rest of the connection's combat work: an object slot, so a module reload's

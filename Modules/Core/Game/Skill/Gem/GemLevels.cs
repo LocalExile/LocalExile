@@ -3,10 +3,10 @@ public static partial class Game
 {
     // A support resolution is synchronous under Monsters. Its level/quality lookups share raw sources;
     // the scope ends before any later hit, charge expiry, equipment change or aura reconciliation.
-    sealed class GemSourceScope(ClientState conn) : IDisposable
+    sealed class GemSourceScope(Player conn) : IDisposable
     {
         readonly GemSourceScope? outer = GemSources.Value;
-        public readonly ClientState Conn = conn;
+        public readonly Player Conn = conn;
         public Dictionary<uint, int>? Sources;
         public void Enter() => GemSources.Value = this;
         public void Dispose() => GemSources.Value = outer;
@@ -14,7 +14,7 @@ public static partial class Game
     static readonly AsyncLocal<GemSourceScope?> GemSources = new();
     // Read raw sources rather than CharacterPlayerStats: reservation/pool calculations can already be resolving
     // this skill. A native developer replacement wins over the aggregate source, without feeding a derived level back.
-    public static int EffectiveGemLevel(ClientState conn, GameServer.Core.Protocol.Instance.Item gem, int supportedBonus)
+    public static int EffectiveGemLevel(Player conn, GameServer.Core.Protocol.Instance.Item gem, int supportedBonus)
     {
         int intrinsic = ItemsFor(conn).GemLevel(gem);
         var type = ItemsFor(conn).ByHash(gem.TypeHash);
@@ -31,11 +31,11 @@ public static partial class Game
     static string? AttributeStat(int colour) => SkillGemLevel.AttributeStat(colour);
 
     // +% quality of all skill gems: active gems only, like the level stat.
-    public static int GemQualityBonus(ClientState conn, GameServer.Core.Protocol.Instance.Item gem) =>
+    public static int GemQualityBonus(Player conn, GameServer.Core.Protocol.Instance.Item gem) =>
         ItemsFor(conn).ByHash(gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: false }
             ? RawGemStat(conn, SkillGemLevel.AllSkillGemQuality) : 0;
 
-    public static int RawGemStat(ClientState conn, string stat)
+    public static int RawGemStat(Player conn, string stat)
     {
         if (Stats.Key(stat) is not uint key) return 0;
         var scope = GemSources.Value;

@@ -21,15 +21,15 @@ static partial class Sirus
         10973, 9690, 10141, 10945, 8099, 10991];
     static readonly int[] ApparitionEffects = [10967, 10968, 10969, 10954, 9849, 7032, 7033, 9685, 9687, 10956, 10946, 6832, 3629];
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
-    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
+    static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(ClientState c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
+    static int Stat(Player c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
     static int[] Effects(MonsterCatalog.Variety v) => v.Id == Body ? BodyEffects : v.Id == Apparition ? ApparitionEffects : [];
     static ushort Skill(MonsterCatalog.Variety v, int effect) => (ushort)(0x4000 + Array.IndexOf(Effects(v), effect));
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level) =>
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level) =>
         !IsActor(v) || Effects(v).Length == 0 ? null : [.. Effects(v).Select(e => Game.SkillsFor(c).FindByRow(Skill(v, e), e,
             Data(c, e, level).Level, WithBehaviourVariation(c, e, Attack(c, v, level, e).InPlaceSkillStats()))).OfType<GrantedSkill>()];
-    internal static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var damage = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
@@ -57,7 +57,7 @@ static partial class Sirus
     }
 
     // The monster set, not the throne or the invulnerable projection, owns the encounter reward.
-    internal static IEnumerable<ItemDrops.Drop> Rewards(ClientState c, SpawnedMonster m)
+    internal static IEnumerable<ItemDrops.Drop> Rewards(Player c, SpawnedMonster m)
     {
         if (c.Layout.Id != Area || m.Variety?.Id != Body || !m.Dead || m.LifePhases?.Completed != 3
             || !c.Instance.SetState(Flag("Rewards"))) yield break;

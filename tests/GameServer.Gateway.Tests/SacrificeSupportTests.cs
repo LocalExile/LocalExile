@@ -127,7 +127,7 @@ public class SacrificeSupportTests
         readonly IGameLogic? previous = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        public ClientState Conn { get; }
+        public Player Conn { get; }
         public Game.ProjectileSession Session { get; private set; } = null!;
         public uint Host;
         readonly TcpListener listener = new(IPAddress.Loopback, 0);

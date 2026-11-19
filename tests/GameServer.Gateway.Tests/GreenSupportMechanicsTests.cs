@@ -31,7 +31,7 @@ public sealed class GreenSupportMechanicsTests
             critical: false, spell: false);
         Assert.Equal(new Game.Cull(0, 0, 47), weak);
 
-        var conn = new ClientState(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
         {
             Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500,
         };
@@ -87,7 +87,7 @@ public sealed class GreenSupportMechanicsTests
     [Fact]
     public void Poison_freeze_duration_and_chain_support_stats_apply()
     {
-        var conn = new ClientState(new(1, "supports", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "supports", 300, 300, 100, 100, null, []), 1, 1);
         var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
         var poison = new MonsterPoisons.Settings(100, Min: 10, Max: 10, CriticalMin: 20, CriticalMax: 20, Seconds: 2);
         var poisoner = With(("base_chance_to_poison_on_hit_%", 100),

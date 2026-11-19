@@ -36,7 +36,7 @@ public class WorldOutputTests : IDisposable
         using var reader = await accepting;
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
         var receiver = new ConnectionCiphers(new byte[64], isClient: true);
-        var conn = new ClientState(new(1, "world-order", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "world-order", 300, 300, 100, 100, null, []), 1, 1)
         {
             LockstepClient = true, Session = new("world-order", writer.GetStream(), ciphers),
         };
@@ -124,7 +124,7 @@ public class WorldOutputTests : IDisposable
     [Fact]
     public async Task Birth_cancellation_and_synchronous_quest_capture_preserve_incarnations_and_owned_bytes()
     {
-        var conn = new ClientState(new(1, "world-lifetime", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = true };
+        var conn = new Player(new(1, "world-lifetime", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = true };
         var output = conn.WorldOutput;
         output.Begin(7);
         var first = output.NewObject(10);

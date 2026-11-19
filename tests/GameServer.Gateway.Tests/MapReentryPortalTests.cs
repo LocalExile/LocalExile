@@ -12,7 +12,7 @@ public sealed class MapReentryPortalTests
         var device = new MapDevice.Origin(0x1234, 7, 50, 50);
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
-        ClientState Player(InstanceState instance, ulong number) =>
+        Player Player(InstanceState instance, ulong number) =>
             new(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
             {
                 Character = owner, Account = owner, Instance = instance, InstanceNumber = number, PlayerSent = true,
@@ -52,7 +52,7 @@ public sealed class MapReentryPortalTests
             Assert.Null(PortalsFeature.MapEntrySpot(owner, MapDevice.OpenOf(owner)!));
 
             // Outside maps the checkpoint is in the area.
-            var coast = new ClientState(new(0x7ad2, "1_1_2", 300, 300, 10, 10, null, []), 0, 1)
+            var coast = new Player(new(0x7ad2, "1_1_2", 300, 300, 10, 10, null, []), 0, 1)
                 { Character = owner, Instance = new InstanceState(), InstanceNumber = 5 };
             Assert.Null(Game.MapCheckpointExit(coast));
         }

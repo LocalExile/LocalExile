@@ -88,10 +88,10 @@ public static partial class Game
     /// <summary>Under the Monsters lock: the summoner's living minions of a variety beyond its limit, oldest (lowest
     /// object id) first, to make room for <paramref name="incoming"/> more.</summary>
     /// <summary>How many of a summon's monsters its summoner has standing. Under the Monsters lock.</summary>
-    public static int LivingSummonsLocked(ClientState conn, uint summoner, SkillCatalog.MonsterSummonInfo summon) =>
+    public static int LivingSummonsLocked(Player conn, uint summoner, SkillCatalog.MonsterSummonInfo summon) =>
         conn.Monsters.Values.Count(m => m.SummonerId == summoner && !m.Dead && m.Life > 0 && m.Variety?.Row == summon.Variety);
 
-    static List<uint> SurplusMinionsLocked(ClientState conn, uint summoner, SkillCatalog.MonsterSummonInfo summon, int incoming)
+    static List<uint> SurplusMinionsLocked(Player conn, uint summoner, SkillCatalog.MonsterSummonInfo summon, int incoming)
     {
         if (summon.Limit <= 0) return [];
         var living = conn.Monsters.Where(p => p.Value.SummonerId == summoner && !p.Value.Dead && p.Value.Life > 0
@@ -101,7 +101,7 @@ public static partial class Game
     }
 
     /// <summary>Takes summoned monsters out of the area (as a player's expired minion is: Golems.RemoveGolemLocked).</summary>
-    static async Task RetireSummonedMonsters(ClientState conn,
+    static async Task RetireSummonedMonsters(Player conn,
         IReadOnlyCollection<uint> ids, string why)
     {
         List<uint> gone = [];
@@ -118,7 +118,7 @@ public static partial class Game
     }
 
     /// <summary>The summoned monsters whose duration has run out leave (MonsterSummonInfo.Lifetime).</summary>
-    static Task ExpireSummonedMonsters(ClientState conn)
+    static Task ExpireSummonedMonsters(Player conn)
     {
         uint[] expired;
         lock (conn.Monsters)

@@ -25,24 +25,24 @@ public static partial class Game
         "alchemists_mark_igniter_creates_burning_ground_%_ignite_damage", "alchemists_mark_poisoner_creates_caustic_ground_%_poison_damage"
     ];
 
-    static bool ExternalTemporalChains(ClientState conn, string effect) => effect == "TemporalChains"
+    static bool ExternalTemporalChains(Player conn, string effect) => effect == "TemporalChains"
         && GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, effect));
 
-    static void CurseCharges(ClientState conn, SpawnedMonster target, bool death)
+    static void CurseCharges(Player conn, SpawnedMonster target, bool death)
     {
         foreach (var (kind, name) in new[] { (ChargeType.Power, "power"), (ChargeType.Frenzy, "frenzy"), (ChargeType.Endurance, "endurance") })
             if (RandomRolls.Chance(target.Curses[death ? $"chance_to_grant_{name}_charge_on_death_%" : $"grant_attacker_{name}_charge_when_hit_%_chance"], 100, Random.Shared))
                 ChargesOf(conn).Enqueue(new ChargeEvent.Grant(kind, 1, "curse"));
     }
 
-    static int CurseLimit(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    static int CurseLimit(Player conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string n) => GolemStat(player, n);
         return Get("has_curse_limit_equal_to_maximum_power_charges") != 0 ? Get("max_power_charges")
             : Math.Max(0, 1 + Get("number_of_additional_curses_allowed"));
     }
 
-    public static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
+    public static int CurseRadius(Player conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
         var own = (captured ?? SupportedSkill(conn, skill)).Stats; var player = sources ?? CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(player, n) + GolemStat(own, n);
@@ -51,7 +51,7 @@ public static partial class Game
             n => Get(n) + (n == SkillArea.BaseIncreased ? Get("curse_area_of_effect_+%") : 0), spell: true);
     }
 
-    public static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
+    public static bool ApplyCurseLocked(Player conn, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
         var gem = captured ?? SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect) ?? "";
@@ -87,7 +87,7 @@ public static partial class Game
         return true;
     }
 
-    static void CursesOnHitLocked(ClientState conn, SpawnedMonster target, ushort sourceSkill, bool spell, double now)
+    static void CursesOnHitLocked(Player conn, SpawnedMonster target, ushort sourceSkill, bool spell, double now)
     {
         if (target.Dead || target.Life == 0 || conn.Reservations.Secondary) return;
         var source = sourceSkill != 0 ? SupportedSkill(conn, sourceSkill) : null;
@@ -115,7 +115,7 @@ public static partial class Game
         }
     }
 
-    static async Task<bool> CastCurse(ClientState conn,
+    static async Task<bool> CastCurse(Player conn,
         ushort skill, (int X, int Y) aim, uint target, int recovery, Func<bool> current)
     {
         var gem = SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect)!;
@@ -152,7 +152,7 @@ public static partial class Game
         return true;
     }
 
-    static void CursesTickLocked(ClientState conn, double now, List<byte> bytes)
+    static void CursesTickLocked(Player conn, double now, List<byte> bytes)
     {
         var active = conn.Auras.Values.Where(a => CurseCatalog.Hex(a.EffectId) && !ExternalTemporalChains(conn, a.EffectId)).ToArray();
         var player = active.Length > 0 ? CharacterPlayerStats(conn) : null;

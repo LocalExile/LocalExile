@@ -6,7 +6,7 @@ public static partial class Game
 {
     // Petrified Blood is a reservation buff, not an aura: reservation and the received buff are its own, and the
     // own-aura restriction does not touch it. Its hit prevention lives in PetrifiedBloodState (Gateway Combat).
-    public static async Task<bool> TogglePetrifiedBlood(ClientState conn, ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
+    public static async Task<bool> TogglePetrifiedBlood(Player conn, ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         bool started;
         lock (conn.Monsters)
@@ -50,7 +50,7 @@ public static partial class Game
 
     // Saved intent restores the buff once its gem is socketed and enabled, outside town, after the auras so the
     // combined reservation is checked against the same maximum.
-    public static void RestoreRememberedPetrifiedBlood(ClientState conn)
+    public static void RestoreRememberedPetrifiedBlood(Player conn)
     {
         if (conn.PetrifiedBlood.Active || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
             || InTown(conn) || !CharacterSaves.Remembered(CharacterName(conn)).PetrifiedBlood
@@ -72,7 +72,7 @@ public static partial class Game
 
     // A gem removed or disabled, a town, or death ends the running buff; saved intent stays until death. Entering
     // town also drops any unpaid hit loss (the debuff does not follow the player through the portal).
-    public static void SuspendPetrifiedBloodIfUnavailable(ClientState conn)
+    public static void SuspendPetrifiedBloodIfUnavailable(Player conn)
     {
         if (!conn.PetrifiedBlood.Active) return;
         bool available = GemSkillEffects(conn).Any(g => SkillsFor(conn).EffectId(g.Effect) == PetrifiedBlood.EffectId
@@ -84,7 +84,7 @@ public static partial class Game
         conn.AuraStatsDirty = true;
     }
 
-    static Dictionary<uint, int> PetrifiedBloodEffectStats(ClientState conn, int effect, int level, int quality) =>
+    static Dictionary<uint, int> PetrifiedBloodEffectStats(Player conn, int effect, int level, int quality) =>
         SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
 
     static int Get(IReadOnlyDictionary<uint, int> stats, string name) =>
@@ -96,7 +96,7 @@ public static partial class Game
     // The invisible slow_life_loss_from_hit_damage buff (BuffDefinitions 1796) draws the dark deferred-loss overlay
     // on the life orb. Its single value is the current deferred life loss per minute; the duration is the last
     // segment's end. Grace Period suppresses the loss, so it hides the overlay while protection runs.
-    public static byte[]? PetrifiedBloodLossPresentation(ClientState conn)
+    public static byte[]? PetrifiedBloodLossPresentation(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (conn.PetrifiedBlood.NextEnd(now) is double ends) PresentIn(conn, ends - now);
@@ -125,7 +125,7 @@ public static partial class Game
         return packets.Count == 0 ? null : [.. packets.SelectMany(packet => packet)];
     }
 
-    public static Task SendPetrifiedBloodLoss(ClientState conn) => Send(conn, [], null, atGate: () =>
+    public static Task SendPetrifiedBloodLoss(Player conn) => Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {

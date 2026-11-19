@@ -6,7 +6,7 @@ static class DivinationFeature
 {
     const string Owner = "Vendors.Divination";
     const byte Row = InstanceDivination.InventoryRow;
-    static readonly Store<ClientState, Session> Sessions = new();
+    static readonly Store<Player, Session> Sessions = new();
     sealed class Session(uint id, SpawnedNpc npc)
     {
         public uint Id => id;
@@ -62,23 +62,23 @@ static class DivinationFeature
         });
     }
 
-    internal static bool Current(ClientState conn) => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
+    internal static bool Current(Player conn) => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
         && conn.Sale is null && conn.Trade is null
         && conn.ModuleWindow == Owner && Sessions.TryGetValue(conn, out var session)
         && conn.TalkingTo == session.Id && conn.Npcs.TryGetValue(session.Id, out var npc)
         && ReferenceEquals(npc, session.Npc);
 
-    static bool CanDeposit(ClientState conn) => Current(conn)
+    static bool CanDeposit(Player conn) => Current(conn)
         && ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault() is { } held
         && ItemsFor(conn).ByHash(held.Item.TypeHash)?.Class == "DivinationCard";
 
-    static void Close(ClientState conn)
+    static void Close(Player conn)
     {
         Sessions.Remove(conn);
         if (conn.ModuleWindow == Owner) conn.ModuleWindow = null;
     }
 
-    internal static async Task Open(ClientState conn)
+    internal static async Task Open(Player conn)
     {
         Close(conn);
         uint id = conn.TalkingTo;
@@ -97,14 +97,14 @@ static class DivinationFeature
         await Send(conn, InstanceDivination.Open(), "open NPC divination window");
     }
 
-    static Task Send(ClientState conn, byte[] packet, string label) =>
+    static Task Send(Player conn, byte[] packet, string label) =>
         Program.Send(conn, packet, label);
 
     sealed class Cleanup(Action run) : IDisposable { public void Dispose() => run(); }
 
     internal sealed record Change(byte Row, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added);
 
-    internal static IReadOnlyList<Change> Move(ClientState conn, InstanceDivination.Move request)
+    internal static IReadOnlyList<Change> Move(Player conn, InstanceDivination.Move request)
     {
         // Worked out before the transaction: the check builds the character's stats under conn.Monsters, and that lock
         // comes before the save lock (Saves.cs), never inside it.
@@ -112,7 +112,7 @@ static class DivinationFeature
         return Saves.Atomically<IReadOnlyList<Change>>(() => MoveLocked(conn, request, expandedAllowed));
     }
 
-    static IReadOnlyList<Change> MoveLocked(ClientState conn, InstanceDivination.Move request, bool expandedAllowed)
+    static IReadOnlyList<Change> MoveLocked(Player conn, InstanceDivination.Move request, bool expandedAllowed)
     {
         if (!Current(conn) || !expandedAllowed) return [];
         var items = ItemsOf(conn);
@@ -175,7 +175,7 @@ static class DivinationFeature
         }).Where(c => c.Removed.Count + c.Added.Count > 0).ToArray();
     }
 
-    internal static InventoryItem? TurnIn(ClientState conn, Random? random = null) => Saves.Atomically(() =>
+    internal static InventoryItem? TurnIn(Player conn, Random? random = null) => Saves.Atomically(() =>
     {
         if (!Current(conn)) return null;
         var items = ItemsOf(conn);

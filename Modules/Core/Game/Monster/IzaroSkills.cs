@@ -108,7 +108,7 @@ static class IzaroSkills
 
     // The skill as its level has it: a spell's cast time and base damage, an attack's slower time and more damage than his
     // plain one's.
-    static MonsterAttack Attack(ClientState conn, MonsterAttack plain, Move move, byte level)
+    static MonsterAttack Attack(Player conn, MonsterAttack plain, Move move, byte level)
     {
         var catalog = Game.SkillsFor(conn);
         int effectLevel = catalog.MonsterEffectLevel(move.Effect, level);
@@ -125,7 +125,7 @@ static class IzaroSkills
     }
 
     /// <summary>The actor's skill list (Izaro's, a lieutenant's): the plain attack first, then each skill he uses, with the 0x1ab ids it names.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? melee)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? melee)
     {
         if (melee is null || !MovesOf(variety).Any()) return null;
         var catalog = Game.SkillsFor(conn);
@@ -158,7 +158,7 @@ static class IzaroSkills
     }
 
     /// <summary>His skills while the fight lasts, one at a time, between the ordinary AI's swings.</summary>
-    internal static async Task Run(ClientState conn, uint id, SpawnedMonster boss, Func<bool> here)
+    internal static async Task Run(Player conn, uint id, SpawnedMonster boss, Func<bool> here)
     {
         if (boss.Variety is not { } variety || boss.Attack is not { } plain) return;
         var moves = MovesOf(variety).Select(m => (Move: m, Use: Attack(conn, plain, m, boss.Level))).ToList();
@@ -227,7 +227,7 @@ static class IzaroSkills
         { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} Izaro's skills stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task Use(ClientState conn, uint id, SpawnedMonster boss, int action, Move move, MonsterAttack use)
+    static async Task Use(Player conn, uint id, SpawnedMonster boss, int action, Move move, MonsterAttack use)
     {
         double startedAt = 0;
         (int X, int Y) from = default, aim = default;
@@ -296,7 +296,7 @@ static class IzaroSkills
     }
 
     // A Self skill's buff on its user, for its time.
-    static async Task SelfBuff(ClientState conn, uint id, Move move)
+    static async Task SelfBuff(Player conn, uint id, Move move)
     {
         if (move.Buff is not { } name || BuffRows.GetValueOrDefault(name) is not (> 0 and var row)) return;
         ushort buff;
@@ -325,7 +325,7 @@ static class IzaroSkills
     }
 
     // The hit of a mark that bursts DelaySeconds after the contact, round the cell it was aimed at.
-    static async Task DelayedHit(ClientState conn, uint id, SpawnedMonster boss,
+    static async Task DelayedHit(Player conn, uint id, SpawnedMonster boss,
         Move move, MonsterAttack use, (int X, int Y) from, (int X, int Y) aim, ushort sequence)
     {
         var layout = conn.Layout;
@@ -352,11 +352,11 @@ static class IzaroSkills
         { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} 0x{id:x}'s {move.Name} stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static bool Free(ClientState conn, SpawnedMonster boss, (int X, int Y) cell) =>
+    static bool Free(Player conn, SpawnedMonster boss, (int X, int Y) cell) =>
         conn.Layout.WalkableFor(cell.X, cell.Y, Math.Max(0, LivingCollision.Size(boss))) && !conn.Barrier.Contains(cell);
 
     // The cell along his way to the aim, the last free one up to `cells` along it.
-    static (int X, int Y) Along(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim, int cells)
+    static (int X, int Y) Along(Player conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim, int cells)
     {
         double dx = aim.X - from.X, dy = aim.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy);
         if (length < 1) return from;
@@ -371,7 +371,7 @@ static class IzaroSkills
     }
 
     // Where the Move that ends his walk goes: StopCells on, towards the aim, else any free way.
-    static (int X, int Y) StopCell(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim)
+    static (int X, int Y) StopCell(Player conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) aim)
     {
         foreach (var toward in new[] { aim, (from.X + 1, from.Y), (from.X - 1, from.Y), (from.X, from.Y + 1), (from.X, from.Y - 1) })
         {
@@ -382,12 +382,12 @@ static class IzaroSkills
     }
 
     // The dash goes about ChargeCells towards the player, not to the player (55 to 63 measured, trace-sync.js).
-    static (int X, int Y) ChargeEnd(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) player) =>
+    static (int X, int Y) ChargeEnd(Player conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) player) =>
         Along(conn, boss, from, player, ChargeCells);
 
     // An effect for its clip: riding on him turned as he is (attachment kind 0, flags 3, as the Arrow Nova arrow), or on
     // his cell.
-    static async Task ShowArt(ClientState conn, uint id, Fx art)
+    static async Task ShowArt(Player conn, uint id, Fx art)
     {
         uint effect;
         (int X, int Y) at;
@@ -404,7 +404,7 @@ static class IzaroSkills
         _ = RemoveArt(conn, layout, effect, art.Seconds);
     }
 
-    static async Task RemoveArt(ClientState conn, AreaLayout layout, uint effect, double seconds)
+    static async Task RemoveArt(Player conn, AreaLayout layout, uint effect, double seconds)
     {
         await Task.Delay(TimeSpan.FromSeconds(seconds));
         if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
@@ -436,7 +436,7 @@ static class IzaroSkills
     }
 
     // Whether the player took it.
-    static async Task<bool> Hit(ClientState conn, uint id, SpawnedMonster boss, int action,
+    static async Task<bool> Hit(Player conn, uint id, SpawnedMonster boss, int action,
         Move move, MonsterAttack use, (int X, int Y) from, (int X, int Y) aim, ushort sequence, int spike = 0)
     {
         MonsterHitOutcome? outcome = null;

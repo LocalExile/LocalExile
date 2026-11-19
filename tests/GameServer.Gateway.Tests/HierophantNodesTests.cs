@@ -29,7 +29,7 @@ public sealed class HierophantNodesTests
         Assert.Equal(100, Hierophant.AreaFromMana(1, 9000));
 
         // Arcane Blessing: a spell hit on a hostile monster grants the 4 s Arcane Surge (20% cast speed, 30% mana regen).
-        var conn = new ClientState(new(1, "hierophant", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var conn = new Player(new(1, "hierophant", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         var target = new SpawnedMonster("hit", new(105, 100, 0), 0, 0, 1000);
         var caster = Keyed(("gain_arcane_surge_on_spell_hit_by_you_or_your_totems", 1));
         lock (conn.Monsters)

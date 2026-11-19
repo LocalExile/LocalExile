@@ -35,9 +35,9 @@ public static partial class Game
     }
 
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill, resetting the
-    /// connection's timed phasing (<see cref="ClientState.IsPhasing"/>). A stat presentation publishes the stat the
+    /// connection's timed phasing (<see cref="Player.IsPhasing"/>). A stat presentation publishes the stat the
     /// client's pathfinder reads and the Phasing Buff icon.</summary>
-    public static void GainPhasingOnKill(ClientState conn)
+    public static void GainPhasingOnKill(Player conn)
     {
         if (Stats.Key("phasing_for_4_seconds_on_kill_%") is not uint key) return;
         int chance = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
@@ -51,9 +51,9 @@ public static partial class Game
     }
 
     /// <summary>The Phasing Buff (BuffDefinitions "phasing_buff") and the virtual stat the client's pathfinder
-    /// reads. The server's own blockers already follow <see cref="ClientState.IsPhasing"/>; without the stat the
+    /// reads. The server's own blockers already follow <see cref="Player.IsPhasing"/>; without the stat the
     /// client walks around them and the estimates drift apart.</summary>
-    public static async Task SyncPhasing(ClientState conn)
+    public static async Task SyncPhasing(Player conn)
     {
         byte[]? buffBytes = null;
         byte[]? statBytes = null;
@@ -101,7 +101,7 @@ public static partial class Game
 
     // The timed remainder is re-sent when a kill extends it; a timed buff that fell back to a flask-only source
     // loses its countdown by omitting u68.
-    static bool TimedChanged(ClientState conn, bool timed, double until) =>
+    static bool TimedChanged(Player conn, bool timed, double until) =>
         timed ? Math.Abs(until - conn.PhasingSentUntil) > 0.001 : conn.PhasingSentUntil != 0;
 
     static byte[] PhaseStat(bool on)

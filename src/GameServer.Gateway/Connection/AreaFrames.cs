@@ -35,10 +35,10 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         public CancellationTokenRegistration Cancel;
     }
 
-    sealed class Member(ClientState conn, string remote, System.Net.Sockets.NetworkStream stream,
+    sealed class Member(Player conn, string remote, System.Net.Sockets.NetworkStream stream,
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, double first, int order)
     {
-        public readonly ClientState Conn = conn;
+        public readonly Player Conn = conn;
         public readonly string Remote = remote;
         public readonly System.Net.Sockets.NetworkStream Stream = stream;
         public readonly GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers = ciphers;
@@ -100,7 +100,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
 
     /// <summary>The areas whose world runs now, with their view (AreaFrames.View): a module that loads adds its systems to
     /// them (GameArea.Defer, at their next frame).</summary>
-    public static (GameArea Area, ClientState View)[] LiveAreas()
+    public static (GameArea Area, Player View)[] LiveAreas()
     {
         lock (live)
         {
@@ -111,14 +111,14 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     }
 
     /// <summary>Asks the rules of <paramref name="conn"/>'s league to set up <paramref name="area"/> (GameEvents.AreaStarted).</summary>
-    public static void StartRules(GameArea area, ClientState conn)
+    public static void StartRules(GameArea area, Player conn)
     {
         foreach (var (owner, run) in GameEvents.AreaStarted.Subscribers(conn))
             GameEventOwners.Guard(owner, nameof(GameEvents.AreaStarted), () => run(area, conn));
     }
 
     /// <summary>The frame time for the loops: the last boundary stepped while the frames run, else the Clock.</summary>
-    public double Now(ClientState conn) => Running && !double.IsNaN(Time) ? Time : conn.Clock.Elapsed.TotalSeconds;
+    public double Now(Player conn) => Running && !double.IsNaN(Time) ? Time : conn.Clock.Elapsed.TotalSeconds;
 
     public static int FramesFor(int milliseconds) =>
         Math.Max(1, (int)Math.Round(milliseconds / (double)Math.Max(1, (int)Program.FrameMs), MidpointRounding.AwayFromZero));
@@ -126,14 +126,14 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     public int MemberCount { get { lock (gate) return members.Count; } }
 
     /// <summary>The area's players, in the order they joined: its members still in it.</summary>
-    public ClientState[] Players()
+    public Player[] Players()
     {
         lock (gate) return [.. members.Select(m => m.Conn).Where(c => !c.Closed && !c.LeavingArea && !c.WorldOutput.Closed)];
     }
 
     /// <summary>The area's view: its first member (in join order) still in it, whose loops step what the area steps once
     /// (its monsters); null while the frames do not run.</summary>
-    public ClientState? View
+    public Player? View
     {
         get
         {
@@ -152,7 +152,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     /// <summary>The connection's frames start (S→C 0x2b8 first, Program.BeginWorldFrames) and it joins the area's driver,
     /// which starts with the first member.</summary>
     public async Task Join(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn)
+        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, Player conn)
     {
         try
         {
@@ -179,7 +179,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
-    int MemberOrder(ClientState conn)
+    int MemberOrder(Player conn)
     {
         foreach (var m in members) if (ReferenceEquals(m.Conn, conn)) return m.Order;
         return int.MaxValue;
@@ -189,7 +189,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
 
     /// <summary>Waits for the connection's turn in the next frame's input phase (at once while it is no member of a running
     /// area). Its handler runs its batches in the turn and disposes it.</summary>
-    public Task<InputTurn> Turn(ClientState conn)
+    public Task<InputTurn> Turn(Player conn)
     {
         lock (gate)
         {
@@ -225,7 +225,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
 
     // ---- loop waits ----
 
-    public Task Wait(ClientState conn, PlayerUpdateRole role, int milliseconds, CancellationToken stopping)
+    public Task Wait(Player conn, PlayerUpdateRole role, int milliseconds, CancellationToken stopping)
     {
         if (stopping.IsCancellationRequested) return Task.FromCanceled(stopping);
         Waiter waiter;

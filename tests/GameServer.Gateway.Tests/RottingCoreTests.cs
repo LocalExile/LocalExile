@@ -15,7 +15,7 @@ public sealed class RottingCoreTests
     public async Task Doedres_soul_is_visible_on_creation_and_saved_instance_restore()
     {
         using var runtime = new Runtime(); using var wire = new Wire();
-        var c = new ClientState(new(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, []), 1, 1)
+        var c = new Player(new(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, []), 1, 1)
             { Character = "VisibleSoulRegression", Instance = new(), Session = new("soul-visibility", wire.Stream, wire.Ciphers) };
         runtime.Player = c;
         var v = Game.Monsters.Find(DepravedTrinity.Souls[0])!;
@@ -46,7 +46,7 @@ public sealed class RottingCoreTests
         {
             var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(DepravedTrinity.Area)!.Value, seed);
             Assert.NotNull(layout.Level);
-            var c = new ClientState(layout, 1, seed);
+            var c = new Player(layout, 1, seed);
             DepravedTrinity.ConfigureRoutes(c);
             string[] names = ["Doedre", "Maligaro", "Shavronne"];
             uint[] domains = [1017109034, 3550752648, 1836249657];
@@ -84,7 +84,7 @@ public sealed class RottingCoreTests
         foreach (var offset in new[] { (0, 0), (700, 1300) })
         {
             var transitions = new (uint, AreaTransitionObject)[7];
-            var c = new ClientState(new(1, DepravedTrinity.Area, 5000, 5000, 20, 20, (_, _) => true, transitions), 1, 1);
+            var c = new Player(new(1, DepravedTrinity.Area, 5000, 5000, 20, 20, (_, _) => true, transitions), 1, 1);
             c.QuestFlags.Add("a9q1-BlackHeartOpen"); // A completed character still has to clear this new instance.
             c.LaterFormPoints[DepravedTrinity.Boss] = (3000 + offset.Item1, 2000 + offset.Item2);
             var names = new[] { "DoedrePortal", "MaligaroPortal", "ShavronnePortal" };
@@ -132,7 +132,7 @@ public sealed class RottingCoreTests
         markers.Add(new("Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioLootLocator", "", 3000, 1000, 0, 0));
         var layout = new AreaLayout(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, [])
         { Level = new(4000, 4000, [], [], [], [], [], [], []) { RoomObjects = markers } };
-        var c = new ClientState(layout, 1, 1)
+        var c = new Player(layout, 1, 1)
         {
             Character = "TrinityRegression", PlayerSent = true, PlayerLife = 1000000, Instance = new(),
             Pools = new(64, 1000000, 100, 2, 0), Session = new("trinity", wire.Stream, wire.Ciphers),
@@ -212,7 +212,7 @@ public sealed class RottingCoreTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        public ClientState? Player;
+        public Player? Player;
         public Runtime() { Saves.Open(saves); Game.CombatLifetime = lifetime; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic()); }
         public void Dispose()
         {

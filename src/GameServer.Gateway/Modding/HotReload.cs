@@ -17,7 +17,7 @@ public static class HotReload
 {
     static int count;
     static long pendingSince;   // Stopwatch timestamp of the first save not yet applied; 0 = none
-    static readonly ConcurrentDictionary<ClientState, byte> Players = new();
+    static readonly ConcurrentDictionary<Player, byte> Players = new();
     // A save that changes nothing applies nothing; after this long the next save announces a new start.
     static readonly TimeSpan PendingTimeout = TimeSpan.FromMinutes(2);
     // How many compile errors a chat message lists.
@@ -28,7 +28,7 @@ public static class HotReload
     static readonly Timer? WatchOutput = ReadWatchOutput();
 
     /// <summary>A connection in game that hears about reloads (Program.Connection, after its chat commands).</summary>
-    public static void Register(ClientState conn)
+    public static void Register(Player conn)
     {
         if (Sources is null) return;
         Players[conn] = 0;

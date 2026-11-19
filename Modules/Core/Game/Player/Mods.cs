@@ -9,7 +9,7 @@ public static partial class Game
             m.Rarity, at.X, at.Y) { ObjectId = m.ObjectId };
 
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
-    public static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
+    public static ItemDrops.Drop? ModDrop(Player conn, string query, int itemLevel)
     {
         if (UniquesFor(conn).Find(query) is { } unique
             && UniquesFor(conn).Create(unique, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
@@ -23,7 +23,7 @@ public static partial class Game
     /// <summary>The items the league's and the mods' drop changes add to a kill (DropRoll.Items as /item makes them,
     /// DropRoll.RolledItems as the kill rolls its own), with every DropRoll.Changes applied to all of
     /// <paramref name="drops"/> and them.</summary>
-    public static List<ItemDrops.Drop> ModdedDrops(ClientState conn, DropRoll? modded, List<ItemDrops.Drop> drops, int level,
+    public static List<ItemDrops.Drop> ModdedDrops(Player conn, DropRoll? modded, List<ItemDrops.Drop> drops, int level,
         MonsterRarity rarity, int increasedRarity, double rarityMultiplier, Random rng)
     {
         if (modded is null) return drops;
@@ -38,9 +38,9 @@ public static partial class Game
         return [.. modded.Changed(drops, rng)];
     }
 
-    public sealed class ModPlayer(ClientState conn) : IConnectionPlayer
+    public sealed class ModPlayer(Player conn) : IConnectionPlayer
     {
-        public ClientState Conn => conn;
+        public Player Conn => conn;
         public string Character => CharacterName(conn);
         public string? Account => conn.Account;
         public string League => conn.League ?? "Standard";

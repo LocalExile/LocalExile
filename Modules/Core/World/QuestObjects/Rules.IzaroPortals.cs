@@ -19,11 +19,11 @@ static partial class QuestobjectsRules
         public ushort Buff;
     }
 
-    static bool PortalDead(ClientState conn, PortalSlot p) =>
+    static bool PortalDead(Player conn, PortalSlot p) =>
         p.Monster.Dead || p.Monster.Life == 0 || !ReferenceEquals(conn.Monsters.GetValueOrDefault(p.Id), p.Monster);
 
     // The arena's portals, one on each small elevator, down in its hole (a new one is in IzaroPortal.ot's state 5).
-    static async Task PlaceIzaroPortals(ClientState conn, IzaroArena arena)
+    static async Task PlaceIzaroPortals(Player conn, IzaroArena arena)
     {
         var portals = IzaroEffects.Of(IzaroPortals.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(portals.Count, arena.Lifts.Count); i++)
@@ -36,7 +36,7 @@ static partial class QuestobjectsRules
 
     // It takes no hits until it is up (the original, live: what rises can be hit only when it has risen); a returning one
     // never does (IzaroPortal2.ot: base_cannot_be_damaged). Not kept with the instance (the arena places it again).
-    static async Task<PortalSlot?> SpawnIzaroPortal(ClientState conn,
+    static async Task<PortalSlot?> SpawnIzaroPortal(Player conn,
         IzaroEffects.Effect effect, AreaPopulation.RoomObject at)
     {
         if (Monsters.Find(effect.Variety) is not { Supported: true } variety)
@@ -61,7 +61,7 @@ static partial class QuestobjectsRules
     }
 
     // The arena's portals rise one at a time, the first with Izaro (the original, live).
-    static async Task RaiseIzaroPortals(ClientState conn, IzaroArena arena,
+    static async Task RaiseIzaroPortals(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try
@@ -83,7 +83,7 @@ static partial class QuestobjectsRules
     }
 
     // Up, it can be hit and, while the trial lasts, brings its guardians.
-    static async Task IzaroPortalRisen(ClientState conn, IzaroArena arena,
+    static async Task IzaroPortalRisen(Player conn, IzaroArena arena,
         PortalSlot p, Func<bool> here)
     {
         try
@@ -102,7 +102,7 @@ static partial class QuestobjectsRules
     // A portal's guardians, until it is destroyed or the trial ends (it then stays, bringing no more, and those it brought
     // fight on: the original, live), while fewer than IzaroPortals.SummonLimit of its own live. Its action plays nothing on
     // the client (as the Immolator's), so its actor's clip is played.
-    static async Task RunIzaroPortal(ClientState conn, IzaroArena arena,
+    static async Task RunIzaroPortal(Player conn, IzaroArena arena,
         PortalSlot p, Func<bool> here)
     {
         if (p.Monster.Attack?.Summon is not { } summon || Monsters.Find(summon.Variety.ToString()) is not { Supported: true } guardian)
@@ -152,7 +152,7 @@ static partial class QuestobjectsRules
 
     // A guardian comes out of its portal (the original, live): it starts at the portal's edge and walks the skill's offset
     // towards the arena's middle, the way the portal faces, a little to one side so they do not end on one cell.
-    static ((int X, int Y) At, (int X, int Y) To) IzaroPortalWayOut(ClientState conn, IzaroArena arena, PortalSlot p, double ahead)
+    static ((int X, int Y) At, (int X, int Y) To) IzaroPortalWayOut(Player conn, IzaroArena arena, PortalSlot p, double ahead)
     {
         lock (conn.Monsters)
         {
@@ -169,7 +169,7 @@ static partial class QuestobjectsRules
     }
 
     // Until it arrives it does nothing else; then the AI has it.
-    static async Task WalkOutOfIzaroPortal(ClientState conn, uint id, (int X, int Y) to)
+    static async Task WalkOutOfIzaroPortal(Player conn, uint id, (int X, int Y) to)
     {
         SpawnedMonster? m;
         int action;
@@ -190,7 +190,7 @@ static partial class QuestobjectsRules
     }
 
     // The earlier trials' portals: their alcoves' railings lower, their buffs go on Izaro and they bring their guardians.
-    static async Task ReleaseIzaroPortals(ClientState conn, IzaroArena arena,
+    static async Task ReleaseIzaroPortals(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         var returned = arena.Portals.Where(p => p.Carried is not null).ToList();

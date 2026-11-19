@@ -21,7 +21,7 @@ public sealed class AnarchyModule : IModule
     sealed record Exile(uint Id, string VarietyId, bool Exceptional, bool Special);
 
     sealed class Placed { public readonly List<Exile> Exiles = []; public object? Area; }
-    static readonly ConditionalWeakTable<ClientState, Placed> PlacedExiles = new();
+    static readonly ConditionalWeakTable<Player, Placed> PlacedExiles = new();
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -88,7 +88,7 @@ public sealed class AnarchyModule : IModule
     }
 
     /// <summary>Royal Guard and the two-exile map boss: exiles next to each map boss.</summary>
-    static async Task GuardBosses(IModuleContext module, ClientState conn, byte level, Dictionary<string, int> stats, Random rng,
+    static async Task GuardBosses(IModuleContext module, Player conn, byte level, Dictionary<string, int> stats, Random rng,
         List<string> used, Placed placed)
     {
         int guards = stats.GetValueOrDefault("map_boss_has_rogue_exile_bodyguards_chance_%");
@@ -113,7 +113,7 @@ public sealed class AnarchyModule : IModule
 
     /// <summary>One exile: which (Faridun's, a gigantified one), its stats from the map, and its spawn. Null when none can
     /// spawn here (the caller places no more).</summary>
-    static async Task<uint?> SpawnExile(IModuleContext module, ClientState conn, byte level, (int X, int Y) at,
+    static async Task<uint?> SpawnExile(IModuleContext module, Player conn, byte level, (int X, int Y) at,
         Dictionary<string, int> stats, Random rng, List<string> used, bool exceptional, Placed placed, string kind, bool bodyguard = false,
         bool giant = false)
     {
@@ -231,7 +231,7 @@ public sealed class AnarchyModule : IModule
 
     // The jewel bases a kill can drop: the general drop table's rule (ItemDrops.Droppable) for the Jewel and Abyss Jewel classes.
     static readonly ConditionalWeakTable<ItemCatalog, List<string>> Jewels = [];
-    static List<string> JewelBases(ClientState conn) => Jewels.GetValue(global::Game.ItemsFor(conn), catalog =>
+    static List<string> JewelBases(Player conn) => Jewels.GetValue(global::Game.ItemsFor(conn), catalog =>
         [.. catalog.All.Where(t => t.Class is "Jewel" or "AbyssJewel" && ItemDrops.Droppable(t)).Select(t => t.Id)]);
 
     static string AnarchyScarab(Random rng) => $"Metadata/Items/Scarabs/ScarabAnarchy{1 + rng.Next(4)}";

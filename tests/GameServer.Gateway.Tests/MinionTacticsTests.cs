@@ -9,7 +9,7 @@ public sealed class MinionTacticsTests
     sealed class Clock : IPlayerUpdateSchedule
     {
         internal double Time;
-        public double Now(ClientState conn) => Time;
+        public double Now(Player conn) => Time;
         public Task Wait(int milliseconds, CancellationToken stopping)
         { stopping.ThrowIfCancellationRequested(); Time += milliseconds / 1000d; return Task.CompletedTask; }
     }

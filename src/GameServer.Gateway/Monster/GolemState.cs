@@ -93,7 +93,7 @@ public sealed class GolemState
         : All.Values.Where(g => !g.Monster.Dead).OrderBy(g => g.Definition.Kind == kind ? 0 : 1).ThenBy(g => g.SummonedAt).FirstOrDefault();
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     GolemState? golems;
     public GolemState Golems => System.Threading.LazyInitializer.EnsureInitialized(ref golems);

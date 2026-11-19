@@ -3,7 +3,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     public const double ControlledFollowerLeash = 60;
-    static readonly Store<ClientState, ControlledFollowing> FollowerPlans = new();
+    static readonly Store<Player, ControlledFollowing> FollowerPlans = new();
     sealed class ControlledFollowing
     {
         public bool Following;
@@ -13,7 +13,7 @@ public static partial class Game
         public uint Target;
     }
 
-    public static (int X, int Y) ControlledFollowerPoint(ClientState conn, ClientState leader, bool arrival = false, double? atTime = null)
+    public static (int X, int Y) ControlledFollowerPoint(Player conn, Player leader, bool arrival = false, double? atTime = null)
     {
         double now = atTime ?? conn.Clock.Elapsed.TotalSeconds;
         var origin = leader.Walk.Position(now);
@@ -47,7 +47,7 @@ public static partial class Game
         return origin;
     }
 
-    public static bool KeepControlledFollowerNear(ClientState conn, ClientState leader, double now, bool externalMovement = false)
+    public static bool KeepControlledFollowerNear(Player conn, Player leader, double now, bool externalMovement = false)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         var here = conn.Walk.Position(now);
@@ -107,13 +107,13 @@ public static partial class Game
         return true;
     }
 
-    static void ScheduleControlledIdle(ClientState conn, ControlledFollowing plan, double now)
+    static void ScheduleControlledIdle(Player conn, ControlledFollowing plan, double now)
     {
         uint seed = unchecked(conn.PeerId * 2654435761u + plan.IdleTurn * 2246822519u);
         plan.IdleAt = now + 14 + seed % 18;
     }
 
-    public static void IdleControlledFollower(ClientState conn, ClientState leader, double now)
+    public static void IdleControlledFollower(Player conn, Player leader, double now)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         plan.Target = 0;
@@ -161,7 +161,7 @@ public static partial class Game
         return gap <= 48 && Math.Max(0, gap * gap - ahead * ahead) + after * after <= 55 * 55;
     }
 
-    public static void HoldControlledFollowerAttack(ClientState conn, double now, double seconds, uint target)
+    public static void HoldControlledFollowerAttack(Player conn, double now, double seconds, uint target)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         plan.Target = target;
@@ -171,7 +171,7 @@ public static partial class Game
         ScheduleControlledIdle(conn, plan, plan.AttackUntil);
     }
 
-    static bool MoveControlledFollower(ClientState conn, (int X, int Y) at, double now)
+    static bool MoveControlledFollower(Player conn, (int X, int Y) at, double now)
     {
         lock (conn.Monsters)
         {

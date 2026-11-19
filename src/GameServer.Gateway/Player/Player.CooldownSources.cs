@@ -1,4 +1,4 @@
-sealed partial class ClientState
+sealed partial class Player
 {
     // A cooldown's debt is shared by copies of its effect; support inputs come from its last admitted source.
     public readonly Dictionary<int, ushort> CooldownSources = [];

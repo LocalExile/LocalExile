@@ -22,7 +22,7 @@ public sealed partial class DelveModule
         public IPlayer? Player;
         public string Owner = "";
         public volatile bool Cancelled;
-        public readonly HashSet<ClientState> Departures = [];
+        public readonly HashSet<Player> Departures = [];
         public uint Seed => Plan.SceneSeed == 0 ? DelveTerrain.Seed(Plan.From, Plan.To) : Plan.SceneSeed;
     }
     readonly ConcurrentDictionary<Guid, Attempt> _attempts = new();

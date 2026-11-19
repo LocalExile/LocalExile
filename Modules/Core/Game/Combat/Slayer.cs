@@ -85,13 +85,13 @@ public static class Slayer
         }
     }
 
-    static readonly Store<ClientState, State> States = new();
-    public static State Of(ClientState conn) => States.GetValue(conn, _ => new());
+    static readonly Store<Player, State> States = new();
+    public static State Of(Player conn) => States.GetValue(conn, _ => new());
 
-    public static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
+    public static long Revision(Player conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
-    static int Raw(ClientState conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
+    static int Raw(Player conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>A kill of the player's (GameEvents.Kill): it counts as killed recently, and starts or refreshes
@@ -113,7 +113,7 @@ public static class Slayer
     }
 
     /// <summary>GameEvents.PlayerStatSources: the counts and Headsman's speeds as last applied.</summary>
-    public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> stats)
     {
         if (!States.TryGetValue(conn, out var state)) return stats;
         void Add(string name, int value)
@@ -133,7 +133,7 @@ public static class Slayer
     }
 
     /// <summary>GameEvents.OutgoingDamage: Bane of Legends' more damage on the rolled hit, which its ailments read.</summary>
-    public static DamagePacket OutgoingDamage(ClientState conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target,
+    public static DamagePacket OutgoingDamage(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target,
         DamagePacket rolled)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -150,7 +150,7 @@ public static class Slayer
     /// <summary>The player tick: count the hostile enemies near the living player and those killed in the last four
     /// seconds (only with a stat that reads the count), end Headsman's buffs at their time or at death, and when a value
     /// changed rebuild the pools and send the stats and skills.</summary>
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         bool changed;
@@ -208,7 +208,7 @@ public static class Slayer
 
     // A Headsman buff: shown for its time left while on, shown again when a kill moved its deadline, taken off when it
     // ends. Its stats are in PlayerStats, not in the buff.
-    static void Present(ClientState conn, ref ushort buff, ref double shown, ushort row, bool on, double until, double now,
+    static void Present(Player conn, ref ushort buff, ref double shown, ushort row, bool on, double until, double now,
         List<byte[]> packets)
     {
         if (buff != 0 && (!on || shown != until))
@@ -224,7 +224,7 @@ public static class Slayer
     }
 
     /// <summary>A new area is a new connection: the leaving one forgets its state.</summary>
-    public static Task Leaving(ClientState conn)
+    public static Task Leaving(Player conn)
     {
         States.Remove(conn);
         return Task.CompletedTask;

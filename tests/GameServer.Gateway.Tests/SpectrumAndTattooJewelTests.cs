@@ -38,7 +38,7 @@ public class SpectrumAndTattooJewelTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"warriors-tale-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "tattoos", 100, 100, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "tattoos", 100, 100, 100, 100, null, []), 1, 1)
             { Character = "TattooRadius" };
         try
         {

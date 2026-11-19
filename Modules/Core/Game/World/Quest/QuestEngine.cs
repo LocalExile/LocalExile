@@ -26,14 +26,14 @@ public static partial class Game
 
     // ---- quest items (QuestItems: the .it Quest component) ----
 
-    public static QuestItemFlags? QuestFlagsOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.Quest;
+    public static QuestItemFlags? QuestFlagsOf(Player conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.Quest;
 
-    public static IEnumerable<QuestItemFlags> QuestItemTypes(ClientState conn) => ItemsFor(conn).QuestItemTypes.Select(t => t.Quest!);
+    public static IEnumerable<QuestItemFlags> QuestItemTypes(Player conn) => ItemsFor(conn).QuestItemTypes.Select(t => t.Quest!);
 
     // The grant flags follow the quest items carried and the extra flags come with them (QuestItems.Sync), whatever moved
     // them (a pickup, a drop, a sale, the stash). With removeItems (the message path only), carried items whose
     // remove_flag is set go: the glyphs once placed, a Medicine Chest after Nessa has one, a used book's copies.
-    public static async Task SyncQuestItems(ClientState conn, bool removeItems)
+    public static async Task SyncQuestItems(Player conn, bool removeItems)
     {
         await conn.QuestGate.WaitAsync();
         try
@@ -64,7 +64,7 @@ public static partial class Game
 
     // Quest items on this instance's ground whose remove_flag the character has are not needed any more: they go (a glyph
     // left behind before the glyphs were placed).
-    public static async Task RemoveDoneQuestItemsFromGround(ClientState conn)
+    public static async Task RemoveDoneQuestItemsFromGround(Player conn)
     {
         var done = conn.Instance.Ground.All().Where(e => QuestFlagsOf(conn, e.Item.Item) is { } q
             && QuestItems.Removed(q, f => ClientHasQuestFlag(conn, f)) && QuestDropVisibleTo(conn, e.Id))
@@ -76,13 +76,13 @@ public static partial class Game
 
     // A quest item dropped by a monster or a chest where it stands (on the nearest walkable cell), unless the character no
     // longer needs it (QuestItems.Drops: remove_flag set, one carried or on this instance's ground).
-    public static async Task DropQuestItem(ClientState conn, string itemId, (int X, int Y) at, string source)
+    public static async Task DropQuestItem(Player conn, string itemId, (int X, int Y) at, string source)
     {
         foreach (var output in CommitQuestItem(conn, itemId, at, source))
             await SendWorldReceipt(conn, output);
     }
 
-    static List<PlayerMinions.Output> CommitQuestItem(ClientState conn, string itemId, (int X, int Y) at, string source)
+    static List<PlayerMinions.Output> CommitQuestItem(Player conn, string itemId, (int X, int Y) at, string source)
     {
         string remote = conn.Remote;
         if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
@@ -106,14 +106,14 @@ public static partial class Game
             $"0x02bb quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})", WorldId: id, CreatesObject: true), new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id)];
     }
 
-    internal static bool QuestDropVisibleTo(ClientState conn, uint id)
+    internal static bool QuestDropVisibleTo(Player conn, uint id)
     {
         var (by, shared) = conn.Instance.Ground.Origin(id);
-        return shared || ReferenceEquals(by, conn) || by is ClientState { Character: { } name } && name == conn.Character;
+        return shared || ReferenceEquals(by, conn) || by is Player { Character: { } name } && name == conn.Character;
     }
 
     // A party kill's quest items for another player in the instance (SharedKills.cs): their own copy, on their own client.
-    public static async Task DropQuestItemsForKill(ClientState conn,
+    public static async Task DropQuestItemsForKill(Player conn,
         string varietyId, (int X, int Y) at, string source)
     {
         foreach (string item in QuestsOf(conn).DropsOnKill(conn.Layout.Id, varietyId))
@@ -129,7 +129,7 @@ public static partial class Game
             Kind: PlayerMinions.OutputKind.QuestKill, At: kill.At));
     }
 
-    public static async Task DropGroundItem(ClientState conn, string itemId, (int X, int Y) at, string source)
+    public static async Task DropGroundItem(Player conn, string itemId, (int X, int Y) at, string source)
     {
         if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
         {
@@ -147,7 +147,7 @@ public static partial class Game
     // C→S 0x82 on a dialogue row that sets a quest item's remove_flag (QuestItems.HandedIn: Nessa's "The Medicine Chest",
     // Fairgraves' "Thank You"): the item is handed in with the flag, in one save. Without one carried the talk does not
     // happen: the option list comes back. True when the talk may go on.
-    public static async Task<bool> HandInQuestItems(ClientState conn, NpcCatalog.Talk talk,
+    public static async Task<bool> HandInQuestItems(Player conn, NpcCatalog.Talk talk,
         string npcId)
     {
         // A row whose script sets carried quest items' remove_flag (Eramir's "Bandit Amulets", NPCTalk 95:
@@ -188,7 +188,7 @@ public static partial class Game
 
     // C→S 0x58 on a quest item with a use_flag (the quest books): it is used up and its flag set, in one save; the
     // QuestStaticRewards of the flag (passive or refund points) follow from it (SetQuestFlags sends the tree).
-    public static async Task UseQuestItem(ClientState conn, PlayerInventories items,
+    public static async Task UseQuestItem(Player conn, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         var flags = type.Quest!;
@@ -214,12 +214,12 @@ public static partial class Game
     // ---- static rewards (QuestStaticRewards) ----
 
     // The passive skill points the character's quest flags give (a1q6/a1q7/a1q9 books …): part of 0x33's extra_skill_points.
-    public static int QuestPassivePoints(ClientState conn) => QuestStaticRewards.Default.PassivePoints(conn.QuestFlagsSnapshot());
+    public static int QuestPassivePoints(Player conn) => QuestStaticRewards.Default.PassivePoints(conn.QuestFlagsSnapshot());
 
     // QuestStaticRewards' permanent stats as stat sources, as a passive's would be: the bandit lords' help rewards (a2q1: 8%
     // movement speed, a2q2: +15% to all elemental resistances, a2q3: +40 life). Kitava's two penalties are
     // ResistancePenalty's (Player/Player.cs), so their flags are left out here.
-    public static Dictionary<uint, int> WithQuestStats(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithQuestStats(Player conn, Dictionary<uint, int> sources)
     {
         IReadOnlyDictionary<string, int> rewards;
         lock (conn.Monsters)
@@ -244,7 +244,7 @@ public static partial class Game
         public HashSet<string>? Flags;
         public IReadOnlyDictionary<string, int> Stats = new Dictionary<string, int>();
     }
-    static readonly Store<ClientState, QuestStatCache> QuestStatCaches = new();
+    static readonly Store<Player, QuestStatCache> QuestStatCaches = new();
 
     // Whether a flag change moves QuestStaticRewards' permanent stats (the pools and the panel follow).
     public static bool ChangesQuestStats(IEnumerable<string> changed) =>
@@ -259,7 +259,7 @@ public static partial class Game
     // After a monster's kill flags (both kill paths commit those first; the QuestObjects module runs this from the kill's
     // GameEvents.Kill, after the commit): its quest drops, a fight of several bosses, a boss that forms, NPCs that appear or
     // are freed, its second form, and whether the area is now cleared.
-    public static async Task QuestKillEffects(ClientState conn, SpawnedMonster m,
+    public static async Task QuestKillEffects(Player conn, SpawnedMonster m,
         MonsterCatalog.Variety variety, (int X, int Y) at, bool dropsCommitted = false)
     {
         string area = conn.Layout.Id;
@@ -358,7 +358,7 @@ public static partial class Game
     // Entering an area: quest items synced (and done ones removed), the entered flags, and the quest objects of the area's
     // rooms and tiles: chests, NPCs, the engine's own quest objects (seals, levers, altars), the mirrored blockers and the
     // objects the sight rules watch.
-    public static async Task StartQuestArea(ClientState conn)
+    public static async Task StartQuestArea(Player conn)
     {
         await SyncQuestItems(conn, removeItems: true);
         await RemoveDoneQuestItemsFromGround(conn);
@@ -409,7 +409,7 @@ public static partial class Game
     }
 
     internal static List<(Quests.ObjectRule Object, Quests.BlockerRule Blocker, GlyphQuest.Placement At)> PlacedQuestDoors(
-        ClientState conn, QuestObjectTypes.AreaPlacements placements)
+        Player conn, QuestObjectTypes.AreaPlacements placements)
     {
         var doors = new List<(Quests.ObjectRule, Quests.BlockerRule, GlyphQuest.Placement)>();
         foreach (var rule in QuestsOf(conn).Doors(conn.Layout.Id))
@@ -440,7 +440,7 @@ public static partial class Game
         return doors;
     }
 
-    static void QueueDoorRefresh(ClientState conn, IReadOnlyCollection<string> flags)
+    static void QueueDoorRefresh(Player conn, IReadOnlyCollection<string> flags)
     {
         conn.KillShares.Enqueue(async _ =>
         {
@@ -454,9 +454,9 @@ public static partial class Game
     // ---- the engine's quest objects (Quests.ObjectRule) ----
 
     // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned).
-    public static bool QuestObjectTransitioned(ClientState conn, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag);
+    public static bool QuestObjectTransitioned(Player conn, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag);
 
-    public static byte[] QuestObjectBlob(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
+    public static byte[] QuestObjectBlob(Player conn, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
     {
         bool done = QuestObjectTransitioned(conn, rule);
         // A tile record's virtual model; a room line's object keeps its type's own, or takes the line's without one.
@@ -464,7 +464,7 @@ public static partial class Game
         return new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, model, (byte)(done ? info.States : 1), Blocked: !done).Blob();
     }
 
-    public static async Task CreateQuestObject(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at)
+    public static async Task CreateQuestObject(Player conn, Quests.ObjectRule rule, GlyphQuest.Placement at)
     {
         if (QuestObjectTypes.Find(rule.ObjectType) is not { } info || !QuestObject.CanSerialize(info.Components))
         {
@@ -484,7 +484,7 @@ public static partial class Game
 
     // C→S 0x24 on a quest object: walk up; with the needs of its use rule the flags are set and the carried quest items
     // they finish are taken (QuestItems.Consume), in one save; then what the use brings (Quests.SpawnRule).
-    public static async Task UseQuestObject(ClientState conn, InstanceTransfer.UseSkillOnObject use,
+    public static async Task UseQuestObject(Player conn, InstanceTransfer.UseSkillOnObject use,
         Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info, double requestedAt, Func<Task>? reached = null)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, info.Size, out var objectWalk)) return;
@@ -534,7 +534,7 @@ public static partial class Game
 
     // Claim each encounter member once per instance. Joining a live fight or returning after its
     // first phase must not create another first body, even when two players enter together.
-    static async Task SpawnQuestEncounter(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at, bool restoring = false)
+    static async Task SpawnQuestEncounter(Player conn, Quests.ObjectRule rule, GlyphQuest.Placement at, bool restoring = false)
     {
         string area = conn.Layout.Id;
         var quests = QuestsOf(conn);
@@ -568,7 +568,7 @@ public static partial class Game
 
     // Sets the flags and takes the carried quest items whose remove_flag is among them (and clears their grant flags), in
     // one save (QuestItems.Consume): the emblem into its seal, the spike and the gem into the tree, the Apex on the altar.
-    public static async Task ConsumeQuestItemsAndSet(ClientState conn, IReadOnlyList<string> flags, string what)
+    public static async Task ConsumeQuestItemsAndSet(Player conn, IReadOnlyList<string> flags, string what)
     {
         var items = ItemsOf(conn);
         await conn.QuestGate.WaitAsync();
@@ -593,7 +593,7 @@ public static partial class Game
     // The quest objects and chests whose state follows a flag the client now has differently: their Transitionable steps
     // (0x2bc); an object with a TriggerableBlockage (no update reader) is created again, unblocked. (The quest NPCs follow
     // their flags in UpdateQuestNpcs, QuestNpcs.cs.)
-    public static async Task UpdateQuestObjectStates(ClientState conn, IReadOnlyCollection<string> effective)
+    public static async Task UpdateQuestObjectStates(Player conn, IReadOnlyCollection<string> effective)
     {
         List<(uint Id, Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> objects;
         lock (conn.QuestObjects)
@@ -639,7 +639,7 @@ public static partial class Game
 
     // The mirrored blockers (Quests.BlockerRule) as the client has their flags: on the server's walk map until then.
     // Under the Monsters lock.
-    public static void UpdateQuestBlockers(ClientState conn)
+    public static void UpdateQuestBlockers(Player conn)
     {
         for (int i = 0; i < conn.QuestBlockers.Count; i++)
         {
@@ -670,12 +670,12 @@ public static partial class Game
     // A quest chest's Positioned size (Chest.ot object_size 2, blocking).
     public const int QuestChestSize = 1;
 
-    static string? QuestChestOwner(ClientState conn, Quests.ChestRule rule) => rule.Guards is null ? null : CharacterName(conn);
+    static string? QuestChestOwner(Player conn, Quests.ChestRule rule) => rule.Guards is null ? null : CharacterName(conn);
 
-    static bool PersonalChestComplete(ClientState conn, Quests.ChestRule rule) => rule.Guards is not null &&
+    static bool PersonalChestComplete(Player conn, Quests.ChestRule rule) => rule.Guards is not null &&
         QuestMarkerCollected(conn, rule.Item, QuestItems.Carried(ItemsOf(conn)).Select(i => i.Item.Item.TypeHash).ToHashSet());
 
-    public static bool QuestChestReady(ClientState conn, Quests.ChestRule rule)
+    public static bool QuestChestReady(Player conn, Quests.ChestRule rule)
     {
         if (rule.OpensWith is not { } flag || !ClientHasQuestFlag(conn, flag)) return false;
         if (rule.Guards is null) return true;
@@ -685,31 +685,31 @@ public static partial class Game
     }
 
     // Only pending encounter chests need a transition when another player finishes the fight.
-    static readonly Store<ClientState,
+    static readonly Store<Player,
         System.Collections.Concurrent.ConcurrentDictionary<uint, Quests.ChestRule>> PendingEncounterChests = new();
 
     // Ordinary chests start untransitioned: FireflyChestBase disables targeting in create_transitioned.
     // Only a gated chest uses state 2 to signal that its prerequisite has unlocked it.
-    public static byte QuestChestState(ClientState conn, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
+    public static byte QuestChestState(Player conn, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
         (byte)(opened ? info.States : QuestChestReady(conn, rule) ? Math.Min(2, info.States) : 1);
 
     // A quest chest's 0x2bb blob: its type's components (QuestObjectTypes; a Chests.dat row without an .ot as its
     // InheritsFrom), else the Rhoa Nest's.
-    public static byte[] QuestChestBlob(ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened, bool hideMinimapIcon = false) =>
+    public static byte[] QuestChestBlob(Player conn, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened, bool hideMinimapIcon = false) =>
         QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.CanSerialize(info.Components)
             ? new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, at.Model, QuestChestState(conn, rule, info, opened), opened)
                 { HideMinimapIcon = hideMinimapIcon }.Blob()
             : GlyphQuest.NestBlob(at, opened, hideMinimapIcon);
 
-    static readonly Store<ClientState, HashSet<uint>> HiddenQuestMarkers = new();
+    static readonly Store<Player, HashSet<uint>> HiddenQuestMarkers = new();
 
-    public static bool QuestMarkerCollected(ClientState conn, string itemId, IReadOnlySet<uint> carried) =>
+    public static bool QuestMarkerCollected(Player conn, string itemId, IReadOnlySet<uint> carried) =>
         ItemsFor(conn).Find(itemId) is { } type && (carried.Contains(type.Hash)
             || type.Quest is { } quest && QuestItems.Removed(quest, f => ClientHasQuestFlag(conn, f)));
 
     // MinimapIcon has no component-update reader. Recreate only the source object with its explicit hidden bit;
     // keep the opened model, blockers and per-player quest state. Other party members keep their own markers.
-    public static async Task HideCollectedQuestMarkers(ClientState conn)
+    public static async Task HideCollectedQuestMarkers(Player conn)
     {
         List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
         lock (conn.QuestChests) chests = [.. conn.QuestChests.Select(c => (c.Key, c.Value.Rule, c.Value.At))];
@@ -751,7 +751,7 @@ public static partial class Game
         }
     }
 
-    public static async Task CreateQuestChest(ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at)
+    public static async Task CreateQuestChest(Player conn, Quests.ChestRule rule, GlyphQuest.Placement at)
     {
         bool collected = PersonalChestComplete(conn, rule);
         bool opened = collected || conn.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(conn, rule));
@@ -767,7 +767,7 @@ public static partial class Game
 
     // C→S 0x24 on a quest chest: walk up, open it (once per instance; the opened chest replaces it under a new id, as
     // Chest has no update reader), its used flags, and its item while the character needs it.
-    public static async Task OpenQuestChest(ClientState conn, InstanceTransfer.UseSkillOnObject use,
+    public static async Task OpenQuestChest(Player conn, InstanceTransfer.UseSkillOnObject use,
         Quests.ChestRule rule, GlyphQuest.Placement at, double requestedAt)
     {
         if (conn.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(conn, rule)) || PersonalChestComplete(conn, rule)) return;
@@ -807,7 +807,7 @@ public static partial class Game
 
     // A dialogue row chosen (after its availability and hand-in checks): its scripts' flags, and an NPC whose script
     // transitions a monster variety turns into it (Quests.TurnsIntoRule: Fairgraves).
-    public static async Task OnQuestTalk(ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
+    public static async Task OnQuestTalk(Player conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
     {
         if (talk.ScriptSets is { Count: > 0 } sets) await SetQuestFlags(conn, sets);
         if (talk.ScriptClears is { Count: > 0 } clears) await SetQuestFlags(conn, clears, on: false);
@@ -831,7 +831,7 @@ public static partial class Game
     // ---- the nearby presentations ----
 
     // Where the player stands (a nearby presentation): the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
-    public static async Task CheckQuestSights(ClientState conn, (int X, int Y) at)
+    public static async Task CheckQuestSights(Player conn, (int X, int Y) at)
     {
         if (PendingEncounterChests.TryGetValue(conn, out var pending) && !pending.IsEmpty)
             foreach (var (id, chest) in pending)
@@ -863,7 +863,7 @@ public static partial class Game
     // from Bannon), unless its Until flag is set.
     public const double NearSpawnRange = Quests.SightRange * 1.5;
 
-    public static async Task CheckQuestNearSpawns(ClientState conn, (int X, int Y) at)
+    public static async Task CheckQuestNearSpawns(Player conn, (int X, int Y) at)
     {
         for (int i = 0; i < conn.QuestNearSpawns.Count; i++)
         {
@@ -885,7 +885,7 @@ public static partial class Game
     // Places for the area's scattered quest chests (Quests.ChestRule.Scattered: no room or tile has them): walkable cells of
     // a coarse grid, away from the arrival, each as far from the others as can be (farthest-point picking from a first cell
     // the seed chooses), so the same seed gives the same cells.
-    public static Dictionary<Quests.ChestRule, GlyphQuest.Placement> ScatterQuestChests(ClientState conn, IReadOnlyList<Quests.ChestRule> rules)
+    public static Dictionary<Quests.ChestRule, GlyphQuest.Placement> ScatterQuestChests(Player conn, IReadOnlyList<Quests.ChestRule> rules)
     {
         var result = new Dictionary<Quests.ChestRule, GlyphQuest.Placement>();
         var layout = conn.Layout;
@@ -917,7 +917,7 @@ public static partial class Game
     // A nearby presentation in an area with a quest threshold: a monster any hit took to its threshold (a projectile, Rampage, a
     // monster mod's damage: every path that takes life marks it, TakeDamageLocked) leaves the fight here, wherever the hit
     // came from; melee and spell hits also call QuestThreshold at once.
-    public static async Task CheckQuestThresholds(ClientState conn)
+    public static async Task CheckQuestThresholds(Player conn)
     {
         if (!QuestsOf(conn).HasThresholds(conn.Layout.Id)) return;
         List<(uint Id, SpawnedMonster Monster)> reached;
@@ -927,7 +927,7 @@ public static partial class Game
 
     // A monster that never dies reached its quest threshold (Kitava destroys the Sign of Purity): its flags, once, and it
     // leaves the fight (removed from the instance, no death, no drops, no experience).
-    public static async Task QuestThreshold(ClientState conn, uint id, SpawnedMonster m)
+    public static async Task QuestThreshold(Player conn, uint id, SpawnedMonster m)
     {
         Quests.ThresholdRule? rule;
         lock (conn.Monsters)

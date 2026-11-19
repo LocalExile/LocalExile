@@ -6,7 +6,7 @@ public static partial class Game
     // friendly monsters: an ally coming in or going out presents its auras again (a minion: its owner's stats).
     const string SharedAuraZones = "shared auras";
 
-    static void SyncSharedAuraZones(ClientState conn, IReadOnlyList<SharedAura> shared) =>
+    static void SyncSharedAuraZones(Player conn, IReadOnlyList<SharedAura> shared) =>
         SyncZones(conn, conn.PeerId, SharedAuraZones, shared.Select(a => ((object)a.Aura.SkillId, a.Radius, default((int, int)))),
             new(ReachesAlliesBut(conn, conn.PeerId), new EntityId(conn.PeerId), id =>
             {
@@ -15,14 +15,14 @@ public static partial class Game
             }));
 
     // Whether a player's shared aura reaches the entity.
-    static bool SharedAuraReaches(ClientState conn, uint owner, ushort skill, uint id) => InZone(conn, owner, SharedAuraZones, skill, id);
+    static bool SharedAuraReaches(Player conn, uint owner, ushort skill, uint id) => InZone(conn, owner, SharedAuraZones, skill, id);
 
     // Several copies of one aura do not stack. External snapshots retain the caster's effect,
     // never the receiving player's aura-effect modifier; Generosity still reaches nearby allies.
-    public static List<AuraCatalog.Aura> AffectingAuras(ClientState conn) => conn.Auras.Values.Where(a => a.AffectsSelf)
+    public static List<AuraCatalog.Aura> AffectingAuras(Player conn) => conn.Auras.Values.Where(a => a.AffectsSelf)
         .Concat(conn.ReceivedAuras.Values).ToList();
 
-    static byte[][] ReconcileReceivedAuraRecordsLocked(ClientState conn)
+    static byte[][] ReconcileReceivedAuraRecordsLocked(Player conn)
     {
         var desired = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Instance.PlayersExcept(conn.PeerId)
             .Where(p => p.Current && p.Life > 0).SelectMany(p => p.Auras.Where(a => SharedAuraReaches(conn, p.Id, a.Aura.SkillId, conn.PeerId))
@@ -63,7 +63,7 @@ public static partial class Game
         return [.. packets];
     }
 
-    public static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
+    public static Dictionary<string, int> MinionAuraStats(Player conn, GolemState.Golem minion)
     {
         // A minion without a body stands with its owner: every aura of his reaches it.
         bool Reaches(uint owner, ushort skill) => minion.Monster is null ? owner == conn.PeerId : SharedAuraReaches(conn, owner, skill, minion.Id);

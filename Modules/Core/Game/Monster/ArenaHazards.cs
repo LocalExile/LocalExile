@@ -6,7 +6,7 @@ using static Program;
 /// <summary>Campaign-owned ground contacts: typed degeneration, ordinary hit defences and shared native actors.</summary>
 internal static class ArenaHazards
 {
-    internal static bool Untargetable(ClientState c, SpawnedMonster m) =>
+    internal static bool Untargetable(Player c, SpawnedMonster m) =>
         c.Layout.Id == Yugul.Area && m.Variety?.Id is "Metadata/Monsters/Frog/FrogGod/SilverOrb" or "Metadata/Monsters/Frog/FrogGod/SilverPoolTurret"
         || c.Layout.Id == SolarisLunaris.Area && SolarisLunaris.IsCelestial(m.Variety);
     internal sealed class Exposure
@@ -17,13 +17,13 @@ internal static class ArenaHazards
         internal ushort Fear;
         internal int FearValue;
     }
-    internal static int Stat(ClientState c, int effect, byte level, string name)
+    internal static int Stat(Player c, int effect, byte level, string name)
     {
         var cat = SkillsFor(c);
         return Stats.Key(name) is uint key ? cat.EffectStats(effect, cat.MaxLevelAt(effect, level))
             .Where(s => s.Item1 == key).Sum(s => s.Item2) : 0;
     }
-    internal static DamagePacket Dot(ClientState c, int effect, byte level, bool minion)
+    internal static DamagePacket Dot(Player c, int effect, byte level, bool minion)
     {
         var result = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
@@ -41,7 +41,7 @@ internal static class ArenaHazards
         if (d <= distance) return to;
         return ((int)Math.Round(from.X + (to.X - from.X) * distance / d), (int)Math.Round(from.Y + (to.Y - from.Y) * distance / d));
     }
-    internal static async Task Hit(ClientState p, uint id, SpawnedMonster source, MonsterAttack attack,
+    internal static async Task Hit(Player p, uint id, SpawnedMonster source, MonsterAttack attack,
         Func<(int X, int Y), bool> inside, Func<bool> current, double minionFactor = 1)
     {
         MonsterHitOutcome? outcome = null;
@@ -62,7 +62,7 @@ internal static class ArenaHazards
         });
         if (outcome is not null) await PresentMonsterHit(p, id, outcome);
     }
-    internal static async Task Ground(ClientState p, Exposure e, double now,
+    internal static async Task Ground(Player p, Exposure e, double now,
         Func<(int X, int Y), bool, DamagePacket> rawAt, Func<bool> current)
     {
         double seconds = double.IsNaN(e.Last) ? 0 : Math.Clamp(now - e.Last, 0, .5); e.Last = now;

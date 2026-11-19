@@ -12,7 +12,7 @@ using static Game;
 /// The melee keeps the variety's own attack time and reach (1755 ms, 6-12 units); everything else uses the clip's cast
 /// time, which is what keeps the fight paced like the original's.</para>
 /// </summary>
-sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasBossFight(id, boss, conn)
+sealed class ShaperFight(uint id, SpawnedMonster boss, Player conn) : AtlasBossFight(id, boss, conn)
 {
     protected override string Name => "[Shaper]";
     protected override ushort ImmunityRow => AtlasBosses.ShaperImmunityRow;
@@ -23,7 +23,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     // The blink of an intermission goes to the arena's middle marker, not to the layout's spawn (the map entry, 1050
     // cells away from where he actually stands).
     (int X, int Y)? stage;
-    protected override (int X, int Y) Stage(ClientState conn) => stage ??= ArenaCentre(conn, boss);
+    protected override (int X, int Y) Stage(Player conn) => stage ??= ArenaCentre(conn, boss);
 
     double nextMelee, nextBeam, nextVolley, nextFlicker, nextBlink, nextChase;
     // The Celestial Beam: a point on the ground that keeps burning for the clip's three seconds (base_skill_effect_duration
@@ -36,7 +36,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     int waves;
     double waveAt;
 
-    protected override async Task Ticks(ClientState conn, double now)
+    protected override async Task Ticks(Player conn, double now)
     {
         if (beamTick is null || now >= beamUntil || now < beamNextTick) return;
         beamNextTick = now + 0.5;
@@ -45,7 +45,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
             if (Distance(player.Walk.Position(now), beamAt) <= 7) await Hit(player, beamTick, beamAt);
     }
 
-    protected override async Task Act(ClientState conn, double now)
+    protected override async Task Act(Player conn, double now)
     {
         var watchers = Watchers();
         if (watchers.Length == 0) return;
@@ -96,7 +96,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
 
     /// <summary>The Celestial Beam: the Shaper casts, and the ground where the player stood burns for three seconds on a
     /// 0.5 s tick, its damage the skill's own fire/cold/lightning degen over that half second.</summary>
-    async Task Beam(ClientState conn, (int X, int Y) at, double now)
+    async Task Beam(Player conn, (int X, int Y) at, double now)
     {
         var dot = AtlasBosses.DamageOverTime(conn, AtlasBosses.CelestialBeamEffect, boss.Level);
         beamAt = conn.Layout.Near((at.X, at.Y));
@@ -111,7 +111,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
 
     /// <summary>The flicker slam: the Shaper vanishes, reappears beside the player and slams the ground (a 9 unit area,
     /// its physical damage 1.4x the melee's).</summary>
-    async Task FlickerSlam(ClientState conn, (int X, int Y) player, double now)
+    async Task FlickerSlam(Player conn, (int X, int Y) player, double now)
     {
         var pos = boss.Walk.Position(now);
         await Effect(conn, pos, AtlasBosses.FlickerSlamDisappearArt, 1.2);
@@ -124,7 +124,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     }
 
     /// <summary>The retreat (6089): a short blink away from a player who got too close, the clip played at both ends.</summary>
-    async Task Retreat(ClientState conn, (int X, int Y) player, double now)
+    async Task Retreat(Player conn, (int X, int Y) player, double now)
     {
         var pos = boss.Walk.Position(now);
         double angle = Math.Atan2(pos.Y - player.Y, pos.X - player.X);
@@ -136,7 +136,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     }
 
     // A walkable cell next to the player, the distance the flicker slam's clip covers.
-    (int X, int Y) Landing(ClientState conn, (int X, int Y) player)
+    (int X, int Y) Landing(Player conn, (int X, int Y) player)
     {
         for (int radius = 4; radius <= 10; radius += 2)
             for (int step = 0; step < 8; step++)
@@ -149,7 +149,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
         return conn.Layout.Near((player.X, player.Y));
     }
 
-    protected override async Task Intermission(ClientState conn, double now)
+    protected override async Task Intermission(Player conn, double now)
     {
         if (!intermission)
         {

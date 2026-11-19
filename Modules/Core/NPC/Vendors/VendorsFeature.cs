@@ -6,7 +6,7 @@ using static Program;
 
 static class VendorsFeature
 {
-    internal static async Task BuyFromShop(ClientState conn, InstanceNpcs.Buy buy)
+    internal static async Task BuyFromShop(Player conn, InstanceNpcs.Buy buy)
     {
         if (conn.NpcRewardOffer is not null)
         {
@@ -18,13 +18,13 @@ static class VendorsFeature
             await Purchase(conn,buy.ItemId,row,buy.X,buy.Y);
     }
 
-    internal static async Task CtrlBuyFromShop(ClientState conn, InstanceNpcs.CtrlBuy buy)
+    internal static async Task CtrlBuyFromShop(Player conn, InstanceNpcs.CtrlBuy buy)
     {
         if (conn.NpcRewardOffer is not null) { await ClaimNpcReward(conn,buy.ItemId); return; }
         await Purchase(conn,buy.ItemId);
     }
 
-    static async Task Purchase(ClientState conn,
+    static async Task Purchase(Player conn,
         uint id, byte? row = null, byte x = 0, byte y = 0)
     {
         var shop = conn.Shop;
@@ -71,7 +71,7 @@ static class VendorsFeature
     // the main inventory on a Ctrl-click); the NPC answers with one Scroll Fragment per offered item in its own offer. As in
     // the saved item and its inventory cell remain reserved until the sale ends (PlayerInventories.Offer).
     // The client sees the item only in its offer grid.
-    internal static async Task OfferForSale(ClientState conn, NpcSale sale,
+    internal static async Task OfferForSale(Player conn, NpcSale sale,
         uint fromInventory, uint itemId, byte x, byte y)
     {
         var items = ItemsOf(conn);
@@ -90,7 +90,7 @@ static class VendorsFeature
     }
 
     // Taking an offered item back restores its original inventory view and removes its offer entry.
-    internal static async Task TakeFromSale(ClientState conn, NpcSale sale, uint itemId)
+    internal static async Task TakeFromSale(Player conn, NpcSale sale, uint itemId)
     {
         var items = ItemsOf(conn);
         if (items.TakeBack(itemId) is not var (row, back))
@@ -106,7 +106,7 @@ static class VendorsFeature
     }
 
     // Quote once on each offer change. The same immutable outputs are displayed and paid at acceptance.
-    internal static async Task SendSaleReward(ClientState conn, NpcSale sale)
+    internal static async Task SendSaleReward(Player conn, NpcSale sale)
     {
         var items = ItemsOf(conn);
         var offered = items.Offered().OrderBy(i => i.Id).ToList();
@@ -150,14 +150,14 @@ static class VendorsFeature
     }
 
     // C→S 0xb1: Cancel (u8 0). The offered items go back to the inventory and S→C 0xb9 closes the window.
-    internal static async Task AnswerSale(ClientState conn, (uint Other, byte Answer) a)
+    internal static async Task AnswerSale(Player conn, (uint Other, byte Answer) a)
     {
         Console.WriteLine($"[gateway] {conn.Remote} <= 0x00b1 trade answer {a.Answer} (trade {a.Other})");
         await CloseSale(conn, accepted: a.Answer != 0);
     }
 
     // An item Shift-clicked in an inventory while the sell window is open goes into a free cell of the offer.
-    internal static async Task OfferFromInventory(ClientState conn, NpcSale sale, uint inventory, uint itemId)
+    internal static async Task OfferFromInventory(Player conn, NpcSale sale, uint inventory, uint itemId)
     {
         var items = ItemsOf(conn);
         byte? row = PlayerInventories.Row(inventory);
@@ -176,7 +176,7 @@ static class VendorsFeature
     // Ends the sale. Accepted: the offered items are gone and the NPC's offer goes into the inventory, in one save; when the
     // offer doesn't fit (the offered items' cells free up first, so it nearly always does), nothing changes and the window
     // stays open. Cancelled: every offered item is in its cell again (it kept it). Then S→C 0xb9 closes the window.
-    internal static async Task CloseSale(ClientState conn, bool accepted)
+    internal static async Task CloseSale(Player conn, bool accepted)
     {
         NpcSale? sale;
         lock (conn.Npcs) sale = conn.Sale;
@@ -225,7 +225,7 @@ static class VendorsFeature
 
     // Sell Items: two empty offer inventories (manager 1: the player's offer, the NPC's), then S→C 0xb8 with no other party
     // (an NPC sale) opens the sell window. Being tested.
-    internal static async Task OpenNpcSale(ClientState conn, SpawnedNpc npc)
+    internal static async Task OpenNpcSale(Player conn, SpawnedNpc npc)
     {
         conn.Shop = null;
         if (conn.Sale is not null) await CloseSale(conn, accepted: false);
@@ -240,7 +240,7 @@ static class VendorsFeature
     }
 
     // Purchase Items: the NPC's stock as one shop tab (S→C 0xc0, inventory manager 1), then S→C 0x8c opens the buy window on it.
-    internal static async Task OpenNpcShop(ClientState conn, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null)
+    internal static async Task OpenNpcShop(Player conn, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null)
     {
         if (conn.Sale is not null) await CloseSale(conn, accepted: false);
         await RefreshBenchBalance(conn, clear: true);
@@ -268,7 +268,7 @@ static class VendorsFeature
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
     }
 
-    static VendorStock.Window BuildWindow(ClientState conn, SpawnedNpc npc, List<string> notes, bool refresh = false)
+    static VendorStock.Window BuildWindow(Player conn, SpawnedNpc npc, List<string> notes, bool refresh = false)
     {
         var catalog = ItemsFor(conn);
         var league = LeagueFor(conn);
@@ -287,7 +287,7 @@ static class VendorsFeature
         return window with { Tabs = [.. window.Tabs, .. development], Labelled = true };
     }
 
-    internal static async Task RefreshKirac(ClientState conn)
+    internal static async Task RefreshKirac(Player conn)
     {
         if (conn.Shop is not { } shop || VendorCatalog.Default.Find(shop.Npc.Npc.Id)?.Kind != "Kirac")
         { await conn.Commands!.Reply("Open Kirac's shop first."); return; }

@@ -8,9 +8,9 @@ public sealed class SupportExecutionTests
     static Dictionary<uint, int> With(params (string Name, int Value)[] values) =>
         values.ToDictionary(v => Program.Stats.Key(v.Name)!.Value, v => v.Value);
 
-    static ClientState Connection(string name)
+    static Player Connection(string name)
     {
-        var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
@@ -21,7 +21,7 @@ public sealed class SupportExecutionTests
     }
 
     static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)!);
-    static ushort Equip(ClientState conn, string active, string support)
+    static ushort Equip(Player conn, string active, string support)
     {
         var items = Game.ItemsOf(conn);
         foreach (var previous in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))

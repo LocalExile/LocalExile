@@ -19,7 +19,7 @@ public static partial class Game
     public const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
-    public static async Task WarcryReleased(ClientState conn,
+    public static async Task WarcryReleased(Player conn,
         (int X, int Y) at, int radius, int epoch)
     {
         lock (conn.Monsters)
@@ -41,7 +41,7 @@ public static partial class Game
 
     // Howl of the Wolf: each corpse within the warcry's radius drops its loot again with that chance. The corpse stays
     // usable (its explosion, consumption or removal is another effect's).
-    static async Task DropCorpseLoot(ClientState conn,
+    static async Task DropCorpseLoot(Player conn,
         (int X, int Y) at, int radius, int epoch, int chance)
     {
         List<(SpawnedMonster Monster, (int X, int Y) At)> corpses;
@@ -82,7 +82,7 @@ public static partial class Game
     // Deathrattle: every corpse within the warcry's radius explodes and is consumed; each explosion hits the living hostile
     // monsters around its corpse (not an attack or a spell: no block, no evasion; 0% base crit, and flat crit chance and
     // global added damage, which the wiki's Explode page says apply, are not modelled).
-    static async Task ExplodeCorpses(ClientState conn,
+    static async Task ExplodeCorpses(Player conn,
         (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
@@ -142,5 +142,5 @@ public static partial class Game
 
     // Deathrattle: the warcry opens the chests within its radius, those the engine has (the quest chests, the QuestObjects
     // module's).
-    static Task OpenChestsInRadius(ClientState conn, (int X, int Y) at, int radius) => GameEvents.RunChestsOpened(conn, at, radius);
+    static Task OpenChestsInRadius(Player conn, (int X, int Y) at, int radius) => GameEvents.RunChestsOpened(conn, at, radius);
 }

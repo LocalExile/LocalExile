@@ -30,7 +30,7 @@ public static partial class Game
             || get("recoup_life_effects_apply_over_3_seconds_instead") != 0 ? 3 : 4;
 
     // A hit the player took (after block, mitigation and Fortification), under the Monsters lock: its recoup starts.
-    public static void RecoupHitLocked(ClientState conn, DamagePacket taken, double now,
+    public static void RecoupHitLocked(Player conn, DamagePacket taken, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.Immune || conn.PlayerLife == 0 || taken.IsZero) return;

@@ -5,7 +5,7 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 public static partial class Game
 {
-    public static async Task RefreshBenchBalance(ClientState conn, bool clear = false)
+    public static async Task RefreshBenchBalance(Player conn, bool clear = false)
     {
         clear |= !LeagueFor(conn).Rules.CraftingBench;
         if (clear && !conn.BenchBalanceSent) return;
@@ -26,10 +26,10 @@ public static partial class Game
     // A click on the guild stash (C→S 0x24): walk there, then its tab list (S→C 0x136 kind 1) and its panel (0x7b kind 2).
     // While it is open the stash messages (0xc7, 0x28, 0x2a, Ctrl + click …) act on it (StashOf); the personal stash's open
     // switches back.
-    public static async Task OpenGuildStash(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task OpenGuildStash(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (conn.Ssf || conn.GuildStashObject == 0) return;
-        if (!TryBeginObjectWalk(conn, requestedAt, conn.GuildStashAt.X, conn.GuildStashAt.Y, ClientState.StashBlockerSize, out var objectWalk)) return;
+        if (!TryBeginObjectWalk(conn, requestedAt, conn.GuildStashAt.X, conn.GuildStashAt.Y, Player.StashBlockerSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {conn.Remote} <= 0x0024 guild stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));

@@ -9,7 +9,7 @@ public static partial class Game
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 
-    public static void SaveSummons(ClientState conn)
+    public static void SaveSummons(Player conn)
     {
         lock (MinionSaveLocks.GetOrCreateValue(conn))
         {
@@ -32,7 +32,7 @@ public static partial class Game
         }
     }
 
-    static SummonedMinions.Saved SavedSummon(ClientState conn, GolemState.Golem fighter, double now)
+    static SummonedMinions.Saved SavedSummon(Player conn, GolemState.Golem fighter, double now)
     {
         var gem = SupportedSkill(conn, fighter.Source);
         var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
@@ -43,10 +43,10 @@ public static partial class Game
             Host: place.ItemId == 0 ? null : place.ItemId, Socket: place.ItemId == 0 ? null : place.Socket);
     }
 
-    internal static ushort RestoredSummonSource(ClientState conn, SummonedMinions.Saved saved) =>
+    internal static ushort RestoredSummonSource(Player conn, SummonedMinions.Saved saved) =>
         RestoredMinionSource(conn, saved.Effect, saved.Source, saved.Host, saved.Socket);
 
-    static ushort RestoredMinionSource(ClientState conn, string effect, ushort source, uint? host, int? socket)
+    static ushort RestoredMinionSource(Player conn, string effect, ushort source, uint? host, int? socket)
     {
         var candidates = GemSkillEffects(conn).Where(g => SkillsFor(conn).EffectId(g.Effect) == effect).ToArray();
         if (host is uint item && socket is int index)
@@ -65,7 +65,7 @@ public static partial class Game
         definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
             "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(stat)) : 1;
 
-    public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
+    public static int SummonLimit(Player conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.LimitStat.Length == 0) return 1;
         var player = CharacterPlayerStats(conn);
@@ -75,7 +75,7 @@ public static partial class Game
         return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
     }
 
-    static double SummonDuration(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
+    static double SummonDuration(Player conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.Persistent) return double.PositiveInfinity;
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? "spectres_have_base_duration_ms"
@@ -84,7 +84,7 @@ public static partial class Game
         return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
     }
 
-    static SpawnedMonster? SummonCorpse(ClientState conn, (int X, int Y) aim, uint target, double radius = 15)
+    static SpawnedMonster? SummonCorpse(Player conn, (int X, int Y) aim, uint target, double radius = 15)
     {
         bool Allowed(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
             && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true && m.Rarity != MonsterRarity.Unique;
@@ -103,7 +103,7 @@ public static partial class Game
         return Math.Max(1, GolemStat(gem.Stats, "number_of_monsters_to_summon"));
     }
 
-    internal static Task<bool> CastSummon(ClientState conn,
+    internal static Task<bool> CastSummon(Player conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current,
         bool triggered = false, bool playerConsumesCorpse = true) =>
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
@@ -137,7 +137,7 @@ public static partial class Game
             return true;
         });
 
-    public static Task<uint> SummonFighter(ClientState conn,
+    public static Task<uint> SummonFighter(Player conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
@@ -147,7 +147,7 @@ public static partial class Game
         SummonFighterCore(conn, source, definition, aim, target, restoredVariety, life,
             current, restoredEquipment, remaining, resources, legacyArrival, replacingOld, triggered, inheritedMods: inheritedMods, rarity: rarity);
 
-    static async Task<uint> SummonFighterCore(ClientState conn,
+    static async Task<uint> SummonFighterCore(Player conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
@@ -316,14 +316,14 @@ public static partial class Game
     }
 
     // Creating and refreshing a summon share one receipt. A proxy's consumption cannot recharge its owner's flask.
-    static void ConsumeSummonCorpseLocked(ClientState conn, SpawnedMonster corpse, bool playerConsumesCorpse = true)
+    static void ConsumeSummonCorpseLocked(Player conn, SpawnedMonster corpse, bool playerConsumesCorpse = true)
     {
         if (corpse.CorpseConsumed) return;
         corpse.CorpseConsumed = true;
         if (playerConsumesCorpse) NoteCorpseConsumedLocked(conn, corpse);
     }
 
-    static void RemoveSummonLocked(ClientState conn, GolemState.Golem fighter, double now)
+    static void RemoveSummonLocked(Player conn, GolemState.Golem fighter, double now)
     {
         conn.Summons.Fighters.Remove(fighter.Id); conn.Summons.Until.Remove(fighter.Id);
         conn.Summons.Definitions.Remove(fighter.Id); conn.Summons.Weapons.Remove(fighter.Id);
@@ -331,7 +331,7 @@ public static partial class Game
         conn.Minions.StatRevision++;
     }
 
-    public static async Task SummonsTick(ClientState conn, double now)
+    public static async Task SummonsTick(Player conn, double now)
     {
         await HitSummonsTick(conn, now);
         var state = conn.Summons;
@@ -410,7 +410,7 @@ public static partial class Game
         if (changed) SaveSummons(conn);
     }
 
-    static void AddSummonCounts(ClientState conn, StatMap stats)
+    static void AddSummonCounts(Player conn, StatMap stats)
     {
         foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
             if (Stats.Key("number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters") is uint count)

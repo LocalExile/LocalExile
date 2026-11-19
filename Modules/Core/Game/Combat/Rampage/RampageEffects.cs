@@ -11,13 +11,13 @@ public static partial class Game
 
     public static RampageCatalog RampageData = null!;
 
-    static bool RampageEffectCurrent(ClientState conn, long epoch) => CurrentRampageWork
+    static bool RampageEffectCurrent(Player conn, long epoch) => CurrentRampageWork
         && conn.OwnedCombatState is RampageWorld world && world.Current(epoch)
         && (world.SourceOwner?.IsActive ?? true)
         && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(conn))
         && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && RampageSource(conn);
 
-    static DamagePacket RampageSpellPacket(ClientState conn, int effect, int level)
+    static DamagePacket RampageSpellPacket(Player conn, int effect, int level)
     {
         var owner = CharacterStatSources(conn).Stats;
         int increased = Stats.Key("minion_damage_+%") is uint key ? owner.GetValueOrDefault(key) : 0;
@@ -25,7 +25,7 @@ public static partial class Game
         return SkillsFor(conn).HitDamage(effect, level).Scale(Math.Max(0, 100L + increased) / 100.0);
     }
 
-    static async Task<uint?> CreateRampageActor(ClientState conn, RampageCatalog.VarietyPlan plan, int level, double lifetime,
+    static async Task<uint?> CreateRampageActor(Player conn, RampageCatalog.VarietyPlan plan, int level, double lifetime,
         RampageCatalog.WeaponKind? weapon, (int X, int Y) at, long epoch)
     {
         if (Monsters.Find(plan.Row.ToString()) is not { Supported: true } variety) return null;
@@ -62,7 +62,7 @@ public static partial class Game
         return id;
     }
 
-    static async Task StartRampageTier(ClientState conn, RampageCatalog.Tier tier)
+    static async Task StartRampageTier(Player conn, RampageCatalog.Tier tier)
     {
         long epoch; int level; (int X, int Y) origin;
         lock (conn.Monsters)
@@ -87,7 +87,7 @@ public static partial class Game
                         epoch, actor.Value, tier, step, origin, level));
     }
 
-    static async Task AdvanceRampageEffects(ClientState conn)
+    static async Task AdvanceRampageEffects(Player conn)
     {
         int[] tiers; List<RampageWorld.Job> due; uint[] removals;
         lock (conn.Monsters)
@@ -133,7 +133,7 @@ public static partial class Game
         await ExpireRampageBlinds(conn);
     }
 
-    static async Task RampagePulse(ClientState conn, RampageWorld.Job job)
+    static async Task RampagePulse(Player conn, RampageWorld.Job job)
     {
         var own = job.Tier.Skill.AtLevel(job.Level)!;
         var origins = new List<((int X, int Y) Position, DamagePacket Damage)>();
@@ -181,7 +181,7 @@ public static partial class Game
         }
     }
 
-    static async Task<bool> RampageOwnedHit(ClientState conn,
+    static async Task<bool> RampageOwnedHit(Player conn,
         long epoch, uint id, SpawnedMonster target, DamagePacket packet, RampageCatalog.SkillLevel? own, string label,
         bool attack = false, int accuracy = 0)
     {
@@ -216,7 +216,7 @@ public static partial class Game
         return hit.Value.Life == 0;
     }
 
-    public static bool RampageAttackHits(ClientState conn, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+    public static bool RampageAttackHits(Player conn, uint id, SpawnedMonster target, int accuracy, double now, Random random,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
@@ -224,7 +224,7 @@ public static partial class Game
         return DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100));
     }
 
-    static RampageStunToken? RampageStatusLocked(ClientState conn, uint id, SpawnedMonster target,
+    static RampageStunToken? RampageStatusLocked(Player conn, uint id, SpawnedMonster target,
         RampageCatalog.SkillLevel? own, double now)
     {
         if (own is null || target.Dead) return null;
@@ -252,7 +252,7 @@ public static partial class Game
         return stun;
     }
 
-    static async Task SendRampageStun(ClientState conn,
+    static async Task SendRampageStun(Player conn,
         RampageStunToken token)
     {
         var target = token.Target;
@@ -286,7 +286,7 @@ public static partial class Game
     // A current stun's 0x1d1 at its send gate, for the recovery left of it at `now`, under conn.Monsters. It is a monster
     // TakeHit like any other (TakeHitPacket), so a lockstep client's recovery is held in its frames, and the stun's own
     // hold on the AI (BusyUntil, RampageStatusLocked) moves with it.
-    public static byte[]? RampageStunPacket(ClientState conn, RampageStunToken token, double now)
+    public static byte[]? RampageStunPacket(Player conn, RampageStunToken token, double now)
     {
         var target = token.Target;
         if ((float)(token.Until - now) <= 0) return null;
@@ -295,7 +295,7 @@ public static partial class Game
         return packet;
     }
 
-    static Task SendRampageRemoval(ClientState conn, uint id) =>
+    static Task SendRampageRemoval(Player conn, uint id) =>
         SendWorldRemoval(conn, id, "Rampage owned object ends", atGate: () =>
         {
             lock (conn.Monsters)
@@ -307,7 +307,7 @@ public static partial class Game
         });
 
     // A blind that expired, changed or ended needs a send; otherwise the 32 ms loop offered an empty packet every step.
-    static bool RampageBlindWork(ClientState conn)
+    static bool RampageBlindWork(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -323,11 +323,11 @@ public static partial class Game
 
     // The blind is over: the streak's effects are off, its time is up, or its monster is gone, dead or cannot be blinded.
     // Under conn.Monsters.
-    static bool RampageBlindEndsLocked(ClientState conn, RampageWorld world, uint id, double until, double now) =>
+    static bool RampageBlindEndsLocked(Player conn, RampageWorld world, uint id, double until, double now) =>
         !world.Enabled || until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead || target.Life == 0
         || target.Mods.Effects["cannot_be_blinded"] != 0;
 
-    static Task ExpireRampageBlinds(ClientState conn) =>
+    static Task ExpireRampageBlinds(Player conn) =>
         !RampageBlindWork(conn) ? Task.CompletedTask :
         Send(conn, [], null, atGate: () =>
         {
@@ -360,7 +360,7 @@ public static partial class Game
             }
         });
 
-    static async Task RampageKillExplosion(ClientState conn, long epoch, uint corpseId, SpawnedMonster corpse, int percent)
+    static async Task RampageKillExplosion(Player conn, long epoch, uint corpseId, SpawnedMonster corpse, int percent)
     {
         var pending = new Queue<(uint Id, SpawnedMonster Corpse)>();
         pending.Enqueue((corpseId, corpse));

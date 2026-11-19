@@ -7,7 +7,7 @@ using static Program;
 static class UniqueBeltsFeature
 {
     /// <summary>Headhunter's kill: the rare's affixes as stacks (StolenMods), when the killer has its stat.</summary>
-    internal static void StealMonsterMods(ClientState conn, SpawnedMonster m)
+    internal static void StealMonsterMods(Player conn, SpawnedMonster m)
     {
         if (m.Rarity != MonsterRarity.Rare || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
         var stats = CharacterPlayerStats(conn);
@@ -20,7 +20,7 @@ static class UniqueBeltsFeature
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
-    internal static Dictionary<uint, int> WithStolenMods(ClientState conn, Dictionary<uint, int> sources)
+    internal static Dictionary<uint, int> WithStolenMods(Player conn, Dictionary<uint, int> sources)
     {
         var stolen = conn.StolenMods.Stats();
         if (stolen.Count == 0) return sources;
@@ -44,7 +44,7 @@ static class UniqueBeltsFeature
     // Every frame (GameEvents.AreaTick): Mageblood's flasks and the stolen modifiers of Headhunter and Inspired
     // Learning. On the tick rather than a loop of the module's own, so a reload's new module steps them from its first tick
     // and the old one stops.
-    internal static async Task StepUniqueBeltEffects(ClientState conn)
+    internal static async Task StepUniqueBeltEffects(Player conn)
     {
         try
         {

@@ -7,7 +7,7 @@ public static partial class Game
     // C→S 0x28: a click on an item. It moves to the cursor inventory (row 12) in one save (PlayerInventories.PickUp): one 0xbf
     // removes it from its inventory, another adds it to the cursor at (0, 0). Refused (logged) when the cursor already holds an
     // item or the item is not there.
-    public static async Task PickUpItem(ClientState conn, InstanceItems.PickUpItem pick)
+    public static async Task PickUpItem(Player conn, InstanceItems.PickUpItem pick)
     {
         if (await GameEvents.AnyInventoryPick(conn, pick)) return;
         if (StashOf(conn).TabOf(pick.InventoryId) is int tab) { await PickUpFromStash(conn, tab, pick); return; }
@@ -109,7 +109,7 @@ public static partial class Game
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
     // item is replaced in its inventory (0xbf removing and adding the same id). Gems in equipment grant skills.
-    public static async Task SocketGem(ClientState conn, InstanceItems.SocketGem s)
+    public static async Task SocketGem(Player conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
         (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? done = null;
@@ -170,7 +170,7 @@ public static partial class Game
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
     // (0x32) skips that gem without affecting the others. A locked gem, one at its highest level, and one whose next level's
     // requirements the character does not meet stay as they are.
-    public static Item? NextGemLevel(ClientState conn, Item gem, out string? why)
+    public static Item? NextGemLevel(Player conn, Item gem, out string? why)
     {
         why = null;
         if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
@@ -193,7 +193,7 @@ public static partial class Game
     // one below the next level's threshold (the client's check 0x142479880 draws the "+" for a full bar). The single "+"
     // needs no such check because the client sends 0x31 only for a gem it draws the "+" for; the button names no gem, so the
     // server uses this to leave gems that are not ready untouched.
-    public static bool GemLevelUpReady(ClientState conn, Item gem)
+    public static bool GemLevelUpReady(Player conn, Item gem)
     {
         if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return false;
         int level = ItemsFor(conn).GemLevel(gem);
@@ -203,7 +203,7 @@ public static partial class Game
     // Every ready socketed gem one level up, applied in one step: the rows that changed with each gem before and after. One
     // pass is what makes a click level each eligible gem exactly once; a second click finds nothing ready, because each
     // changed gem's experience is now its new level's threshold, not the next level's stall point.
-    public static IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> LevelUpReadyGems(ClientState conn)
+    public static IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> LevelUpReadyGems(Player conn)
     {
         var items = ItemsOf(conn);
         lock (conn.Monsters)
@@ -218,7 +218,7 @@ public static partial class Game
 
     // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x1424763d0), so
     // the server writes the next level's threshold and replaces the item; the client then derives the level and its skill.
-    public static async Task LevelUpGem(ClientState conn, InstanceItems.SocketGem s)
+    public static async Task LevelUpGem(Player conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
@@ -255,7 +255,7 @@ public static partial class Game
         Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
     }
 
-    static void ReconcileLeveledGemSourcesLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
+    static void ReconcileLeveledGemSourcesLocked(Player conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
     {
         using var scope = new PlayerStatScope(conn, fresh: true);
         RecomputePoolsAndSpeed(conn);
@@ -269,7 +269,7 @@ public static partial class Game
     // is skipped without affecting the others. The client derives each new level from the experience, so the server replaces
     // every changed item (the remove and add idiom, one per row) and re-sends the skills once, so the prompts and XP bars
     // follow.
-    public static async Task LevelUpAllGems(ClientState conn)
+    public static async Task LevelUpAllGems(Player conn)
     {
         var changed = LevelUpReadyGems(conn);
         if (changed.Count == 0)
@@ -294,7 +294,7 @@ public static partial class Game
 
     // C→S 0xd7: a right-click on a socketed gem toggles its level lock (SkillGem +0x10 bit 2); the item is replaced with the
     // new flag so the client shows the lock again after a login.
-    public static async Task LockGem(ClientState conn, InstanceItems.LockGem s)
+    public static async Task LockGem(Player conn, InstanceItems.LockGem s)
     {
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
@@ -314,7 +314,7 @@ public static partial class Game
     }
 
     // C→S 0x2f: a socketed gem goes onto the cursor; the item is replaced in its inventory.
-    public static async Task UnsocketGem(ClientState conn, InstanceItems.SocketGem s)
+    public static async Task UnsocketGem(Player conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
         (InventoryItem Item, InventoryItem Held)? done = null;
@@ -358,7 +358,7 @@ public static partial class Game
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
-    static void ForgetGemActivation(ClientState conn, Item gem)
+    static void ForgetGemActivation(Player conn, Item gem)
     {
         var effects = ItemsFor(conn).GemEffects(gem).Select(e => SkillsFor(conn).EffectId(e)).OfType<string>().ToArray();
         foreach (string effect in effects)
@@ -406,7 +406,7 @@ public static partial class Game
 
     /// <summary>Why this cluster jewel cannot leave its socket, or null: jewels socketed inside it (in its own sockets,
     /// at any depth) must come out first, and removing it costs one refund point.</summary>
-    public static string? ClusterRemovalRefusal(ClientState conn, InventoryItem leaving)
+    public static string? ClusterRemovalRefusal(Player conn, InventoryItem leaving)
     {
         if (ClusterSize(leaving.Item) is null) return null;
         var items = ItemsOf(conn);
@@ -432,7 +432,7 @@ public static partial class Game
 
     /// <summary>The allocated passives of that one cluster jewel: the ids in a tree socket's block (its sockets
     /// excluded), or an expansion cell's share of the ids outside every tree socket block, in pane order.</summary>
-    public static int ClusterOwnPassives(ClientState conn, InventoryItem item)
+    public static int ClusterOwnPassives(Player conn, InventoryItem item)
     {
         if (ClusterSize(item.Item) is null) return 0;
         var allocated = conn.ClusterPassives;
@@ -462,7 +462,7 @@ public static partial class Game
     }
 
     /// <summary>Spends the refund point a cluster jewel's removal costs.</summary>
-    public static void SpendClusterRemoval(ClientState conn)
+    public static void SpendClusterRemoval(Player conn)
     {
         if (conn.RefundPoints == 0) return;
         conn.RefundPoints--;
@@ -511,7 +511,7 @@ public static partial class Game
     /// <summary>Why a held item cannot go into PassiveJewels1 at (x, y), or null: the slot must be an ordinary large
     /// jewel socket whose passive node is allocated, or a cluster jewel's expansion socket whose jewel is socketed,
     /// and the item a normal jewel (a large cluster jewel goes into a tree socket only).</summary>
-    public static string? PassiveJewelRefusal(ClientState conn, int x, int y, Item? item)
+    public static string? PassiveJewelRefusal(Player conn, int x, int y, Item? item)
     {
         if (y != 0) return "a passive jewel socket is one cell";
         if (Passives.CharmNodeForSlot(x) is { } charmNode)
@@ -629,7 +629,7 @@ public static partial class Game
 
     /// <summary>The cluster jewel nodes a character can have allocated: the allocatable nodes of every socketed cluster
     /// jewel.</summary>
-    public static int ClusterNodeBudget(ClientState conn) =>
+    public static int ClusterNodeBudget(Player conn) =>
         ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
             .Where(i => ClusterSize(i.Item) is not null
                 && (Passives.JewelNodeForSlot(i.X) is not null || ClusterSlotOpen(conn, i.X)))
@@ -651,7 +651,7 @@ public static partial class Game
     /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
     /// one of the sockets that jewel has. The tree socket must be allocated for the jewel to be there at all, which the
     /// socketing path already checks.</summary>
-    public static bool ClusterSlotOpen(ClientState conn, int cell)
+    public static bool ClusterSlotOpen(Player conn, int cell)
     {
         if (Passives.ClusterNodeForSlot(cell) is null) return false;
         if (Passives.ClusterParent(cell) is not int parent) return false;
@@ -668,7 +668,7 @@ public static partial class Game
     /// <summary>Whether a cluster jewel is socketed: in a tree socket (any size the socket takes, so a medium cluster
     /// jewel in a large socket included) or in another cluster jewel's socket. Such a jewel gives the client expansion
     /// nodes, which is what the tree message carries in its cluster list.</summary>
-    public static bool ClusterJewelSocketed(ClientState conn)
+    public static bool ClusterJewelSocketed(Player conn)
     {
         var items = ItemsOf(conn);
         return items.Items(PlayerInventories.PassiveJewels).Any(i => ClusterSize(i.Item) is not null
@@ -677,7 +677,7 @@ public static partial class Game
 
     /// <summary>Recomputes and sends the stats after a jewel entered or left a passive tree socket. The pane's own 0xbf
     /// is sent by the item move; this is the 0x1b3/0x2bc half.</summary>
-    public static async Task SendPassiveJewelStats(ClientState conn)
+    public static async Task SendPassiveJewelStats(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -701,7 +701,7 @@ public static partial class Game
 
     /// <summary>Why these ordinary nodes cannot be refunded, or null: a jewel socket that still holds a jewel must be
     /// emptied first (the client has no automatic return of a passive tree jewel).</summary>
-    public static string? PassiveJewelRemovalRefusal(ClientState conn, IEnumerable<ushort> removed)
+    public static string? PassiveJewelRemovalRefusal(Player conn, IEnumerable<ushort> removed)
     {
         var items = ItemsOf(conn);
         foreach (var node in removed)
@@ -716,7 +716,7 @@ public static partial class Game
     // Taking an Intuitive Leap/Thread of Hope out while a passive still depends on its bypass would leave an
     // unconnected node granting stats. Refuse the move until those passives are refunded; the tree validation then
     // proves the remaining allocation.
-    public static string? AllocationBypassRemovalRefusal(ClientState conn, InventoryItem leaving)
+    public static string? AllocationBypassRemovalRefusal(Player conn, InventoryItem leaving)
     {
         if (Passives.ClusterNodeForSlot(leaving.X) is not null) return null;
         bool bypassJewel = RadiusJewelCatalogue.ReadConversion(leaving.Item, ItemsFor(conn).Mods)
@@ -742,7 +742,7 @@ public static partial class Game
     /// path) into the main inventory. A jewel in an unknown slot, a cluster jewel in a socket that does not take it and
     /// an unsupported cluster size are moved the same way; when the inventory is full it stays in the pane but its stats
     /// are not counted.</summary>
-    public static void NormalizePassiveJewels(ClientState conn)
+    public static void NormalizePassiveJewels(Player conn)
     {
         var items = ItemsOf(conn);
         HashSet<ushort> allocated;
@@ -772,21 +772,21 @@ public static partial class Game
     }
 
     // C→S 0x16 /destroy (the town popup's Destroy): the held item is gone.
-    public static async Task DestroyHeldItem(ClientState conn)
+    public static async Task DestroyHeldItem(Player conn)
     {
         if (await TakeHeld(conn, ItemsOf(conn), "destroyed") is null)
             Console.WriteLine($"[gateway] {conn.Remote} <= 0x0016 /destroy: nothing held");
     }
 
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
-    public static Task SendGroundItems(ClientState conn) =>
+    public static Task SendGroundItems(Player conn) =>
         SyncGround(conn, entering: true);
 
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
     // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff
     // (13-items.md §8): its quality, its mods and the character's flask stats count (FlaskCharges, FlaskRecovery). Without
     // enough charges, while dead, or when its recovery pools are full, nothing happens. A utility flask goes to UseUtilityFlask.
-    public static async Task UseFlask(ClientState conn, uint slot)
+    public static async Task UseFlask(Player conn, uint slot)
     {
         if (!CurrentGameWork) return;
         var items = ItemsOf(conn);
@@ -869,7 +869,7 @@ public static partial class Game
         Flasks.Fill(items, catalog ?? Items, charges, saveNow);
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
-    public static Task GainFlaskCharges(ClientState conn, int charges, string why) =>
+    public static Task GainFlaskCharges(Player conn, int charges, string why) =>
         ChangeFlaskBar(conn, items => Flasks.Fill(items, ItemsFor(conn), charges, saveNow: false,
                 canGain: flask => CanGainFlaskCharges(conn, flask)) is { Count: > 0 } changed
                 ? ([.. changed.Select(c => c.Id)], changed) : null,
@@ -877,7 +877,7 @@ public static partial class Game
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
-    public static async Task PlaceStartWeapon(ClientState conn)
+    public static async Task PlaceStartWeapon(Player conn)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         if (ItemsOf(conn).StartWeapon is not { } weapon || WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true }) return;
@@ -890,7 +890,7 @@ public static partial class Game
     }
 
     // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
-    public static async Task DropItem(ClientState conn)
+    public static async Task DropItem(Player conn)
     {
         if (await TakeHeld(conn, ItemsOf(conn), "dropped") is not { } held)
         {
@@ -905,7 +905,7 @@ public static partial class Game
     }
 
     // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
-    public static async Task PickUpGroundItem(ClientState conn, uint id, WorldItemObject ground,
+    public static async Task PickUpGroundItem(Player conn, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         // A quest item done with (its remove_flag set: a glyph after the placement, a Medicine Chest after Nessa has one, a
@@ -1013,7 +1013,7 @@ public static partial class Game
     /// (<paramref name="from"/>, as a straight line), not only of where it stands now: at a walk's 37 cells/s a 250 ms
     /// tick moves 9 cells, a movement skill or a late tick many more, and gold passed between two checks stayed there.
     /// Returns where the player stood, for the next check.</summary>
-    internal static async Task<(int X, int Y)> PickUpNearbyGold(ClientState conn,
+    internal static async Task<(int X, int Y)> PickUpNearbyGold(Player conn,
         (int X, int Y)? from = null)
     {
         var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -1042,7 +1042,7 @@ public static partial class Game
 
     // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory. Auto-loot takes it
     // within the radius of the way from pathFrom to where the player is when the pickup is sent.
-    public static async Task PickUpGold(ClientState conn, uint id, WorldItemObject ground, string how,
+    public static async Task PickUpGold(Player conn, uint id, WorldItemObject ground, string how,
         (int X, int Y)? pathFrom = null)
     {
         // The removal goes as a world record, after the pile's create: on a lockstep client the create applies only at
@@ -1093,7 +1093,7 @@ public static partial class Game
 
     public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
 
-    public static async Task SendPickup(ClientState conn,
+    public static async Task SendPickup(Player conn,
         uint id, GroundPickup pickup)
     {
         if (pickup.Rest is { } rest)
@@ -1105,7 +1105,7 @@ public static partial class Game
     }
 
     // Commits the visible gold or stack once. The caller checks reach and sends the captured update after the lock.
-    public static GroundPickup? TakeGroundStack(ClientState conn, uint id, WorldItemObject ground)
+    public static GroundPickup? TakeGroundStack(Player conn, uint id, WorldItemObject ground)
     {
         lock (conn.Monsters)
         {
@@ -1143,10 +1143,10 @@ public static partial class Game
 
     // A pickup whose save fails puts the item back on the ground before the error closes the connection: it left the ground
     // first, and the items are loaded again as saved (Saves).
-    public static T KeepOnGroundIfNotSaved<T>(ClientState conn, WorldItemObject ground, Func<T> pickUp, uint? originalId = null)
+    public static T KeepOnGroundIfNotSaved<T>(Player conn, WorldItemObject ground, Func<T> pickUp, uint? originalId = null)
         => KeepOnGroundIfNotSaved(conn, ground, pickUp, originalId, (null, true));
 
-    static T KeepOnGroundIfNotSaved<T>(ClientState conn, WorldItemObject ground, Func<T> pickUp, uint? originalId,
+    static T KeepOnGroundIfNotSaved<T>(Player conn, WorldItemObject ground, Func<T> pickUp, uint? originalId,
         (object? By, bool Shared) origin)
     {
         try { return pickUp(); }
@@ -1160,7 +1160,7 @@ public static partial class Game
 
     // C→S 0x7c: Shift + click on a stack, then the split window's amount. The stack shrinks in place (0xbf removing and adding
     // its id), the split-off part is held as a new item (0xbf cursor).
-    public static async Task SplitStack(ClientState conn, InstanceItems.SplitStack split, string hex)
+    public static async Task SplitStack(Player conn, InstanceItems.SplitStack split, string hex)
     {
         var items = ItemsOf(conn);
         int amount = (int)Math.Min(split.Amount, ushort.MaxValue);
@@ -1195,7 +1195,7 @@ public static partial class Game
     }
 
     // C→S 0x58: use an item that needs no target (a right-click), such as an Orb of Regret: one item becomes one refund point.
-    public static async Task UseItem(ClientState conn,
+    public static async Task UseItem(Player conn,
         InstanceItems.UseItemRequest use, string hex)
     {
         const string Regret = "Metadata/Items/Currency/CurrencyPassiveRefund";
@@ -1273,7 +1273,7 @@ public static partial class Game
 
     // Orb of Unmaking (C→S 0x58, right-click; CurrencyItems Action atlas_skill_point_respec, "Grants an atlas passive
     // skill refund point"): one Atlas passive respec point, which a refund (C→S 0x3f) spends; the orb is consumed.
-    public static async Task UseOrbOfUnmaking(ClientState conn,
+    public static async Task UseOrbOfUnmaking(Player conn,
         PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         PlayerInventories.Consumption? taken;
@@ -1301,7 +1301,7 @@ public static partial class Game
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
     // the book is used up and the character gets one more passive skill point, as /add_passive_points 1 (S→C 0x33).
-    public static async Task UseSkillBook(ClientState conn, PlayerInventories items,
+    public static async Task UseSkillBook(Player conn, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         ushort extra;
@@ -1326,7 +1326,7 @@ public static partial class Game
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
     /// Random.Shared normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
-    static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random)
+    static Item? CurrencyResult(Player conn, Item target, uint currencyTypeHash, Random random)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var type = ItemsFor(conn).ByHash(currencyTypeHash);
@@ -1395,7 +1395,7 @@ public static partial class Game
 
     // C→S 0x71: an item used on another one. A Scroll of Wisdom identifies an unidentified item (its explicit mods and rare
     // name are sent from now on) and loses one from its stack. Socket currency uses the same update path, including Shift.
-    public static async Task UseItemOn(ClientState conn, InstanceItems.UseItemOn use, string hex)
+    public static async Task UseItemOn(Player conn, InstanceItems.UseItemOn use, string hex)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var items = ItemsOf(conn);
@@ -1509,7 +1509,7 @@ public static partial class Game
 
     // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
     // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
-    public static async Task MirrorItem(ClientState conn, PlayerInventories items,
+    public static async Task MirrorItem(Player conn, PlayerInventories items,
         ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
     {
         if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
@@ -1530,7 +1530,7 @@ public static partial class Game
 
     // C→S 0x4a: the held item clicked on an item. A stack of the same type with room takes what fits (PlayerInventories.MergeOnto,
     // AccountStash.Merge); anything else (currency on an item …) is not handled yet.
-    public static async Task HeldOntoItem(ClientState conn, InstanceItems.ItemAction a, string hex)
+    public static async Task HeldOntoItem(Player conn, InstanceItems.ItemAction a, string hex)
     {
         var items = ItemsOf(conn);
         if (StashOf(conn).TabOf(a.InventoryId) is int tab)
@@ -1602,7 +1602,7 @@ public static partial class Game
     public static bool OneOf(InstanceItems.ItemAction a) => (a.Flags & 0x04) != 0;
 
     // A held stack went onto a stack of its type: that one grows in place (same id), the held one shrinks (same id) or is gone.
-    public static async Task SendMerged(ClientState conn, PlayerInventories items, PlayerInventories.Placement done)
+    public static async Task SendMerged(Player conn, PlayerInventories items, PlayerInventories.Placement done)
     {
         uint target = PlayerInventories.InventoryId(done.Row);
         await Send(conn, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), done.Merged ? [done.Placed.Id] : [], [done.Placed]),
@@ -1615,7 +1615,7 @@ public static partial class Game
 
     // C→S 0x2a: put the held item into an inventory cell (PlayerInventories.Place). The target inventory gets one 0xbf (the
     // item it displaced removed, the held item added), the cursor another (the held item removed, the displaced one added).
-    public static async Task PlaceItem(ClientState conn, InstanceItems.PlaceItem place)
+    public static async Task PlaceItem(Player conn, InstanceItems.PlaceItem place)
     {
         if (await GameEvents.AnyInventoryPlace(conn, place)) return;
         if (StashOf(conn).TabOf(place.InventoryId) is int tab) { await PlaceInStash(conn, tab, place); return; }
@@ -1701,7 +1701,7 @@ public static partial class Game
         if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(conn);
     }
 
-    static void CompletePassiveJewelMutationLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
+    static void CompletePassiveJewelMutationLocked(Player conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
     {
         using (new PlayerStatScope(conn, fresh: true))
         {

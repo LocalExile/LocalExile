@@ -11,7 +11,7 @@ public static partial class Game
         => webs <= 0 ? raw : raw.Add(DamageType.Chaos,
             new(get(SpiderMin) * (double)webs * effectiveness, get(SpiderMax) * (double)webs * effectiveness));
 
-    public static SpiderDamageSource? CaptureSpiderDamage(ClientState conn, SupportedHitInputs inputs, double effectiveness,
+    public static SpiderDamageSource? CaptureSpiderDamage(Player conn, SupportedHitInputs inputs, double effectiveness,
         bool context = false, IReadOnlyDictionary<string, int>? local = null, bool bow = false)
     {
         if (!HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)) return null;

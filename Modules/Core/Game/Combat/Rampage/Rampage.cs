@@ -11,7 +11,7 @@ public static partial class Game
     public static bool CurrentRampageWork => CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
     public static readonly RampageWorld RetiredRampageWorld = new();
 
-    public static void EnsureRampageWorker(ClientState conn, RampageWorld runtime)
+    public static void EnsureRampageWorker(Player conn, RampageWorld runtime)
     {
         // Called under Monsters, from current-runtime activation, not from a retained module callback.
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || !conn.PlayerSent
@@ -30,7 +30,7 @@ public static partial class Game
             _ = Task.Run(() => RunRampage(conn, runtime, owner, source, generation));
     }
 
-    static (uint Life, bool StageStarts) TakeOwnerDamageLocked(ClientState conn, SpawnedMonster m, int damage,
+    static (uint Life, bool StageStarts) TakeOwnerDamageLocked(Player conn, SpawnedMonster m, int damage,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         var result = TakeDamageLocked(m, damage);
@@ -47,12 +47,12 @@ public static partial class Game
     public static int RampageBlindedValue(SpawnedMonster target, double now, int value, int groundValue) =>
         target.RampageBlindUntil > now ? Math.Min(groundValue, FlaskGrounds.Blinded(value)) : groundValue;
 
-    static bool RampageActive(ClientState conn) =>
+    static bool RampageActive(Player conn) =>
         !conn.Closed && !conn.LeavingArea && !conn.RageRetired && !conn.Paused;
 
     /// <summary>The two streak sources, read from one place: an explicit /set_stat value for either wins over the
     /// caller's snapshot and the passives/items, and one explicit key keeps the pair from rebuilding the sources.</summary>
-    static (bool Melee, bool Kill) RampageSources(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
+    static (bool Melee, bool Kill) RampageSources(Player conn, IReadOnlyDictionary<uint, int>? player = null)
     {
         uint? meleeKey = Stats.Key(RampageSession.Source), killKey = Stats.Key(RampageSession.KillSource);
         var stats = player ?? CharacterStatSources(conn).Stats;
@@ -60,14 +60,14 @@ public static partial class Game
             killKey is uint k2 && stats.GetValueOrDefault(k2) != 0);
     }
 
-    static bool RampageSource(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
+    static bool RampageSource(Player conn, IReadOnlyDictionary<uint, int>? player = null)
     {
         var (melee, kill) = RampageSources(conn, player);
         return melee || kill;
     }
 
     // The caller may reuse this source decision for the same contact's lethal mutation, without a second stat read.
-    static bool? RampageOnMeleeHitLocked(ClientState conn, SpawnedMonster target, bool melee,
+    static bool? RampageOnMeleeHitLocked(Player conn, SpawnedMonster target, bool melee,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         if (!melee || !target.Hostile || target.Dead || target.Life == 0 || conn.PlayerLife == 0
@@ -84,7 +84,7 @@ public static partial class Game
         return enabled;
     }
 
-    static void RampageOnKillLocked(ClientState conn, SpawnedMonster target, bool? source = null,
+    static void RampageOnKillLocked(Player conn, SpawnedMonster target, bool? source = null,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         if (!target.Hostile || conn.PlayerLife == 0 || !CurrentRampageWork || !RampageActive(conn)) return;
@@ -99,7 +99,7 @@ public static partial class Game
 
     /// <summary>The item modifiers that trigger on entering a new Rampage tier ("on Rampage threshold"): life
     /// recovery, physical damage immunity, phasing and dispelling ailments. Each crossing triggers them once.</summary>
-    static void RampageThresholdEffects(ClientState conn)
+    static void RampageThresholdEffects(Player conn)
     {
         int[] crossed = conn.Rampage.TakeThresholds();
         if (crossed.Length == 0) return;
@@ -131,7 +131,7 @@ public static partial class Game
     }
 
     // Contact accounting needs only this mechanic, not a full character/skill stat rebuild for every victim.
-    static RampageState.Value ReconcileRampage(ClientState conn, bool enabled, double now)
+    static RampageState.Value ReconcileRampage(Player conn, bool enabled, double now)
     {
         var before = conn.Rampage.Current;
         var value = conn.Rampage.Observe(now, enabled, conn.PlayerLife > 0, !conn.Closed && !conn.RageRetired);
@@ -163,7 +163,7 @@ public static partial class Game
         || (Stats.Key(RampageSession.KillSource) is uint killKey && stats.GetValueOrDefault(killKey) != 0);
 
     // The streak as the stats allow it (PlayerStatsUpdated): cleared without a source, the movement speed and worker.
-    static void ReconcileRampageSource(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    static void ReconcileRampageSource(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         lock (conn.Monsters)
         {
@@ -173,7 +173,7 @@ public static partial class Game
         }
     }
 
-    static void WithRampage(ClientState conn, StatMap stats)
+    static void WithRampage(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
         {
@@ -205,7 +205,7 @@ public static partial class Game
         }
     }
 
-    public static int RampageMovement(ClientState conn)
+    public static int RampageMovement(Player conn)
     {
         lock (conn.Monsters) return conn.Rampage.Current.MovementPercent;
     }
@@ -216,13 +216,13 @@ public static partial class Game
 
     // The 32 ms world loop offers a presentation every step; without this check each empty offer took the send
     // gate (about 29 a second even when nothing had changed).
-    static bool RampagePresentationPending(ClientState conn)
+    static bool RampagePresentationPending(Player conn)
     {
         lock (conn.Monsters) return conn.OwnedCombatState is RampageWorld && RampageUnsentLocked(conn);
     }
 
     // The streak differs from the one the client was sent. Under conn.Monsters.
-    static bool RampageUnsentLocked(ClientState conn) =>
+    static bool RampageUnsentLocked(Player conn) =>
         CurrentRampageWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.Rampage.Current != conn.SentRampage;
 
     /// <summary>What of a streak the full stat and skill snapshots depend on: they are sent again only when this
@@ -233,7 +233,7 @@ public static partial class Game
         (value.Active ? 1 : 0, value.DamagePercent, value.MovementPercent, RampageRarity(value.Stacks, rarityPerKills),
             RampageRarity(value.Stacks, 25) * areaPer25, RampageRarity(value.Stacks, 10) * attackSpeedPer10);
 
-    public static byte[]? RampagePresentation(ClientState conn)
+    public static byte[]? RampagePresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -278,7 +278,7 @@ public static partial class Game
         }
     }
 
-    static async Task RunRampage(ClientState conn, RampageWorld runtime,
+    static async Task RunRampage(Player conn, RampageWorld runtime,
         GameServer.Modding.IModuleLifetime owner, GameServer.Modding.IModuleLifetime? source, long generation)
     {
         bool Current()

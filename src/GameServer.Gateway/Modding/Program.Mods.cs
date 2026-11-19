@@ -56,7 +56,7 @@ public partial class Program
     }
 
     // /mod_enable and /mod_disable.
-    public static Task SetModEnabled(ClientState conn, string[] args, bool enabled)
+    public static Task SetModEnabled(Player conn, string[] args, bool enabled)
     {
         if (args.Length != 1) throw new ArgumentException("which mod? /mod lists them");
         return conn.Commands!.Reply(ServerMods.SetEnabled(args[0], enabled)
@@ -64,20 +64,20 @@ public partial class Program
     }
 
     /// <summary>The character's league: Standard, or its module's (Modding/ServerLeagues.cs), decided once per connection.</summary>
-    public static LeagueRuntime LeagueFor(ClientState conn) =>
+    public static LeagueRuntime LeagueFor(Player conn) =>
         conn.LeagueModule ??= ServerLeagues.Resolve(conn.LeagueForm, conn.League, LeagueCatalog.Startup);
 
     /// <summary>The modules a connection's league lists.</summary>
-    public static IReadOnlySet<string> ModulesFor(ClientState conn) => LeagueFor(conn).Modules;
+    public static IReadOnlySet<string> ModulesFor(Player conn) => LeagueFor(conn).Modules;
 
-    public static readonly ConditionalWeakTable<ClientState, IConnectionPlayer> ModPlayers = new();
+    public static readonly ConditionalWeakTable<Player, IConnectionPlayer> ModPlayers = new();
 
     static IGameLogic? _logic;
     static readonly Lock PlayerUpdatesGate = new();
-    static readonly ConditionalWeakTable<ClientState, object> ActivePlayerUpdates = new();
+    static readonly ConditionalWeakTable<Player, object> ActivePlayerUpdates = new();
 
     // Only admitted areas register. The registry holds Gateway identities, never old game callbacks.
-    public static void ActivatePlayerUpdates(ClientState conn)
+    public static void ActivatePlayerUpdates(Player conn)
     {
         IGameLogic? logic;
         lock (PlayerUpdatesGate)
@@ -96,7 +96,7 @@ public partial class Program
     /// <summary>The game module loaded. What held its old types is let go, so that its load context can be collected.</summary>
     public static void SetGameLogic(IGameLogic logic)
     {
-        ClientState[] active;
+        Player[] active;
         lock (PlayerUpdatesGate)
         {
             Volatile.Write(ref _logic, logic);
@@ -115,11 +115,11 @@ public partial class Program
     public static IPlayerWorld WorldOf(IPlayer player) => Logic.WorldFor(ConnOf(player));
 
     /// <summary>What a module or mod can do with this connection's world.</summary>
-    public static IPlayerWorld WorldOf(ClientState conn) => Logic.WorldFor(conn);
+    public static IPlayerWorld WorldOf(Player conn) => Logic.WorldFor(conn);
 
-    public static IPlayer PlayerOf(ClientState conn) =>
+    public static IPlayer PlayerOf(Player conn) =>
         ModPlayers.TryGetValue(conn, out var player) ? player : ModPlayers.GetValue(conn, Logic.PlayerFor);
 
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
-    public static ClientState ConnOf(IPlayer player) => ((IConnectionPlayer)player).Conn;
+    public static Player ConnOf(IPlayer player) => ((IConnectionPlayer)player).Conn;
 }

@@ -10,12 +10,12 @@ static class MixedPartyChecks
     {
         var presence = new InstancePresence();
         var instance = new InstanceState(presence);
-        var players = new List<ClientState>();
-        var packets = new Dictionary<ClientState, List<byte[]>>();
+        var players = new List<Player>();
+        var packets = new Dictionary<Player, List<byte[]>>();
         string suffix = Guid.NewGuid().ToString("N")[..8];
-        ClientState Player(string name, InstanceState? world = null, bool ssf = false, string? league = null, ulong instanceNumber = 0)
+        Player Player(string name, InstanceState? world = null, bool ssf = false, string? league = null, ulong instanceNumber = 0)
         {
-            var c = new ClientState(new(1, "mixed-party", 100, 100, 20, 20, null, []), 1, 1)
+            var c = new Player(new(1, "mixed-party", 100, 100, 20, 20, null, []), 1, 1)
             {
                 Character = name + suffix, Account = name + suffix, League = league ?? "Standard", Ssf = ssf,
                 Instance = world ?? instance, InstanceNumber = instanceNumber, PlayerSent = true, PlayerLife = 100, ClassRow = 0

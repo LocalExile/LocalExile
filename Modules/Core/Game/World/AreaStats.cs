@@ -5,6 +5,6 @@ public static partial class Game
     // base_skill_area_of_effect_+% of passives, items, /god and /set_aoe (PanelStats), so the base form is left out
     // here and only a skill's own base (gem quality) goes in when the skill's stats are laid over. SkillArea.Increased
     // sums both forms; with the player's base still in, every area skill counted it twice.
-    public static Dictionary<uint, int> AreaPlayerStats(ClientState conn) =>
+    public static Dictionary<uint, int> AreaPlayerStats(Player conn) =>
         SkillArea.WithoutPlayerBase(FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2), Stats.Key(SkillArea.BaseIncreased));
 }

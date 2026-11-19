@@ -61,7 +61,7 @@ public sealed class MonsterPoisonsTests
     [Fact]
     public void A_chaos_prohibition_stops_poison_from_a_physical_hit()
     {
-        var conn = new ClientState(new(1, "poison", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "poison", 300, 300, 100, 100, null, []), 1, 1);
         var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
         var rows = new MonsterPoisons.Settings(100, Min: 10, Max: 10, CriticalMin: 20, CriticalMax: 20, Seconds: 2);
         SpawnedMonster Poisoned(bool critical, params (string Name, int Value)[] stats)

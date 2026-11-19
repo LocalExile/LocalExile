@@ -57,13 +57,13 @@ static class PantheonRules
 
     /// <summary>Where a god may be chosen: a town, a hideout, the Rogue Harbour, or with CanChangePantheon set (the
     /// client's own gate before it sends 0x1ee, 0x14097fb60).</summary>
-    internal static bool CanChoose(ClientState conn) =>
+    internal static bool CanChoose(Player conn) =>
         InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null || Hubs.Contains(conn.Layout.Hash)
         || ClientHasQuestFlag(conn, CanChangePantheon);
 
     /// <summary>C→S 0x1ee: the god of a PantheonPanelLayout row (+1) replaces the major or the minor one, when it is unlocked
     /// and the place allows it; the client hears the choice back either way (a refusal shows the gods it had).</summary>
-    internal static async Task ChooseGod(ClientState conn, byte wire)
+    internal static async Task ChooseGod(Player conn, byte wire)
     {
         var god = PantheonCatalog.Default.ByWire(wire);
         if (god is null || !PantheonCatalog.Unlocked(god, f => ClientHasQuestFlag(conn, f)))
@@ -90,7 +90,7 @@ static class PantheonRules
         await SendCharacterStats(conn, PlayerStatChange.Build);
     }
 
-    static async Task SendGods(ClientState conn, string why)
+    static async Task SendGods(Player conn, string why)
     {
         var catalog = PantheonCatalog.Default;
         byte major, minor;
@@ -101,7 +101,7 @@ static class PantheonRules
 
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose
     /// unlock flag the character lost grants nothing, the souls' upgrades count once EndGameAvailable is earned.</summary>
-    internal static Dictionary<uint, int> WithGods(ClientState conn, Dictionary<uint, int> sources)
+    internal static Dictionary<uint, int> WithGods(Player conn, Dictionary<uint, int> sources)
     {
         foreach (var (key, value) in PantheonCatalog.Default.ChosenStats(conn, f => ClientHasQuestFlag(conn, f)))
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
@@ -110,7 +110,7 @@ static class PantheonRules
 
     /// <summary>/state's "pantheon": the chosen gods (Ids, null = none), the unlocked ones (majors first) and whether a god
     /// may be chosen here.</summary>
-    internal static JsonObject Json(ClientState conn)
+    internal static JsonObject Json(Player conn)
     {
         bool Has(string f) => ClientHasQuestFlag(conn, f);
         var unlocked = PantheonCatalog.Default.Gods.Where(g => PantheonCatalog.Unlocked(g, Has)).OrderBy(g => !g.Major).ThenBy(g => g.Row);

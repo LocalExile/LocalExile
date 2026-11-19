@@ -46,16 +46,16 @@ public static class ShrineManager
     }
 
     static readonly ConditionalWeakTable<InstanceState, SharedArea> Areas = new();
-    static readonly ConditionalWeakTable<ClientState, AreaState> States = new();
-    static AreaState Of(ClientState conn) => States.GetValue(conn,
+    static readonly ConditionalWeakTable<Player, AreaState> States = new();
+    static AreaState Of(Player conn) => States.GetValue(conn,
         c => new(c.Instance is { } instance ? Areas.GetOrCreateValue(instance) : new()));
     static string ClaimKey(ShrineInstance shrine) => shrine.Definition.Lesser ? $"Shrines/used-lesser/{shrine.ObjectId}"
         : $"Shrines/used/{shrine.At.X}/{shrine.At.Y}";
     sealed record KeptLesser(string Type, int X, int Y, double Until);
-    static ClientState[] Members(ClientState conn) => States.Where(p => ReferenceEquals(p.Value.Area, Of(conn).Area)
+    static Player[] Members(Player conn) => States.Where(p => ReferenceEquals(p.Value.Area, Of(conn).Area)
         && !p.Key.Closed && !p.Key.LeavingArea).Select(p => p.Key).ToArray();
 
-    public static async Task SpawnArea(ClientState conn)
+    public static async Task SpawnArea(Player conn)
     {
         var state = Of(conn);
         await state.Area.Gate.WaitAsync();
@@ -113,7 +113,7 @@ public static class ShrineManager
     /// <summary>Creates one shrine object at its cell and registers it for clicks. The Shrines row goes in the object's
     /// Shrine component (the client draws that row's buff icon over it), so the icon and the buff the click grants are
     /// one value.</summary>
-    static async Task Create(ClientState conn, ShrineInstance shrine, uint restoredId = 0)
+    static async Task Create(Player conn, ShrineInstance shrine, uint restoredId = 0)
     {
         uint id = restoredId != 0 ? restoredId : !shrine.Definition.Lesser && conn.Instance is { } instance
             ? uint.Parse(instance.ContentState.GetOrAdd($"Shrines/id/{shrine.At.X}/{shrine.At.Y}", _ => conn.TakeObjectId().ToString()))
@@ -129,7 +129,7 @@ public static class ShrineManager
             foreach (var effect in shrine.Before) await effect.OnSpawn(new(conn, conn.Clock.Elapsed.TotalSeconds), shrine);
     }
 
-    static async Task Present(ClientState conn, ShrineInstance shrine)
+    static async Task Present(Player conn, ShrineInstance shrine)
     {
         if (!Of(conn).Presented.Add(shrine.ObjectId)) return;
         var obj = new ShrineObject(shrine.At.X, shrine.At.Y, shrine.Rotation, Model: shrine.Model,
@@ -140,7 +140,7 @@ public static class ShrineManager
         await SendWorldRecord(conn, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
     }
 
-    public static async Task SpawnLesser(ClientState conn, (int X, int Y) at, double seconds, string type)
+    public static async Task SpawnLesser(Player conn, (int X, int Y) at, double seconds, string type)
     {
         if (ShrineCatalog.Find(type) is not { Lesser: true } definition || conn.Layout.Walkable is not { } walk) return;
         var state = Of(conn);
@@ -159,7 +159,7 @@ public static class ShrineManager
 
     /// <summary>Dev (/shrines): the named types, or every basic type, on a ring around the player inside the click
     /// range, so each type's icon, buff and tooltip can be checked in one area instead of hunting a seed that rolls it.</summary>
-    public static async Task<int> SpawnAroundPlayer(ClientState conn, IReadOnlyList<string> ids)
+    public static async Task<int> SpawnAroundPlayer(Player conn, IReadOnlyList<string> ids)
     {
         var state = Of(conn);
         await state.Area.Gate.WaitAsync();
@@ -211,7 +211,7 @@ public static class ShrineManager
     /// walk-up action a chest or a quest object starts (C→S 0x24): the player walks to the shrine's walk-up range, and only
     /// on arrival does the buff follow. The client holds its action until the server's 0x01ab end, so an unanswered click
     /// leaves it waiting on an action that never finishes.</summary>
-    public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         var state = Of(conn);
         ShrineInstance? shrine;
@@ -268,7 +268,7 @@ public static class ShrineManager
     /// <summary>The claimed shrine's object again, in the same place with the same model, but with the Shrine component's
     /// "no shrine" key (<see cref="NoShrineRow"/>): the icon it drew and its interaction are gone with the row. The object
     /// id is kept, so the client replaces the one it has (the opened-chest pattern).</summary>
-    static async Task Spent(ClientState conn, ShrineInstance shrine)
+    static async Task Spent(Player conn, ShrineInstance shrine)
     {
         await SendWorldRemoval(conn, shrine.ObjectId, null);
         if (shrine.Definition.Lesser)
@@ -298,7 +298,7 @@ public static class ShrineManager
 
     /// <summary>Grants the shrine's buff for its row's duration and starts its effect. A second shrine of the same row
     /// replaces the first: its buff is removed before the new one, and the older timer cannot remove the newer buff.</summary>
-    static async Task Grant(ClientState conn, ShrineInstance shrine, ShrineContext ctx)
+    static async Task Grant(Player conn, ShrineInstance shrine, ShrineContext ctx)
     {
         var state = Of(conn);
         var definition = shrine.Definition;
@@ -359,7 +359,7 @@ public static class ShrineManager
     /// <summary>The buff's duration ending: the icon, its stats and its effect go together, and only if this granted
     /// buff is still the connection's buff of that row (a later shrine of the same row replaced it otherwise). Called
     /// from the tick at <see cref="ActiveBuff.EndsAt"/>, so it stops with the area instead of outliving it.</summary>
-    static async Task EndBuff(ClientState conn, ushort row, ActiveBuff buff)
+    static async Task EndBuff(Player conn, ushort row, ActiveBuff buff)
     {
         bool removed = false;
         await Send(conn, [], $"0x01c2 shrine buff {row} ends", atGate: () =>
@@ -387,7 +387,7 @@ public static class ShrineManager
 
     /// <summary>One player tick: the unclaimed shrines' neighbourhood steps (monsters coming near and leaving) and the
     /// active effects. Leaving the area drops everything first.</summary>
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         if (conn.Closed || conn.LeavingArea || conn.Paused) return;
         await LesserShrines.Tick(conn);
@@ -430,7 +430,7 @@ public static class ShrineManager
         finally { state.Area.Gate.Release(); }
     }
 
-    public static async Task LeaveArea(ClientState conn)
+    public static async Task LeaveArea(Player conn)
     {
         if (!States.TryGetValue(conn, out var state)) return;
         await state.Area.Gate.WaitAsync();
@@ -464,12 +464,12 @@ public static class ShrineManager
         }
     }
 
-    public static ClientState[] NearbyPlayers(ClientState conn, (int X, int Y) at, double radius) => Members(conn)
+    public static Player[] NearbyPlayers(Player conn, (int X, int Y) at, double radius) => Members(conn)
         .Where(c => c.PlayerSent && c.PlayerLife > 0 && Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) <= radius).ToArray();
 
     /// <summary>A standing shrine spell uses the same defenses and death accounting as an enemy spell.</summary>
-    public static async Task HitPlayers(ClientState source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet,
-        Func<ClientState, bool>? accept = null)
+    public static async Task HitPlayers(Player source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet,
+        Func<Player, bool>? accept = null)
     {
         foreach (var conn in NearbyPlayers(source, at, radius))
         {
@@ -494,7 +494,7 @@ public static class ShrineManager
 
     /// <summary>The claimed shrines' buff stats in the character's sum (<see cref="GameEvents.PlayerStatSources"/>), and
     /// nothing for a shrine that is unclaimed, spent or gone.</summary>
-    public static Dictionary<uint, int> AddStats(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> AddStats(Player conn, Dictionary<uint, int> stats)
     {
         if (!States.TryGetValue(conn, out var state)) return stats;
         lock (conn.Monsters)
@@ -505,7 +505,7 @@ public static class ShrineManager
     }
 
     /// <summary>The area's monster level: an open map's own level for this area, else the WorldAreas level.</summary>
-    public static byte AreaLevel(ClientState conn)
+    public static byte AreaLevel(Player conn)
     {
         int level = ServerLevels.AreaLevel(conn.Layout.Id);
         if (MapRunOf(conn) is { Area.Level: > 0 } openMap)

@@ -43,7 +43,7 @@ public sealed class BenchModule : IModule
 static class BenchFeature
 {
     // The bench in the hideout, where the league has one.
-    internal static async Task SpawnBench(ClientState conn)
+    internal static async Task SpawnBench(Player conn)
     {
         var scene = conn.CurrentHideoutScene;
         if (LeagueFor(conn).Rules.CraftingBench && scene?.Bench is { } bench
@@ -65,7 +65,7 @@ static class BenchFeature
 
     // A town's bench (TownBench): the room's own line places it, next to the stash. The hideout's comes from its decoration
     // (SpawnBench) and a hideout has no TownBench entry.
-    internal static async Task SpawnTownBench(ClientState conn)
+    internal static async Task SpawnTownBench(Player conn)
     {
         if (!LeagueFor(conn).Rules.CraftingBench || conn.CurrentHideoutScene is not null) return;
         if (HideoutCatalog.ByArea(conn.Layout.Hash) is not null) return;
@@ -87,7 +87,7 @@ static class BenchFeature
     }
 
     // C→S 0x24: approach the bench before opening the ordinary crafting window (0x7b kind 0x33, bench type 0).
-    internal static async Task OpenCraftingBench(ClientState conn,
+    internal static async Task OpenCraftingBench(Player conn,
         uint use, double requestedAt)
     {
         if (!LeagueFor(conn).Rules.CraftingBench) return;
@@ -104,7 +104,7 @@ static class BenchFeature
             "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(conn, action));
     }
 
-    internal static async Task MoveToBench(ClientState conn, (uint ItemId, bool IntoBench) request)
+    internal static async Task MoveToBench(Player conn, (uint ItemId, bool IntoBench) request)
     {
         if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen) return;
         var items = ItemsOf(conn);
@@ -119,7 +119,7 @@ static class BenchFeature
             items.NextRevision(move.To), [], [move.Placed]), $"0x00e9 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
     }
 
-    internal static async Task CraftBench(ClientState conn, (int Recipe, bool Bound) request)
+    internal static async Task CraftBench(Player conn, (int Recipe, bool Bound) request)
     {
         if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen || conn.CraftingBenchObject == 0) return;
         var items = ItemsOf(conn);

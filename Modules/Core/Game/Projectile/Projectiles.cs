@@ -46,7 +46,7 @@ public static partial class Game
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
     public sealed partial class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
-        public readonly ClientState Conn;
+        public readonly Player Conn;
         readonly int epoch;
         readonly Channel<Func<Task>> output = Channel.CreateBounded<Func<Task>>(
             new BoundedChannelOptions(8192) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
@@ -94,7 +94,7 @@ public static partial class Game
         public Task OutputCompleted { get; }
         public bool Active => CurrentGameRules && !invalid && Conn.ProjectileActive(epoch);
 
-        public ProjectileSession(ClientState conn)
+        public ProjectileSession(Player conn)
         {
             (Conn, epoch) = (conn, conn.ProjectileEpoch);
             Runtime = new(this);
@@ -1021,7 +1021,7 @@ public static partial class Game
         static bool Quiet(object? payload) => payload is ObjectProjectileOffense { Quiet: true };
     }
 
-    public static ProjectileSession ProjectilesFor(ClientState conn)
+    public static ProjectileSession ProjectilesFor(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -1038,19 +1038,19 @@ public static partial class Game
 
     static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage];
 
-    public static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
+    public static void AdvanceProjectiles(Player conn) => conn.ProjectileRuntime?.Advance();
 
     // Advance and replace actor motion/life in the same critical section. A flush followed by a separate
     // Monsters lock leaves a race in which the pump can consume the replacement as historical movement.
-    public static IDisposable ProjectileMutation(ClientState conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
-    public static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
+    public static IDisposable ProjectileMutation(Player conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
+    public static double ProjectileWorldTime(Player conn) => conn.ProjectileRuntime is { Active: true } session
         ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : conn.Clock.Elapsed.TotalSeconds;
 
     public sealed class ProjectileMutationScope : IDisposable
     {
         readonly System.Threading.Lock experience;
         readonly ConnectionPerformance.LockScope actorLock;
-        public ProjectileMutationScope(ClientState conn, bool advance, string? phase)
+        public ProjectileMutationScope(Player conn, bool advance, string? phase)
         {
             experience = LevelUpdatesFor(conn).Gate;
             experience.Enter();

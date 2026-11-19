@@ -32,17 +32,17 @@ public static partial class Game
     }
 
     public static readonly ConcurrentDictionary<string, CharacterLevelUpdates> LevelUpdates = new(StringComparer.OrdinalIgnoreCase);
-    public static CharacterLevelUpdates LevelUpdatesFor(ClientState conn) => LevelUpdates.GetOrAdd(CharacterName(conn), _ => new());
+    public static CharacterLevelUpdates LevelUpdatesFor(Player conn) => LevelUpdates.GetOrAdd(CharacterName(conn), _ => new());
 
     public sealed record ExperienceChange(long Revision, uint Before, uint After, bool LevelChanged, bool Reset = false);
 
     // Call while holding the connection lock; an accepted death must not gain XP or publish a later level-up heal.
-    public static bool HardcoreProgressBlocked(ClientState conn) =>
+    public static bool HardcoreProgressBlocked(Player conn) =>
         conn.Hardcore && (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded);
 
     // All production gains/resets serialize the shared XP ledger before publishing a connection copy.
     // Lock order is character XP -> connection -> database. No monitor is held across network waits.
-    public static ExperienceChange? RecordExperienceGain(ClientState conn, uint gain)
+    public static ExperienceChange? RecordExperienceGain(Player conn, uint gain)
     {
         var updates = LevelUpdatesFor(conn);
         lock (updates.Gate)
@@ -62,10 +62,10 @@ public static partial class Game
         }
     }
 
-    public static uint CurrentExperience(ClientState conn) =>
+    public static uint CurrentExperience(Player conn) =>
         CharacterSaves.Experience(CharacterName(conn)) ?? conn.Experience;
 
-    public static async Task<bool> PublishExperienceChange(ClientState conn, ExperienceChange change, string why)
+    public static async Task<bool> PublishExperienceChange(Player conn, ExperienceChange change, string why)
     {
         var updates = LevelUpdatesFor(conn);
         await Send(conn, [], $"0x02bc current player experience ({why})", atGate: () =>
@@ -95,7 +95,7 @@ public static partial class Game
         return true;
     }
 
-    public static async Task CompleteExperienceGain(ClientState conn, ExperienceChange change, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
+    public static async Task CompleteExperienceGain(Player conn, ExperienceChange change, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         bool applied = await PublishExperienceChange(conn, change, why);
         if (!change.LevelChanged && !applied) return;
@@ -107,7 +107,7 @@ public static partial class Game
 
     // Auth has unconditional set_level writes. Serialize every Gateway producer for this character, including resets
     // and login repair, and correct an in-flight request if XP changed before its answer. Answers never apply a level.
-    public static async Task<ControlResponse> SynchronizeAccountLevel(ClientState conn,
+    public static async Task<ControlResponse> SynchronizeAccountLevel(Player conn,
         Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         var updates = LevelUpdatesFor(conn);

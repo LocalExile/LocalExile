@@ -25,7 +25,7 @@ static class IzaroIdols
     static int ChannelEffect(MonsterCatalog.Variety variety) => variety.GrantedEffects is [_, int channel, ..] ? channel : -1;
 
     /// <summary>The actor's skill list: its default skill, then the channel, with the 0x1ab id it names.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
     {
         if (!IsIdol(variety) || skill is null || ChannelEffect(variety) is not (>= 0 and var effect)) return null;
         var catalog = Game.SkillsFor(conn);
@@ -36,7 +36,7 @@ static class IzaroIdols
     }
 
     /// <summary>Its fill and cast, until <paramref name="up"/> says it is no longer up.</summary>
-    internal static async Task Run(ClientState conn, uint id, SpawnedMonster idol,
+    internal static async Task Run(Player conn, uint id, SpawnedMonster idol,
         int element, double fillSeconds, Func<bool> up)
     {
         if (idol.Attack is not { } plain) return;
@@ -101,7 +101,7 @@ static class IzaroIdols
 
     // Where its circles go: one on the player, the rest at walkable cells round the player within the placement radius,
     // apart from each other. Under the Monsters lock.
-    static List<(int X, int Y)> Spots(ClientState conn)
+    static List<(int X, int Y)> Spots(Player conn)
     {
         var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var spots = new List<(int X, int Y)> { player };
@@ -120,7 +120,7 @@ static class IzaroIdols
 
     // The circles show for their fuse, each with its beacon's orb in the middle (beacon.ot: rig.ao, its start then its
     // loop; at the end its end clip), then burst: the player inside one takes its hit (one hit, however many).
-    static async Task Circles(ClientState conn, uint id, SpawnedMonster idol,
+    static async Task Circles(Player conn, uint id, SpawnedMonster idol,
         MonsterAttack burst, int element, List<(int X, int Y)> spots)
     {
         var layout = conn.Layout;

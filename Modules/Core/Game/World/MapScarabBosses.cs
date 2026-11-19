@@ -36,7 +36,7 @@ public static class MapScarabBosses
         if (!request.Campaign && request.Opening is not null && Bosses.Count > 0) request.HandledContent.Add(Terrors);
     }
 
-    public static IReadOnlyList<AreaPopulation.Spawn> Guards(ClientState conn, IReadOnlyList<(int X, int Y)> shrines,
+    public static IReadOnlyList<AreaPopulation.Spawn> Guards(Player conn, IReadOnlyList<(int X, int Y)> shrines,
         IReadOnlyList<AreaPopulation.Spawn> existing, AreaLayout? layout = null)
     {
         // The population is planned ahead of the area's entry, before conn.Layout is the area's: it hands its layout.

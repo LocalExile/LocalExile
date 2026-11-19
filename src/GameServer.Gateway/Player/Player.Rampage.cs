@@ -1,4 +1,4 @@
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public RampageSession Rampage { get; } = new();
     public SoulEaterState SoulEater { get; } = new();
@@ -47,7 +47,7 @@ public sealed partial class ClientState
     public double CombatRushUntil;
     public int CombatRushAttackSpeed;
     public (int Action, ushort Skill, int Speed)? CombatRushUse;
-    // Fist of War: per skill, when its next use counts as the big hit (ClientState.cs).
+    // Fist of War: per skill, when its next use counts as the big hit (Player.cs).
     public readonly Dictionary<ushort, double> FistOfWarAt = [];
 
     public void RetireOwnedCombat()

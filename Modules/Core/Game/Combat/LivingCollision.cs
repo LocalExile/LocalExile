@@ -9,7 +9,7 @@ public static partial class Game
 {
     // The player's collisions and what the others in the instance are shown of them, every frame of the area while the
     // player's updates run and no transfer is pending. A pause skips the collisions; the pose and the syncs go on.
-    static void StartLivingCollisions(ClientState conn, PlayerUpdatesState updates)
+    static void StartLivingCollisions(Player conn, PlayerUpdatesState updates)
     {
         EveryFrameAsPlayer(conn, () =>
         {
@@ -46,7 +46,7 @@ public static partial class Game
     // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands. A
     // predictive client goes on with its walk after, as the server's walk does; a lockstep one stands until its next order
     // (PlayerHitRecoveryRecordLocked: the same message and handler; the freeze itself is not traced).
-    public static async Task ShowFreeze(ClientState conn)
+    public static async Task ShowFreeze(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -68,7 +68,7 @@ public static partial class Game
     }
 
     // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
-    public static async Task ReleaseHeldMove(ClientState conn)
+    public static async Task ReleaseHeldMove(Player conn)
     {
         lock (conn.Monsters)
             if (!CurrentGameWork || conn.HeldMove is null) return;
@@ -92,7 +92,7 @@ public static partial class Game
 
     // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of
     // scripts/re/frida/trace-sync.js. scripts/re/sync_report.py compares the two.
-    public static void TraceSync(ClientState conn)
+    public static void TraceSync(Player conn)
     {
         if (!conn.PlayerSent) return;
         var line = new System.Text.StringBuilder();
@@ -112,7 +112,7 @@ public static partial class Game
         Console.WriteLine(line);
     }
 
-    public static void PublishPlayerPose(ClientState conn)
+    public static void PublishPlayerPose(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -125,7 +125,7 @@ public static partial class Game
 
     // Called under the owner's lock. Publish experience and final scale in an immutable template, retaining other creation stats,
     // equipment and skills. Observers read published snapshots and never lock another connection's simulation.
-    public static void RefreshPeerScale(ClientState conn, int scale)
+    public static void RefreshPeerScale(Player conn, int scale)
     {
         if (conn.PeerTemplate is not { } template) return;
         if (template.Experience != conn.Experience)
@@ -154,7 +154,7 @@ public static partial class Game
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
     const uint TownStanceStat = 21141;
 
-    public static async Task SyncInstancePlayers(ClientState conn)
+    public static async Task SyncInstancePlayers(Player conn)
     {
         var ids = conn.Instance.PlayersExcept(conn.PeerId).Select(p => p.Id)
             .Concat(conn.SeenPlayers.Keys).Distinct().ToArray();
@@ -267,7 +267,7 @@ public static partial class Game
         }
     }
 
-    public static Task CorrectMonsterCollisions(ClientState conn)
+    public static Task CorrectMonsterCollisions(Player conn)
     {
         using (ProjectileMutation(conn, phase: "collision"))
         {
@@ -286,7 +286,7 @@ public static partial class Game
     // the steps taken since the last pass, the player's and every monster's, each against the cells the others hold at
     // that moment: on a predictive client in time order; on a lockstep client frame by frame as its world ticks
     // (StepFrames). Called under conn.Monsters.
-    public static void StepWalkers(ClientState conn, double now)
+    public static void StepWalkers(Player conn, double now)
     {
         // In an instance whose frames run, the area steps its walkers itself, once for everyone (AreaMovement).
         if (AreaSteps(conn))
@@ -303,7 +303,7 @@ public static partial class Game
         if (now <= from) return;
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
-        // A lockstep client's killed monster walks until its death reaches the client (ClientState.Corpse). A monster the
+        // A lockstep client's killed monster walks until its death reaches the client (Player.Corpse). A monster the
         // grid has not listed yet joins it before this pass's steps (ClientEntityGrid: in the order the server added its
         // monsters, where it stands).
         foreach (var (id, m) in conn.Monsters)
@@ -362,7 +362,7 @@ public static partial class Game
     // object within it. A path the search cut short paths again at its end within the tick. A walk-up the client runs
     // (a monster's chase, the player's attack on a monster) also tests its goal in its own turn of each frame
     // (StepWalkUp), whether its body blocks or not.
-    static void StepFrames(ClientState conn, Dictionary<uint, GameServer.Core.World.PlayerWalk> walks, double from, double to, double length)
+    static void StepFrames(Player conn, Dictionary<uint, GameServer.Core.World.PlayerWalk> walks, double from, double to, double length)
     {
         var chases = new Dictionary<uint, SpawnedMonster>();
         foreach (var (id, m) in conn.Monsters)
@@ -438,14 +438,14 @@ public static partial class Game
     // order carries it to its own generation until the gate places it, and a give-up or a freeze, which send nothing,
     // keep it (NextPlannedAction); a swing order, a flinch, a stage and a transfer move the action generation on and end
     // it. Out of the wake zone its copy does not tick.
-    public static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
+    public static bool WalkUpOpen(Player conn, SpawnedMonster m) =>
         conn.LockstepClient && m.ClientChase == m.ActionGeneration && !m.Dead && m.Life > 0 && !m.Asleep;
 
     // A lockstep client's attack on a monster that is walking up (placed at its gate, goal not met) while it is still the
     // player's action: an order the client takes ends it (a Move within two cells is none: PlaceLockstepPlayerMove places
     // nothing), as do a hit's recovery and a transfer; a target gone from the area ends it too (not traced). A closed one
     // is failed here, so the attack's task wakes. Under conn.Monsters.
-    public static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
+    public static LockstepAttack? PlayerWalkUpOpen(Player conn)
     {
         if (!conn.LockstepClient || conn.LockstepAttack is not { Open: true } attack) return null;
         if (conn.ActionCount == attack.Action && conn.PlayerSent && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
@@ -475,7 +475,7 @@ public static partial class Game
     // that has left the cell it last searched toward, 2.0 s after that search, or 0.7 s after it once the target is 64
     // cells from that cell (0x141e826a0: each tick adds its frame to +0x55c before the test, and 0x141e82010 zeroes it;
     // decompiled, not reached live). Returns the turn's outcome and when the search timer last started.
-    static (WalkUpResult Result, double TimerFrom) StepWalkUp(ClientState conn, ClientState.MonsterBlockerFrame bodies, WalkUpTurn up,
+    static (WalkUpResult Result, double TimerFrom) StepWalkUp(Player conn, Player.MonsterBlockerFrame bodies, WalkUpTurn up,
         double start, double end, double length)
     {
         var walk = up.Walk;
@@ -538,7 +538,7 @@ public static partial class Game
     }
 
     // One step of a walk, as the client checks it: false when it was blocked and ended the walk.
-    static bool Step(ClientState conn, ClientState.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
+    static bool Step(Player conn, Player.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
     {
         // A Dash's slide crosses gaps and bodies (PlayerWalk.Slide): none of its steps is checked.
         bool floor = walk.Slides || walk.Floor(cell.X, cell.Y);

@@ -28,7 +28,7 @@ public sealed class JuggernautNodesTests
         Assert.Equal(75, HitReaction.StunningDamage(100, physicalShare: 1, melee: false), 6);
         Assert.Equal(56.25, HitReaction.StunningDamage(100, physicalShare: 0, melee: false), 6);
 
-        var conn = new ClientState(new(1, "stun", 1000, 1000, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "stun", 1000, 1000, 100, 100, null, []), 1, 1);
         var charges = Game.ChargesOf(conn);
         Func<string, int> stats = name => name == "chance_to_gain_endurance_charge_when_you_stun_enemy_%" ? 100 : 0;
         charges.Observe(stats);

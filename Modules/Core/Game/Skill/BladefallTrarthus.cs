@@ -15,7 +15,7 @@ public static partial class Game
     // while it runs does nothing (no 0x1ce): the original server answered a second press with nothing.
     public static bool IsBladefallTrarthus(int effect) => Skills.EffectId(effect) == BladefallVolleys.EffectId;
 
-    public static async Task<bool> ActivateBladefallTrarthus(ClientState conn, ushort skillId)
+    public static async Task<bool> ActivateBladefallTrarthus(Player conn, ushort skillId)
     {
         if (BladefallVolleys.BuffRow(BladefallVolleys.CostBuff) is not ushort costRow
             || BladefallVolleys.BuffRow(BladefallVolleys.BladesBuff) is not ushort bladesRow) return false;
@@ -44,21 +44,21 @@ public static partial class Game
         return true;
     }
 
-    static double BladefallVolleySeconds(ClientState conn, Func<string, int> own) =>
+    static double BladefallVolleySeconds(Player conn, Func<string, int> own) =>
         Math.Max(.05, BladefallVolleys.FrequencyMs(own("bladefall_base_volley_frequency_ms"),
             own("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana) / 1000.0);
 
-    static Task SendBladefallManaSpent(ClientState conn, int perMinute) =>
+    static Task SendBladefallManaSpent(Player conn, int perMinute) =>
         Stats.Key("mana_spent_per_minute") is uint key
             ? Send(conn, InstanceEntities.StatsUpdate(PlayerId, [(key, perMinute)]),
                 $"0x01b3 player mana_spent_per_minute {perMinute}")
             : Task.CompletedTask;
 
     // The mana Bladefall of Trarthus spends over this recovery step (StartResourceRecovery takes it off with regeneration).
-    public static double BladefallManaSpent(ClientState conn, double seconds) =>
+    public static double BladefallManaSpent(Player conn, double seconds) =>
         conn.BladefallTrarthus is { Ended: false } state ? state.ManaPerMinute / 60.0 * seconds : 0;
 
-    public static async Task EndBladefallTrarthus(ClientState conn, string why)
+    public static async Task EndBladefallTrarthus(Player conn, string why)
     {
         BladefallTrarthusState? state;
         lock (conn.Monsters)
@@ -76,7 +76,7 @@ public static partial class Game
 
     // The volleys while it runs, then the blades' last moments after it ends; the connection's end (an area change)
     // stops it, as the area's objects go with it.
-    static async Task RunBladefallTrarthus(ClientState conn,
+    static async Task RunBladefallTrarthus(Player conn,
         BladefallTrarthusState state)
     {
         const double Lands = 1.0;
@@ -123,7 +123,7 @@ public static partial class Game
         { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} Bladefall of Trarthus stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task BladefallVolley(ClientState conn,
+    static async Task BladefallVolley(Player conn,
         BladefallTrarthusState state, uint? bladeRow, Random random, double now, double lands)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == state.Skill);

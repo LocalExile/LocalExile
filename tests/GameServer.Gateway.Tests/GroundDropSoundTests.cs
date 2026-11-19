@@ -60,7 +60,7 @@ public sealed class GroundDropSoundTests
         // shared ground knows that recipient, and a connection that comes later sees the item as an old one.
         string path = Path.Combine(Path.GetTempPath(), $"localexile-tutorial-gem-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var gifted = new ClientState(new(1, "tutorial-gem", 1000, 1000, 100, 100, null, []), 1, 1)
+        var gifted = new Player(new(1, "tutorial-gem", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = $"TutorialGem{Guid.NewGuid():N}", ClassRow = 0, Instance = new(),
             LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"])),
@@ -103,7 +103,7 @@ public sealed class GroundDropSoundTests
         await VerifyLockstepGroundOutput(runtime, old);
     }
     static async Task VerifyGoldLifecycle(PartyFollowerTests.Runtime runtime, InstanceState instance,
-        PartyFollowerTests.Wire wire, PartyFollowerTests.Wire otherWire, ClientState player, ClientState other)
+        PartyFollowerTests.Wire wire, PartyFollowerTests.Wire otherWire, Player player, Player other)
     {
         player = runtime.Connection(instance, wire, $"gold-first-{Guid.NewGuid():N}");
         other = runtime.Connection(instance, otherWire, $"gold-other-{Guid.NewGuid():N}");

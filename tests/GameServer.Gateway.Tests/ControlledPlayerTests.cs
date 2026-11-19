@@ -72,7 +72,7 @@ internal static class ControlledPlayerBuildChecks
                     Assert.Equal(level - 1, build.Passives!.Count);
                     CharacterSaves.Write(name, build);
                     int row = Program.Skills.RowOfClass((int)characterClass);
-                    var conn = new ClientState(new(1, "controlled-build-test", 1000, 1000, 100, 100, null, []), 1, 1)
+                    var conn = new Player(new(1, "controlled-build-test", 1000, 1000, 100, 100, null, []), 1, 1)
                     { Character = name, CharacterId = record.Id, League = "Standard", ClassRow = row,
                         Pools = CharacterStats.For(Program.Skills.ClassFor(row), level) };
                     Assert.Equal(level, Game.PrepareCharacterForArea(conn, level));

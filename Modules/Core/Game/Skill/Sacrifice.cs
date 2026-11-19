@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 static partial class Game
 {
     // Owned by one original player cast, shared by its repeats/cascades; never created by a proxy executor.
-    public sealed class SacrificeUse(ClientState caster, ushort skill, int effect, uint gem, bool triggered = false)
+    public sealed class SacrificeUse(Player caster, ushort skill, int effect, uint gem, bool triggered = false)
     {
         readonly int epoch = caster.ProjectileEpoch;
         readonly GameServer.Modding.IModuleLifetime? owner = CombatLifetime;
@@ -11,7 +11,7 @@ static partial class Game
         readonly SupportedGem original = SupportedSkill(caster, skill);
         readonly (uint Host, int Socket, object Identity)[] sources = CaptureSources(caster, skill);
 
-        static (uint, int, object)[] CaptureSources(ClientState conn, ushort skill)
+        static (uint, int, object)[] CaptureSources(Player conn, ushort skill)
         {
             var supported = SupportedSkill(conn, skill);
             var sockets = supported.Supports.Select(s => s.Gem.Socket).Where(s => s >= 0).ToHashSet();

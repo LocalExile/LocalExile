@@ -51,7 +51,7 @@ public static partial class MonsterSkills
 
     /// <summary>The skill's own skill_travel_distance_+% at the monster's level (ExileQuickDodge's 20: its Dash goes 36
     /// cells, where the player's base Dash goes 30). StatsOf leaves skill_ stats out of a use's stats.</summary>
-    static int TravelPct(ClientState conn, int effect, byte level) =>
+    static int TravelPct(Player conn, int effect, byte level) =>
         Stats.Key("skill_travel_distance_+%") is uint key
             ? GolemData.Skill(SkillsFor(conn), effect, level).Stats.GetValueOrDefault(key) : 0;
 
@@ -135,7 +135,7 @@ public static partial class MonsterSkills
     /// <summary>The corpse a monster uses the skill on, under the Monsters lock: for a travel, the one nearest the player
     /// that is within its reach and brings it nearer; for a spell, the one nearest the player whose hits reach the player.
     /// Null when there is none.</summary>
-    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(ClientState conn, SpawnedMonster m, MonsterAttack a, double now)
+    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player conn, SpawnedMonster m, MonsterAttack a, double now)
     {
         if (a.Use is not { OnCorpse: true } use) return null;
         var here = m.Walk.Position(now);
@@ -160,13 +160,13 @@ public static partial class MonsterSkills
     /// <summary>Whether the kit may choose this attack now (BossKits.Choose): a corpse skill only with a corpse for it, a
     /// summon only while its summoner has fewer of its monsters than the skill's limit (a totem is placed when there is
     /// none, not again over the one that stands). Under the Monsters lock.</summary>
-    public static bool Usable(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+    public static bool Usable(Player conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
         (a.Use is not { OnCorpse: true } || CorpseFor(conn, m, a, now) is not null)
         && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(conn, id, summon) < summon.Limit);
 
     /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
     /// (0x2bd) and every corpse use. Returns where each was.</summary>
-    static async Task<List<(int X, int Y)>> Consume(ClientState conn, uint corpseId, MonsterSkillUse use)
+    static async Task<List<(int X, int Y)>> Consume(Player conn, uint corpseId, MonsterSkillUse use)
     {
         List<(uint Id, string Label, (int X, int Y) At)> taken = [];
         lock (conn.Monsters)
@@ -190,7 +190,7 @@ public static partial class MonsterSkills
 
     /// <summary>A hit on the player from a point (a corpse's explosion, orb or geyser), if the player is within reach of
     /// it when it lands.</summary>
-    static async Task HitFrom(ClientState conn, uint id, SpawnedMonster m, int action, ushort seq, MonsterAttack a, (int X, int Y) from, double reach)
+    static async Task HitFrom(Player conn, uint id, SpawnedMonster m, int action, ushort seq, MonsterAttack a, (int X, int Y) from, double reach)
     {
         MonsterHitOutcome? outcome = null;
         var hit = a with { Range = reach, Use = null };
@@ -288,7 +288,7 @@ public static partial class MonsterSkills
     }
 
     /// <summary>Sends the aura looks of a monster just created.</summary>
-    public static async Task ShowAuras(ClientState conn, uint id, IReadOnlyList<ushort> rows, bool log)
+    public static async Task ShowAuras(Player conn, uint id, IReadOnlyList<ushort> rows, bool log)
     {
         foreach (ushort row in rows)
         {
@@ -302,7 +302,7 @@ public static partial class MonsterSkills
     // ---- Playing a kit skill ------------------------------------------------------------------------------------------
 
     /// <summary>Plays a kit skill that is no plain hit: the action, then at its contact what it does.</summary>
-    public static async Task Play(ClientState conn, uint id,
+    public static async Task Play(Player conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         // The skill goes on its cooldown here too: its order may come from a walk-up the kit's choice did not consume.
@@ -367,7 +367,7 @@ public static partial class MonsterSkills
     /// <summary>A corpse skill: the action aimed at the corpse (its object as the target), then at its contact the corpse
     /// taken. Bodyswap carries the monster onto it and explodes around it; a spell hits from each corpse it took, an
     /// explosion at once, an orb or a geyser's projectile when it has flown to the player, a geyser once per burst.</summary>
-    static async Task OnCorpse(ClientState conn, uint id,
+    static async Task OnCorpse(Player conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         double startedAt = 0, seconds = a.Seconds;
@@ -426,7 +426,7 @@ public static partial class MonsterSkills
     /// reads movement_velocity_+% from its Stats), so its length is the distance over that speed, not the attack time.
     /// The skill's movement bonus goes to the client as the monster's movement_velocity_+% (0xf5) while it runs, the
     /// server's walk charges at the same speed (PlayerWalk.Charge), and the hit lands where and when the walk arrives.</summary>
-    static async Task Charge(ClientState conn, uint id,
+    static async Task Charge(Player conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, int bonusPct)
     {
         int ownPct = m.Mods.Effects.MovementPct;
@@ -488,7 +488,7 @@ public static partial class MonsterSkills
 
     /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell; else the
     /// player's own.</summary>
-    static (int X, int Y) Landing(ClientState conn, (int X, int Y) from, (int X, int Y) player)
+    static (int X, int Y) Landing(Player conn, (int X, int Y) from, (int X, int Y) player)
     {
         double dx = from.X - player.X, dy = from.Y - player.Y, d = Math.Sqrt(dx * dx + dy * dy);
         if (d < 1) return player;
@@ -503,7 +503,7 @@ public static partial class MonsterSkills
     sealed class Buffs { public readonly List<(ushort Buff, IReadOnlyDictionary<string, int> Stats, double Until)> Active = []; }
     static readonly ConditionalWeakTable<SpawnedMonster, Buffs> MonsterBuffs = new();
 
-    static async Task BuffSelf(ClientState conn, uint id, SpawnedMonster m, MonsterSkillUse use)
+    static async Task BuffSelf(Player conn, uint id, SpawnedMonster m, MonsterSkillUse use)
     {
         var buffs = MonsterBuffs.GetValue(m, _ => new());
         ushort buff;
@@ -521,7 +521,7 @@ public static partial class MonsterSkills
         _ = EndBuff(conn, id, m, use, buffs, buff, conn.Layout);
     }
 
-    static async Task EndBuff(ClientState conn, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
+    static async Task EndBuff(Player conn, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
     {
         await Task.Delay(TimeSpan.FromSeconds(use.Seconds));
         lock (conn.Monsters)
@@ -545,7 +545,7 @@ public static partial class MonsterSkills
 
     /// <summary>A curse on the player for its time: its look, and its stats on the player's sheet (Game.PlayerDebuffs). A
     /// curse of the same look replaces the one there.</summary>
-    static Task Curse(ClientState conn, uint caster, MonsterSkillUse use) =>
+    static Task Curse(Player conn, uint caster, MonsterSkillUse use) =>
         AddPlayerDebuff(conn, use.BuffRow, caster, Player(use.Stats), use.Seconds);
 
     /// <summary>A curse's stats as the player's: the reductions a curse names for its target are the player's own

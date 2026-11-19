@@ -50,7 +50,7 @@ public sealed class CharacterBuildImportTests
         Saves.Open(path);
         var record = new Character(Guid.NewGuid(), Guid.NewGuid(), "ModBuild", CharacterClass.Witch, 1,
             "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        var conn = new ClientState(new(1, "mod-build", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "mod-build", 1000, 1000, 100, 100, null, []), 1, 1)
         { CharacterId = record.Id, Character = record.Name, Account = record.AccountId.ToString(), PlayerLife = 1000 };
         var player = new ImportPlayer(conn);
         var lifetime = new ModuleLifetime("probe");
@@ -135,9 +135,9 @@ public sealed class CharacterBuildImportTests
         }
     }
 
-    sealed class ImportPlayer(ClientState conn) : IConnectionPlayer
+    sealed class ImportPlayer(Player conn) : IConnectionPlayer
     {
-        public ClientState Conn => conn;
+        public Player Conn => conn;
         public List<string> Messages { get; } = [];
         public string Character => conn.Character!;
         public string? Account => conn.Account;
@@ -267,7 +267,7 @@ public sealed class CharacterBuildImportTests
             CharacterEquipmentState.Inactive[record.Name] = [902];
             CharacterBuildImports.Apply(Plan(record, ready) with { Class = CharacterClass.Witch });
             int row = Program.Skills.RowOfClass((int)CharacterClass.Witch);
-            var admitted = new ClientState(new(1, "pob-readiness", 1000, 1000, 100, 100, null, []), 1, 1)
+            var admitted = new Player(new(1, "pob-readiness", 1000, 1000, 100, 100, null, []), 1, 1)
             { Character = record.Name, CharacterId = record.Id, ClassRow = row,
                 Pools = CharacterStats.For(Program.Skills.ClassFor(row), 90) };
             Game.PrepareCharacterForArea(admitted, 90);

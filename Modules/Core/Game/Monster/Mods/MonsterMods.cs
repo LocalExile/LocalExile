@@ -26,7 +26,7 @@ public static partial class Game
     /// <summary>The mods a new monster gets: <paramref name="kept"/> (a monster of a kept instance, a /mob_mods
     /// choice) when it has any, else freshly rolled for its rarity. Area packs pass <paramref name="alone"/> false;
     /// their magic monsters share one roll per monster name in the instance.</summary>
-    public static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
+    public static MonsterModSet MonsterModsFor(Player conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         MonsterModSet? kept, bool alone)
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
@@ -145,7 +145,7 @@ public static partial class Game
             .Scale(m.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
-    public static int SelfCriticalReduction(ClientState conn)
+    public static int SelfCriticalReduction(Player conn)
     {
         var stats = CharacterPlayerStats(conn);
         return SelfCriticalReduction(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
@@ -182,7 +182,7 @@ public static partial class Game
 
     /// <summary>A contact's hit unless blocked or evaded; rejected contacts have no life or on-hit mutation.
     /// The caller holds the Monsters lock.</summary>
-    public static MonsterHit? HitUnlessBlockedLocked(ClientState conn, SpawnedMonster m, int damage) =>
+    public static MonsterHit? HitUnlessBlockedLocked(Player conn, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(conn, m, damage);
 
     /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no

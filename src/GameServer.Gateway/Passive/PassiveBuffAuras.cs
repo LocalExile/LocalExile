@@ -105,7 +105,7 @@ public static class PassiveBuffAuras
 
     /// <summary>The 0x1c1/0x1c2 that bring the player's published self buffs to the allocated ones, or null. Run at the
     /// send gate; a new area's connection starts with none, so area entry publishes them again.</summary>
-    public static byte[]? Presentation(ClientState conn)
+    public static byte[]? Presentation(Player conn)
     {
         lock (conn.Monsters)
         {

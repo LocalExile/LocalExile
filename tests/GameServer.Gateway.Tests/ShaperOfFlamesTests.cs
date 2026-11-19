@@ -27,7 +27,7 @@ public class ShaperOfFlamesTests
         Assert.True(settings.CanIgnite(physical));
         Assert.False(MonsterIgnites.Settings.From(plain, "spell", With()).CanIgnite(physical));
 
-        var conn = new ClientState(new(1, "shaper", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "shaper", 300, 300, 100, 100, null, []), 1, 1);
         var m = At(100);
         conn.Monsters[1] = m;
         Assert.NotNull(Game.IgniteOnHitLocked(conn, 1, m, settings, critical: false, now: .25));
@@ -38,7 +38,7 @@ public class ShaperOfFlamesTests
     [Fact]
     public void Ignited_enemies_convert_physical_damage_to_fire()
     {
-        var conn = new ClientState(new(1, "shaper", 300, 300, 100, 100, null, []), 1, 1) { PlayerLife = 300 };
+        var conn = new Player(new(1, "shaper", 300, 300, 100, 100, null, []), 1, 1) { PlayerLife = 300 };
         var m = At(100);
         conn.Monsters[1] = m;
         var shaper = With(("enemies_ignited_by_you_have_physical_damage_%_converted_to_fire", 40));

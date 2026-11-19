@@ -15,7 +15,7 @@ public static class OwnedCountItemStats
     public static bool IsCoefficient(string stat) => Rules.Any(r => r.Input == stat);
 
     // Captured beside the other condition inputs; consumers reuse this view instead of counting again mid-build.
-    public static void Capture(ClientState conn, double totemNow, double minionNow, Dictionary<string, long> measured)
+    public static void Capture(Player conn, double totemNow, double minionNow, Dictionary<string, long> measured)
     {
         foreach (var key in Rules.Select(r => r.Count)) measured[key] = 0;
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;

@@ -11,7 +11,7 @@ static class TattoosFeature
     /// tattoo-use packet is traced: the client command names the tattoo and the passive graph id. The tattoo is
     /// saved independently of the allocation, so refunding the passive keeps it.
     /// </summary>
-    internal static async Task<string?> ApplyTattoo(ClientState conn, string name, ushort node, byte? consumeRow = null, uint consumeItemId = 0,
+    internal static async Task<string?> ApplyTattoo(Player conn, string name, ushort node, byte? consumeRow = null, uint consumeItemId = 0,
         ushort? chosenKeystone = null)
     {
         var tree = PassivesFor(conn);
@@ -95,7 +95,7 @@ static class TattoosFeature
 
     /// <summary>The client's tattoo-on-passive packet (C→S 0x77): consume one tattoo from the inventory and install
     /// it on the named allocated passive. The packet carries the inventory row, the item id and the passive graph id.</summary>
-    internal static async Task UseTattooOnPassive(ClientState conn, InstanceItems.UseItemOnPassive use, string hex)
+    internal static async Task UseTattooOnPassive(Player conn, InstanceItems.UseItemOnPassive use, string hex)
     {
         if (PlayerInventories.Row(use.InventoryId) is not byte row)
         {
@@ -133,7 +133,7 @@ static class TattoosFeature
     }
 
     /// <summary>Removes the tattoo from a passive and restores the passive's own stats.</summary>
-    internal static async Task<string?> RemoveTattoo(ClientState conn, ushort node, byte? consumeRow = null, uint consumeItemId = 0)
+    internal static async Task<string?> RemoveTattoo(Player conn, ushort node, byte? consumeRow = null, uint consumeItemId = 0)
     {
         if (PassivesFor(conn).Find(node) is not { } passive) return $"unknown passive {node}";
         if (!conn.Tattoos.ContainsKey(node)) return $"{passive.Name} ({node}) has no tattoo";

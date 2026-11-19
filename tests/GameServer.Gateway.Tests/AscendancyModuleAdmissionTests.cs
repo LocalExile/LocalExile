@@ -91,7 +91,7 @@ public sealed class AscendancyModuleAdmissionTests
         replacement.Stop(ex => throw ex);
     }
 
-    static ClientState Connection(string name, params string[] modules) => new(new(1, "test", 1, 1, 0, 0, null, []), 1, 1)
+    static Player Connection(string name, params string[] modules) => new(new(1, "test", 1, 1, 0, 0, null, []), 1, 1)
     {
         Character = name,
         LeagueModule = new(new League("test", "Standard", false, false), modules.ToHashSet(StringComparer.OrdinalIgnoreCase)),

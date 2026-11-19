@@ -27,7 +27,7 @@ public sealed class BossStageTests
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-            var conn = new ClientState(new(1, "stage", 100, 100, 10, 10, null, []), 1, 1);
+            var conn = new Player(new(1, "stage", 100, 100, 10, 10, null, []), 1, 1);
             var m = new SpawnedMonster("Hillock", new PlayerWalk(10, 10, 1), 60, 2, maxLife: 311)
             {
                 Stage = BossFights.For(hillock), StageRunning = true, Life = 141, BusyUntil = 13,

@@ -14,7 +14,7 @@ public static partial class Game
 
     // Ground creation belongs to the accepted charge transaction. Its art receipts and deadline survive
     // replacement, while taunt uses the same accepted character snapshot as the utility effect.
-    static void MakeFlaskGroundsLocked(ClientState conn, IReadOnlyDictionary<string, int> local, double seconds,
+    static void MakeFlaskGroundsLocked(Player conn, IReadOnlyDictionary<string, int> local, double seconds,
         double now, IReadOnlyDictionary<uint, int> player)
     {
         var at = conn.Walk.Position(now);
@@ -37,14 +37,14 @@ public static partial class Game
 
     /// <summary>Bottled Faith: the increased damage taken a consecrated ground created now applies to enemies on it
     /// (the running flask effects' strongest).</summary>
-    static int ConsecratedEnemyDamageTakenNow(ClientState conn) =>
+    static int ConsecratedEnemyDamageTakenNow(Player conn) =>
         UtilityFlaskStat(conn, FlaskGrounds.EnemyDamageTakenStat);
 
     /// <summary>The strongest value of a stat the running utility flasks grant (their "during effect" mods).</summary>
-    public static int UtilityFlaskStat(ClientState conn, string stat) =>
+    public static int UtilityFlaskStat(Player conn, string stat) =>
         conn.UtilityFlaskEffects.MaximumStat(stat);
 
-    public static Task MaybeCreateProfaneGround(ClientState conn, (int X, int Y) at)
+    public static Task MaybeCreateProfaneGround(Player conn, (int X, int Y) at)
     {
         lock (conn.Monsters)
         {
@@ -55,7 +55,7 @@ public static partial class Game
         return PublishFlaskChanges(conn);
     }
 
-    static void MaybeCreateProfaneGroundLocked(ClientState conn, (int X, int Y) at, IReadOnlyDictionary<uint, int> player)
+    static void MaybeCreateProfaneGroundLocked(Player conn, (int X, int Y) at, IReadOnlyDictionary<uint, int> player)
     {
         int chance = FlaskGrounds.ProfaneChance(name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
         if (chance <= 0 || Random.Shared.Next(100) >= chance) return;
@@ -64,7 +64,7 @@ public static partial class Game
         PresentNearby(conn);
     }
 
-    static uint? QueueGroundArtLocked(ClientState conn, FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
+    static uint? QueueGroundArtLocked(Player conn, FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
     {
         if (!FlaskGroundArt.TryGetValue(kind, out var art)) return null;
         uint obj = conn.TakeObjectId();
@@ -83,7 +83,7 @@ public static partial class Game
     // presents them again.
     const string FlaskGroundZones = "flask grounds";
 
-    static void SyncFlaskGroundZones(ClientState conn)
+    static void SyncFlaskGroundZones(Player conn)
     {
         var hostile = ReachesHostileMonsters(conn, body: false);
         SyncZones(conn, conn.PeerId, FlaskGroundZones, conn.FlaskGrounds.Grounds.Select(g => ((object)g, g.Radius, (g.X, g.Y))),
@@ -91,15 +91,15 @@ public static partial class Game
     }
 
     // Whether a ground of the kind covers the monster.
-    static bool InFlaskGround(ClientState conn, FlaskGrounds.Kind kind, uint id) =>
+    static bool InFlaskGround(Player conn, FlaskGrounds.Kind kind, uint id) =>
         conn.FlaskGrounds.Grounds.Any(g => g.Kind == kind && InZone(conn, conn.PeerId, FlaskGroundZones, g, id));
 
     // The increased damage taken a monster gets from the consecrated grounds covering it: the strongest one.
-    static int ConsecratedEnemyDamageTaken(ClientState conn, uint id) => conn.FlaskGrounds.Grounds
+    static int ConsecratedEnemyDamageTaken(Player conn, uint id) => conn.FlaskGrounds.Grounds
         .Where(g => g is { Kind: FlaskGrounds.Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && InZone(conn, conn.PeerId, FlaskGroundZones, g, id))
         .Select(g => g.EnemyDamageTakenPct).DefaultIfEmpty(0).Max();
 
-    public static void AdvanceFlaskGrounds(ClientState conn, PlayerUpdatesState updates)
+    public static void AdvanceFlaskGrounds(Player conn, PlayerUpdatesState updates)
     {
         if (conn.FlaskGrounds.Any) _ = FlaskGroundArt;
         lock (conn.Monsters)
@@ -161,7 +161,7 @@ public static partial class Game
 
     // A nearby presentation: grounds placed (PresentNearby), walkers in or out of them, the player still or moving (a stat
     // condition), and each ground's end or linger (PresentIn).
-    static async Task SendFlaskGrounds(ClientState conn)
+    static async Task SendFlaskGrounds(Player conn)
     {
         if (conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
         AdvanceFlaskGrounds(conn, updates);

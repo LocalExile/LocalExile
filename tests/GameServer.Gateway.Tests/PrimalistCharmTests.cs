@@ -9,7 +9,7 @@ public class PrimalistCharmTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"charm-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "charms", 100, 100, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "charms", 100, 100, 100, 100, null, []), 1, 1)
         {
             Character = "Primalist" + Guid.NewGuid().ToString("N"),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),

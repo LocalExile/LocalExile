@@ -252,7 +252,7 @@ public static class Charges
 }
 
 // The charge values/deadlines are neutral data; replacement Game sessions keep accepted gains and expiry.
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public readonly Charges.State PlayerChargeState = new();
 }

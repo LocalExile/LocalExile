@@ -58,7 +58,7 @@ public static class InstantLocationSkill
 
     // Called again under the send gate: an old request cannot move the player after transfer/death/pause.
     // 0x141c00cd0 accepts a valid endpoint via 0x141c006d0 before running its fallback terrain trace.
-    public static bool TryResolve(ClientState conn, int epoch, (uint X, uint Y) aim,
+    public static bool TryResolve(Player conn, int epoch, (uint X, uint Y) aim,
         bool inTown, Func<string, int> stat, out (int X, int Y) from, out (int X, int Y) to)
     {
         lock (conn.Monsters)
@@ -68,7 +68,7 @@ public static class InstantLocationSkill
         }
     }
 
-    static bool TryResolveFrom(ClientState conn, int epoch, (int X, int Y) from, (uint X, uint Y) aim,
+    static bool TryResolveFrom(Player conn, int epoch, (int X, int Y) from, (uint X, uint Y) aim,
         bool inTown, Func<string, int> stat, out (int X, int Y) to)
     {
         to = default;
@@ -94,7 +94,7 @@ public static class InstantLocationSkill
 
     // Object 0x1ce binds the entity again on delivery. Reject active target walks rather than claim moving-target parity.
     // Only the native clear-grid trace is supported: partial terrain searches and coincident RNG fail closed.
-    public static bool TryResolveObject(ClientState conn, int epoch, uint targetId, bool inTown,
+    public static bool TryResolveObject(Player conn, int epoch, uint targetId, bool inTown,
         Func<string, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim)
     {
         lock (conn.Monsters)
@@ -116,7 +116,7 @@ public static class InstantLocationSkill
         }
     }
 
-    public static bool TryCommitObject(ClientState conn, int epoch, uint targetId, bool inTown,
+    public static bool TryCommitObject(Player conn, int epoch, uint targetId, bool inTown,
         Func<string, int> stat, out (int X, int Y) aim, out (int X, int Y) to)
     {
         using (Game.ProjectileMutation(conn))
@@ -129,7 +129,7 @@ public static class InstantLocationSkill
 
     // Native ground 0x1ce keeps the current/predicted action at entry, then Frostblink's reposition ends its old walk.
     // Mirror that position change without incrementing ActionCount or cancelling a cast/channel's pending release.
-    public static bool TryCommit(ClientState conn, int epoch, (uint X, uint Y) aim, bool inTown,
+    public static bool TryCommit(Player conn, int epoch, (uint X, uint Y) aim, bool inTown,
         Func<string, int> stat, out (int X, int Y) to)
     {
         using (Game.ProjectileMutation(conn))

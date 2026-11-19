@@ -27,12 +27,12 @@ public static partial class Game
 
     // "Any Flask Effect": a running utility flask, a permanent one from a belt's always-apply effect, or a life/mana
     // flask still recovering. Life and mana flasks keep no utility effect here, but their recovery is a flask effect too.
-    public static bool AnyFlaskEffect(ClientState conn) =>
+    public static bool AnyFlaskEffect(Player conn) =>
         conn.UtilityFlaskEffects.Sources().Count > 0 || MagebloodSources(conn, _ => 0).Count > 0 || conn.FlaskEffects.Any;
 
     /// <summary>The client's own "during any Flask Effect" conditions and its native flask logic read <c>using_flask</c>
     /// (a stat, not the server's evaluated stats): 1 while any effect is on. Soul Eater's soul visuals are one of them.</summary>
-    public static void WithUsingFlask(ClientState conn, StatMap stats)
+    public static void WithUsingFlask(Player conn, StatMap stats)
     {
         if (Stats.Key("using_flask") is uint key) stats[key] = AnyFlaskEffect(conn) ? 1 : 0;
     }
@@ -43,11 +43,11 @@ public static partial class Game
         return (int)Math.Clamp(SoulEaterState.MaximumStacks + (long)bonus, 0, ushort.MaxValue);
     }
 
-    public static bool SoulEaterActive(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
+    public static bool SoulEaterActive(Player conn, IReadOnlyDictionary<uint, int> stats) =>
         SoulEaterHitCooldownMs(stats) > 0 || SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
 
     /// <summary>The buff's attack speed part, added to the final main-hand value without rebuilding the pools.</summary>
-    public static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static int SoulEaterAttackSpeed(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         if (!SoulEaterActive(conn, stats)) return 0;
         return 5 * SoulEaterStacks(conn);
@@ -55,7 +55,7 @@ public static partial class Game
 
     /// <summary>The stat snapshot's part: the attack/cast speed buckets and the capped character size.</summary>
     // The stacks now; the reading step runs again when the next soul is lost.
-    static int SoulEaterStacks(ClientState conn)
+    static int SoulEaterStacks(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         int stacks = conn.SoulEater.Stacks(now);
@@ -64,7 +64,7 @@ public static partial class Game
     }
 
     // The sources as the stats give them (PlayerStatsUpdated): which ones feed souls, and the maximum.
-    static void ConfigureSoulEater(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    static void ConfigureSoulEater(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         bool flask = SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
         int hitCooldown = SoulEaterHitCooldownMs(stats);
@@ -77,7 +77,7 @@ public static partial class Game
         conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
     }
 
-    public static void WithSoulEater(ClientState conn, StatMap stats)
+    public static void WithSoulEater(Player conn, StatMap stats)
     {
         if (!SoulEaterActive(conn, stats)) return;
         // The buff's ShowCount reads this virtual: the base maximum plus the Soul Ascension gloves' increase.
@@ -97,7 +97,7 @@ public static partial class Game
 
     /// <summary>An enemy killed at <paramref name="at"/>: one soul for the flask source ("during any Flask Effect"),
     /// when the source is active and the player is near. Soul Ascension's hit source does not feed on kills.</summary>
-    public static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at)
+    public static void SoulEaterSoul(Player conn, uint id, (int X, int Y) at)
     {
         if (!conn.SoulEater.FlaskFed) return;
         lock (conn.Monsters)
@@ -113,7 +113,7 @@ public static partial class Game
     /// <summary>Soul Ascension: a hit on a rare or unique enemy eats one soul, no more than once per the item's
     /// cooldown (500 ms). No radius: a bow hit far away still eats. No beam: the official server's object for a hit's
     /// soul has not been captured, so only the counted buff and the stats it changes are published.</summary>
-    internal static void SoulEaterHit(ClientState conn, SpawnedMonster monster)
+    internal static void SoulEaterHit(Player conn, SpawnedMonster monster)
     {
         if (!conn.SoulEater.HitFed) return;
         lock (conn.Monsters)
@@ -124,7 +124,7 @@ public static partial class Game
         }
     }
 
-    static void QueueSoul(ClientState conn, uint id, (int X, int Y) at)
+    static void QueueSoul(Player conn, uint id, (int X, int Y) at)
     {
         if (conn.SoulEater.Souls.Count >= 32) conn.SoulEater.Souls.RemoveAt(0);
         conn.SoulEater.Souls.Add((id, at.X, at.Y));
@@ -134,10 +134,10 @@ public static partial class Game
     /// player tick (250 ms) like Rage and Onslaught, so a pack's kills coalesce into one update instead of one per corpse.
     /// The aura is its own buff (as a self aura's source buff is): its EPK draws the soul visuals; the counted buff is the
     /// icon the client shows.</summary>
-    public static byte[]? SoulEaterPresentation(ClientState conn) => SoulEaterRecords(conn, new WorldRecordBuilder(conn, null)) is { } batch
+    public static byte[]? SoulEaterPresentation(Player conn) => SoulEaterRecords(conn, new WorldRecordBuilder(conn, null)) is { } batch
             ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
 
-    static OutputBatch? SoulEaterRecords(ClientState conn, WorldRecordBuilder bytes)
+    static OutputBatch? SoulEaterRecords(Player conn, WorldRecordBuilder bytes)
     {
         lock (conn.Monsters)
         {
@@ -210,10 +210,10 @@ public static partial class Game
         }
     }
 
-    public static Task SendSoulEater(ClientState conn) =>
+    public static Task SendSoulEater(Player conn) =>
         SendWorldBatch(conn, [], admission => SoulEaterRecords(conn, new(conn, admission)));
 
     // The souls the client should see: none while the source is off or the player is dead, otherwise the decaying count.
-    static int SoulEaterCount(ClientState conn, double now) =>
+    static int SoulEaterCount(Player conn, double now) =>
         conn.SoulEater.Enabled && conn.PlayerLife > 0 ? conn.SoulEater.Stacks(now) : 0;
 }

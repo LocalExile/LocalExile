@@ -1,12 +1,12 @@
 static partial class Game
 {
-    static bool TriggerSummonSpell(ClientState conn, SupportedGem gem)
+    static bool TriggerSummonSpell(Player conn, SupportedGem gem)
     {
         string? effect = SkillsFor(conn).EffectId(gem.Effect);
         return effect == "Desecrate" || GolemData.Find(effect) is not null || SummonData.Find(effect) is not null;
     }
 
-    internal static async Task ReleaseTriggeredSummon(ClientState conn, ProjectileSession session, ushort source,
+    internal static async Task ReleaseTriggeredSummon(Player conn, ProjectileSession session, ushort source,
         (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(conn, source);

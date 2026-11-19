@@ -95,7 +95,7 @@ public sealed class RedSupportMechanicsTests
 
         // The actual ailment tick publishes the folded movement bucket and updates the native walk without
         // compounding, then restores the speed roll at expiry. Base 50, +50%, and a +50% object roll walk at 112.5.
-        var conn = new ClientState(new(1, "maim review", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "maim review", 300, 300, 100, 100, null, []), 1, 1);
         const uint id = 0x21a2;
         double baseSpeed = 50, roll = 1.5;
         var ticked = new SpawnedMonster("ticked", new(105, 100, baseSpeed * 1.5 * roll), 0, 0, 1000)

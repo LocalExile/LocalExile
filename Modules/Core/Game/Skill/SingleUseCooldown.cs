@@ -12,14 +12,14 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     public (uint Mana, uint Life)? Paid { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
-    public bool Current(ClientState conn)
+    public bool Current(Player conn)
     {
         lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0
             && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))
             && (State is null || !Reserved || State.Uses > 1 || State.UseVersion == UseVersion)
             && (Stance is null || Stance.CurrentLocked(conn));
     }
-    public bool CommitNativeUse(ClientState conn, ushort skillId)
+    public bool CommitNativeUse(Player conn, ushort skillId)
     {
         lock (conn.Monsters)
         {
@@ -33,7 +33,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
             return true;
         }
     }
-    public bool TryExecute(ClientState conn, int effect)
+    public bool TryExecute(Player conn, int effect)
     {
         lock (conn.Monsters)
         {

@@ -58,7 +58,7 @@ public class UniqueFlaskTests
             [FlaskGrounds.ConsecratedAreaStat] = 200,
         };
         Assert.Equal((FlaskGrounds.Kind.ConsecratedGround, 54), FlaskGrounds.OnUse(local).Single());
-        var conn = new ClientState(new(1, "faith", 100, 100, 100, 100, null, []), 0, 1);
+        var conn = new Player(new(1, "faith", 100, 100, 100, 100, null, []), 0, 1);
         conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 10, 10, 54, 100, null, EnemyDamageTakenPct: 8));
         conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 12, 12, 18, 100, null, EnemyDamageTakenPct: 5));
         Assert.Equal(8, conn.FlaskGrounds.ConsecratedEnemyDamageTaken((20, 20)));
@@ -82,13 +82,13 @@ public class UniqueFlaskTests
         Assert.Equal(2500, Game.CriticalChanceOn(conn, 7, 500, 1500, critical));
     }
 
-    static void StartFlask(ClientState conn, string stat, int value) =>
+    static void StartFlask(Player conn, string stat, int value) =>
         conn.UtilityFlaskEffects.Start(new(1, 0, "test", new(0, 0, "test", [], 10, 1, 10), 1, null,
             [new("mod " + stat, stat, value)], 0, 10));
 
     static void CinderswallowRetainsOnlyTheQualifyingIgnite()
     {
-        var conn = new ClientState(new(1, "cinderswallow", 100, 100, 100, 100, null, []), 0, 1);
+        var conn = new Player(new(1, "cinderswallow", 100, 100, 100, 100, null, []), 0, 1);
         var target = new SpawnedMonster("target", new(10, 10, 0), 0, 0, 10000);
         // A long, earlier ignite cannot extend the shorter ignite inflicted during flask effect.
         Game.IgniteLocked(conn, 1, target, new(DamageType.Fire, 1, 100), 0);

@@ -10,7 +10,7 @@ public class MagebloodTests
         var path = Path.Combine(Path.GetTempPath(), $"mageblood-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var items = Program.Items;
-        var conn = new ClientState(new(1, "mageblood", 100, 100, 100, 100, null, []), 1, 1) { Character = "MagebloodFlasks" };
+        var conn = new Player(new(1, "mageblood", 100, 100, 100, 100, null, []), 1, 1) { Character = "MagebloodFlasks" };
         try
         {
             Item Flask(string name, ItemRarity rarity) => ItemCatalog.Create(items.Find(name)!) with { Rarity = rarity };

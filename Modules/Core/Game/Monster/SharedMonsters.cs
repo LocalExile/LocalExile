@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Per recipient, not per killer: a virtual bot transport is not the player's view.
-    static readonly Store<ClientState, DeadMonsterBars> DeadBars = new();
+    static readonly Store<Player, DeadMonsterBars> DeadBars = new();
     sealed class DeadMonsterBars
     {
         public InstanceWorld? World;
@@ -23,7 +23,7 @@ public static partial class Game
     // the area's view (the first connection of its frames still here). The walks are built for the view that steps them
     // (InstanceWorld.Runner): a new view rebuilds them with its collision. Without frames (before they start, in tests) the
     // view the walks were last built for steps them.
-    public static bool IsMonsterRunner(ClientState conn)
+    public static bool IsMonsterRunner(Player conn)
     {
         if (conn.Instance is not { } instance) return true;
         var world = instance.World;
@@ -38,7 +38,7 @@ public static partial class Game
     }
 
     // Until the area's frames name a view, a connection that comes while no live one has the walks takes them.
-    static void FirstViewLocked(ClientState conn, InstanceWorld world)
+    static void FirstViewLocked(Player conn, InstanceWorld world)
     {
         if (conn.Frames.View is null && !(world.Runner is { } r && !r.Closed && !r.LeavingArea && InGame.ContainsKey(r)))
             StepForViewLocked(conn, world);
@@ -46,7 +46,7 @@ public static partial class Game
 
     // At PopulateArea: this connection runs the monsters when nobody live does; true when the area's packs are still to
     // be placed (the first connection in, or one after a restart, from the instance's save).
-    public static bool ClaimMonsterHost(ClientState conn)
+    public static bool ClaimMonsterHost(Player conn)
     {
         var world = conn.Instance.World;
         lock (world.Monsters)
@@ -64,7 +64,7 @@ public static partial class Game
 
     // Under the instance's lock: the area's view changed, and this connection's loops step the monsters from now on (their
     // ailments and collisions). Their walks get its collision: the last view of the bodies went with it.
-    static void StepForViewLocked(ClientState conn, InstanceWorld world)
+    static void StepForViewLocked(Player conn, InstanceWorld world)
     {
         string remote = conn.Remote;
         var old = world.Runner;
@@ -88,11 +88,11 @@ public static partial class Game
     // live target takes this player when in its reach; another player's takes this one only when nearer by
     // TargetMargin and in its reach, so it does not flip between two standing side by side. A dead, gone or other-area
     // target leaves it to whoever is near.
-    public static bool MonsterTargetsLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
+    public static bool MonsterTargetsLocked(Player conn, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
     {
         // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
         if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
-        double TargetDistance(ClientState owner, double distance)
+        double TargetDistance(Player owner, double distance)
         {
             if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
@@ -128,18 +128,18 @@ public static partial class Game
     const double TargetMargin = 15;
 
     // Whether a monster's target still counts: a live player of this connection's instance, in the area.
-    static bool TargetLive(ClientState? t, ClientState conn) =>
+    static bool TargetLive(Player? t, Player conn) =>
         t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
 
     // Dormant bodies were created and woken too. Keep their views eligible for the rise's component update,
     // without adding them to RunMonsters or giving them an AI action. Under the instance's monster lock.
-    static uint[] AwakeMonsterIds(ClientState conn) =>
+    static uint[] AwakeMonsterIds(Player conn) =>
         [.. conn.Monsters.Concat(conn.DormantMonsters).OrderBy(e => e.Key).Where(e => !e.Value.Dead && conn.MonsterViews.ContainsKey(e.Key)
             && !conn.AsleepMonsters.Contains(e.Key)).Select(e => e.Key)];
 
     // Every frame: the living monsters in this client's wake zone (sorted) and those its loops act for, for the mirror of
     // their messages to the other clients; and this player's minions, for theirs.
-    public static void PublishAwakeMonsters(ClientState conn)
+    public static void PublishAwakeMonsters(Player conn)
     {
         var world = conn.Instance.World;
         bool runner = IsMonsterRunner(conn);
@@ -179,7 +179,7 @@ public static partial class Game
     // The Gateway's Outgoing hook is the loaded rules' mirror: set when they load and taken back when they unload, so a
     // reload's new rules mirror from then on and the Gateway keeps no delegate into an unloaded game module (it held the
     // old module in memory, and ran its mirror, until the Gateway restarted).
-    static readonly Action<ClientState, byte[]> Mirror = MirrorSharedMonsters;
+    static readonly Action<Player, byte[]> Mirror = MirrorSharedMonsters;
     public static IDisposable InstallMirror()
     {
         Volatile.Write(ref Program.Outgoing, Mirror);
@@ -191,7 +191,7 @@ public static partial class Game
     }
 
     // At disconnect: this player's minions leave the instance with them.
-    public static void RemoveLeavingMinionsLocked(ClientState left)
+    public static void RemoveLeavingMinionsLocked(Player left)
     {
         foreach (uint id in left.MinionOrigins.Keys) left.Instance.World.Monsters.Remove(id);
     }
@@ -207,7 +207,7 @@ public static partial class Game
 
     // Explicit records retain their declaration across recipient remapping. Legacy outbox payloads keep their
     // existing path; this adapter never searches an opaque byte array for record boundaries.
-    static Task MirrorWorldRecord(ClientState other, uint id, byte[] bytes)
+    static Task MirrorWorldRecord(Player other, uint id, byte[] bytes)
     {
         if (Program.WritingWorldRecord is not { IsWorld: true } record)
             return other.Outbox!(bytes, null);
@@ -219,7 +219,7 @@ public static partial class Game
         return SendWorldRecord(other, id, bytes, null);
     }
 
-    public static void MirrorSharedMonsters(ClientState sender, byte[] bytes)
+    public static void MirrorSharedMonsters(Player sender, byte[] bytes)
     {
         if (Mirroring.Value || Program.WritingWorldRecord is { SharedView: true } || bytes.Length < 12) return;
         if (LeapSlamPeerActions.TryGetValue(bytes, out var leap) && ReferenceEquals(leap.Owner, sender))
@@ -243,7 +243,7 @@ public static partial class Game
         if (message is not (InstanceProtocol.ActionStartedId or 0x1ac or InstanceProtocol.ActorAnimationId
             or InstanceProtocol.AnimationUpdateId or InstanceEntities.AddBuffId or InstanceEntities.RemoveBuffId)) return;
         uint id = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2));
-        ClientState? conn = null;
+        Player? conn = null;
         if (InGame.ContainsKey(sender)) conn = sender;
         // The instance's monsters' own messages go where they are made (BroadcastMonsterMessage); here only the players'
         // minions', whose ids each other client shows under its own.
@@ -254,7 +254,7 @@ public static partial class Game
     // An instance monster's action (a swing, an area skill, a summon's clip, not a walk: SyncInstanceMonsters sends
     // those) or hit reaction, made for this connection's client: to every other client in the instance that has it awake.
     // Its target, the local player there (PlayerId), is this player as the others know them (PeerId).
-    public static void BroadcastMonsterMessage(ClientState conn, uint id, byte[] bytes)
+    public static void BroadcastMonsterMessage(Player conn, uint id, byte[] bytes)
     {
         if (conn.Instance is null || !conn.Instance.World.MonsterOrigins.ContainsKey(id) || !Mirrorable(conn, bytes, id)) return;
         var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
@@ -284,9 +284,9 @@ public static partial class Game
     // sequences the owners' own, never 0xffff, 844 of them from the cell the receiving client had the player on. A walk
     // is one of them. It used to come from the player's published pose instead (SyncInstancePlayers): a later order from
     // a sampled cell, which restarted the walk a few cells off (a third of those orders matched the receiver's cell).
-    static void MirrorPlayerAction(ClientState sender, byte[] bytes)
+    static void MirrorPlayerAction(Player sender, byte[] bytes)
     {
-        ClientState? conn = null;
+        Player? conn = null;
         if (InGame.ContainsKey(sender)) conn = sender;
         if (conn is null || conn.Closed || conn.LeavingArea) return;
         var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
@@ -342,19 +342,19 @@ public static partial class Game
 
     // The frame after the one a lockstep owner's record is being written with (Program.EndWorldFrame has moved the
     // connection on to it by then); null for what goes out at once.
-    static double? FrameAfterWrite(ClientState conn, WorldOutput.Packet? source)
+    static double? FrameAfterWrite(Player conn, WorldOutput.Packet? source)
     {
         if (!conn.LockstepClient || source is not { IsWorld: true }) return null;
         lock (conn.Monsters) return conn.LockstepFrame?.Start;
     }
 
-    // One player's records to another client, in the order they were made (ClientState.Mirror). A lockstep client gets
+    // One player's records to another client, in the order they were made (Player.Mirror). A lockstep client gets
     // what the owner was sent in frame n as records of its own frame n + 1, on the grid both connections' frames end on
     // (Program.BeginWorldFrames): its copy of the player then runs the owner's orders one frame later, step for step, and
     // each order's from cell is the cell that copy stands on. Sent into whichever frame was open, an order landed in the
     // same frame or the next by turns and the copy lost or gained a step. A predictive client gets them at once.
     // Differs from GGG: there every client's frame is the same tick of one world, so its copy is not a frame behind.
-    static Task MirrorPlayerRecords(ClientState other, uint id, IReadOnlyList<byte[]> records, double? after, WorldOutput.Packet? source,
+    static Task MirrorPlayerRecords(Player other, uint id, IReadOnlyList<byte[]> records, double? after, WorldOutput.Packet? source,
         double speed)
     {
         // A record keyed by its own object keeps that key under the object's id here.
@@ -391,14 +391,14 @@ public static partial class Game
 
     // Another player's record at its send gate on a lockstep client (under that client's Monsters lock). The client runs
     // its own copy of that player: an order starts an action on it at the start of the frame being sent, and puts it on
-    // the order's from cell (07 §6). The estimate runs the same copy (ClientState.PeerWalks), stepped in this client's
+    // the order's from cell (07 §6). The estimate runs the same copy (Player.PeerWalks), stepped in this client's
     // frames against this client's bodies, so the order goes out from the cell the copy stands on, with the owner's
     // target: the copy is never put back, and ends where the owner's walk ends. A Move walks it; any other action, and
     // a hit's recovery (0x1d1), ends its walk with the stop that waits for the tick, as on the owner's client.
     // Not modelled: the walk-up of another player's attack on a monster (the copy stands until its next order).
     // A client that showed itself a lockstep one only after it was sent the player has no copy yet: the first order
     // makes it on the order's own cell, where that order puts the client's.
-    public static byte[] PeerRecordAtGate(ClientState other, uint id, byte[] record, double speed)
+    public static byte[] PeerRecordAtGate(Player other, uint id, byte[] record, double speed)
     {
         ushort message = (ushort)(record[0] << 8 | record[1]);
         if (message != InstanceProtocol.ActionStartedId && message != InstanceProtocol.ActorAnimationId) return record;
@@ -457,7 +457,7 @@ public static partial class Game
 
     // A player's hit on an instance monster (0x1af: u16 id, object, u32 0, u16 0, u16 sequence, u8, u8, u32 target, u16
     // flags, u8 kind, then by kind: bit1 (u16 when flags 0x400) u8 u8, bit2 u16, bit3 u16). One message exactly, or none.
-    static void MirrorPlayerHit(ClientState sender, byte[] bytes)
+    static void MirrorPlayerHit(Player sender, byte[] bytes)
     {
         if (bytes.Length < 23) return;
         byte kind = bytes[22];
@@ -467,7 +467,7 @@ public static partial class Game
         if ((kind & 0x08) != 0) length += 2;
         if (length != bytes.Length) return;
         uint target = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(16));
-        ClientState? conn = null;
+        Player? conn = null;
         if (InGame.ContainsKey(sender)) conn = sender;
         if (conn is null || conn.Closed || conn.LeavingArea || !conn.Instance.World.MonsterOrigins.ContainsKey(target)) return;
         // The hit keeps the sequence of the action it belongs to, as that action does on the other clients
@@ -493,7 +493,7 @@ public static partial class Game
     // and three for any other, and the other client read the next message from the middle ("Unable to deserialise packet
     // with pid 221. Last PID was 449", live 2026-11-04). A buff from the local player (an aura, an ailment, a curse) or with
     // anything optional stays its own; a removal goes only after an addition that went.
-    static bool Mirrorable(ClientState conn, byte[] bytes, uint id)
+    static bool Mirrorable(Player conn, byte[] bytes, uint id)
     {
         var buffs = new List<(ushort Instance, bool Add)>();
         for (int at = 0; at < bytes.Length;)
@@ -544,7 +544,7 @@ public static partial class Game
     }
 
     // A player's minion's action, hit reaction or buff: to each client that shows it, under its id there.
-    static void MirrorMinion(ClientState conn, byte[] bytes, uint id)
+    static void MirrorMinion(Player conn, byte[] bytes, uint id)
     {
         if (!conn.MinionOrigins.ContainsKey(id) || bytes.Length != MessageLength(bytes)) return;
         Mirroring.Value = true;
@@ -567,9 +567,9 @@ public static partial class Game
     }
 
     // Another client's frame: the other players' minions created, moved, hurt and removed here, under ids of this client.
-    public static async Task SyncPeerMinions(ClientState conn)
+    public static async Task SyncPeerMinions(Player conn)
     {
-        var shown = new Dictionary<(uint, uint), (ClientState Owner, SharedMonster M)>();
+        var shown = new Dictionary<(uint, uint), (Player Owner, SharedMonster M)>();
         foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
             if (peer.Owner is { } owner && !owner.Closed && !owner.LeavingArea)
                 foreach (var m in owner.PublishedMinions) shown[(owner.PeerId, m.Id)] = (owner, m);
@@ -648,7 +648,7 @@ public static partial class Game
     // on every other client in the instance, under an id of that client's own: created, woken, gliding, stopped, playing
     // its clips and removed with it. The messages are split by their fixed layouts; a blob with anything else is left.
     // True when the bytes were a projectile's.
-    public static bool MirrorProjectiles(ClientState sender, byte[] bytes)
+    public static bool MirrorProjectiles(Player sender, byte[] bytes)
     {
         var parts = new List<(int At, int Length, uint Id, ushort Message)>();
         for (int at = 0; at < bytes.Length;)
@@ -668,7 +668,7 @@ public static partial class Game
             parts.Add((at, length, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(at + 2)), message));
             at += length;
         }
-        ClientState? conn = null;
+        Player? conn = null;
         if (InGame.ContainsKey(sender)) conn = sender;
         if (conn is null) return false;
         try
@@ -712,7 +712,7 @@ public static partial class Game
     // others' walks reach it (the runner's AI sends its own orders), every client gets the life the others' hits left,
     // and the ones gone from the instance go. A monster out of the runner's wake zone gets no order (an order wakes a
     // sleeping object and the next 0x1a9 crashed the client); the others never put one to sleep.
-    public static async Task SyncInstanceMonsters(ClientState conn,
+    public static async Task SyncInstanceMonsters(Player conn,
         // False in the pass that only follows this pass's births, so one call reveals one round of held-back monsters.
         bool reveal = true)
     {

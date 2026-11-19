@@ -29,11 +29,11 @@ static partial class QuestobjectsRules
     static uint LieutenantRaise(LieutenantSlot l) =>
         l.Effect.Variety.Contains("Ranged", StringComparison.Ordinal) ? LieutenantBowRaiseClip : LieutenantRaiseClip;
 
-    static bool LieutenantDead(ClientState conn, LieutenantSlot l) =>
+    static bool LieutenantDead(Player conn, LieutenantSlot l) =>
         l.Monster.Dead || l.Monster.Life == 0 || !ReferenceEquals(conn.Monsters.GetValueOrDefault(l.Id), l.Monster);
 
     // The arena's lieutenants, one on each small elevator, down in its hole.
-    static async Task PlaceIzaroLieutenants(ClientState conn, IzaroArena arena)
+    static async Task PlaceIzaroLieutenants(Player conn, IzaroArena arena)
     {
         var lieutenants = IzaroEffects.Of(IzaroLieutenants.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(lieutenants.Count, arena.Lifts.Count); i++)
@@ -46,7 +46,7 @@ static partial class QuestobjectsRules
 
     // Out of the AI and taking no hits until it is up (what rises can be hit only once it has risen, live). Not kept with
     // the instance (the arena places it again).
-    static async Task<LieutenantSlot?> SpawnIzaroLieutenant(ClientState conn,
+    static async Task<LieutenantSlot?> SpawnIzaroLieutenant(Player conn,
         IzaroEffects.Effect effect, AreaPopulation.RoomObject at)
     {
         if (Monsters.Find(effect.Variety) is not { Supported: true } variety)
@@ -67,7 +67,7 @@ static partial class QuestobjectsRules
     }
 
     // It fights: out of its rise (seconds), into the AI, with its skills (IzaroSkills) between the AI's swings.
-    static void WakeIzaroLieutenant(ClientState conn, LieutenantSlot l,
+    static void WakeIzaroLieutenant(Player conn, LieutenantSlot l,
         double seconds, Func<bool> here)
     {
         lock (conn.Monsters)
@@ -79,7 +79,7 @@ static partial class QuestobjectsRules
     }
 
     // The arena's lieutenants rise one at a time, the first with Izaro (the original, live; the interval is the user's choice).
-    static async Task RaiseIzaroLieutenants(ClientState conn, IzaroArena arena,
+    static async Task RaiseIzaroLieutenants(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try
@@ -101,7 +101,7 @@ static partial class QuestobjectsRules
     }
 
     // Up, it fights, even once Izaro has left (as the gargoyles).
-    static async Task IzaroLieutenantRisen(ClientState conn, LieutenantSlot l, Func<bool> here)
+    static async Task IzaroLieutenantRisen(Player conn, LieutenantSlot l, Func<bool> here)
     {
         try
         {
@@ -116,7 +116,7 @@ static partial class QuestobjectsRules
     }
 
     // The earlier trials' lieutenants: their alcoves' railings lower, their buffs go on Izaro and they come out.
-    static async Task ReleaseIzaroLieutenants(ClientState conn, IzaroArena arena,
+    static async Task ReleaseIzaroLieutenants(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         var carried = arena.Lieutenants.Where(l => l.Carried is not null).ToList();
@@ -137,7 +137,7 @@ static partial class QuestobjectsRules
     }
 
     // While he fights: a returning lieutenant killed takes its buff off Izaro; when the last of the arena's own dies he says so.
-    static async Task WatchIzaroLieutenants(ClientState conn, IzaroArena arena,
+    static async Task WatchIzaroLieutenants(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try

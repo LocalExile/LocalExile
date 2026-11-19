@@ -19,7 +19,7 @@ public static partial class Game
     public static ModuleItemCrafting StandardCrafting = default!;
     public static ModuleItemCrafting HardModeCrafting = default!;
 
-    public sealed class ModuleWorld(ClientState conn) : IPlayerWorld
+    public sealed class ModuleWorld(Player conn) : IPlayerWorld
     {
         Task Send(byte[] message, string? log) => Program.Send(conn, message, log);
 

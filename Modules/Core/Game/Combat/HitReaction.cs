@@ -6,7 +6,7 @@ using GameServer.Core.World;
 /// stun" gains it feeds, the melee hit's raw fortification damage plus whether that same hit already fortified, and
 /// whether a qualifying hit guarantees a stun. Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
-    ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false,
+    Player? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false,
     double BaseSeconds = 0);
 
 /// <summary>
@@ -81,7 +81,7 @@ public static partial class Game
     /// taken cannot stun (wiki Stun). shortcut: not the wiki's exception for attackers whose critical strikes cannot
     /// inherently freeze, and only the main hand's local reduction, until those sources are in play. Call under the
     /// Monsters lock.</summary>
-    public static StunHit OwnerStun(ClientState conn, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
+    public static StunHit OwnerStun(Player conn, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
         bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0) : 0;

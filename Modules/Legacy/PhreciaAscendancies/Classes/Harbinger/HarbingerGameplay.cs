@@ -10,12 +10,12 @@ namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 // Runs on Game's minion schedule. Neither a worker nor a cipher is retained by this module.
 internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = null)
 {
-    static double Now(ClientState conn) => conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : conn.Clock.Elapsed.TotalSeconds;
+    static double Now(Player conn) => conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : conn.Clock.Elapsed.TotalSeconds;
     DateTimeOffset UtcNow() => utcNow?.Invoke() ?? DateTimeOffset.UtcNow;
-    readonly ConditionalWeakTable<ClientState, State> states = new();
+    readonly ConditionalWeakTable<Player, State> states = new();
     readonly HarbingerCompanionCatalog normal = new(skills: Skills);
     readonly HarbingerCompanionCatalog hard = new(skills: HardModeSkills);
-    sealed class State(ClientState conn, DateTimeOffset attached)
+    sealed class State(Player conn, DateTimeOffset attached)
     {
         internal readonly IModuleLifetime? Rules = CombatLifetime;
         internal readonly HarbingerSession Session = new(HarbingerRoster.For(CharacterName(conn)), Guid.NewGuid(), attached);
@@ -29,12 +29,12 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
         internal bool Closed;
     }
     sealed record Pending(HarbingerCompanionCatalog.Companion Source, ushort Skill, double At, Func<bool> Current);
-    HarbingerCompanionCatalog Catalog(ClientState conn) => LeagueFor(conn).HardMode ? hard : normal;
-    static bool Enabled(ClientState conn) => conn.MainAscendancy.Selection is
+    HarbingerCompanionCatalog Catalog(Player conn) => LeagueFor(conn).HardMode ? hard : normal;
+    static bool Enabled(Player conn) => conn.MainAscendancy.Selection is
         { Family: AscendancyFamily.Phrecia, Id: "Occultist" } selection
         && AscendancyCatalog.IsKnownRevision(selection.Revision)
         && AscendancyPolicies.SourceOwner(conn) is not null;
-    State Get(ClientState conn)
+    State Get(Player conn)
     {
         if (states.TryGetValue(conn, out var previous) && !ReferenceEquals(previous.Rules, CombatLifetime))
         {
@@ -43,9 +43,9 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
         }
         return states.GetValue(conn, c => new(c, UtcNow()));
     }
-    internal bool Executable(ClientState conn, string effect) => Enabled(conn)
+    internal bool Executable(Player conn, string effect) => Enabled(conn)
         && (effect == "TemporalChains" || Catalog(conn).ForNodes(conn.MainAscendancy.Allocated).Any(s => SkillsFor(conn).EffectId(s.SummonEffect) == effect));
-    static HarbingerSession.Frame Frame(ClientState conn, IReadOnlyDictionary<uint, int> raw)
+    static HarbingerSession.Frame Frame(Player conn, IReadOnlyDictionary<uint, int> raw)
     {
         int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
         var receipt = conn.PaidChannel;
@@ -53,7 +53,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
             !InTown(conn), conn.MainAscendancy.Allocated.ToArray(), HarbingerRecipientClock.RecipientRate(1, Get),
             receipt is null ? null : new(receipt.Skill, receipt.Action, receipt.Generation));
     }
-    internal bool? Cast(ClientState conn, string? effect, ushort skill, (int X, int Y) from, Func<bool> current)
+    internal bool? Cast(Player conn, string? effect, ushort skill, (int X, int Y) from, Func<bool> current)
     {
         if (effect is null || !Executable(conn, effect)) return null;
         if (effect == "TemporalChains") return CastCurse(conn, skill, from, current);
@@ -68,7 +68,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
             return true;
         }
     }
-    internal Dictionary<uint, int> StatsFor(ClientState conn, Dictionary<uint, int> raw)
+    internal Dictionary<uint, int> StatsFor(Player conn, Dictionary<uint, int> raw)
     {
         if (!Enabled(conn)) return raw;
         lock (conn.Monsters)
@@ -88,12 +88,12 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
             return raw;
         }
     }
-    internal void Pause(ClientState conn, bool paused)
+    internal void Pause(Player conn, bool paused)
     {
         lock (conn.Monsters)
             if (states.TryGetValue(conn, out var state)) state.Session.Pause(UtcNow(), paused);
     }
-    internal void Close(ClientState conn)
+    internal void Close(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -137,7 +137,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
             }
         }
     }
-    internal async Task Tick(ClientState conn, double now)
+    internal async Task Tick(Player conn, double now)
     {
         if (!Enabled(conn)) { Close(conn); return; }
         State state;

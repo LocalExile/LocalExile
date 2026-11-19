@@ -32,7 +32,7 @@ static partial class Game
     /// gem level's resolved value) with the increases a spell's chaos damage over time takes (its implicit
     /// spell_damage_modifiers_apply_to_skill_dot and is_area_damage admit spell and area damage), the supports' more
     /// multipliers and the damage over time multipliers. Contagion of Transference (spread on hit) is not supported yet.</summary>
-    internal static MonsterContagion.Cast? ContagionCast(ClientState conn, ushort skillId, int effect)
+    internal static MonsterContagion.Cast? ContagionCast(Player conn, ushort skillId, int effect)
     {
         string? id = SkillsFor(conn).EffectId(effect);
         if (id is not ("Contagion" or "ContagionAltX")) return null;
@@ -57,7 +57,7 @@ static partial class Game
 
     /// <summary>A Contagion cast: once the area cast clip reaches its contact (as AreaSkillHit times a spell), every live
     /// hostile monster within the radius of the centre is affected. It has no hit, so it deals nothing until it ticks.</summary>
-    internal static async Task CastContagion(ClientState conn, int effect, ushort skillId, (int X, int Y) from, (int X, int Y) to,
+    internal static async Task CastContagion(Player conn, int effect, ushort skillId, (int X, int Y) from, (int X, int Y) to,
         MonsterContagion.Cast cast, int repeat, double radiusMore, int action, bool instant, Func<bool> current)
     {
         int? castMs = CastMs(conn, effect, skillId);
@@ -115,7 +115,7 @@ static partial class Game
 
     /// <summary>The spread art of the Contagion skin worn on the gem (its Cosmetics tab slot), or null for none or a skin
     /// without art of its own.</summary>
-    internal static string? ContagionSkinAo(ClientState conn, uint gem)
+    internal static string? ContagionSkinAo(Player conn, uint gem)
     {
         try
         {
@@ -142,7 +142,7 @@ static partial class Game
     /// monster within the cast's radius of where it fell, for the time it had left (Subsiding's at three quarters of the
     /// damage), and with it the monster's Essence Drain debuff, at its full damage for the time it had left ("The debuff is
     /// spread by Contagion"). Returns where it spread from, the radius and the art; null when the monster was not affected.</summary>
-    internal static ((int X, int Y) At, int Radius, string Ao)? SpreadContagion(ClientState conn, uint id, SpawnedMonster m)
+    internal static ((int X, int Y) At, int Radius, string Ao)? SpreadContagion(Player conn, uint id, SpawnedMonster m)
     {
         int spread = 0;
         (int X, int Y) at;
@@ -173,20 +173,20 @@ static partial class Game
 
     /// <summary>The player who owns a damage over time's kill: its caster while present in the runner's instance (connected,
     /// not leaving); null when gone. Never the runner merely for running the world.</summary>
-    internal static ClientState? DotOwner(ClientState runner, ClientState? caster) =>
+    internal static Player? DotOwner(Player runner, Player? caster) =>
         caster is null || caster.Closed || caster.LeavingArea ? null
             : ReferenceEquals(caster, runner) || (caster.Instance is not null && ReferenceEquals(caster.Instance, runner.Instance))
                 ? caster : null;
 
     /// <summary>Plays the Contagion circle (<paramref name="ao"/>: the caster's skin's, else the default) at a spread, sized
     /// to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
-    internal static async Task ShowContagionSpread(ClientState conn,
+    internal static async Task ShowContagionSpread(Player conn,
         (int X, int Y) at, int radius, string ao)
     {
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? 180));
         // Every player in the instance sees it, each under an object id of its own client and through its own world output:
         // the killer here, the others on their own frame (KillShares, as shared kills are).
-        async Task Show(ClientState viewer)
+        async Task Show(Player viewer)
         {
             uint effect;
             lock (viewer.Monsters) effect = viewer.TakeObjectId();
@@ -206,9 +206,9 @@ static partial class Game
                 other.KillShares.Enqueue(_ => Show(other));
     }
 
-    internal static async Task TickContagions(ClientState conn)
+    internal static async Task TickContagions(Player conn)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner)>();
         var ended = new List<(uint Id, ushort Buff)>();
         var updated = new List<(uint Id, ushort Buff, ushort Skill, double Remaining)>();
         using (ProjectileMutation(conn))

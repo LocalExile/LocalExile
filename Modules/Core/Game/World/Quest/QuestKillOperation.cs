@@ -7,9 +7,9 @@ public static partial class Game
     // Captured factories run now; only owned bytes and host incarnation tickets leave this bounded scope.
     [ThreadStatic] static QuestOutputCapture? QuestKillCommitOutput;
 
-    sealed class QuestOutputCapture(ClientState connection, WorldAdmission admission)
+    sealed class QuestOutputCapture(Player connection, WorldAdmission admission)
     {
-        public ClientState Connection => connection;
+        public Player Connection => connection;
         public WorldAdmission Admission => admission;
         readonly List<(PlayerMinions.Output? Legacy, OutputBatch? Typed)> entries = [];
         public void Add(PlayerMinions.Output output) => entries.Add((output, null));
@@ -58,7 +58,7 @@ public static partial class Game
         }
     }
 
-    public static OutputBatch CaptureQuestWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit)
+    public static OutputBatch CaptureQuestWorldOutput(Player conn, WorldAdmission admission, Func<Task> commit)
     {
         if (QuestKillCommitOutput is not null) throw new InvalidOperationException("Nested quest kill transaction");
         var capture = new QuestOutputCapture(conn, admission);
@@ -73,7 +73,7 @@ public static partial class Game
         finally { QuestKillCommitOutput = null; }
     }
 
-    static OutputBatch CommitQuestKillOperation(ClientState conn, PlayerMinions.Output receipt, WorldAdmission admission)
+    static OutputBatch CommitQuestKillOperation(Player conn, PlayerMinions.Output receipt, WorldAdmission admission)
     {
         if (receipt.Target?.Variety is not { } variety) return OutputBatch.Empty;
         return CaptureQuestWorldOutput(conn, admission, () => QuestKillEffects(conn,
@@ -82,7 +82,7 @@ public static partial class Game
 
     // The outer admission owns the gate and all accepted birth reservations. Nested typed sends cannot await it
     // again or wait for a future frame. Pure post-birth presentation is represented explicitly in the returned batch.
-    public static Task<bool> SendWorldBatch(ClientState conn, IReadOnlyList<WorldObject> requires,
+    public static Task<bool> SendWorldBatch(Player conn, IReadOnlyList<WorldObject> requires,
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, bool quest = false, 
         IReadOnlyList<WorldObject>? creates = null)
     {
@@ -147,7 +147,7 @@ public static partial class Game
     // under the mutation lock and retain bytes. None of these awaits can yield to a retired Game callback.
     static T Logged<T>(T value, Action log) { log(); return value; }
 
-    static Task Send(ClientState conn, byte[] bytes,
+    static Task Send(Player conn, byte[] bytes,
         string? log, Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         if (PresentVerifyTag.Value is not null)

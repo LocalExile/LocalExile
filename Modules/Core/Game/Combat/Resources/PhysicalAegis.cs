@@ -18,7 +18,7 @@ public static partial class Game
     /// Resolve the current real grant and reconcile the connection-owned state with it. This never advances recharge: a
     /// stat/panel query can install the initial active state, but only an owner tick or an accepted physical hit restores it.
     /// </summary>
-    static PhysicalAegisState PhysicalAegisAt(ClientState conn, double now, bool advance)
+    static PhysicalAegisState PhysicalAegisAt(Player conn, double now, bool advance)
     {
         lock (conn.Monsters)
         {
@@ -53,17 +53,17 @@ public static partial class Game
         }
     }
 
-    static void RetirePhysicalAegis(ClientState conn)
+    static void RetirePhysicalAegis(Player conn)
     {
         foreach (ushort buff in conn.PhysicalAegis.Retire()) conn.RetiredPhysicalAegisBuffs.Add(buff);
     }
 
     /// <summary>The condition/state view. It installs a newly equipped source but never performs recharge.</summary>
-    public static PhysicalAegisState PhysicalAegisStatus(ClientState conn, double now) =>
+    public static PhysicalAegisState PhysicalAegisStatus(Player conn, double now) =>
         PhysicalAegisAt(conn, now, advance: false);
 
     /// <summary>The player tick's state advance. The source is revalidated before the recharge commit.</summary>
-    public static bool AdvancePhysicalAegis(ClientState conn, double now)
+    public static bool AdvancePhysicalAegis(Player conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -72,7 +72,7 @@ public static partial class Game
         }
     }
 
-    static int PhysicalAegisDamage(ClientState conn, int physical, double now)
+    static int PhysicalAegisDamage(Player conn, int physical, double now)
     {
         if (physical <= 0) return Math.Max(0, physical);
         lock (conn.Monsters)
@@ -83,7 +83,7 @@ public static partial class Game
     }
 
     static (int Maximum, double Seconds, int Variation)? PhysicalAegisGeometry(
-        ClientState conn, WornGrantedSkills.Grant grant)
+        Player conn, WornGrantedSkills.Grant grant)
     {
         var stats = SkillsFor(conn).EffectStats(grant.Effect, grant.Level)
             .ToDictionary(row => row.Item1, row => row.Item2);
@@ -94,13 +94,13 @@ public static partial class Game
         return (maximum, delayMs / 1000.0, Get("active_skill_display_aegis_variation"));
     }
 
-    public static int PhysicalAegisRadius(ClientState conn, PhysicalAegisState state)
+    public static int PhysicalAegisRadius(Player conn, PhysicalAegisState state)
     {
         if (state.Source is not { } source) return 0;
         return source.EffectId == PhysicalAegisEffect ? PhysicalAegisNearbyRadius : 0;
     }
 
-    static bool PhysicalAegisHasBlind(ClientState conn, PhysicalAegisState state)
+    static bool PhysicalAegisHasBlind(Player conn, PhysicalAegisState state)
     {
         if (state.Source is not { } source || IsInactive(conn, source.Host)) return false;
         var host = ItemsOf(conn).EquipmentSnapshot().FirstOrDefault(e => e.Item.Id == source.Host);
@@ -115,7 +115,7 @@ public static partial class Game
     /// The final Aegis Blind predicate shared by accuracy/evasion, critical and damage-taken consumers. Presentation
     /// membership is only a receipt; this revalidates the live grant, modifier and radius at the consuming commit.
     /// </summary>
-    public static bool PhysicalAegisBlinds(ClientState conn, uint monster)
+    public static bool PhysicalAegisBlinds(Player conn, uint monster)
     {
         if (!conn.Monsters.TryGetValue(monster, out var target)) return false;
         double now = ResourceEffectsTime(conn);
@@ -130,13 +130,13 @@ public static partial class Game
         }
     }
 
-    public static Task SendPhysicalAegis(ClientState conn) =>
+    public static Task SendPhysicalAegis(Player conn) =>
         SendWorldRecords(conn, PlayerId, () => PhysicalAegisPresentationRecords(conn));
 
-    public static byte[]? PhysicalAegisPresentation(ClientState conn) =>
+    public static byte[]? PhysicalAegisPresentation(Player conn) =>
         PhysicalAegisPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
 
-    static byte[][]? PhysicalAegisPresentationRecords(ClientState conn)
+    static byte[][]? PhysicalAegisPresentationRecords(Player conn)
     {
         lock (conn.Monsters)
         {

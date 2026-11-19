@@ -15,7 +15,7 @@ public static class DoedreSewers
     static readonly int[] Effects = [Melee, Warp, Drain, Wand, Burst, Emerge];
     static readonly string[] Colours = ["Red", "Purple", "Green"];
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly Store<ClientState, Exposure> Exposures = new();
+    static readonly Store<Player, Exposure> Exposures = new();
     sealed class Exposure
     {
         public int Red, Green, Purple;
@@ -26,7 +26,7 @@ public static class DoedreSewers
     public static StateMachineData? StartStates(MonsterCatalog.Variety v) => IsBoss(v)
         ? v.StateMachine?.Set("disable_life_bar", 1).Set("boss_life_bar", 0) : null;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
-    public static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> PlayerStats(Player c, Dictionary<uint, int> stats)
     {
         if (!Exposures.TryGetValue(c, out var e)) return stats;
         void Add(string name, int value) { if (value != 0 && Stats.Key(name) is uint k) stats[k] = stats.GetValueOrDefault(k) + value; }
@@ -35,15 +35,15 @@ public static class DoedreSewers
         Add("action_speed_-%", 7 * e.Purple);
         return stats;
     }
-    public static double MinionDamageFactor(ClientState c) => Exposures.TryGetValue(c, out var e) ? Math.Max(0, 1 - .07 * e.Green) : 1;
-    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level, int phase = 0)
+    public static double MinionDamageFactor(Player c) => Exposures.TryGetValue(c, out var e) ? Math.Max(0, 1 - .07 * e.Green) : 1;
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level, int phase = 0)
     {
         if (!IsBoss(v)) return null;
         var catalog = Game.SkillsFor(c);
         return [.. Effects.Select(effect => catalog.FindByRow(Skill(effect), effect, catalog.MaxLevelAt(effect, level),
             WithBehaviourVariation(c, effect, Attack(c, v, level, effect, phase).InPlaceSkillStats()))).OfType<GrantedSkill>()];
     }
-    static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety v, byte level, int effect, int phase)
+    static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect, int phase)
     {
         var catalog = Game.SkillsFor(c); int l = catalog.MaxLevelAt(effect, level);
         var (min, max) = Monsters.BaseDamage(v, level) ?? (1, 1);
@@ -53,13 +53,13 @@ public static class DoedreSewers
         if (effect is not (Drain or Emerge)) { if (phase == 1) seconds /= 1.5; if (phase == 2) damage = damage.Scale(1.5); }
         return new(Skill(effect), Math.Max(.1, seconds), effect == Melee ? v.AttackRange : 85, damage) { Spell = spell, Scripted = true };
     }
-    public static async Task Leaving(ClientState c) => await Clear(c);
-    static async Task Refresh(ClientState c)
+    public static async Task Leaving(Player c) => await Clear(c);
+    static async Task Refresh(Player c)
     {
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
         await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
-    static async Task Clear(ClientState c)
+    static async Task Clear(Player c)
     {
         if (!Exposures.TryGetValue(c, out var e)) return;
         if (e.Red == 0 && e.Green == 0 && e.Purple == 0 && e.Dps == 0 && e.Buffs.All(b => b == 0)) return;
@@ -76,7 +76,7 @@ public static class DoedreSewers
             }
         if (!c.Closed && !c.LeavingArea) await Refresh(c);
     }
-    static async Task Stack(ClientState c, int phase)
+    static async Task Stack(Player c, int phase)
     {
         if (c.Closed || c.LeavingArea || c.Paused || c.PlayerLife == 0 || InGracePeriod(c)) return;
         var e = Exposures.GetValue(c, _ => new());
@@ -102,7 +102,7 @@ public static class DoedreSewers
             foreach (var pair in Exposures) _ = Clear(pair.Key);
         }
     }
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !c.PlayerSent || c.Closed || c.LeavingArea) return;
         if (c.PlayerLife == 0) await Clear(c);
@@ -117,7 +117,7 @@ public static class DoedreSewers
         try { await fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, c.Clock.Elapsed.TotalSeconds); }
         finally { fight.Gate.Release(); }
     }
-    public static async Task<bool> Use(ClientState c, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player c, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (c.Layout.Id != Area || !Fights.TryGetValue(c.Instance, out var f) || use.TargetId != f.ValveId) return false;
         if (!TryBeginObjectWalk(c, requestedAt, f.ValveAt.X, f.ValveAt.Y, 3, out var walk)) return true;
@@ -152,8 +152,8 @@ public static class DoedreSewers
     {
         public readonly SemaphoreSlim Gate = new(1);
         readonly uint id; readonly SpawnedMonster boss;
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> bound = [], actors = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> bound = [], actors = [];
         readonly List<Scene> scene = [];
         readonly List<Hazard> hazards = [];
         readonly List<Contact> contacts = [];
@@ -167,7 +167,7 @@ public static class DoedreSewers
         bool started, draining, finished, stopped;
         double ready, nextHazard, nextWarp, nextBurst, nextGround, nextCloudMove;
         ushort bossBuff = 0xf100;
-        public Fight(uint objectId, SpawnedMonster monster, ClientState c)
+        public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; boss = monster; speed = boss.Walk.Speed;
             var catalog = Game.SkillsFor(c);
@@ -206,11 +206,11 @@ public static class DoedreSewers
             }
             Console.WriteLine($"[gateway] Doedre controller: {scene.Count} arena objects, valve 0x{ValveId:x} at {ValveAt}");
         }
-        bool Awake(ClientState c) => c.MonsterViews.ContainsKey(id) && !c.AsleepMonsters.Contains(id);
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea);
+        bool Awake(Player c) => c.MonsterViews.ContainsKey(id) && !c.AsleepMonsters.Contains(id);
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
         byte State(Scene s) => s.Type.EndsWith("Valve") ? (byte)(finished ? 3 : draining ? 1 : 2)
             : s.Type.EndsWith("FaceDoor") ? (byte)(finished ? 3 : 1) : (byte)1;
-        async Task Create(ClientState c, Scene s)
+        async Task Create(Player c, Scene s)
         {
             var a = s.At;
             string? model = s.Info.OwnModel ? null : a.Model ?? s.Info.Model;
@@ -218,7 +218,7 @@ public static class DoedreSewers
                 new QuestObject(a.X, a.Y, s.Info.Components, a.Rotation, a.Z, model, State(s), Blocked: s.Type.EndsWith("FaceDoor") && !finished).Blob()), "[Doedre] arena object");
             await Send(c, InstanceProtocol.EnterWakeZone(s.Id), null);
         }
-        public async Task Bind(ClientState c)
+        public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(c)) players.Add(c);
@@ -254,7 +254,7 @@ public static class DoedreSewers
                 if (s.Info.Components.Contains("TriggerableBlockage")) await All(InstanceEntities.BlockageUpdate(s.Id, !finished));
             }
         }
-        public async Task Turn(ClientState c, double now)
+        public async Task Turn(Player c, double now)
         {
             if (stopped || finished || draining || boss.Dead || boss.Life == 0 || ValveId == 0) return;
             draining = true;
@@ -283,7 +283,7 @@ public static class DoedreSewers
             await States();
             Console.WriteLine($"[gateway] Doedre: valve turned, cauldron drains until {ready:0.000}");
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped) return;
             if (boss.Dead || boss.Life == 0)
@@ -335,7 +335,7 @@ public static class DoedreSewers
             if (effect == Burst) nextBurst = now + 5;
             await Cast(target, effect, now, target.Walk.Position(now));
         }
-        async Task Cast(ClientState c, int effect, double now, (int X, int Y) aim)
+        async Task Cast(Player c, int effect, double now, (int X, int Y) aim)
         {
             var attack = Attack(c, boss.Variety!, boss.Level, effect, phase);
             var pos = boss.Walk.Position(now); int generation;
@@ -369,7 +369,7 @@ public static class DoedreSewers
                 }
             }
         }
-        async Task Contacts(ClientState c, double now)
+        async Task Contacts(Player c, double now)
         {
             foreach (var hit in contacts.Where(h => h.At <= now).ToArray())
             {
@@ -380,7 +380,7 @@ public static class DoedreSewers
                 foreach (var p in Present) await Hit(p, Attack(c, boss.Variety!, boss.Level, hit.Effect, phase), hit);
             }
         }
-        async Task Hit(ClientState p, MonsterAttack attack, Contact hit)
+        async Task Hit(Player p, MonsterAttack attack, Contact hit)
         {
             MonsterHitOutcome? outcome = null;
             bool Contains((int X, int Y) at) => hit.Line ? LineDistance(at, hit.From, hit.To) <= hit.Radius : Distance(at, hit.To) <= hit.Radius;
@@ -399,7 +399,7 @@ public static class DoedreSewers
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
-        async Task Liquid(ClientState c, double now)
+        async Task Liquid(Player c, double now)
         {
             foreach (var h in hazards.Where(h => h.Kind is 3 or 5).ToArray()) { hazards.Remove(h); await All(InstanceProtocol.RemoveObject(h.Id)); }
             var cauldron = scene.FirstOrDefault(s => s.Type.EndsWith("Cauldron"));
@@ -407,13 +407,13 @@ public static class DoedreSewers
             await Effect(c, at, Art + $"cauldron/cauldron_{Colours[phase].ToLowerInvariant()}.ao", double.PositiveInfinity, 3);
             await Effect(c, at, Art + $"pipe/pipe_{Colours[phase].ToLowerInvariant()}.ao", double.PositiveInfinity, 5);
         }
-        async Task<uint> Effect(ClientState c, (int X, int Y) at, string model, double ends, int kind)
+        async Task<uint> Effect(Player c, (int X, int Y) at, string model, double ends, int kind)
         {
             uint fx = c.TakeObjectId(); var h = new Hazard(fx, at, ends, kind, model, Moved: c.Clock.Elapsed.TotalSeconds); hazards.Add(h);
             foreach (var p in Present) await CreateHazard(p, h, model);
             return fx;
         }
-        async Task CreateHazard(ClientState c, Hazard h, string? model = null)
+        async Task CreateHazard(Player c, Hazard h, string? model = null)
         {
             model ??= h.Model;
             if (h.Kind is 3 or 5 && QuestObjectTypes.Find(LiquidType(h)) is { } info && scene.FirstOrDefault(s => s.Type.EndsWith("Cauldron")) is { } cauldron)
@@ -428,7 +428,7 @@ public static class DoedreSewers
         static string LiquidType(Hazard h) => Objects + (h.Kind == 5 ? "DoedreSewersPipeLiquid" : "DoedreSewersCauldronLiquid")
             + (h.Model.Contains("_red.") ? "Red" : h.Model.Contains("_purple.") ? "Purple" : h.Model.Contains("_green.") ? "Green" : "Neutral");
         static byte AnimatedIndex(Hazard h) => h.Kind is 3 or 5 && QuestObjectTypes.Find(LiquidType(h)) is { } info ? (byte)info.Components.ToList().IndexOf("Animated") : (byte)0;
-        async Task Hazards(ClientState c, double now)
+        async Task Hazards(Player c, double now)
         {
             foreach (var liquid in hazards.Where(h => h.Kind is 3 or 5 && !h.Loop && now >= h.Moved + 3).ToArray())
             {
@@ -508,7 +508,7 @@ public static class DoedreSewers
             }
         }
         readonly Dictionary<uint, double> minionDotCarry = [];
-        async Task ClearHazards(ClientState c, bool drainLiquid = false)
+        async Task ClearHazards(Player c, bool drainLiquid = false)
         {
             foreach (var h in hazards.ToArray())
             {
@@ -538,7 +538,7 @@ public static class DoedreSewers
                 if (Awake(p)) _ = Send(p, InstanceEntities.RemoveBuff(id, bossBuff), null);
             }
         }
-        static (int X, int Y) Floor(ClientState c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
+        static (int X, int Y) Floor(Player c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
         static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
         static double LineDistance((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)
         {
@@ -551,7 +551,7 @@ public static class DoedreSewers
 
 public static partial class Game
 {
-    public static void DoedreCloudMinionsLocked(ClientState c, double now, double rawDps,
+    public static void DoedreCloudMinionsLocked(Player c, double now, double rawDps,
         Func<(int X, int Y), bool> inside, Dictionary<uint, double> carry)
     {
         foreach (var g in c.Golems.All.Values.Concat(c.Reservations.Fighters.Values).ToArray())

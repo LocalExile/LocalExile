@@ -9,7 +9,7 @@ public static partial class Game
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    public static void WatchBuried(ClientState conn)
+    public static void WatchBuried(Player conn)
     {
         bool start;
         lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
@@ -22,8 +22,8 @@ public static partial class Game
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead. The watch ends with the rules that started it: what still waits is
-    // the instance's (ClientState.EmergeGround), and after a reload the new rules' SyncInstanceMonsters watches it.
-    public static async Task RunEmergeWatch(ClientState conn)
+    // the instance's (Player.EmergeGround), and after a reload the new rules' SyncInstanceMonsters watches it.
+    public static async Task RunEmergeWatch(Player conn)
     {
         var rules = CombatLifetime;
         try
@@ -74,13 +74,13 @@ public static partial class Game
     // first order goes out in the next one. Tick trace 2026-11-10: a 3.333 s Emerge ordered in frame n took a chase
     // sent in n + 101 only after its walker's tick, as did a 3.533 s one for n + 107, and one sent in n + 108 at once;
     // a Sand Spitter's 0.99 s attack ended in n + 30 (LockstepCountdownFrames less the order's own frame, each time).
-    public static void EmergeStartsLocked(ClientState conn, SpawnedMonster m, double seconds)
+    public static void EmergeStartsLocked(Player conn, SpawnedMonster m, double seconds)
     {
         if (conn.LockstepClient && conn.LockstepFrame is { } frame && LockstepCountdownFrames((float)seconds) is { } frames)
             m.BusyUntil = Math.Max(m.BusyUntil, frame.Start + frames * (frame.End - frame.Start));
     }
 
-    public static async Task Emerge(ClientState conn, uint id,
+    public static async Task Emerge(Player conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;

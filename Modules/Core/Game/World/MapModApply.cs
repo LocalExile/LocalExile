@@ -3,12 +3,12 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     /// <summary>The map this connection's instance plays with (InstanceState.Map), or null outside a map.</summary>
-    public static MapDevice.Run? MapRunOf(ClientState conn) => conn.Instance?.Map is { } run && run.Area.Hash16 == conn.Layout.Hash ? run : null;
+    public static MapDevice.Run? MapRunOf(Player conn) => conn.Instance?.Map is { } run && run.Area.Hash16 == conn.Layout.Hash ? run : null;
 
     /// <summary>The map mods this connection's instance plays with: its area stats as the client got them in 0x1d
     /// (MapAreaStats: the explicit mods scaled by the atlas's map mod effect, the atlas's own stats, the fragments), so
     /// what the server applies is what the map shows; the map item's own sum when the instance has no stats.</summary>
-    public static MapMods? MapModsOf(ClientState conn)
+    public static MapMods? MapModsOf(Player conn)
     {
         if (MapRunOf(conn) is not { } run) return null;
         if (conn.Instance?.KeptAreaStats is not { Count: > 0 } stats) return run.Mods;
@@ -80,7 +80,7 @@ public static partial class Game
     /// scarab drop factors (its increased and more modifiers multiplied, 1 for none) on the base map chances
     /// (<c>drop_card_chance_pct</c>, <c>drop_scarab_chance_pct</c>, ItemDrops.Roll): a factor f adds the base chance
     /// × (f − 1) per kill.</summary>
-    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(ClientState conn, int monsterLevel, MonsterRarity rarity, Random rng)
+    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(Player conn, int monsterLevel, MonsterRarity rarity, Random rng)
     {
         if (MapModsOf(conn) is not { } mods) yield break;
         var drops = DropsFor(conn);
@@ -106,7 +106,7 @@ public static partial class Game
     static bool MapDropExtra(string setting, double quantity, Random rng) =>
         rng.NextDouble() < Math.Clamp(SystemSettings.Default.Get(setting), 0, 100) / 100.0 * quantity;
 
-    static SingleUseCooldown? WithMapCooldown(ClientState conn, SingleUseCooldown? plan)
+    static SingleUseCooldown? WithMapCooldown(Player conn, SingleUseCooldown? plan)
     {
         if (plan is not { } cooldown) return plan;
         int more = MapModsOf(conn)?.Get("map_player_cooldown_speed_+%_final") ?? 0;

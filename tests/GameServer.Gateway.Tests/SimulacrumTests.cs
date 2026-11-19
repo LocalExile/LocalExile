@@ -10,7 +10,7 @@ public sealed class SimulacrumTests
     public void Selected_recipe_uses_only_its_fragment_and_keeps_six_entries()
     {
         var slot = new MapDevice.Slot(InstanceEntities.ObjectTypeHash(SimulacrumRules.Fragment), "MapFragment", "Simulacrum", 3065, [], 0);
-        var conn = new ClientState(new AreaLayout(1, "test", 32, 32, 16, 16, (_, _) => true, []), 1, 1);
+        var conn = new Player(new AreaLayout(1, "test", 32, 32, 16, 16, (_, _) => true, []), 1, 1);
         var request = new MapOpening(conn, [slot], false, null, "unresolved") { Target = 45986 };
         SimulacrumRules.Resolve(request, new Random(42));
         var opening = Assert.IsType<MapDevice.Opening>(request.Opening);

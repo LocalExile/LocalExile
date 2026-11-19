@@ -9,7 +9,7 @@ public static partial class Game
 {
     // The server frames themselves (their pacing on the clock, and 0x2b8), where they differ from GGG's, are the
     // framework's: Program.RunWorldFrames. What the rules do at each frame end is here.
-    public static async Task LockstepFrameEnded(ClientState conn, double nextFrameStart)
+    public static async Task LockstepFrameEnded(Player conn, double nextFrameStart)
     {
         await ProbeLockstepLatency(conn);
         SendLockstepDefaultAttack(conn);
@@ -20,7 +20,7 @@ public static partial class Game
     // client sorted or the rest of the frame waits for its end (0x14218aff0). The frame queue now enforces that order;
     // this producer retains key 0, applied before object ticks. Moving it into the player tick needs a separate
     // action-timing trace, since the server currently starts the walk at the frame start.
-    static byte[] LockstepActionStart(ClientState conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
+    static byte[] LockstepActionStart(Player conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, target.X, target.Y, conn.LockstepHold.Skill, sequence, conn.LockstepHold.Flags);
 
     // Differs from GGG: a monster out of its wake zone stands on its server as on the client, so nothing needs placing when
@@ -38,7 +38,7 @@ public static partial class Game
     // the handlers a predictive client's request reaches, with the server's sequence in place of the client's, so their
     // echo starts the action, in key 0 as every other send here is. Those handlers hold the skills' rules; a second copy
     // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
-    static void StartLockstepSkill(ClientState conn, ushort sequence, double at)
+    static void StartLockstepSkill(Player conn, ushort sequence, double at)
     {
         var request = conn.LockstepSkill;
         if (request.Target is { } target)
@@ -66,7 +66,7 @@ public static partial class Game
     // Differs from GGG: its server steps by frames and so can know the frame the client was on; a lockstep request carries
     // no frame here, so this estimates it. The client runs a round trip and about two frames behind the server (160 to
     // 220 ms at 100 ms, 66 to 100 ms on loopback), and its offsets are from the cell it had then. Called under conn.Monsters.
-    public static (int X, int Y) LockstepClientCell(ClientState conn, double now)
+    public static (int X, int Y) LockstepClientCell(Player conn, double now)
     {
         double lowest = conn.LockstepLatency.Lowest;
         double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
@@ -85,7 +85,7 @@ public static partial class Game
     // shown it is in lockstep. It takes the wire alone, as
     // the 0x1c does, because a send gate held by game state would read as latency. The steps are random so that a probe
     // does not keep landing at the same point of a slow client's update.
-    static async Task ProbeLockstepLatency(ClientState conn)
+    static async Task ProbeLockstepLatency(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.LockstepClient || now < conn.LockstepNextProbeAt) return;
@@ -103,7 +103,7 @@ public static partial class Game
     }
 
     // The client's answer to 0x194: readAt is when its bytes reached the socket, so handlers running late do not count.
-    public static void AnswerLockstepProbe(ClientState conn, long readAt)
+    public static void AnswerLockstepProbe(Player conn, long readAt)
     {
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0) conn.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);

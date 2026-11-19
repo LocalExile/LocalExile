@@ -9,7 +9,7 @@ public static class MonsterRegeneration
 {
     const int EveryFrames = 15;
 
-    public static void Start(GameArea area, ClientState conn, object source)
+    public static void Start(GameArea area, Player conn, object source)
     {
         // The instance's monster table (its lock too, while the rest of the game still takes it).
         var monsters = conn.Monsters;
@@ -30,7 +30,7 @@ public static class MonsterRegeneration
 
     // Devout of Ryslatha's enemy regeneration on hit (Pools.EnemyRegenerationOnHitPct) of a player who hit an enemy in the
     // last 4 s; with several, the strongest.
-    static int OnHitPct(InstanceState? instance, ClientState first, double now, double seconds)
+    static int OnHitPct(InstanceState? instance, Player first, double now, double seconds)
     {
         int pct = 0;
         foreach (var player in instance is null ? [first] : Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance)))

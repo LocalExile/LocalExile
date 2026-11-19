@@ -174,7 +174,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
     /// skeleton still up and on walkable ground — otherwise the spawn's own collision escape lays them on one cell.
     /// Under the Monsters lock.
     /// </summary>
-    (int X, int Y) SpotLocked(ClientState conn, (int X, int Y) at, bool allied)
+    (int X, int Y) SpotLocked(Player conn, (int X, int Y) at, bool allied)
     {
         int slot = _placed++;
         int inner = allied ? 3 : ShrinePlacement.ObjectSize + 1;
@@ -193,7 +193,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
     }
 
     /// <summary>An ended skeleton leaves the world as a summoned monster does: no corpse, no life bar.</summary>
-    void End(ClientState conn, uint id)
+    void End(Player conn, uint id)
     {
         lock (conn.Monsters)
         {
@@ -220,7 +220,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
 
     public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
-    Task Clear(ClientState conn)
+    Task Clear(Player conn)
     {
         uint[] ids;
         lock (conn.Monsters) ids = [.. _expires.Keys];

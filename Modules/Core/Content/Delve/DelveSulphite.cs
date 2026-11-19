@@ -23,7 +23,7 @@ public sealed partial class DelveModule
         public int NikoAt = -1;
         public double GaugeAt = double.NegativeInfinity;
     }
-    readonly ConditionalWeakTable<ClientState, SulphiteEncounter> _sulphite = new();
+    readonly ConditionalWeakTable<Player, SulphiteEncounter> _sulphite = new();
 
     void RegisterSulphite(IModuleContext module)
     {
@@ -142,7 +142,7 @@ public sealed partial class DelveModule
         encounter.NikoAt = deposit.Index;
     }
 
-    async Task<bool> MineSulphite(IModuleContext module, ClientState conn, uint objectId, double requestedAt)
+    async Task<bool> MineSulphite(IModuleContext module, Player conn, uint objectId, double requestedAt)
     {
         if (!_sulphite.TryGetValue(conn, out var encounter) || encounter.Deposits.FirstOrDefault(d => d.Id == objectId) is not { } deposit) return false;
         if (conn.PlayerLife == 0 || conn.LeavingArea || conn.Closed || !module.Lifetime.IsActive) return true;
@@ -151,7 +151,7 @@ public sealed partial class DelveModule
         var recipients = InGame.Keys.Where(p => ReferenceEquals(p.Instance, conn.Instance) && p.PlayerSent && !p.LeavingArea && !p.Closed && p.PlayerLife > 0
             && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(p.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= 150).ToList();
         if (!recipients.Contains(conn)) recipients.Add(conn);
-        List<(ClientState Conn, ushort Before, ushort After)> awards = [];
+        List<(Player Conn, ushort Before, ushort After)> awards = [];
         // The instance lock serializes simultaneous clicks, claims and the durable resource credit. No network awaits here.
         lock (conn.Monsters)
         {
@@ -195,7 +195,7 @@ public sealed partial class DelveModule
         return true;
     }
 
-    static async Task SulphiteGuards(ClientState conn, SulphiteEncounter encounter, Deposit deposit)
+    static async Task SulphiteGuards(Player conn, SulphiteEncounter encounter, Deposit deposit)
     {
         // Authored mine inhabitants, not ordinary packs from the surrounding map.
         string[] varieties = ["Metadata/Monsters/Spiders/DelveSpiderPacks", "Metadata/Monsters/Spiders/DelveSpiderPacksMedium"];

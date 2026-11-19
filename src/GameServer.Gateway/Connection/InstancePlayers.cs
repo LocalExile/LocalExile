@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>Immutable published poses; observers never lock another connection's simulation.</summary>
 public sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, int Y, uint Life,
-    ClientState? Owner = null)
+    Player? Owner = null)
 {
     // Only session liveness is read through the owner; all replicated values remain immutable snapshots.
     public bool Current => Owner is null || !Owner.Closed && !Owner.LeavingArea && Owner.PlayerSent;
@@ -28,7 +28,7 @@ public sealed class InstancePresence
 public static class InstanceEvents
 {
     /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
-    public static readonly GameEvent<Func<ClientState, PendingTransfer, ulong>> TransferInstance = new();
+    public static readonly GameEvent<Func<Player, PendingTransfer, ulong>> TransferInstance = new();
 
     /// <summary>The area stats a new instance is played with (0x1d's first stat list, 1-based Stats ids): the client's
     /// level generator reads them, so the Gateway generates the level with the same list. Asked once per instance, by
@@ -80,12 +80,12 @@ public partial class Program
 {
     /// <summary>The connections in game now (entered an area, not yet gone), for what plays beside them without one of its
     /// own: server-driven players (the PlayerBots module) look up the towns players are in.</summary>
-    public static readonly System.Collections.Concurrent.ConcurrentDictionary<ClientState, byte> InGame = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<Player, byte> InGame = new();
 
     /// <summary>Sets the player's party size; a change tells the client the players in the area (S→C 0x231: the party
     /// panel's bonus icons, which compute their percentages from the client's own constants, Game.PartyBonus) and the
     /// player the bonus in chat.</summary>
-    public static async Task SetPartySize(ClientState conn, int size)
+    public static async Task SetPartySize(Player conn, int size)
     {
         size = Math.Max(1, size);
         if (conn.PartySize == size) return;
@@ -118,7 +118,7 @@ public sealed partial class InstanceState : IHasComponents
     public InstancePlayer? Player(uint id) => Presence.Player(id);
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     static int _nextPeerId = 0x20000000;
     // Settable when the state is built, so a test of a rule seeded by it does not depend on how many states came before.
@@ -160,7 +160,7 @@ public sealed partial class ClientState
     /// <summary>The other players' minions this client was shown, by (their PeerId, their id).</summary>
     public readonly Dictionary<(uint Peer, uint Id), SharedMonster> SeenMinions = [];
     /// <summary>This player's shares of the instance host's kills, for its own loop to apply (SharedKills.cs).</summary>
-    public readonly System.Collections.Concurrent.ConcurrentQueue<Func<ClientState, Task>> KillShares = new();
+    public readonly System.Collections.Concurrent.ConcurrentQueue<Func<Player, Task>> KillShares = new();
     /// <summary>Sends to this connection's client, for another connection (Program.Social).</summary>
     public Func<byte[], string?, Task>? Outbox;
     /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).

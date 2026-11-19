@@ -9,7 +9,7 @@ static partial class Game
 
     // One paid use has a single melee contact and a volley. Both start at the strike's contact keyframe;
     // the client already draws the bolts. A melee victim is excluded from this volley's contacts.
-    internal static Task ScheduleLightningStrike(ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    internal static Task ScheduleLightningStrike(Player conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
         CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
     {
@@ -36,7 +36,7 @@ static partial class Game
         return Task.CompletedTask;
     }
 
-    internal static ProjectileUse ReleaseLightningStrike(ClientState conn, ProjectileSession session, ushort skillId,
+    internal static ProjectileUse ReleaseLightningStrike(Player conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0,
         bool cryExerted = false, double? ruthlessMore = null)
@@ -77,7 +77,7 @@ static partial class Game
         };
     }
 
-    internal static uint LightningStrikeTarget(ClientState conn, (int X, int Y) from, (int X, int Y) aim,
+    internal static uint LightningStrikeTarget(Player conn, (int X, int Y) from, (int X, int Y) aim,
         uint targetId, double now)
     {
         var weapon = WeaponFor(conn);

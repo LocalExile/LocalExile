@@ -50,7 +50,7 @@ public static partial class Game
     public sealed record CarriedChargeDegeneration(uint[] Hosts, double HitSeconds, double CritSeconds,
         double[] Pending, double[] TakenCarry, double[] BypassCarry);
 
-    static void ConfigureChargeDegeneration(ClientState conn, IReadOnlyList<ItemModStats.Worn> worn, HashSet<uint> inactive)
+    static void ConfigureChargeDegeneration(Player conn, IReadOnlyList<ItemModStats.Worn> worn, HashSet<uint> inactive)
     {
         var session = ChargesOf(conn); var state = session.Degeneration;
         double now = ResourceEffectsTime(conn);
@@ -76,7 +76,7 @@ public static partial class Game
         if (state.Active) ResourceEffectsOf(conn);
     }
 
-    public static bool ChargeDegenerationActive(ClientState conn)
+    public static bool ChargeDegenerationActive(Player conn)
     {
         var session = ChargesOf(conn); var state = session.Degeneration; double now = ResourceEffectsTime(conn);
         return state.Active && (state.PerMinute[0] > 0 && now < state.HitUntil && !session.Converted(ChargeType.Endurance) && session.Effective(ChargeType.Endurance) > 0
@@ -84,7 +84,7 @@ public static partial class Game
             || state.PerMinute[2] > 0 && now < state.CritUntil && !session.Converted(ChargeType.Power) && session.Effective(ChargeType.Power) > 0);
     }
 
-    public static int AdvanceChargeDegenerationLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static int AdvanceChargeDegenerationLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
         var session = ChargesOf(conn); var state = session.Degeneration;
         if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch
@@ -115,13 +115,13 @@ public static partial class Game
         return total;
     }
 
-    public static CarriedChargeDegeneration CaptureChargeDegeneration(ClientState conn, double at)
+    public static CarriedChargeDegeneration CaptureChargeDegeneration(Player conn, double at)
     {
         var session = ChargesOf(conn); session.SettleDegeneration(at); var state = session.Degeneration;
         return new([.. state.Hosts], Math.Max(0, state.HitUntil - at), Math.Max(0, state.CritUntil - at),
             [.. state.Pending], [.. state.TakenCarry], [.. state.BypassCarry]);
     }
-    public static void RestoreChargeDegeneration(ClientState conn, CarriedChargeDegeneration value, double at)
+    public static void RestoreChargeDegeneration(Player conn, CarriedChargeDegeneration value, double at)
     {
         var state = ChargesOf(conn).Degeneration; state.Clear(at);
         state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Hosts = [.. value.Hosts];

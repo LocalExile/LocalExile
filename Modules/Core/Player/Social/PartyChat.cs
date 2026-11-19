@@ -9,7 +9,7 @@ namespace GameServer.Modules.Social;
 public static class PartyChat
 {
     /// <summary>Carry one party line to the party; false when the sender is in none, so nothing delivered it.</summary>
-    public static async Task<bool> Deliver(ClientState conn, string text, IReadOnlyList<ChatLineItem>? items)
+    public static async Task<bool> Deliver(Player conn, string text, IReadOnlyList<ChatLineItem>? items)
     {
         uint party = PartyRoster.PartyOf(conn);
         if (party == 0) return false;

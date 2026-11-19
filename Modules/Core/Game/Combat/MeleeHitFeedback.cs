@@ -17,7 +17,7 @@ public static partial class Game
             flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 3, code: code, angle: angle,
             orderKey: orderKey, checkpoint: checkpoint);
 
-    static async Task PresentMeleeImpact(ClientState conn, string art, (int X, int Y) from, (int X, int Y) at)
+    static async Task PresentMeleeImpact(Player conn, string art, (int X, int Y) from, (int X, int Y) at)
     {
         var session = ProjectilesFor(conn);
         uint id;

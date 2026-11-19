@@ -160,7 +160,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
   Predictive Leap Slam acknowledges without the old source-cell echo; the Delve follow-up live check is pending.
-  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
+  Code: `LivingCollision.cs`, `Player.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
   ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.

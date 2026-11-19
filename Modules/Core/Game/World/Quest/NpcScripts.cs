@@ -19,7 +19,7 @@ public static partial class Game
 
     // The row's world changes, when it is chosen: the NPC's own Transitionable steps on (Dialla withers, NPCTalk 534) and the
     // objects of the named types transition (Quests.OnScriptTransition: transitions a quest shows, objects it changes).
-    public static async Task RunTalkWorldScript(ClientState conn, uint npcId,
+    public static async Task RunTalkWorldScript(Player conn, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
         if (talk.TransitionsSelf) await StepNpcTransition(conn, npcId, npc, $"{talk.Option} (NPCTalk {talk.Row})");
@@ -28,7 +28,7 @@ public static partial class Game
     }
 
     // An NPC's Transitionable one state further (no further than its last state).
-    public static async Task StepNpcTransition(ClientState conn, uint npcId, SpawnedNpc npc, string why)
+    public static async Task StepNpcTransition(Player conn, uint npcId, SpawnedNpc npc, string why)
     {
         int component = npc.Npc.Components?.ToList().IndexOf("Transitionable") ?? -1;
         if (component < 0) return;
@@ -44,7 +44,7 @@ public static partial class Game
 
     // Every object of the type in this instance steps on: NPCs (their Transitionable), and what the quests manage
     // (QuestScriptObjects: quest transitions shown, quest objects' states).
-    public static async Task TransitionObjectsOfType(ClientState conn, string type, string why)
+    public static async Task TransitionObjectsOfType(Player conn, string type, string why)
     {
         List<(uint Id, SpawnedNpc Npc)> npcs;
         lock (conn.Npcs) npcs = [.. conn.Npcs.Where(n => n.Value.Npc.Id == type).Select(n => (n.Key, n.Value))];
@@ -55,7 +55,7 @@ public static partial class Game
     // A script's Transition of a quest type: an area transition of that tile type that its quest flag still hides opens on
     // this instance (Dialla's 521 → AscentTransition, 535 → RaptureTransition; the row's own flag opens it for good,
     // Quests.ExitRule), and the quest objects the engine created of that type step on (QuestObjectTransition).
-    public static async Task TransitionQuestObjects(ClientState conn, string type, string why)
+    public static async Task TransitionQuestObjects(Player conn, string type, string why)
     {
         bool opened = false;
         foreach (var (id, transition) in conn.Layout.AreaTransitions.Where(t => t.Transition.SourceType == type))
@@ -64,7 +64,7 @@ public static partial class Game
         await QuestObjectTransition(conn, type, why);
     }
 
-    public static async Task ApplyQuestConversationStart(ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
+    public static async Task ApplyQuestConversationStart(Player conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, bool applyRowRules)
     {
         if (TalkStartFlag(conn, talk) is { } start) await SetQuestFlags(conn, [start]);
         if (applyRowRules && QuestsOf(conn).OnTalkRow(talk.Row) is { Count: > 0 } byRow)
@@ -75,7 +75,7 @@ public static partial class Game
     /// <summary>When a row's talk ends (C→S 0x85 after it, or at once for a row without text): its next page
     /// (DoNPCChat), or the end of the dialogue (FinishNPCChat) with the screen it opens or the area it moves to. True when
     /// the script decided what comes next (the option list does not come back).</summary>
-    public static async Task<bool> EndTalkScript(ClientState conn, uint npcId,
+    public static async Task<bool> EndTalkScript(Player conn, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
         if (talk.NextChat is int next && Npcs.TalkOf(npc.Npc, next) is { } page)
@@ -117,7 +117,7 @@ public static partial class Game
 
     // The quest objects the engine created of this type (Quests.ObjectRule) go to their last Transitionable state on this
     // instance (the Rapture Device, NPCTalk 534); their rule's own flag keeps that state on later visits.
-    public static async Task QuestObjectTransition(ClientState conn, string type, string why)
+    public static async Task QuestObjectTransition(Player conn, string type, string why)
     {
         List<(uint Id, QuestObjectTypes.Info Info)> objects;
         lock (conn.QuestObjects) objects = [.. conn.QuestObjects.Where(o => o.Value.Rule.ObjectType == type).Select(o => (o.Key, o.Value.Info))];

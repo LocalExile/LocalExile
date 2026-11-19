@@ -36,7 +36,7 @@ public sealed class HitAndKillRecoveryTests
 
         // A hit that leaves the enemy at the threshold kills it.
         {
-            var conn = new ClientState(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "cull", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500,
             };
@@ -87,7 +87,7 @@ public sealed class HitAndKillRecoveryTests
 
         // Every enemy hit grants its gain at once.
         {
-            var conn = new ClientState(new(1, "gain", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "gain", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900, PlayerMana = 50,
             };
@@ -158,7 +158,7 @@ public sealed class HitAndKillRecoveryTests
 
         // A kill recovers at once by the corpse's ailments, and a dead player gains nothing.
         {
-            var conn = new ClientState(new(1, "kill", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "kill", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(10, 1000, 200, 2, 0), PlayerLife = 500, PlayerMana = 50,
             };
@@ -207,7 +207,7 @@ public sealed class HitAndKillRecoveryTests
 
         // A kill's Onslaught applies once the client is told, and counts once with a flask's.
         {
-            var conn = new ClientState(new(1, "onslaught", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "onslaught", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(10, 1000, 200, 2, 0), PlayerLife = 500,
             };

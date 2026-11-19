@@ -9,7 +9,7 @@ static partial class QuestobjectsRules
     // BeaconPayload attaches the PedestalBuffZone art. MiscAnimated stores its radius in world units.
     static double BeaconEscortRadius => (global::Game.Art.ArtRadius(BeaconCircle) ?? 250) * 23d / 250;
     static string BeaconCartFlag(GlyphQuest.Placement at) => Quests.InstanceFlag($"BeaconCart:{at.X}:{at.Y}");
-    static readonly ConditionalWeakTable<ClientState, BeaconView> BeaconViews = new();
+    static readonly ConditionalWeakTable<Player, BeaconView> BeaconViews = new();
     static readonly ConditionalWeakTable<InstanceState, BeaconRun> BeaconRuns = new();
 
     internal sealed class BeaconCart(GlyphQuest.Placement start, RailEscort walk)
@@ -56,7 +56,7 @@ static partial class QuestobjectsRules
     {
         public readonly SemaphoreSlim Gate = new(1);
         public readonly List<BeaconCart> Carts = [];
-        public readonly List<WeakReference<ClientState>> Players = [];
+        public readonly List<WeakReference<Player>> Players = [];
         public List<GlyphQuest.Placement> Controllers = [], Spawners = [];
         public double LastAt;
         public bool Loaded;
@@ -69,14 +69,14 @@ static partial class QuestobjectsRules
         public bool Loaded;
     }
 
-    internal static bool CanUseBeacon(ClientState conn, string type) => conn.Layout.Id != Act6Areas.Beacon || type switch
+    internal static bool CanUseBeacon(Player conn, string type) => conn.Layout.Id != Act6Areas.Beacon || type switch
     {
         Act6Objects.BeaconLever => BeaconRuns.TryGetValue(conn.Instance, out var run) && run.Carts.Count == 2 && run.Carts.All(c => c.Walk.Complete),
         Act6Objects.BeaconStatue => conn.Instance.HasState(Act6Objects.BeaconIgnited),
         _ => true,
     };
 
-    internal static async Task TickBeacon(ClientState conn)
+    internal static async Task TickBeacon(Player conn)
     {
         if (conn.Layout.Id != Act6Areas.Beacon || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         var run = BeaconRuns.GetValue(conn.Instance, _ => new());
@@ -90,7 +90,7 @@ static partial class QuestobjectsRules
             double seconds = Math.Max(0, now - run.LastAt);
             run.LastAt = now;
             var players = run.Players.Select(w => w.TryGetTarget(out var c) ? c : null)
-                .Where(c => c is { Closed: false, LeavingArea: false }).Cast<ClientState>().ToArray();
+                .Where(c => c is { Closed: false, LeavingArea: false }).Cast<Player>().ToArray();
             var escorts = players.Where(c => c.PlayerLife > 0 && !c.Paused).Select(c => c.Walk.Position(now)).ToArray();
             foreach (var cart in run.Carts)
             {
@@ -115,7 +115,7 @@ static partial class QuestobjectsRules
         finally { run.Gate.Release(); }
     }
 
-    static async Task CreateBeacon(ClientState conn, BeaconRun run, BeaconView view)
+    static async Task CreateBeacon(Player conn, BeaconRun run, BeaconView view)
     {
         var placed = new QuestObjectTypes.AreaPlacements(Act6Areas.Beacon, conn.Seed, []);
         // Rebind the old quest rules and add missing objects when this module is hot-reloaded in an occupied area.
@@ -199,7 +199,7 @@ static partial class QuestobjectsRules
         view.Loaded = true;
     }
 
-    static async Task ShowBeacon(ClientState conn, BeaconRun run, BeaconView view)
+    static async Task ShowBeacon(Player conn, BeaconRun run, BeaconView view)
     {
         int delivered = run.Carts.Count(c => c.Walk.Complete);
         bool flag = ClientHasQuestFlag(conn, BeaconDelivered), lit = flag || conn.Instance.HasState(Act6Objects.BeaconIgnited);
@@ -239,7 +239,7 @@ static partial class QuestobjectsRules
         }
     }
 
-    static async Task BeaconState(ClientState conn, BeaconView view, uint id, byte state)
+    static async Task BeaconState(Player conn, BeaconView view, uint id, byte state)
     {
         if (view.ShownStates.TryGetValue(id, out var previous) && previous == state) return;
         int component;
@@ -249,7 +249,7 @@ static partial class QuestobjectsRules
         view.ShownStates[id] = state;
     }
 
-    static async Task SpawnBeaconGuards(ClientState conn, BeaconRun run, (double X, double Y) at)
+    static async Task SpawnBeaconGuards(Player conn, BeaconRun run, (double X, double Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         foreach (var trigger in run.Controllers.Where(p => Math.Pow(p.X - at.X, 2) + Math.Pow(p.Y - at.Y, 2) <= 14 * 14))

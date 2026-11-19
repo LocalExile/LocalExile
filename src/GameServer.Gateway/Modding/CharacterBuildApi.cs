@@ -19,7 +19,7 @@ public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? tim
         return new Plan(conn, plan, lifetime, time);
     }
 
-    ClientState Connection(IPlayer player)
+    Player Connection(IPlayer player)
     {
         if (!lifetime.IsActive) throw new InvalidOperationException("The importing mod is unloaded.");
         if (player is not IConnectionPlayer issued) throw new ArgumentException("The player was not issued by this server.");
@@ -29,10 +29,10 @@ public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? tim
         return conn;
     }
 
-    static bool Available(ClientState conn) => !conn.Closed && !conn.LeavingArea
+    static bool Available(Player conn) => !conn.Closed && !conn.LeavingArea
         && conn.PendingTransfer is null && conn.PlayerLife != 0;
 
-    static Character Current(ClientState conn)
+    static Character Current(Player conn)
     {
         var accounts = new SqliteAccountStore(Saves.Db);
         var record = accounts.GetCharacter(conn.CharacterId!.Value)
@@ -45,14 +45,14 @@ public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? tim
 
     sealed class Plan : ICharacterBuildPlan
     {
-        readonly ClientState conn;
+        readonly Player conn;
         readonly ModuleLifetime lifetime;
         readonly CharacterBuildImports.Session session;
         readonly Lock gate = new();
         public string Summary { get; }
         public IReadOnlyList<string> Warnings { get; }
 
-        public Plan(ClientState conn, CharacterBuildImports.Prepared build, ModuleLifetime lifetime, TimeProvider? time)
+        public Plan(Player conn, CharacterBuildImports.Prepared build, ModuleLifetime lifetime, TimeProvider? time)
         {
             this.conn = conn; this.lifetime = lifetime;
             session = new(time); session.Stage(build);

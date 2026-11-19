@@ -3,11 +3,11 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     sealed class ChargePoolRefresh { public bool Pending; }
-    static readonly Store<ClientState, ChargePoolRefresh> ChargePoolRefreshes = new();
+    static readonly Store<Player, ChargePoolRefresh> ChargePoolRefreshes = new();
 
     // Resolve the batch once, before any output await. Only current-state presentation remains queued, so a delayed
     // hook/send cannot replay historical events through the live ticker or resurrect their expired deadlines.
-    static void CommitAcceptedChargeBatchLocked(ClientState conn, IReadOnlyList<PlayerMinions.AcceptedCharges> accepted,
+    static void CommitAcceptedChargeBatchLocked(Player conn, IReadOnlyList<PlayerMinions.AcceptedCharges> accepted,
         IReadOnlyDictionary<uint, int> player)
     {
         if (conn.PlayerLife == 0) return;
@@ -27,7 +27,7 @@ public static partial class Game
         conn.Minions.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.Charges, Charges: accepted));
     }
 
-    static byte[]? AcceptedChargePresentationLocked(ClientState conn, string remote)
+    static byte[]? AcceptedChargePresentationLocked(Player conn, string remote)
     {
         if (conn.PlayerLife == 0) return null;
         // The charge ticker publishes the stats at its own cadence; a per-hit revision here rebuilt PlayerSkills for
@@ -47,7 +47,7 @@ public static partial class Game
 
     // All consumers build/acknowledge the entire native change under Monsters at their actual send gate.
     // No producer may buffer a tail of this presentation for separate later sends.
-    static (byte[]? Packet, bool CountsChanged) CurrentChargePresentationLocked(ClientState conn, string remote)
+    static (byte[]? Packet, bool CountsChanged) CurrentChargePresentationLocked(Player conn, string remote)
     {
         var session = ChargesOf(conn); double now = ProjectileWorldTime(conn);
         var step = session.Refresh(now);
@@ -58,7 +58,7 @@ public static partial class Game
         return (packets.Length > 0 ? packets.SelectMany(p => p.Packet).ToArray() : null, step.CountsChanged);
     }
 
-    static void CommitAcceptedCritFlasksLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, double at)
+    static void CommitAcceptedCritFlasksLocked(Player conn, IReadOnlyDictionary<uint, int> player, double at)
     {
         if (!conn.FlaskChargeCarry.CritReady(at)) return;
         var bar = CritFlaskBar(conn);
@@ -69,7 +69,7 @@ public static partial class Game
         if (gains.Count > 0) conn.Minions.FlaskRewards.Add(new(MonsterRarity.Normal, gains));
     }
 
-    static List<(uint Id, int Chance, bool Full)> CritFlaskBar(ClientState conn)
+    static List<(uint Id, int Chance, bool Full)> CritFlaskBar(Player conn)
     {
         var catalog = ItemsFor(conn);
         return ItemsOf(conn).Items(PlayerInventories.Flask).Select(flask =>

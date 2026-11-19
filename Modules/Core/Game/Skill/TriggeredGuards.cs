@@ -16,11 +16,11 @@ public static partial class Game
         public SupportedGem? Gem;
         public ProjectileSession? Session;
     }
-    static readonly Store<ClientState, TriggeredGuard> TriggeredGuards = new();
-    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
+    static readonly Store<Player, TriggeredGuard> TriggeredGuards = new();
+    static bool TriggerGuardSpell(Player conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
         is "QuickGuard" or "ImmortalCall" or "MoltenShell";
 
-    static TriggeredGuard? CurrentTriggeredGuard(ClientState conn, double now)
+    static TriggeredGuard? CurrentTriggeredGuard(Player conn, double now)
     {
         if (!TriggeredGuards.TryGetValue(conn, out var guard)) return null;
         if (guard.Epoch != conn.ProjectileEpoch || !ReferenceEquals(guard.Rules, CombatLifetime)
@@ -29,10 +29,10 @@ public static partial class Game
         if (guard.Until > 0 && now >= guard.Until) EndTriggeredGuard(conn, guard, guard.Until);
         return guard;
     }
-    public static bool TriggerGuardReady(ClientState conn, double now) => CurrentTriggeredGuard(conn, now)
+    public static bool TriggerGuardReady(Player conn, double now) => CurrentTriggeredGuard(conn, now)
         is not { } guard || guard.Until == 0 && now >= guard.ReadyAt;
 
-    static void EndTriggeredGuard(ClientState conn, TriggeredGuard guard, double now)
+    static void EndTriggeredGuard(Player conn, TriggeredGuard guard, double now)
     {
         guard.Until = 0;
         guard.ReadyAt = now + guard.RecoverySeconds;
@@ -82,7 +82,7 @@ public static partial class Game
             own);
 
     // Called immediately after the trigger's successful payment, under the connection lock.
-    public static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
+    public static void StartTriggeredGuard(Player conn, ProjectileSession session, ushort skill, double now)
     {
         var gem = SupportedSkill(conn, skill);
         if (!TriggerGuardReady(conn, now)) return;
@@ -135,7 +135,7 @@ public static partial class Game
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
     }
 
-    public static byte[] TriggeredGuardPresentation(ClientState conn, double now)
+    public static byte[] TriggeredGuardPresentation(Player conn, double now)
     {
         if (CurrentTriggeredGuard(conn, now) is not { Until: > 0 } guard) return [];
         ushort row = guard.Effect switch { "ImmortalCall" => 110, "MoltenShell" => 114, _ => 1302 };
@@ -147,7 +147,7 @@ public static partial class Game
             list: [(uint)guard.Remaining]);
     }
 
-    public static Dictionary<uint, int> WithTriggeredGuard(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> WithTriggeredGuard(Player conn, Dictionary<uint, int> stats)
     {
         if (CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds) is not { Until: > 0 } guard) return stats;
         void Add(string name, int value)
@@ -160,20 +160,20 @@ public static partial class Game
         return stats;
     }
 
-    public static (int Physical, int Other, int Chaos) TriggeredGuardHit(ClientState conn,
+    public static (int Physical, int Other, int Chaos) TriggeredGuardHit(Player conn,
         int physical, int other, int chaos, double at)
     {
         (physical, other, chaos) = MitigateTriggeredGuardHit(conn, physical, other, chaos, at);
         return AbsorbTriggeredGuardHit(conn, physical, other, chaos, at);
     }
 
-    static (int Physical, int Other, int Chaos) MitigateTriggeredGuardHit(ClientState conn,
+    static (int Physical, int Other, int Chaos) MitigateTriggeredGuardHit(Player conn,
         int physical, int other, int chaos, double at) =>
         CurrentTriggeredGuard(conn, at) is { Until: > 0 } guard
             ? ((int)(physical * guard.Physical), (int)(other * guard.Elemental), chaos)
             : (physical, other, chaos);
 
-    static (int Physical, int Other, int Chaos) AbsorbTriggeredGuardHit(ClientState conn,
+    static (int Physical, int Other, int Chaos) AbsorbTriggeredGuardHit(Player conn,
         int physical, int other, int chaos, double at)
     {
         if (CurrentTriggeredGuard(conn, at) is not { Until: > 0 } guard) return (physical, other, chaos);

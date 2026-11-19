@@ -168,7 +168,7 @@ static class AtlasBosses
     /// <summary>The actor's skill list: every effect the controller can play, so that the client owns the clip a 0x1ab
     /// action names. Each record carries its own numbers (main-hand damage, the spell's virtual cast time), which the
     /// client reads to pick and play the clip; <see cref="Attack"/> supplies the same numbers to the server's hits.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, int level,
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, int level,
         MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
@@ -215,7 +215,7 @@ static class AtlasBosses
     /// <summary>One of the boss's skills as the server plays it: its own damage at the area's level, its clip's cast time
     /// and reach, and — for the skills that name one — its projectile. <paramref name="swing"/> is the variety's plain
     /// attack, the source of a melee's physical damage.</summary>
-    internal static MonsterAttack Attack(ClientState conn, MonsterCatalog.Variety variety, int level, int effect,
+    internal static MonsterAttack Attack(Player conn, MonsterCatalog.Variety variety, int level, int effect,
         MonsterAttack? swing = null)
     {
         var catalog = Game.SkillsFor(conn);
@@ -246,7 +246,7 @@ static class AtlasBosses
     /// <summary>The shot a skill launches: its own MonsterProjectileVariation row when the skill has one, and the
     /// Projectiles.dat row for the two that name none (the bullet-hell ring is twelve in a circle, which no skill record
     /// makes, and the doom shot is a single slow one).</summary>
-    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, int effect) => effect switch
+    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(Player conn, int effect) => effect switch
     {
         BulletHellEffect => BulletHellShot,
         DoomProjectileEffect => DoomShot,
@@ -258,7 +258,7 @@ static class AtlasBosses
     /// lightning 6084 a second (323067, 264915 and 365066 a minute), the Elder's siphon 614 physical (36825 a minute);
     /// the rows are constant at every level, not per-level.
     /// </summary>
-    internal static DamagePacket DamageOverTime(ClientState conn, int effect, int level)
+    internal static DamagePacket DamageOverTime(Player conn, int effect, int level)
     {
         var stats = Game.SkillsFor(conn).EffectStats(effect, level);
         int Get(string name)
@@ -286,7 +286,7 @@ static class AtlasBosses
 
     /// <summary>Runs the fight of every Shaper, Elder and Sirus in this connection's instance. Called once per tick per
     /// connection, like <see cref="BrineKing.Tick"/>: the instance's runner plays the steps, a join only binds.</summary>
-    internal static async Task Tick(ClientState conn)
+    internal static async Task Tick(Player conn)
     {
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         List<(uint Id, SpawnedMonster Monster)> found = [];

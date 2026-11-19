@@ -2,7 +2,7 @@ public static partial class Game
 {
     // Every accepted enemy hit records the same events, whether it came from a monster action or a testing tool.
     // Call under Monsters after applying damage. Presentation must not create gameplay events a second time.
-    static void RecordIncomingHitLocked(ClientState conn, double now, bool spell, bool blocked, bool suppressed,
+    static void RecordIncomingHitLocked(Player conn, double now, bool spell, bool blocked, bool suppressed,
         long lifeDamage)
     {
         conn.RecentEnemyHits.Record(now);

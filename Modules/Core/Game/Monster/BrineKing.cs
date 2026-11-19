@@ -14,7 +14,7 @@ public static class BrineKing
     public const int MeleeEffect = 406;
     static readonly int[] Effects = [6354, 6359, 6670, 6668, 6361, MeleeEffect, 4365, 6759, 6761, 6360, 6355];
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly Store<ClientState, Tide> Tides = new();
+    static readonly Store<Player, Tide> Tides = new();
     // Row 856 is not IsRecovery: its GrantedStats do not travel in 0x1c1 (11-skills.md §12).
     public static byte[] TideBuff(uint player, ushort instance) => InstanceEntities.AddBuff(player, instance, 856);
     sealed class Tide
@@ -26,7 +26,7 @@ public static class BrineKing
         public bool MaimActive;
         public ushort MaimBuff;
     }
-    public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> sources)
     {
         if (Tides.TryGetValue(conn, out var tide) && tide.Active && Stats.Key("action_speed_-%") is uint key)
             sources[key] = sources.GetValueOrDefault(key) + 30;
@@ -52,19 +52,19 @@ public static class BrineKing
             }
         }
     }
-    static async Task RemoveTideBuff(ClientState conn, ushort buff)
+    static async Task RemoveTideBuff(Player conn, ushort buff)
     {
         if (conn.Closed || buff == 0) return;
         try { await Game.SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null); }
         catch (Exception e) when (e is IOException or ObjectDisposedException) { }
     }
-    public static async Task Leaving(ClientState conn)
+    public static async Task Leaving(Player conn)
     {
         await TideAt(conn, false, 0);
         if (Tides.TryGetValue(conn, out var tide))
         { tide.MaimUntil = 0; tide.MaimActive = false; await RemoveTideBuff(conn, tide.MaimBuff); }
     }
-    static async Task Maim(ClientState conn)
+    static async Task Maim(Player conn)
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -76,12 +76,12 @@ public static class BrineKing
             u68: BitConverter.SingleToUInt32Bits(4)), "[Brine King] cleave maim");
         await RefreshPlayerStats(conn);
     }
-    static async Task RefreshPlayerStats(ClientState conn)
+    static async Task RefreshPlayerStats(Player conn)
     {
         lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
         await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn), null);
     }
-    static async Task TideAt(ClientState conn, bool active, double rawDps)
+    static async Task TideAt(Player conn, bool active, double rawDps)
     {
         var tide = Tides.GetValue(conn, _ => new());
         bool changed;
@@ -107,7 +107,7 @@ public static class BrineKing
     public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
         IsBoss(variety) ? variety.StateMachine?.Set("rock_mode", 0).Set("tide_rush", 0) : null;
 
-    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack)
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
         var catalog = Game.SkillsFor(conn);
@@ -118,7 +118,7 @@ public static class BrineKing
         }).OfType<GrantedSkill>()];
     }
 
-    static MonsterAttack Attack(ClientState conn, MonsterCatalog.Variety variety, byte level, int effect)
+    static MonsterAttack Attack(Player conn, MonsterCatalog.Variety variety, byte level, int effect)
     {
         var catalog = Game.SkillsFor(conn);
         var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
@@ -138,7 +138,7 @@ public static class BrineKing
         { Spell = spell, Scripted = true };
     }
 
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         if (Tides.TryGetValue(conn, out var tide) && tide.MaimActive && (conn.PlayerLife == 0 || conn.Clock.Elapsed.TotalSeconds >= tide.MaimUntil))
         { tide.MaimActive = false; tide.MaimUntil = 0; await RemoveTideBuff(conn, tide.MaimBuff); await RefreshPlayerStats(conn); }
@@ -162,9 +162,9 @@ public static class BrineKing
         public readonly SemaphoreSlim Gate = new(1);
         readonly uint id;
         readonly SpawnedMonster boss;
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> bound = [];
-        readonly HashSet<ClientState> waveViews = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> bound = [];
+        readonly HashSet<Player> waveViews = [];
         readonly List<(uint Id, double Ends)> effects = [];
         readonly List<(double At, (int X, int Y) Position, double Radius, MonsterAttack Attack, int? Generation)> hits = [];
         sealed class Surf(uint id, (int X, int Y) from, (int X, int Y) to, double started, double ends)
@@ -172,7 +172,7 @@ public static class BrineKing
             public readonly uint Id = id;
             public readonly (int X, int Y) From = from, To = to;
             public readonly double Started = started, Ends = ends;
-            public readonly HashSet<ClientState> Hit = [];
+            public readonly HashSet<Player> Hit = [];
             public (double X, double Y) Position(double now)
             { double t = Math.Clamp((now - Started) / (Ends - Started), 0, 1); return (From.X + (To.X - From.X) * t, From.Y + (To.Y - From.Y) * t); }
         }
@@ -190,7 +190,7 @@ public static class BrineKing
         bool stopped;
         LifePhaseGate Phases => boss.LifePhases!;
 
-        public Fight(uint objectId, SpawnedMonster monster, ClientState conn)
+        public Fight(uint objectId, SpawnedMonster monster, Player conn)
         {
             (id, boss) = (objectId, monster);
             var placed = new QuestObjectTypes.AreaPlacements(conn.Layout.Id, conn.Seed, []);
@@ -208,7 +208,7 @@ public static class BrineKing
             Console.WriteLine($"[gateway] Brine King controller: arena {center}, radius {radius:0.0}, {spawners.Count} minion markers");
         }
 
-        public async Task Bind(ClientState conn)
+        public async Task Bind(Player conn)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(conn)) players.Add(conn);
@@ -236,7 +236,7 @@ public static class BrineKing
             }
         }
 
-        public async Task Step(ClientState runner, double now)
+        public async Task Step(Player runner, double now)
         {
             if (stopped || !CurrentGameWork || runner.Paused) return;
             if (boss.Dead || boss.Life == 0)
@@ -253,7 +253,7 @@ public static class BrineKing
             }
             await Expire(now);
             var pos = boss.Walk.Position(now);
-            ClientState? conn;
+            Player? conn;
             lock (runner.Monsters)
             {
                 // The runner owns the update loop, not the fight's target. A party can keep fighting while its
@@ -389,7 +389,7 @@ public static class BrineKing
             }
         }
 
-        async Task<int?> Cast(ClientState conn, int effect, (int X, int Y) target, double now)
+        async Task<int?> Cast(Player conn, int effect, (int X, int Y) target, double now)
         {
             var attack = Attack(conn, boss.Variety!, boss.Level, effect);
             int generation;
@@ -407,7 +407,7 @@ public static class BrineKing
             return sent ? generation : null;
         }
 
-        async Task Move(ClientState conn, (int X, int Y) target, double now)
+        async Task Move(Player conn, (int X, int Y) target, double now)
         {
             int generation;
             lock (conn.Monsters) generation = ++boss.ActionGeneration;
@@ -419,7 +419,7 @@ public static class BrineKing
             }, "[Brine King] move");
         }
 
-        async Task Basic(ClientState conn, string action, double now, ClientState? viewer = null)
+        async Task Basic(Player conn, string action, double now, Player? viewer = null)
         {
             if (Game.SkillsFor(conn).ActionSkillId(action) is not { } skill) return;
             var at = boss.Walk.Position(now);
@@ -429,7 +429,7 @@ public static class BrineKing
                 "[Brine King] restore defensive stance");
         }
 
-        async Task State(ClientState conn, string name, int value)
+        async Task State(Player conn, string name, int value)
         {
             if (boss.States is not { } states) return;
             boss.States = states.Set(name, value);
@@ -451,7 +451,7 @@ public static class BrineKing
             else await All(waveId, InstanceEntities.TransitionableUpdate(waveId, 3, state));
         }
 
-        async Task CreateWave(ClientState conn)
+        async Task CreateWave(Player conn)
         {
             await SendWorldCreate(conn, waveId, InstanceEntities.CreateObject(waveId, InstanceEntities.ObjectTypeHash(Wave),
                 new QuestObject(center.X, center.Y, ["Positioned", "BaseEvents", "Animated", "Transitionable"], TransitionState: waveState).Blob()),
@@ -461,7 +461,7 @@ public static class BrineKing
                 lock (conn.QuestObjects) conn.QuestObjects[waveId] = (new Quests.ObjectRule(conn.Layout.Id, Wave, null), new(Wave, "", center.X, center.Y, 0, null, 0), info);
         }
 
-        async Task Hazards(ClientState conn, double now)
+        async Task Hazards(Player conn, double now)
         {
             int stage = Phases.Completed + (Phases.Active && now >= floodAt ? 1 : 0);
             if (stage == 0) return;
@@ -529,7 +529,7 @@ public static class BrineKing
             }
         }
 
-        async Task LandHits(ClientState conn, double now)
+        async Task LandHits(Player conn, double now)
         {
             foreach (var hit in hits.Where(h => h.At <= now).ToArray())
             {
@@ -545,7 +545,7 @@ public static class BrineKing
             }
         }
 
-        async Task Hit(ClientState conn, (int X, int Y) from, MonsterAttack attack)
+        async Task Hit(Player conn, (int X, int Y) from, MonsterAttack attack)
         {
             Game.MonsterHitOutcome? outcome = null;
             await Send(conn, [], null, atGate: () =>
@@ -565,7 +565,7 @@ public static class BrineKing
             }
         }
 
-        async Task Minion(ClientState conn)
+        async Task Minion(Player conn)
         {
             var variety = Monsters.Find("Metadata/Monsters/BrineKing/BrineKingMinion_");
             if (variety is not { Supported: true }) return;
@@ -576,7 +576,7 @@ public static class BrineKing
             lock (conn.Monsters) if (conn.Monsters.TryGetValue(spawned, out var minion)) minion.SummonerId = id;
         }
 
-        async Task<uint> Effect(ClientState conn, (int X, int Y) at, string ao, double expires)
+        async Task<uint> Effect(Player conn, (int X, int Y) at, string ao, double expires)
         {
             uint effect;
             lock (conn.Monsters) effect = conn.TakeObjectId();
@@ -595,7 +595,7 @@ public static class BrineKing
                 await All(effect.Id, [], remove: true);
             }
         }
-        bool Awake(ClientState conn)
+        bool Awake(Player conn)
         {
             lock (conn.Monsters) return conn.MonsterViews.ContainsKey(id) && !conn.AsleepMonsters.Contains(id);
         }

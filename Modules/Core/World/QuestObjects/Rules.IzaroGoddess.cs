@@ -7,7 +7,7 @@ static partial class QuestobjectsRules
 {
     // The Goddess of Justice (IzaroGoddess) on Izaro's back, from his rise: out of the AI and of every hit for good, no bar,
     // no rewards. Not kept with the instance (the arena places her with him).
-    static async Task SpawnIzaroGoddess(ClientState conn, IzaroArena arena,
+    static async Task SpawnIzaroGoddess(Player conn, IzaroArena arena,
         uint izaro, byte level, (int X, int Y) at)
     {
         if (Monsters.Find(IzaroGoddess.Variety) is not { Supported: true } variety)
@@ -27,13 +27,13 @@ static partial class QuestobjectsRules
 
     // She rides up on him (the original, live): her .ot creates her held at her emerge clip's start, unseen until an action
     // plays (live: she showed with her first volley), so her Emerge (her Actor's basic action) starts with his.
-    static byte[] IzaroGoddessEmerges(IzaroArena arena, int x, int y, ClientState conn) =>
+    static byte[] IzaroGoddessEmerges(IzaroArena arena, int x, int y, Player conn) =>
         arena.Goddess != 0 && Emerges.SkillId is ushort emerge
             ? [.. InstanceProtocol.ActionStarted(arena.Goddess, x, y, x, y, emerge, 0xffff, conn.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(arena.Goddess)]
             : [];
 
     // Izaro has died: she turns slowly and flies up (her death clip, live), and is gone after it.
-    static async Task IzaroGoddessFliesUp(ClientState conn, IzaroArena arena)
+    static async Task IzaroGoddessFliesUp(Player conn, IzaroArena arena)
     {
         if (arena.GoddessMonster is not { } goddess) return;
         uint id = arena.Goddess;
@@ -48,7 +48,7 @@ static partial class QuestobjectsRules
     }
 
     // Her removal, with Izaro's when he leaves (she rides down on him).
-    static byte[] IzaroGoddessGone(ClientState conn, IzaroArena arena)
+    static byte[] IzaroGoddessGone(Player conn, IzaroArena arena)
     {
         if (arena.GoddessMonster is not { } goddess) return [];
         uint id = arena.Goddess;
@@ -63,7 +63,7 @@ static partial class QuestobjectsRules
 
     // The Goddess's Guardians (IzaroGoddess): from when Izaro is hurt until the trial ends, her mortars open circles at random
     // places of the arena, each with its guardians, which die by themselves.
-    static async Task RunIzaroGuardians(ClientState conn, IzaroArena arena,
+    static async Task RunIzaroGuardians(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         if (Monsters.Find(IzaroGoddess.Guardian) is not { Supported: true } guardian)
@@ -104,7 +104,7 @@ static partial class QuestobjectsRules
     }
 
     // Random floor of the arena out of the skill's minimum range of Izaro, none on another. Under the Monsters lock.
-    static List<(int X, int Y)> IzaroGuardianSpots(ClientState conn, IzaroArena arena)
+    static List<(int X, int Y)> IzaroGuardianSpots(Player conn, IzaroArena arena)
     {
         var spots = new List<(int X, int Y)>();
         if (arena.Centre is not { } centre || arena.Boss is not { } boss) return spots;
@@ -122,7 +122,7 @@ static partial class QuestobjectsRules
     }
 
     // A circle where her mortar lands, its guardians in it.
-    static async Task OpenIzaroCircle(ClientState conn, IzaroArena arena,
+    static async Task OpenIzaroCircle(Player conn, IzaroArena arena,
         MonsterCatalog.Variety guardian, (int X, int Y) spot, double after, AreaLayout layout)
     {
         try
@@ -144,7 +144,7 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} the Goddess's circle stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task RemoveIzaroCircle(ClientState conn, AreaLayout layout, uint effect)
+    static async Task RemoveIzaroCircle(Player conn, AreaLayout layout, uint effect)
     {
         await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.ImpactSeconds));
         if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
@@ -154,7 +154,7 @@ static partial class QuestobjectsRules
 
     // IzaroSkeleton.ot's DiesAfterTime, outside its client block, so the server's: it goes when its time is up, and so does
     // the corpse of one killed before that (the user's call: they would pile up in the arena otherwise).
-    static async Task ExpireIzaroGuardian(ClientState conn, AreaLayout layout, uint id)
+    static async Task ExpireIzaroGuardian(Player conn, AreaLayout layout, uint id)
     {
         await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.GuardianSeconds));
         if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;

@@ -8,13 +8,13 @@ namespace GameServer.Gateway.Tests;
 public sealed class ItemSupportModifierTests
 {
     // A character with a bow linked to the given gems; the first skill effect found is the supported active skill.
-    static void WithConnection(string tag, Action<ClientState> body)
+    static void WithConnection(string tag, Action<Player> body)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-{tag}-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, tag, 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, tag, 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "ItemSupportChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
@@ -33,7 +33,7 @@ public sealed class ItemSupportModifierTests
         }
     }
 
-    static ushort Link(ClientState conn, string skillGem, params string[] supports)
+    static ushort Link(Player conn, string skillGem, params string[] supports)
     {
         var bow = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!);
         List<ItemSocket> sockets = [new ItemSocket(SocketColour.White, ItemCatalog.Create(Program.Items.Find(skillGem)!))];

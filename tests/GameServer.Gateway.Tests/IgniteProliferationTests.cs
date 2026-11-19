@@ -17,7 +17,7 @@ public class IgniteProliferationTests
             ("main_hand_ignite_proliferation_radius", 20));
         Assert.Equal((17, 20), (Game.IgniteProliferationRadius(get, "spell"), Game.IgniteProliferationRadius(get, "main_hand")));
 
-        var conn = new ClientState(new(1, "ignite", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "ignite", 300, 300, 100, 100, null, []), 1, 1);
         var (source, near, far, immune) = (At(100), At(110), At(116), At(105, ("immune_to_ignite", 1)));
         uint id = 0;
         foreach (var m in new[] { source, near, far, immune }) conn.Monsters[++id] = m;
@@ -38,7 +38,7 @@ public class IgniteProliferationTests
     [Fact]
     public void Corpse_spreads_its_ignite_until_it_ends()
     {
-        var conn = new ClientState(new(1, "corpse", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "corpse", 300, 300, 100, 100, null, []), 1, 1);
         var (source, near) = (At(100), At(110));
         conn.Monsters[1] = source;
         conn.Monsters[2] = near;

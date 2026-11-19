@@ -11,7 +11,7 @@ public class BowCosmeticSlotTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
-            var conn = new ClientState(new(1, "1_1_1", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
+            var conn = new Player(new(1, "1_1_1", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
             var items = Game.ItemsOf(conn);
             items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
             CharacterSaves.SetCosmetic(character, 1, new(340, Hash: seraphBow));
@@ -40,7 +40,7 @@ public class BowCosmeticSlotTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
-            var conn = new ClientState(new(1, "1_1_1", 100, 100, 20, 20, null, []), 1, 1)
+            var conn = new Player(new(1, "1_1_1", 100, 100, 20, 20, null, []), 1, 1)
                 { Character = character, Experience = CharacterStats.ExperienceFor(100) };
             var items = Game.ItemsOf(conn);
             items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
@@ -76,13 +76,13 @@ public class BowCosmeticSlotTests
         {
             CharacterSaves.SetCosmetic(character, 15, new(4935, Hash: goblinShamanSkin));
             uint morphStat = Program.Stats.Key("mtx_virtual_morph_art_variation_index")!.Value;
-            var town = new ClientState(new(9052, "1_1_town", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
+            var town = new Player(new(9052, "1_1_town", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
             var morph = Game.WornMorph(town);
             Assert.Equal(28, morph!.Index);
             Assert.EndsWith("GoblinShamanPet_01.ao", morph.Model);
             Assert.EndsWith("GoblinShamanTransform1.act", morph.Actor);
             Assert.Contains((morphStat, 28), Game.CosmeticStats(town));
-            var strand = new ClientState(new(61450, "1_1_1", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
+            var strand = new Player(new(61450, "1_1_1", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
             Assert.Null(Game.WornMorph(strand));
             Assert.DoesNotContain(Game.CosmeticStats(strand), s => s.Stat == morphStat);
         }

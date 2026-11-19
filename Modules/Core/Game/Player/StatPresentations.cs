@@ -6,7 +6,7 @@ public static partial class Game
     // What the client is shown of state the player's stats already follow (S2 marks and times each change): these
     // presentations run when the stats change (PlayerStatsUpdated), or when their state changes without a stat
     // (PresentStats), not on the player tick.
-    static readonly Func<ClientState, Task>[] StatPresentations =
+    static readonly Func<Player, Task>[] StatPresentations =
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
@@ -18,14 +18,14 @@ public static partial class Game
     ];
 
     // After the others, outside their batch: Spirit Chieftain's minion follows its published state.
-    static readonly Func<ClientState, Task>[] StatPresentationsAfter =
+    static readonly Func<Player, Task>[] StatPresentationsAfter =
     [
         SendSpiritChieftain,
     ];
 
     // The quest items' grant flags follow the items carried (dropped, sold, stashed ones too): on an inventory change
     // (PlayerInventories.Changed); no inventory change here (the message path removes items).
-    static Task SendQuestItems(ClientState conn)
+    static Task SendQuestItems(Player conn)
     {
         if (conn.PlayerLife == 0) return Task.CompletedTask;
         lock (conn.Monsters)
@@ -35,14 +35,14 @@ public static partial class Game
 
     // What depends on where the player and the monsters stand: run when a walker moved to another cell (the area's
     // movement), a blocker was added, and with the stat presentations (a stat change moves radii and grants).
-    static readonly Func<ClientState, Task>[] NearbyPresentations =
+    static readonly Func<Player, Task>[] NearbyPresentations =
     [
         SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld, SendQuestThresholds,
         SendFlaskGrounds,
     ];
 
     // A monster that never dies reached its quest threshold (its PresentationChanged).
-    static Task SendQuestThresholds(ClientState conn)
+    static Task SendQuestThresholds(Player conn)
     {
         if (conn.PlayerLife == 0) return Task.CompletedTask;
         lock (conn.Monsters)
@@ -50,14 +50,14 @@ public static partial class Game
         return CheckQuestThresholds(conn);
     }
 
-    static Task SendExpandedInventory(ClientState conn) =>
+    static Task SendExpandedInventory(Player conn) =>
         SyncExpandedInventory(conn);
 
-    static Task SendPushOut(ClientState conn) =>
+    static Task SendPushOut(Player conn) =>
         PushOutOfCollision(conn);
 
     // The party's auras: the ones this player gives and gets by range.
-    static Task SendNearbyAuras(ClientState conn) =>
+    static Task SendNearbyAuras(Player conn) =>
         conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
             || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0)
             ? SendOwnAuraChanges(conn) : Task.CompletedTask;
@@ -67,7 +67,7 @@ public static partial class Game
     // the nearby world again.
     const string SightZones = "sight", WaypointSight = "waypoint", GlyphWallSight = "glyph wall", MonsterSight = "monsters";
 
-    static void SyncSightZones(ClientState conn, IReadOnlyCollection<string>? watched)
+    static void SyncSightZones(Player conn, IReadOnlyCollection<string>? watched)
     {
         var points = new List<(object, int, (int, int))>();
         if (conn.Layout.Waypoint is { } waypoint) points.Add((WaypointSight, (int)WaypointActivationRange, (waypoint.GridX, waypoint.GridY)));
@@ -78,13 +78,13 @@ public static partial class Game
                 new EntityId(conn.PeerId), _ => PresentNearby(conn)));
     }
 
-    static bool Sees(ClientState conn, string what)
+    static bool Sees(Player conn, string what)
     {
         lock (conn.Monsters) return InZone(conn, conn.PeerId, SightZones, what, conn.PeerId);
     }
 
     // The waypoint, the gold in the auto-loot radius and the quests' sight rules, where the player stands.
-    static async Task SendNearbyWorld(ClientState conn)
+    static async Task SendNearbyWorld(Player conn)
     {
         if (conn.PlayerLife == 0) return;
         var watched = QuestsOf(conn).Watched(conn.Layout.Id);
@@ -121,7 +121,7 @@ public static partial class Game
 
     // Death ends the auras, Righteous Fire and Bladefall of Trarthus; an empty mana pool ends Bladefall (the resource
     // writer spends it). Both are stat conditions, so their flip runs this.
-    static async Task SendLifeAndManaEndings(ClientState conn)
+    static async Task SendLifeAndManaEndings(Player conn)
     {
         if (conn.PlayerLife == 0)
         {
@@ -148,7 +148,7 @@ public static partial class Game
     }
 
     // The bleed and poison buffs on the player, against the ones the client was shown.
-    static async Task SendIncomingAilmentChanges(ClientState conn)
+    static async Task SendIncomingAilmentChanges(Player conn)
     {
         IncomingDamagingAilments.State nextIncoming;
         IncomingDamagingAilments.State presented;
@@ -184,7 +184,7 @@ public static partial class Game
     }
 
     // The player's elemental ailment buffs, against the ones the client was shown.
-    static async Task SendElementalAilmentChanges(ClientState conn)
+    static async Task SendElementalAilmentChanges(Player conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
         var next = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
@@ -193,17 +193,17 @@ public static partial class Game
         presenting.Ailments = next;
         await SendPlayerAilmentBuffs(conn, before, next);
     }
-    static readonly Store<ClientState, Presenting> PresentingOf = new();
+    static readonly Store<Player, Presenting> PresentingOf = new();
 
     /// <summary>What a stat presentation shows changed: they run after the next Stats phase.</summary>
-    static void PresentStats(ClientState conn) => PresentingOf.GetOrCreateValue(conn).Pending = true;
+    static void PresentStats(Player conn) => PresentingOf.GetOrCreateValue(conn).Pending = true;
 
     /// <summary>A walker moved to another cell or a blocker appeared: the nearby presentations run after the next Stats
     /// phase.</summary>
-    public static void PresentNearby(ClientState conn) => PresentingOf.GetOrCreateValue(conn).NearbyPending = true;
+    public static void PresentNearby(Player conn) => PresentingOf.GetOrCreateValue(conn).NearbyPending = true;
 
     /// <summary>A presentation's state changes on its own in <paramref name="seconds"/> (an expiry): they run again then.</summary>
-    static void PresentIn(ClientState conn, double seconds)
+    static void PresentIn(Player conn, double seconds)
     {
         if (PresentVerifyTag.Value is not null) return;
         var presenting = PresentingOf.GetOrCreateValue(conn);
@@ -212,7 +212,7 @@ public static partial class Game
     }
 
     // The Stats phase, after the player's step.
-    static void RunStatPresentations(ClientState conn)
+    static void RunStatPresentations(Player conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
         lock (presenting)
@@ -256,7 +256,7 @@ public static partial class Game
     static readonly bool VerifyPresentations = Environment.GetEnvironmentVariable("Game_PRESENT_VERIFY") == "1";
     static readonly AsyncLocal<string?> PresentVerifyTag = new();
 
-    static async Task VerifyStatPresentations(ClientState conn)
+    static async Task VerifyStatPresentations(Player conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
         if (!VerifyPresentations || !presenting.Ran) return;

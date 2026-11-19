@@ -4,9 +4,9 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class PetrifiedBloodTests
 {
-    static ClientState Player(uint life, uint maximumLife)
+    static Player Player(uint life, uint maximumLife)
     {
-        var conn = new ClientState(new(1, "petrified", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "petrified", 300, 300, 100, 100, null, []), 1, 1)
         {
             Pools = new(1, maximumLife, 1000, 0, 0),
             PlayerLife = life,
@@ -15,7 +15,7 @@ public sealed class PetrifiedBloodTests
     }
 
     // The hit pool only takes hits while the game's rules are active.
-    static int TakeHit(ClientState conn, int damage)
+    static int TakeHit(Player conn, int damage)
     {
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;

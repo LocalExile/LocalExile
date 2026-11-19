@@ -63,7 +63,7 @@ public sealed class ServerWorkContext(ServerWork work) : SynchronizationContext
     }
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     ServerWork? serverWork;
 

@@ -28,7 +28,7 @@ public class LockstepMonsterTests : IDisposable
         if (previousLogic is not null) Program.SetGameLogic(previousLogic);
     }
 
-    static ClientState Connection(bool lockstep, string? character = null) => new(new(1, "chase", 300, 300, 100, 100, null, []), 1, 1)
+    static Player Connection(bool lockstep, string? character = null) => new(new(1, "chase", 300, 300, 100, 100, null, []), 1, 1)
     {
         Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep, Character = character,
     };
@@ -41,7 +41,7 @@ public class LockstepMonsterTests : IDisposable
         bool open = false;
         var layout = new AreaLayout(1, "chase", 300, 300, 100, 100, (_, _) => true, [])
             { Sight = (x, y) => x == 110 && y == 100 && !open ? 0 : 1 };
-        var conn = new ClientState(layout, 1, 1) { Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep };
+        var conn = new Player(layout, 1, 1) { Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep };
         var shooter = new SpawnedMonster("archer", new PlayerWalk(120, 100, 8), 60, 2, 10)
         {
             Attack = new(1, 1, 30, DamagePacket.Empty) { Ranged = true, Projectile = new("arrow", 75, false, 1) },
@@ -547,7 +547,7 @@ public class LockstepMonsterTests : IDisposable
 
         // A give-up gets no order, as GGG's gets none: the estimate walks on to its old target, as the client's monster did
         // after a dropped give-up Move. A frozen walker gets no stop. A predictive client gets both Moves.
-        (SpawnedMonster Leaving, SpawnedMonster Frozen) Pair(ClientState on, bool frames)
+        (SpawnedMonster Leaving, SpawnedMonster Frozen) Pair(Player on, bool frames)
         {
             PlayerWalk At(int x) => frames ? new(x, 100, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) } : new(x, 100, 8);
             var leaving = Drowned(At(230));
@@ -623,7 +623,7 @@ public class LockstepMonsterTests : IDisposable
         // A fighting minion 2 cells from its approach cell gets its attack aimed at the target instead of that Move: a melee
         // one walks up on the client (0x141e9afc0) and swings at the walk-up's end, an in-place one shoots from where it
         // stands. A predictive client gets the Moves.
-        (SpawnedMonster Melee, SpawnedMonster Archer) Fighters(ClientState on, bool frames)
+        (SpawnedMonster Melee, SpawnedMonster Archer) Fighters(Player on, bool frames)
         {
             PlayerWalk At(int y) => frames ? new(100, y, 8) { FrameOf = at => (Math.Min(at, 1.0), 1.033) } : new(100, y, 8);
             on.Monsters[0x3010] = Drowned(At(130));   // the target: its size 2 and their reach 8 make 10, the approach 9 off
@@ -720,7 +720,7 @@ public class LockstepMonsterTests : IDisposable
         var skills = new SkillCatalog("data");
         foreach (bool lockstep in new[] { true, false })
         {
-            var conn = new ClientState(new(1, "mortar-goal", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "mortar-goal", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true,
                 LockstepClient = lockstep, Instance = new(),

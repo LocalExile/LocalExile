@@ -378,9 +378,9 @@ public sealed class ShrineTests
         }
     }
 
-    sealed class ShrineWire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
+    sealed class ShrineWire(TcpClient writer, TcpClient reader, Player conn, Task drain) : IAsyncDisposable
     {
-        public ClientState Conn => conn;
+        public Player Conn => conn;
         public static async Task<ShrineWire> Open(InstanceState instance)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -389,7 +389,7 @@ public sealed class ShrineTests
             var accepting = listener.AcceptTcpClientAsync();
             await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             var reader = await accepting;
-            var conn = new ClientState(new(0, "ShrineLifecycleTest", 1000, 1000, 100, 100, (_, _) => true, []), 0, 1)
+            var conn = new Player(new(0, "ShrineLifecycleTest", 1000, 1000, 100, 100, (_, _) => true, []), 0, 1)
             { LockstepClient = false,
                 Instance = instance, PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true,
                 Pools = new(1, 1000, 1000, 1000, 0),

@@ -6,7 +6,7 @@ using GameServer.Core;
 /// minor, the quest flag that unlocks the god, the god's power and three upgrades as stats) and PantheonSouls (the
 /// upgrades' quest flags: a captured soul handed to Sin sets <c>&lt;God&gt;Upgrade&lt;N&gt;</c>). Rows 4, 5, 7 and 12 are disabled
 /// placeholders (QuestFlag NEVER_SET). The data the Pantheon module (Modules/Core/Player/Pantheon) chooses and applies the
-/// gods by; the choice itself is the character's (ClientState and the save: PantheonMajor, PantheonMinor).
+/// gods by; the choice itself is the character's (Player and the save: PantheonMajor, PantheonMinor).
 /// </summary>
 public sealed class PantheonCatalog
 {
@@ -52,8 +52,8 @@ public sealed class PantheonCatalog
     /// unlocked (<paramref name="has"/>: the flags the client has), its upgrades only once the character earned
     /// EndGameAvailable. Every character is given that flag at login for the Atlas (Quests.EveryCharacter; until earned
     /// only in a hideout and the maps, Quests.EndgameOnly): it counts once a quest set it
-    /// (<see cref="ClientState.EarnedQuestFlag"/>, as Kitava's Act 10 resistance penalty).</summary>
-    public List<(uint Key, int Value)> ChosenStats(ClientState conn, Func<string, bool> has)
+    /// (<see cref="Player.EarnedQuestFlag"/>, as Kitava's Act 10 resistance penalty).</summary>
+    public List<(uint Key, int Value)> ChosenStats(Player conn, Func<string, bool> has)
     {
         bool endgame = conn.EarnedQuestFlag(Quests.EndGameAvailable);
         string? major, minor;

@@ -5,11 +5,11 @@ static partial class Game
     internal static bool MinionUtility(string? effect) => effect is "ConvocationOld" or "Convocation"
         or "FleshOffering" or "BoneOffering" or "SpiritOffering" or "SignalPrey";
 
-    static IEnumerable<GolemState.Golem> UtilityFighters(ClientState conn) =>
+    static IEnumerable<GolemState.Golem> UtilityFighters(Player conn) =>
         conn.Golems.All.Values.Concat(conn.Summons.Fighters.Values).Concat(conn.Reservations.Fighters.Values)
             .Where(g => !g.Monster.Dead && g.Monster.Life > 0);
 
-    internal static async Task<bool> CastMinionUtility(ClientState conn, ushort source, (int X, int Y) aim,
+    internal static async Task<bool> CastMinionUtility(Player conn, ushort source, (int X, int Y) aim,
         uint target, int recovery, Func<bool> current)
     {
         var gem = SupportedSkill(conn, source);
@@ -37,7 +37,7 @@ static partial class Game
         }
     }
 
-    internal static void RecallMinionsLocked(ClientState conn, SupportedGem gem, double now)
+    internal static void RecallMinionsLocked(Player conn, SupportedGem gem, double now)
     {
         var player = CharacterPlayerStats(conn);
         double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration"),
@@ -61,7 +61,7 @@ static partial class Game
         }
     }
 
-    internal static bool StartOfferingLocked(ClientState conn, ushort source, SupportedGem gem, string effect,
+    internal static bool StartOfferingLocked(Player conn, ushort source, SupportedGem gem, string effect,
         (int X, int Y) aim, uint target, double now)
     {
         bool Usable(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
@@ -128,7 +128,7 @@ static partial class Game
         return true;
     }
 
-    static Dictionary<string, int> MinionOfferingStats(ClientState conn, double now)
+    static Dictionary<string, int> MinionOfferingStats(Player conn, double now)
     {
         var stats = new Dictionary<string, int>();
         lock (conn.Monsters)
@@ -137,7 +137,7 @@ static partial class Game
         return stats;
     }
 
-    internal static void MinionUtilityTick(ClientState conn, double now)
+    internal static void MinionUtilityTick(Player conn, double now)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
         MinionTacticsTick(conn, now);
@@ -167,7 +167,7 @@ static partial class Game
         }
     }
 
-    static void AddSelfOfferingStats(ClientState conn, StatMap stats)
+    static void AddSelfOfferingStats(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
             if (conn.PlayerLife > 0)
@@ -175,7 +175,7 @@ static partial class Game
                     stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
-    static void SelfOfferingTick(ClientState conn, IReadOnlyDictionary<uint, int> player, double now)
+    static void SelfOfferingTick(Player conn, IReadOnlyDictionary<uint, int> player, double now)
     {
         var state = conn.Summons;
         var active = GolemStat(player, "offerings_also_buff_you") != 0 ? state.Offerings.ToArray() : [];

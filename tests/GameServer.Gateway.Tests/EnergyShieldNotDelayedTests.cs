@@ -29,7 +29,7 @@ public sealed class EnergyShieldNotDelayedTests
     [Fact]
     public void VaalAuraExpiryUsesGameTimeAndRemovesBothBuffsOnce()
     {
-        var conn = new ClientState(new(1, "vaal", 100, 100, 10, 10, null, []), 1, 1) { PlayerLife = 100 };
+        var conn = new Player(new(1, "vaal", 100, 100, 10, 10, null, []), 1, 1) { PlayerLife = 100 };
         var aura = new Game.VaalAuraState { Buff = 11, Source = 12, Until = 3, Stat = "energy_shield_recharge_not_delayed_by_damage" };
         Game.VaalAuraStates.Add(conn, aura);
         try

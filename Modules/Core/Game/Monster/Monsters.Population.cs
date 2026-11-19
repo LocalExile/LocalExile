@@ -10,11 +10,11 @@ public static partial class Game
 
     // Plans begun when the area's 0x1d went out (PlanPopulationAhead), one per connection until its 0x7d takes it. A
     // reloaded module starts with none, and its 0x7d plans there.
-    static readonly ConditionalWeakTable<ClientState, Task<PopulationPlan?>> PopulationsAhead = new();
+    static readonly ConditionalWeakTable<Player, Task<PopulationPlan?>> PopulationsAhead = new();
 
     /// <summary>Plans the area's packs while the client generates the area (from S→C 0x1d to C→S 0x7d, about as long as
     /// the plan takes), so its 0x7d only creates them. Nothing when the area would get no plan there either.</summary>
-    public static void PlanPopulationAhead(ClientState conn)
+    public static void PlanPopulationAhead(Player conn)
     {
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0" || conn.Instance.Monsters is not null
             || CaptureTour.Active(CharacterName(conn)) || Monsters.Error is not null) return;
@@ -35,7 +35,7 @@ public static partial class Game
 
     // The plan made ahead, when it was made for what the area is now: the arrival that 0x7d settled on and the quest
     // flags (a quest the entry advanced can bring or hold a boss).
-    static async Task<PopulationPlan?> PlannedPopulation(ClientState conn, AreaLayout layout)
+    static async Task<PopulationPlan?> PlannedPopulation(Player conn, AreaLayout layout)
     {
         if (!PopulationsAhead.TryGetValue(conn, out var ahead)) return null;
         PopulationsAhead.Remove(conn);
@@ -47,7 +47,7 @@ public static partial class Game
 
     // Pure: reads the layout, the catalogs and the connection's quest flags, map and seed, and changes nothing, so it may
     // run on another thread while the client generates the area.
-    static PopulationPlan PlanPopulation(ClientState conn, AreaLayout layout, PackCatalog.AreaPacks area)
+    static PopulationPlan PlanPopulation(Player conn, AreaLayout layout, PackCatalog.AreaPacks area)
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var questFlags = conn.QuestFlagsSnapshot();

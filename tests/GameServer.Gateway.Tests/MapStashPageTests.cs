@@ -44,7 +44,7 @@ public class MapStashPageTests : IDisposable
         Assert.True(stash.PageKeyOf(next) != stash.PageKeyOf(page0));
         Assert.True(stash.PageKeyOf(next) == AccountStash.MapPageKey(1, tierOne.Hash));
 
-        var conn = new ClientState(new(ushort.MaxValue, "MapStashTest", 128, 128, 32, 32, null, []), 0, 1)
+        var conn = new Player(new(ushort.MaxValue, "MapStashTest", 128, 128, 32, 32, null, []), 0, 1)
             { Account = account, Character = account, League = "Standard" };
         var items = PlayerInventories.For(account, catalog);
         conn.StashTabsSent.UnionWith([mapTab, next]);

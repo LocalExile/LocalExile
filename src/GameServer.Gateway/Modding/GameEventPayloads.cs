@@ -10,7 +10,7 @@ public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameS
 }
 
 /// <summary>A monster the player killed, after its kill was committed (<see cref="GameEvents.MonsterKilled"/>).</summary>
-public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)
+public sealed record MonsterKill(Player Conn, MonsterInfo Monster)
 {
     public IPlayer Player => Program.PlayerOf(Conn);
 }
@@ -26,7 +26,7 @@ public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)
 /// <param name="Row">Its <c>NPCTalk</c> row.</param>
 /// <param name="OpensGuildHideouts">A SelectHideout row's choice of list.</param>
 /// <param name="RewardOffer">A QuestReward row's offer.</param>
-public sealed record NpcOption(ClientState Conn, string Npc, string Category, string Option, string Script, bool HasText, int Index, int Row,
+public sealed record NpcOption(Player Conn, string Npc, string Category, string Option, string Script, bool HasText, int Index, int Row,
     bool OpensGuildHideouts, int? RewardOffer)
 {
     public IPlayer Player => Program.PlayerOf(Conn);
@@ -35,7 +35,7 @@ public sealed record NpcOption(ClientState Conn, string Npc, string Category, st
 /// <summary>A new instance's monsters are placed (<see cref="GameEvents.AreaPopulated"/>): the monsters' level, the
 /// population's seed (for an encounter's own rolls) and the cells the packs and bosses took, to keep an encounter
 /// apart from them.</summary>
-public sealed record AreaPopulated(ClientState Conn, byte Level, int Seed, IReadOnlyList<(int X, int Y)> Taken)
+public sealed record AreaPopulated(Player Conn, byte Level, int Seed, IReadOnlyList<(int X, int Y)> Taken)
 {
     public IPlayer Player => Program.PlayerOf(Conn);
 }
@@ -47,10 +47,10 @@ public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? Achievemen
 }
 
 /// <summary>A checked device recipe before payment: content may resolve an abstract destination or refuse it.</summary>
-public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> slots, bool campaign,
+public sealed class MapOpening(Player conn, IReadOnlyList<MapDevice.Slot> slots, bool campaign,
     MapDevice.Opening? opening, string reason)
 {
-    public ClientState Conn { get; } = conn;
+    public Player Conn { get; } = conn;
     public IReadOnlyList<MapDevice.Slot> Slots { get; } = slots;
     public bool Campaign { get; } = campaign;
     public ushort Target { get; init; }
@@ -68,10 +68,10 @@ public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> s
 }
 
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>
-public sealed class DropRoll(ClientState conn, MonsterInfo monster)
+public sealed class DropRoll(Player conn, MonsterInfo monster)
 {
     /// <summary>Who killed it.</summary>
-    public ClientState Conn { get; } = conn;
+    public Player Conn { get; } = conn;
 
     public IPlayer Player => Program.PlayerOf(Conn);
 
@@ -111,10 +111,10 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>
-public sealed class ExperienceGain(ClientState conn, MonsterInfo monster, uint experience)
+public sealed class ExperienceGain(Player conn, MonsterInfo monster, uint experience)
 {
     /// <summary>Who gains it.</summary>
-    public ClientState Conn { get; } = conn;
+    public Player Conn { get; } = conn;
 
     public IPlayer Player => Program.PlayerOf(Conn);
 
@@ -126,12 +126,12 @@ public sealed class ExperienceGain(ClientState conn, MonsterInfo monster, uint e
 }
 
 /// <summary>Stats added to the character, like /god's: the pools (life, mana) are not rebuilt from them. Values of the same stat add up.</summary>
-public sealed class StatSheet(ClientState conn)
+public sealed class StatSheet(Player conn)
 {
     readonly Dictionary<string, int> _added = new(StringComparer.Ordinal);
 
     /// <summary>Whose stats these are.</summary>
-    public ClientState Conn { get; } = conn;
+    public Player Conn { get; } = conn;
 
     public IPlayer Player => Program.PlayerOf(Conn);
 

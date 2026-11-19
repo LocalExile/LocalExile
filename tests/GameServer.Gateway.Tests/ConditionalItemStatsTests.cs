@@ -334,7 +334,7 @@ public partial class ConditionalItemStatsTests
         Saves.Open(path);
         try
         {
-            var conn = new ClientState(new(1, "received-hit", 300, 300, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "received-hit", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };

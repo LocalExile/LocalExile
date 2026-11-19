@@ -129,9 +129,9 @@ public sealed class PlayerBotsMcpTests
         Assert.False(lease.Active);
         Assert.False(lease.Owns(lease.Id));
 
-        var bot = new ClientState(new(1, "mcp-bounds", 300, 300, 100, 100, null, []), 1, 1)
+        var bot = new Player(new(1, "mcp-bounds", 300, 300, 100, 100, null, []), 1, 1)
             { Controlled = true, PlayerLife = 100 };
-        var leader = new ClientState(bot.Layout, 1, 1) { PlayerLife = 100 };
+        var leader = new Player(bot.Layout, 1, 1) { PlayerLife = 100 };
         bot.Walk.Teleport(100, 100, 0); leader.Walk.Teleport(100, 100, 0);
         Assert.True(Game.ControlledMoveFits(bot, leader, 125, 100, 0));
         Assert.False(Game.ControlledMoveFits(bot, leader, 161, 100, 0));

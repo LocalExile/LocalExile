@@ -16,7 +16,7 @@ public sealed class GolemTests
         var catalog = new GolemCatalog(); var skills = new SkillCatalog(); var monsters = new MonsterCatalog();
         Assert.Equal(17, catalog.All.Count);
         Assert.Null(catalog.Find("SummonLightningGolemAltY"));
-        var conn = new ClientState(new(1, "golem-catalog", 1000, 1000, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "golem-catalog", 1000, 1000, 100, 100, null, []), 1, 1);
         foreach (var definition in catalog.All)
         {
             var variety = monsters.Find(definition.Variety);

@@ -53,7 +53,7 @@ public static partial class Game
 
     /// <summary>The throw as the client draws it: the object's BeThrown action from the thrower to the aim, then its walk
     /// there over the flight.</summary>
-    public static List<byte[]> PlacedThrowRecords(ClientState conn, uint id, (int X, int Y) from, (int X, int Y) aim, double flight)
+    public static List<byte[]> PlacedThrowRecords(Player conn, uint id, (int X, int Y) from, (int X, int Y) aim, double flight)
     {
         List<byte[]> records = [];
         if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
@@ -63,7 +63,7 @@ public static partial class Game
     }
 
     /// <summary>The landing: the throw ends, the object stands at its cell and plays Arm.</summary>
-    static void PlacedLandRecords(ClientState conn, uint id, (int X, int Y) at, WorldRecordBuilder bytes)
+    static void PlacedLandRecords(Player conn, uint id, (int X, int Y) at, WorldRecordBuilder bytes)
     {
         bytes.World(id, InstanceProtocol.ActionEnded(id));
         bytes.World(id, InstanceProtocol.Teleport(id, at.X, at.Y));
@@ -82,7 +82,7 @@ public static partial class Game
 
     // The family decision belongs to the original cast, before its first output/grace/payment await. The captured
     // lifetime keeps the numeric skill id from adopting a physical source that was removed and reinserted.
-    private static bool TryCapturePlacedCastAdmissionLocked(ClientState conn, ushort skill,
+    private static bool TryCapturePlacedCastAdmissionLocked(Player conn, ushort skill,
         out PlacedCastAdmission? admission)
     {
         admission = null;
@@ -101,7 +101,7 @@ public static partial class Game
         return true;
     }
 
-    private static bool PlacedCastStructuralOwnerCurrentLocked(ClientState conn, PlacedCastAdmission admission,
+    private static bool PlacedCastStructuralOwnerCurrentLocked(Player conn, PlacedCastAdmission admission,
         int? recovery = null)
     {
         return CurrentGameWork && CurrentGameRules && !conn.Closed && !conn.LeavingArea && !conn.RageRetired
@@ -111,7 +111,7 @@ public static partial class Game
             && conn.GemSourceLifetimes.IsCurrent(admission.Source);
     }
 
-    private static bool PlacedCastAdmissionCurrentLocked(ClientState conn, PlacedCastAdmission admission,
+    private static bool PlacedCastAdmissionCurrentLocked(Player conn, PlacedCastAdmission admission,
         SupportedGem supported, int? recovery = null)
     {
         if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery))
@@ -124,7 +124,7 @@ public static partial class Game
             && source.Identity == admission.Identity && source.Identity == admission.Source.Key;
     }
 
-    private static bool PlacedCastFamilyCurrent(ClientState conn, ushort skill, PlacedCastAdmission? admission)
+    private static bool PlacedCastFamilyCurrent(Player conn, ushort skill, PlacedCastAdmission? admission)
     {
         lock (conn.Monsters)
         {
@@ -138,7 +138,7 @@ public static partial class Game
         }
     }
 
-    private static bool PlacedCastAdmissionCurrent(ClientState conn, PlacedCastAdmission admission, int? recovery = null)
+    private static bool PlacedCastAdmissionCurrent(Player conn, PlacedCastAdmission admission, int? recovery = null)
     {
         lock (conn.Monsters)
         {
@@ -149,7 +149,7 @@ public static partial class Game
         }
     }
 
-    public static int PlacedSkillLimit(ClientState conn, SupportedGem gem, bool mine)
+    public static int PlacedSkillLimit(Player conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
@@ -158,7 +158,7 @@ public static partial class Game
             + Get(mine ? "number_of_additional_remote_mines_allowed" : "number_of_additional_traps_allowed"), 0, 200);
     }
 
-    public static int PlacedSkillCount(ClientState conn, SupportedGem gem, bool mine)
+    public static int PlacedSkillCount(Player conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
         string additional = mine ? "number_of_additional_mines_to_place" : "number_of_additional_traps_to_throw";
@@ -166,7 +166,7 @@ public static partial class Game
     }
 
     // Preserve the existing placement-time offensive snapshot. A recipient's Blind is selected only at contact.
-    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(ClientState conn, ushort skill, SupportedGem gem)
+    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player conn, ushort skill, SupportedGem gem)
     {
         if (SupportedHitInputsFor(conn, skill, capturedGem: gem) is not { } inputs) return null;
         bool spell = !inputs.Attack;
@@ -183,7 +183,7 @@ public static partial class Game
                 local: inputs.Attack ? MainHandLocalSources(conn) : null) };
     }
 
-    static async Task<bool> PlaceSkill(ClientState conn,
+    static async Task<bool> PlaceSkill(Player conn,
         (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
         lock (conn.Monsters)
@@ -296,7 +296,7 @@ public static partial class Game
         return accepted;
     }
 
-    static void RemovePlacedLocked(ClientState conn, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
+    static void RemovePlacedLocked(Player conn, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
         if (!conn.Placed.All.Remove(placed.Id)) return;
         if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
@@ -305,45 +305,45 @@ public static partial class Game
         conn.Minions.StatRevision++;
     }
 
-    static void PlacedResourcesLocked(ClientState conn, WorldRecordBuilder bytes)
+    static void PlacedResourcesLocked(Player conn, WorldRecordBuilder bytes)
     {
         conn.Placed.Dirty = false;
         bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
         bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
     }
 
-    public static void LandPlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
+    public static void LandPlacedLocked(Player conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
     {
         var records = new WorldRecordBuilder(conn, null);
         LandPlacedRecordsLocked(conn, placed, now, records);
         bytes.AddRange(records.Bytes());
     }
 
-    public static void PlacedGroundsLocked(ClientState conn, double now, List<byte> bytes)
+    public static void PlacedGroundsLocked(Player conn, double now, List<byte> bytes)
     {
         var records = new WorldRecordBuilder(conn, null);
         PlacedGroundRecordsLocked(conn, now, records);
         bytes.AddRange(records.Bytes());
     }
 
-    public static void DetonateMinesLocked(ClientState conn, double now)
+    public static void DetonateMinesLocked(Player conn, double now)
     {
         conn.Placed.Chain = 0; conn.Placed.NextChain = now;
         foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && p.Armed <= now).OrderBy(p => p.Armed))
             mine.DetonateAt = now + .2 * conn.Placed.Chain++;
     }
 
-    public static bool CanDetonateMines(ClientState conn) =>
+    public static bool CanDetonateMines(Player conn) =>
         conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(conn));
 
-    static void LandPlacedRecordsLocked(ClientState conn, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
+    static void LandPlacedRecordsLocked(Player conn, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         if (placed.Landed || now < placed.LandAt) return;
         placed.Landed = true;
         PlacedLandRecords(conn, placed.Id, placed.At, bytes);
     }
 
-    static void PlacedDamageLocked(ClientState conn,
+    static void PlacedDamageLocked(Player conn,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
@@ -430,7 +430,7 @@ public static partial class Game
         }
     }
 
-    static void PlacedGroundRecordsLocked(ClientState conn, double now, WorldRecordBuilder bytes)
+    static void PlacedGroundRecordsLocked(Player conn, double now, WorldRecordBuilder bytes)
     {
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
         foreach (var (id, monster) in conn.Monsters.ToArray())
@@ -456,7 +456,7 @@ public static partial class Game
         }
     }
 
-    static async Task PlacedSkillsTick(ClientState conn, double now)
+    static async Task PlacedSkillsTick(Player conn, double now)
     {
         await SendWorldBatch(conn, [], admission =>
         {

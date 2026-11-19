@@ -7,7 +7,7 @@ public static partial class Game
 {
     // Reserve an object walk and its original token atomically with the same recovery/read-time check as skills.
     // An interaction dispatched before a hit may not capture a new token after that hit cancels the old action.
-    public static bool TryBeginObjectWalk(ClientState conn, double requestedAt, int x, int y, double reach,
+    public static bool TryBeginObjectWalk(Player conn, double requestedAt, int x, int y, double reach,
         out (int Action, double Now, (int X, int Y) Here, (int X, int Y) Stop, double Arrive) started,
         bool centreRange = false, int tolerance = -1)
     {
@@ -27,7 +27,7 @@ public static partial class Game
 
     // An area transition click. Plain: change area (0x2b4 now, the move itself once the client acknowledges with 0x2cd).
     // With Ctrl: list the destination's instances (0xae) for the client's instance chooser.
-    public static async Task OnUseObject(ClientState conn,
+    public static async Task OnUseObject(Player conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         lock (conn.Monsters)
@@ -182,7 +182,7 @@ public static partial class Game
 
     // karui_fortress_01/02: miniboss.arm has two bridges in one graph node. Its four telepad
     // points are in file order: arena, exterior, arena, exterior. Each pair belongs to one bridge.
-    internal static void PrepareKaruiBridgeGates(ClientState conn)
+    internal static void PrepareKaruiBridgeGates(Player conn)
     {
         var layout = conn.Layout;
         if (layout.Id != "2_6_5" || layout.Level is not { } level) return;
@@ -224,7 +224,7 @@ public static partial class Game
 
     /// <summary>The screen's fade as the player goes through a way within the area (a gate, a trial's return portal):
     /// S→C 0xcb with its fade bit, then a wait for the screen to go black, so the teleport sent next lands while it is.</summary>
-    public static async Task SendTransitionFade(ClientState conn,
+    public static async Task SendTransitionFade(Player conn,
         (int X, int Y) to, string through)
     {
         await Send(conn, [.. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionMoveSeconds),
@@ -253,7 +253,7 @@ public static partial class Game
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
-    public static async Task ShowInstances(ClientState conn, ushort dest, bool atWaypoint,
+    public static async Task ShowInstances(Player conn, ushort dest, bool atWaypoint,
         int? arrivalEntrance = null)
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = dest });
@@ -267,7 +267,7 @@ public static partial class Game
 
     // A waypoint click (C→S 0x24 on the waypoint, Agents/docs/protocol/16-waypoints.md): walk there, activate it if it is
     // not yet, then open the World panel for travel (S→C 0x7b kind 0). The panel's pick arrives as C→S 0x4d.
-    public static async Task UseWaypoint(ClientState conn,
+    public static async Task UseWaypoint(Player conn,
         InstanceTransfer.UseSkillOnObject use, WaypointObject waypoint, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, waypoint.GridX, waypoint.GridY, WaypointObjectSize, out var objectWalk)) return;
@@ -288,7 +288,7 @@ public static partial class Game
     // Activates this area's waypoint for the character (saved, added to the saved ones) and tells the client: a new 0x4c with
     // the area's bit set plays the waypoint's activation. Towns activate on entry, other waypoints when the player comes near
     // or clicks them.
-    public static async Task ActivateWaypoint(ClientState conn, string why)
+    public static async Task ActivateWaypoint(Player conn, string why)
     {
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { } entry) return;
         lock (conn.Monsters)
@@ -301,7 +301,7 @@ public static partial class Game
     }
 
     // After the player is in: a town's waypoint activates on entry, then the character's waypoints (S→C 0x4c).
-    public static async Task SendWaypoints(ClientState conn)
+    public static async Task SendWaypoints(Player conn)
     {
         if (WaypointCatalog.Areas.Entries.Count == 0) return;
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } town)
@@ -317,7 +317,7 @@ public static partial class Game
         await SendWaypointList(conn, "the character's waypoints");
     }
 
-    public static async Task SendWaypointList(ClientState conn, string why)
+    public static async Task SendWaypointList(Player conn, string why)
     {
         var entries = WaypointCatalog.Areas.Entries;
         List<int> bits;
@@ -337,12 +337,12 @@ public static partial class Game
     // and what the World panel needs (16-waypoints.md §4): the visit flags of every area entered or whose waypoint is
     // activated (they reveal the neighbouring pins and so the connection lines), and the access flags of the activated
     // waypoints' areas (their pins become travel targets).
-    public static List<int> PlayerQuestFlags(ClientState conn)
+    public static List<int> PlayerQuestFlags(Player conn)
     {
         // ThisIsMyHideout only in a hideout and the Mine Encampment, where Niko needs it for his own options; elsewhere NPCs
         // show their "not my hideout" rows. (It does not hide Sell Items: the client offers Sell only in towns and hideouts.)
         bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
-        // The quest flags as a snapshot, taken before the Waypoints lock (ClientState.QuestFlagsSnapshot): the two locks are
+        // The quest flags as a snapshot, taken before the Waypoints lock (Player.QuestFlagsSnapshot): the two locks are
         // never held together. The endgame flags not earned yet (Quests.EndgameOnly: EndGameAvailable before Kitava) only
         // in a hideout and a map area, where the map device and the maps need them.
         var own = conn.QuestFlagsSnapshot();
@@ -357,7 +357,7 @@ public static partial class Game
     }
 
     // Entering an area marks it visited (saved, added to the saved ones) before the player object carries the quest flags.
-    public static void RecordVisit(ClientState conn)
+    public static void RecordVisit(Player conn)
     {
         if (WaypointCatalog.Visits.For(conn.Layout.Id).Count == 0) return;
         lock (conn.Monsters)
@@ -370,7 +370,7 @@ public static partial class Game
 
     // C→S 0x4d: a waypoint picked on the World panel. An activated waypoint changes area (the player arrives next to its
     // waypoint); with Ctrl, the instance chooser first.
-    public static async Task TravelByWaypoint(ClientState conn, InstanceWaypoints.Travel travel)
+    public static async Task TravelByWaypoint(Player conn, InstanceWaypoints.Travel travel)
     {
         var entry = WaypointCatalog.Areas.Find(travel.AreaHash16);
         bool activated;
@@ -384,7 +384,7 @@ public static partial class Game
 
     // To the character's hideout (21-hideouts.md §3): "/hideout" (C→S 0x16 command 45) or the World panel's Hideout button
     // (C→S 0x17a). Its own instance (Auth re-enters the live one), arriving next to its waypoint.
-    public static async Task WarpToHideout(ClientState conn, string why)
+    public static async Task WarpToHideout(Player conn, string why)
     {
         if (HomeHideout(conn) is not { } hideout)
         {
@@ -395,14 +395,14 @@ public static partial class Game
         await ChangeArea(conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
-    public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
+    public static HideoutCatalog.Hideout? HomeHideout(Player conn) =>
         HideoutCatalog.Selected(SharedHideout(conn)?.Area ?? CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
 
-    public static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
+    public static HideoutScene? HideoutFurniture(Player conn) => conn.Furniture ??=
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
             ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, conn.Layout.Walkable), SavedHideoutPlacements(conn)) : null;
 
-    public static async Task SelectHideout(ClientState conn, (int Row, bool Guild) selected)
+    public static async Task SelectHideout(Player conn, (int Row, bool Guild) selected)
     {
         if (selected.Guild || conn.PendingTransfer is not null) return;
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
@@ -418,7 +418,7 @@ public static partial class Game
     }
 
     // 0x2b4 now; the move itself (0x27) once the client acknowledges with 0x2cd.
-    public static async Task ChangeArea(ClientState conn, PendingTransfer t, string why)
+    public static async Task ChangeArea(Player conn, PendingTransfer t, string why)
     {
         foreach (var check in GameEvents.TravelRefusal.For(conn))
             if (check(conn, t) is { } refusal)
@@ -446,7 +446,7 @@ public static partial class Game
     // The capture tour's next step (CaptureTour), after an area load (0x7d) or when /tour starts: at the tour's current
     // stop, wait for scripts/walkmaps to write it, then go to a new instance of the next (area, seed). A tour saved before
     // a restart (data/tour-left.txt) resumes at the character's first area load.
-    public static async Task ContinueTour(ClientState conn, bool starting = false)
+    public static async Task ContinueTour(Player conn, bool starting = false)
     {
         // Tours record with scripts/walkmaps: without it a saved tour (data/tour-left.txt) is left alone.
         if (!CurrentGameWork || !AreaLayouts.Recording) return;
@@ -489,7 +489,7 @@ public static partial class Game
             }
     }
     // Auth moves the player and issues the destination ticket; 0x27 sends the client there (it reconnects to this Gateway).
-    public static async Task Transfer(ClientState conn,
+    public static async Task Transfer(Player conn,
         PendingTransfer t, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         lock (conn.Monsters)

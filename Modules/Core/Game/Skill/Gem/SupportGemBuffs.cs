@@ -21,7 +21,7 @@ public static partial class Game
 
     /// <summary>Gain or refresh the one Arcane Surge buff (under the Monsters lock). Its values are captured at the gain,
     /// at least those already running.</summary>
-    public static void GainArcaneSurgeLocked(ClientState conn, double now, int durationMs, int castSpeedPct, int manaRegenPct)
+    public static void GainArcaneSurgeLocked(Player conn, double now, int durationMs, int castSpeedPct, int manaRegenPct)
     {
         var state = conn.SupportGems;
         bool running = state.ArcaneSurgeActiveAt(now);
@@ -43,7 +43,7 @@ public static partial class Game
     /// <summary>Arcane Blessing, "Gain Arcane Surge when you or your Totems Hit an Enemy with a Spell": a spell hit that
     /// landed on a hostile monster (the area and projectile executors, a totem's shots included; under the Monsters
     /// lock). <paramref name="player"/> is the hit's caster stats (a totem's are its owner's).</summary>
-    public static void ArcaneSurgeOnSpellHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target)
+    public static void ArcaneSurgeOnSpellHitLocked(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target)
     {
         if (!target.Hostile || conn.LeavingArea || conn.PlayerLife == 0
             || Stats.Key("gain_arcane_surge_on_spell_hit_by_you_or_your_totems") is not uint key
@@ -54,7 +54,7 @@ public static partial class Game
 
     /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called under the Monsters lock,
     /// after the skill's cost has been paid and before the cast starts.</summary>
-    public static void SupportManaSpentLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
+    public static void SupportManaSpentLocked(Player conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
         uint cost, double now)
     {
         if (cost == 0 || conn.LeavingArea || conn.PlayerLife == 0) return;
@@ -118,7 +118,7 @@ public static partial class Game
     /// sources while it runs. The support's own more Spell Damage is applied per supported hit in
     /// ConditionalSupportDamage; the buff's spell_damage_+%_final_from_arcane_surge is Arcane Blessing's "Arcane Surge
     /// also grants 20% more Spell Damage to you".</summary>
-    public static Dictionary<uint, int> WithSupportGemBuffs(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> WithSupportGemBuffs(Player conn, Dictionary<uint, int> stats)
     {
         lock (conn.Monsters)
         {
@@ -147,7 +147,7 @@ public static partial class Game
     /// <summary>The Arcane Surge buff's more Spell Damage on the player (PlayerHitDamage's spell more).</summary>
     public const string ArcaneSurgeSpellMore = "spell_damage_+%_final_from_arcane_surge";
 
-    public static bool ArcaneSurgeActive(ClientState conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
+    public static bool ArcaneSurgeActive(Player conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
 
     // A generic Arcane Surge source (equipment, passives, tattoos; not the support gem's per-spell threshold): the buff
     // is the same one Arcane Surge Support grants - 20% increased Cast Speed, 30% increased Mana Regeneration Rate for
@@ -160,19 +160,19 @@ public static partial class Game
     /// Spells"): the same helper as the support's gain, so both share the 0.25 s refresh limit, the shown deadline and
     /// the strongest running values, and an expired surge's values are not carried into this one. Under the Monsters
     /// lock; the stat presentations show it.</summary>
-    public static void GainArcaneSurgeLocked(ClientState conn, double now) =>
+    public static void GainArcaneSurgeLocked(Player conn, double now) =>
         GainArcaneSurgeLocked(conn, now, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeed, ArcaneSurgeManaRegen);
 
     /// <summary>"X% chance to Gain Arcane Surge on Hit with Spells" (the Honoured Flood tattoo and other sources): one
     /// roll per spell hit that landed. Under the Monsters lock, after the hit's damage.</summary>
-    public static void ArcaneSurgeOnSpellHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, double now,
+    public static void ArcaneSurgeOnSpellHitLocked(Player conn, IReadOnlyDictionary<uint, int> player, double now,
         Random random)
     {
         if (Stats.Key("gain_arcane_surge_on_hit_%_chance") is not uint key) return;
         if (RandomRolls.Chance(player.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(conn, now);
     }
 
-    static List<byte[]> PresentationLocked(ClientState conn)
+    static List<byte[]> PresentationLocked(Player conn)
     {
         var state = conn.SupportGems;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -256,7 +256,7 @@ public static partial class Game
     }
 
     /// <summary>The Arcane Surge, Cruelty and Inspiration buff instances and their stat refresh: a stat presentation.</summary>
-    public static async Task SendSupportGemBuffs(ClientState conn)
+    public static async Task SendSupportGemBuffs(Player conn)
     {
         List<byte[]> packets;
         bool stats;

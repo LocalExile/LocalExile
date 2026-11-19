@@ -24,7 +24,7 @@ public static partial class Game
     // An ordinary bow or wand shot on the shared runtime. The release waits for the weapon's contact (attack1_bow, or
     // the ACT-selected wand clip for this input's sequence), then freezes damage, chance and multiplier; conditional
     // critical rules read the live owner at impact, and target evasion and impales resolve at contact.
-    public static Task ScheduleOrdinaryRanged(ClientState conn,
+    public static Task ScheduleOrdinaryRanged(Player conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
         SkillCriticalRoll criticalRoll, double? swingAt = null)
     {
@@ -44,7 +44,7 @@ public static partial class Game
         return Task.CompletedTask;
     }
 
-    public static ProjectileUse CaptureOrdinaryRangedProjectile(ClientState conn, ProjectileSession session,
+    public static ProjectileUse CaptureOrdinaryRangedProjectile(Player conn, ProjectileSession session,
         (int X, int Y) aim, string projectileId, ushort sequence, SkillCriticalRoll criticalRoll, ContactPoint? release)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -126,7 +126,7 @@ public static partial class Game
     }
 
     // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.
-    static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, Func<string, int> get)
+    static ProjectileProfile OrdinaryRangedProfile(Player conn, string projectileId, bool bow, Func<string, int> get)
     {
         var ranged = SkillsFor(conn).Projectile(projectileId);
         double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, get, _ => 0,
@@ -142,7 +142,7 @@ public static partial class Game
     /// the server simulates; a bow's record also carries the arrow totals, as GGG's bow records do. Empty for melee and on
     /// a predictive client (its release is not traced: a predictive Burning Arrow with a count drew no arrow, 2026-10-31).
     /// </summary>
-    public static IReadOnlyList<(uint, int)> OrdinaryRangedCountStats(ClientState conn, IReadOnlyDictionary<uint, int> character)
+    public static IReadOnlyList<(uint, int)> OrdinaryRangedCountStats(Player conn, IReadOnlyDictionary<uint, int> character)
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
         if (!conn.LockstepClient || OrdinaryRangedAttack.ProjectileId(weapon) is not { } projectileId) return [];
@@ -158,7 +158,7 @@ public static partial class Game
     // then draws those shots itself: a release of that projectile creates no object from here on (ClientPredicted). The
     // record is built in the send gate that writes it (SendSkills, the charge and buff updates), so ClientDrawnShot is
     // the record the client has by the frame of a release, which reads it then.
-    public static IReadOnlyList<GrantedSkill> PlayerDefaultSkills(ClientState conn, IReadOnlyList<(uint, int)> stats,
+    public static IReadOnlyList<GrantedSkill> PlayerDefaultSkills(Player conn, IReadOnlyList<(uint, int)> stats,
         IReadOnlyDictionary<uint, int> character)
     {
         var counts = OrdinaryRangedCountStats(conn, character);
@@ -172,7 +172,7 @@ public static partial class Game
 
     // The player's record goes out before the client has shown it runs lockstep (a lag byte or a request), so it has no
     // count; it goes again once it has, if a wand or bow is in hand. Beside the frames, which must not wait for it.
-    public static void SendLockstepDefaultAttack(ClientState conn)
+    public static void SendLockstepDefaultAttack(Player conn)
     {
         if (!conn.LockstepClient || conn.DefaultAttackRecordLockstep || !conn.PlayerSent) return;
         conn.DefaultAttackRecordLockstep = true;
@@ -185,7 +185,7 @@ public static partial class Game
     }
 
     // The start of the lockstep frame now being sent, which a player action echoed now begins in.
-    static double LockstepFrameStart(ClientState conn)
+    static double LockstepFrameStart(Player conn)
     {
         lock (conn.Monsters) return conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds;
     }

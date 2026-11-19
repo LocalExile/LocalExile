@@ -17,9 +17,9 @@ public static class DepravedTrinity
         variety.Id == Souls[0] ? variety.StateMachine?.Set("visible", 1) : null;
     static readonly string[] PortalNames = ["DoedrePortal", "MaligaroPortal", "ShavronnePortal"];
     sealed class Routes { public readonly Dictionary<AreaTransitionObject, (int Soul, bool Return)> Gates = []; }
-    static readonly Store<ClientState, Routes> Routing = new();
+    static readonly Store<Player, Routes> Routing = new();
 
-    public static void ConfigureRoutes(ClientState c)
+    public static void ConfigureRoutes(Player c)
     {
         if (c.Layout.Id != Area || c.Layout.Level is not { } level || Routing.TryGetValue(c, out _)) return;
         var routes = Routing.GetValue(c, _ => new());
@@ -63,7 +63,7 @@ public static class DepravedTrinity
     }
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly Store<ClientState, SeedScene> Seeds = new();
+    static readonly Store<Player, SeedScene> Seeds = new();
     sealed class CleanupClock { public double Next; }
     static readonly Store<InstanceState, CleanupClock> CleanupClocks = new();
     const string SeedType = "Metadata/QuestObjects/Act9/HarvestFinalBossAnimate";
@@ -71,7 +71,7 @@ public static class DepravedTrinity
     {
         public uint Id;
         bool open;
-        public async Task Tick(ClientState c)
+        public async Task Tick(Player c)
         {
             if (c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == SeedType) is not { } point
                 || QuestObjectTypes.Find(SeedType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
@@ -97,7 +97,7 @@ public static class DepravedTrinity
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), Dictionary<uint, int>>> CachedStats = new();
     sealed record NativeSkill(int Level, Dictionary<uint, int> Stats, double Multiplier);
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), NativeSkill>> ScaledSkills = new();
-    static NativeSkill Native(ClientState c, int effect, byte actorLevel)
+    static NativeSkill Native(Player c, int effect, byte actorLevel)
     {
         var catalog = Game.SkillsFor(c);
         return ScaledSkills.GetValue(catalog, _ => new()).GetOrAdd((effect, actorLevel), p =>
@@ -107,7 +107,7 @@ public static class DepravedTrinity
             return new(row.Level, row.Stats, row.Multiplier);
         });
     }
-    static int Stat(ClientState c, int effect, int level, string name)
+    static int Stat(Player c, int effect, int level, string name)
     {
         var catalog = Game.SkillsFor(c);
         var values = CachedStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), p => catalog.EffectStats(p.Effect, p.Level).ToDictionary(s => s.Item1, s => s.Item2));
@@ -119,8 +119,8 @@ public static class DepravedTrinity
         public readonly ushort[] Buffs = new ushort[2];
         public double NextStack;
     }
-    static readonly Store<ClientState, Exposure> Exposures = new();
-    public static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
+    static readonly Store<Player, Exposure> Exposures = new();
+    public static Dictionary<uint, int> PlayerStats(Player c, Dictionary<uint, int> stats)
     {
         if (!Exposures.TryGetValue(c, out var e)) return stats;
         void Add(string name, int amount) { if (amount != 0 && Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + amount; }
@@ -128,7 +128,7 @@ public static class DepravedTrinity
         Add("action_speed_-%", 7 * e.Purple.Count);
         return stats;
     }
-    static async Task ExposureUpdate(ClientState c, bool red, bool purple, double now, bool clear = false)
+    static async Task ExposureUpdate(Player c, bool red, bool purple, double now, bool clear = false)
     {
         var e = Exposures.GetValue(c, _ => new());
         int r = e.Red.Count, p = e.Purple.Count;
@@ -151,14 +151,14 @@ public static class DepravedTrinity
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
         if (!c.Closed && !c.LeavingArea) await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
-    public static Task Leaving(ClientState c) => !Exposures.TryGetValue(c, out _) ? Task.CompletedTask : ExposureUpdate(c, false, false, 0, clear: true);
+    public static Task Leaving(Player c) => !Exposures.TryGetValue(c, out _) ? Task.CompletedTask : ExposureUpdate(c, false, false, 0, clear: true);
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
-    static SpawnedMonster? Soul(ClientState c, int n) => c.Monsters.Values.FirstOrDefault(m => m.Variety?.Id == Souls[n]);
+    static SpawnedMonster? Soul(Player c, int n) => c.Monsters.Values.FirstOrDefault(m => m.Variety?.Id == Souls[n]);
     static bool Dead(SpawnedMonster? m) => m is not null && (m.Dead || m.Life == 0);
     public static int Portal(string? model) => Array.FindIndex(PortalNames, n => model?.Contains(n, StringComparison.OrdinalIgnoreCase) == true);
-    static int ReturnPortal(ClientState c, AreaTransitionObject t)
+    static int ReturnPortal(Player c, AreaTransitionObject t)
     {
         if (Routing.TryGetValue(c, out var routes) && routes.Gates.TryGetValue(t, out var route))
             return route.Return ? route.Soul : -1;
@@ -166,7 +166,7 @@ public static class DepravedTrinity
             && t.SourceType?.EndsWith("UnholyTrioSubbossPortal", StringComparison.OrdinalIgnoreCase) != true) return -1;
         return Enumerable.Range(0, 3).FirstOrDefault(i => Soul(c, i) is { } m && Distance(m.Walk.Position(c.Clock.Elapsed.TotalSeconds), (t.GridX, t.GridY)) < 180, -1);
     }
-    public static bool? GateShown(ClientState c, uint id, AreaTransitionObject t)
+    public static bool? GateShown(Player c, uint id, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area) return null;
         lock (c.Monsters)
@@ -183,9 +183,9 @@ public static class DepravedTrinity
         }
         return null;
     }
-    public static (int X, int Y)? Landing(ClientState c) => c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
+    public static (int X, int Y)? Landing(Player c) => c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
         o.Type == "Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioLootLocator") is { } point ? c.Layout.Near((point.X, point.Y)) : null;
-    public static void CarryLoot(ClientState c, (int X, int Y) from, (int X, int Y) to)
+    public static void CarryLoot(Player c, (int X, int Y) from, (int X, int Y) to)
     {
         var ground = c.Instance.Ground;
         foreach (var (id, item) in ground.Within(from.X, from.Y, 160, _ => true))
@@ -198,7 +198,7 @@ public static class DepravedTrinity
             ground.Add(item with { GridX = at.X, GridY = at.Y }, null, shared: true, justDropped: false);
         }
     }
-    public static List<uint> RetireCreatures(ClientState c)
+    public static List<uint> RetireCreatures(Player c)
     {
         (int X, int Y)[] safe;
         lock (c.Npcs) safe = [.. c.Npcs.Values.Where(n => n.Npc.Id is "Metadata/NPC/Act9/SinCore" or "Metadata/NPC/Act9/Lilly").Select(n => (n.X, n.Y))];
@@ -217,7 +217,7 @@ public static class DepravedTrinity
             return [.. gone.Select(m => m.Key)];
         }
     }
-    public static (int X, int Y)? Destination(ClientState c, AreaTransitionObject t)
+    public static (int X, int Y)? Destination(Player c, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area) return null;
         if (Routing.TryGetValue(c, out var routes) && routes.Gates.ContainsKey(t) && t.TeleportTo is { } landing)
@@ -238,7 +238,7 @@ public static class DepravedTrinity
         }
         return null;
     }
-    public static async Task<bool> Use(ClientState c, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> Use(Player c, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (c.Layout.Id != Area || c.Layout.AreaTransitions.FirstOrDefault(t => t.Id == use.TargetId).Transition is not { } gate) return false;
         if (Destination(c, gate) is not { } destination) return false;
@@ -258,7 +258,7 @@ public static class DepravedTrinity
         finally { await SendWorldRecord(c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(c, action)); }
         return true;
     }
-    public static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety variety, byte level, int effect)
+    public static MonsterAttack Attack(Player c, MonsterCatalog.Variety variety, byte level, int effect)
     {
         var catalog = Game.SkillsFor(c); var native = Native(c, effect, level); int l = native.Level;
         int Raw(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
@@ -284,10 +284,10 @@ public static class DepravedTrinity
             ? new(effect == 5573 ? "Metadata/Projectiles/TrioMortarRed" : "Metadata/Projectiles/TrioMortarPurple", 750, true, 2)
             : catalog.MonsterProjectile(effect) };
     }
-    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level) => !IsBoss(v) ? null
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level) => !IsBoss(v) ? null
         : [.. Effects.Select(e => Game.SkillsFor(c).FindByRow(Skill(e), e, Game.SkillsFor(c).MaxLevelAt(e, level),
             WithBehaviourVariation(c, e, MonsterProjectileSkillStats(c, e, Game.SkillsFor(c).MaxLevelAt(e, level), Attack(c, v, level, e))))).OfType<GrantedSkill>()];
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         // Flags and deaths may change the gates for another member of the same instance as well.
@@ -336,8 +336,8 @@ public static class DepravedTrinity
         public bool Stopped;
         readonly uint id; readonly SpawnedMonster boss;
         readonly (int X, int Y) centre;
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> actors = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> actors = [];
         readonly List<Hit> hits = [];
         readonly List<Visual> effects = [];
         readonly List<Ground> pools = [];
@@ -347,7 +347,7 @@ public static class DepravedTrinity
         double ready, hiddenUntil, hideAt, nextSpecial, nextBlood, nextSludge, deathAt = double.NaN, evacuationAt = double.NaN;
         bool started, submerged, hideApplied, returned;
         int rotation;
-        public Fight(uint objectId, SpawnedMonster monster, ClientState c)
+        public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; boss = monster;
             centre = c.LaterFormPoints.GetValueOrDefault(Boss, monster.Walk.Position(c.Clock.Elapsed.TotalSeconds));
@@ -356,14 +356,14 @@ public static class DepravedTrinity
             hideApplied = submerged;
             if (submerged) foreach (var add in c.Monsters.Where(m => m.Value.Variety?.Id == "Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmerge" && !Dead(m.Value))) adds.Add(add.Key);
         }
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(ClientState p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
+        bool Awake(Player p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
         async Task All(byte[] bytes, bool actor = false)
         {
             foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
             { await Send(p, [.. bytes], null, still: () => !Stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
         }
-        public async Task Bind(ClientState c)
+        public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(c))
@@ -384,7 +384,7 @@ public static class DepravedTrinity
             int component = boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
             if (component >= 0) await All(InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), true);
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (Stopped || !CurrentGameWork) return;
             foreach (var fx in effects.Where(f => f.Until <= now).ToArray()) { effects.Remove(fx); await All(InstanceProtocol.RemoveObject(fx.Id)); }
@@ -490,7 +490,7 @@ public static class DepravedTrinity
             if (effect == 4995) nextBlood = now + cooldown;
             await Cast(target, effect, now, to);
         }
-        async Task Cast(ClientState c, int effect, double now, (int X, int Y) aim)
+        async Task Cast(Player c, int effect, double now, (int X, int Y) aim)
         {
             var attack = Attack(c, boss.Variety!, boss.Level, effect); var from = boss.Walk.Position(now); int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.Walk.Order(from.X, from.Y, now); ready = boss.BusyUntil = now + attack.Seconds + .3; }
@@ -549,7 +549,7 @@ public static class DepravedTrinity
             else hits.Add(new(now + attack.Seconds * .6, effect, from, effect == 406 ? 12 : effect == 209 ? 25 : 30,
                 effect is 406 or 209 ? "" : Art + "Boss/slam_impact/slam_impact.ao", Generation: generation, Facing: effect == 209 ? aim : null));
         }
-        async Task Damage(ClientState p, Hit hit, double now)
+        async Task Damage(Player p, Hit hit, double now)
         {
             MonsterHitOutcome? outcome = null; var attack = Attack(p, boss.Variety!, boss.Level, hit.Effect);
             await Send(p, [], null, atGate: () =>
@@ -570,13 +570,13 @@ public static class DepravedTrinity
             });
             if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
-        async Task Fx(ClientState c, (int X, int Y) at, string model, double until, uint animation = 0)
+        async Task Fx(Player c, (int X, int Y) at, string model, double until, uint animation = 0)
         {
             uint fx; lock (c.Monsters) fx = c.TakeObjectId();
             var visual = new Visual(fx, at, model, until, animation); effects.Add(visual);
             foreach (var p in Present) await CreateFx(p, visual);
         }
-        static async Task CreateFx(ClientState p, Visual fx)
+        static async Task CreateFx(Player p, Visual fx)
         {
             await Send(p, [.. InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(fx.At.X, fx.At.Y, fx.Model).Blob()),
                 .. InstanceProtocol.EnterWakeZone(fx.Id), .. InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Animation, 1)], null,
@@ -589,7 +589,7 @@ public static class DepravedTrinity
                 foreach (var fx in effects.ToArray())
                     _ = Send(p, InstanceProtocol.RemoveObject(fx.Id), null, still: () => !p.Closed && !p.LeavingArea);
         }
-        async Task BloodReturn(ClientState p, double now)
+        async Task BloodReturn(Player p, double now)
         {
             if (Landing(p) is not { } to) return;
             // The tick's evacuation deadline follows the covering vortex; never block the area tick on a timer.

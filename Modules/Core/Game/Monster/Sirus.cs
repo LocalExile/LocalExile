@@ -6,7 +6,7 @@ using static Program;
 static partial class Sirus
 {
     static readonly Store<InstanceState, Fight> Fights = new();
-    internal static async Task Tick(ClientState c)
+    internal static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         var f = Fights.GetValue(c.Instance, _ => new(c));
@@ -15,7 +15,7 @@ static partial class Sirus
         catch { f.Stop(); throw; }
         finally { f.Gate.Release(); }
     }
-    internal static async Task Leaving(ClientState c)
+    internal static async Task Leaving(Player c)
     {
         await RemoveExposure(c);
     }
@@ -31,8 +31,8 @@ static partial class Sirus
     internal sealed partial class Fight
     {
         internal readonly SemaphoreSlim Gate = new(1);
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> bound = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> bound = [];
         readonly Scene scene;
         SpawnedMonster? body;
         uint id, throne, apparition;
@@ -42,10 +42,10 @@ static partial class Sirus
         // 0 entrance, 1 dialogue, 2 throne, 3 descend, 4 combat, 5 ascend, 6 storm intermission, 7 death, 8 won.
         internal int Stage => stage;
         internal int Round => body?.LifePhases?.Completed ?? 0;
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(ClientState p, uint actor) => p.MonsterViews.ContainsKey(actor) && !p.AsleepMonsters.Contains(actor);
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
+        bool Awake(Player p, uint actor) => p.MonsterViews.ContainsKey(actor) && !p.AsleepMonsters.Contains(actor);
         (int X, int Y) Position(double now) => body?.Walk.Position(now) ?? scene.Centre;
-        public Fight(ClientState c)
+        public Fight(Player c)
         {
             scene = SceneOf(c);
             lock (c.Monsters)
@@ -63,7 +63,7 @@ static partial class Sirus
                 : body?.LifePhases?.Active == true ? 6
                 : c.Instance.HasState(Flag("Started")) ? 4 : c.Instance.HasState(Flag("IntroDone")) ? 2 : 0;
         }
-        public async Task Bind(ClientState c)
+        public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(c)) { players.Add(c); foreach (var fx in visuals) await CreateFx(c, fx); }
@@ -88,7 +88,7 @@ static partial class Sirus
         {
             foreach (var p in Present.ToArray()) { await Send(p, InstanceNpcs.TextAudio(0, speaker, line), $"[Sirus] NPCTextAudio {line}"); }
         }
-        async Task State(ClientState c, uint actor, params (string Name, int Value)[] changes)
+        async Task State(Player c, uint actor, params (string Name, int Value)[] changes)
         {
             if (!c.Monsters.TryGetValue(actor, out var m) || m.States is not { } states) return;
             foreach (var (name, value) in changes) states = states.Set(name, value);
@@ -98,13 +98,13 @@ static partial class Sirus
             int component = m.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
             if (component >= 0) await All(actor, InstanceEntities.StateMachineUpdate(actor, (byte)component, states), true);
         }
-        async Task Bar(ClientState c, bool show)
+        async Task Bar(Player c, bool show)
         {
             body!.BossBarShown = show;
             await State(c, id, ("boss_life_bar", show ? 1 : 0), ("disable_life_bar", show ? 0 : 1));
             foreach (var p in Present) { if (show) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id); }
         }
-        async Task Basic(ClientState c, uint actor, string action, double now, double duration)
+        async Task Basic(Player c, uint actor, string action, double now, double duration)
         {
             if (!c.Monsters.TryGetValue(actor, out var m) || Game.SkillsFor(c).ActionSkillId(action) is not { } skill) return;
             var from = m.Walk.Position(now);
@@ -112,19 +112,19 @@ static partial class Sirus
             await All(actor, [InstanceProtocol.ActionStarted(actor, from.X, from.Y, from.X, from.Y, skill, c.NextActionSequence(), 0x0408),
                 InstanceProtocol.ActionEnded(actor)], true);
         }
-        async Task Teleport(ClientState c, uint actor, (int X, int Y) at, double now)
+        async Task Teleport(Player c, uint actor, (int X, int Y) at, double now)
         {
             if (!c.Monsters.TryGetValue(actor, out var m)) return;
             lock (c.Monsters) m.Walk.Teleport(at.X, at.Y, now);
             await All(actor, InstanceProtocol.Teleport(actor, at.X, at.Y), true);
         }
-        async Task<uint> Actor(ClientState c, string type, (int X, int Y) at, bool rewards = false)
+        async Task<uint> Actor(Player c, string type, (int X, int Y) at, bool rewards = false)
         {
             if (Monsters.Find(type) is not { Supported: true } v || v.Id != type) throw new InvalidOperationException("Unsupported Sirus actor: " + type);
             return await SpawnMonster(c, v, 84, MonsterRarity.Unique, at.X, at.Y,
                 rotation: 3 * MathF.PI / 2, scripted: true, owned: (_, m) => { m.NoRewards = !rewards; m.EntranceGrace = true; });
         }
-        async Task Initialize(ClientState c, double now)
+        async Task Initialize(Player c, double now)
         {
             if (throne == 0) throne = await Actor(c, Throne, scene.Centre);
             if (apparition == 0 && Round < 3 && body?.Dead != true) apparition = await Actor(c, Apparition, scene.Centre);
@@ -156,7 +156,7 @@ static partial class Sirus
             }
             initialized = true;
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused) return;
             if (!initialized) await Initialize(c, now);
@@ -217,7 +217,7 @@ static partial class Sirus
             }
             if (stage == 6 && now >= deadline && Distance(player, Position(now)) < 48) await Descend(c, now);
         }
-        async Task Descend(ClientState c, double now)
+        async Task Descend(Player c, double now)
         {
             bool final = body!.LifePhases is { Active: true, Completed: 2 };
             body.EntranceGrace = true; stage = 3; deadline = now + (final ? 4 : 2);
@@ -228,7 +228,7 @@ static partial class Sirus
             if (Round > 0 || final) await Voice(final ? (ushort)5696 : Round == 0 ? (ushort)5692 : (ushort)5694);
             await ClearNearbyStorms(c, Position(now), 70);
         }
-        async Task Ascend(ClientState c, double now)
+        async Task Ascend(Player c, double now)
         {
             CancelCombat(); body!.EntranceGrace = true; body.LifePhases!.DamageTakenPercent = 100;
             await Bar(c, false); await ClearTemporary(c);

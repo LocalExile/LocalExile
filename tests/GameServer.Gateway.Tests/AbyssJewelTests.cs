@@ -45,7 +45,7 @@ public class AbyssJewelTests
         var path = Path.Combine(Path.GetTempPath(), $"abyss-stats-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var items = Program.Items;
-        var conn = new ClientState(new(1, "abyss", 100, 100, 100, 100, null, []), 1, 1) { Character = "AbyssStats" };
+        var conn = new Player(new(1, "abyss", 100, 100, 100, 100, null, []), 1, 1) { Character = "AbyssStats" };
         try
         {
             var eye = ItemCatalog.Create(items.Find("Murderous Eye Jewel")!) with

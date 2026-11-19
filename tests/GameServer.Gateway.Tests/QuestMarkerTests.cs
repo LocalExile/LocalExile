@@ -24,7 +24,7 @@ public sealed class QuestMarkerTests
         nest[^2] = 0;
         Assert.Equal(GlyphQuest.NestBlob(at, true), nest);
 
-        var conn = new ClientState(new(1, "quest-markers", 100, 100, 1, 1, null, []), 1, 1);
+        var conn = new Player(new(1, "quest-markers", 100, 100, 1, 1, null, []), 1, 1);
         var rule = new Quests.ChestRule("area", "chest", "item");
         var info = new QuestObjectTypes.Info("chest", components, 2, 1, false, null);
         Assert.Equal(1, Game.QuestChestState(conn, rule, info, false));
@@ -35,7 +35,7 @@ public sealed class QuestMarkerTests
     public void EncounterChestRequiresTheRetreatAndTheLastLivingGuard()
     {
         var instance = new InstanceState();
-        var conn = new ClientState(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1) { Instance = instance };
+        var conn = new Player(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1) { Instance = instance };
         const string guardId = "Metadata/Monsters/Axis/AxisCasterGuardTolman";
         var gate = Quests.InstanceFlag("CrematoriumPietyFled");
         var rule = new Quests.ChestRule("1_3_3_1", "TolmanChair", "TolmanBracelet", gate) { Guards = [guardId] };
@@ -65,7 +65,7 @@ public sealed class QuestMarkerTests
         Assert.True(instance.OpenChest(10, 20));
         Assert.False(instance.OpenChest(10, 20));
 
-        ClientState Player(string name) => new(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1)
+        Player Player(string name) => new(new(1, "crematorium", 100, 100, 1, 1, null, []), 1, 1)
             { Instance = instance, Character = name };
         var first = Player("First");
         var reconnect = Player("First");

@@ -35,7 +35,7 @@ public sealed class CombatCacheTests
     public void A_session_lists_its_actors_in_contact_order()
     {
         // The runtime decides contacts by id, then generation, and sorts a list that comes otherwise at every step.
-        var conn = new ClientState(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var conn = new Player(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         foreach (uint id in new[] { 0x3005u, 0x3001u, 0x3003u })
             conn.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
         conn.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
@@ -51,7 +51,7 @@ public sealed class CombatCacheTests
     {
         // The runtime asks for the actors at every simulation step, thousands of times a second in a crowd.
         const int monsters = 400;
-        var conn = new ClientState(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        var conn = new Player(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
         for (uint i = 0; i < monsters; i++)
             conn.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
         conn.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);

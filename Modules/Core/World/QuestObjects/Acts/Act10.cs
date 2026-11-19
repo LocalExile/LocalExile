@@ -90,7 +90,7 @@ sealed class Act10 : Act
             // is QuestStaticRewards 39 (another −30% to elemental and chaos resistances: Game ResistancePenalty), the
             // Epilogue's gate (Karui Shores' and Oriath's EndQuestFlags) and the condition of Lilly's 1433 and Lani's
             // 1415/1416; every character is given it for the Atlas, but until earned here it is sent only in a hideout
-            // and the maps (Quests.EndgameOnly, ClientState.UnearnedQuestFlags). Sin's portal back to the docks
+            // and the maps (Quests.EndgameOnly, Player.UnearnedQuestFlags). Sin's portal back to the docks
             // (EpiloguePortal, kitava.arm) opens with the fight's end: in the real game the post-fight Sin's 1942 opens
             // it, a monster with an NPC component that is not created, so it opens with EndGameAvailable. Lani's
             // "Kitava Reward" (offer 66, Oriath Docks 1416 or Karui Shores 1498) is a book of two passive points (QSR

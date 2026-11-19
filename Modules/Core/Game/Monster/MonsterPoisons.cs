@@ -9,7 +9,7 @@ public static partial class Game
     public const ushort PoisonBuffRow = 10;
 
     /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
-    public static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
+    public static MonsterPoisons.Settings SupportedPoison(Player conn, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null, int addedChaos = 0)
     {
@@ -30,7 +30,7 @@ public static partial class Game
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    public static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static MonsterPoisons.Settings DefaultAttackPoison(Player conn, IReadOnlyDictionary<uint, int> player,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -46,13 +46,13 @@ public static partial class Game
     // per second (an independent roll in the non-critical or critical range) and duration come from the hit's panel poison
     // rows (<paramref name="settings"/>, captured with the hit as its ignite's are), so a poison deals what the panel shows:
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
-    public static void PoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
+    public static void PoisonOnHitLocked(Player conn, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         MonsterPoisons.Settings settings, double now, Random random) =>
         TryPoisonOnHitLocked(conn, target, mitigated, spell, critical, player, skill, settings, now, random,
             out _, out _);
 
-    public static bool TryPoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
+    public static bool TryPoisonOnHitLocked(Player conn, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds)
     {
@@ -94,7 +94,7 @@ public static partial class Game
         return true;
     }
 
-    public static async Task TickPoisons(ClientState conn)
+    public static async Task TickPoisons(Player conn)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();

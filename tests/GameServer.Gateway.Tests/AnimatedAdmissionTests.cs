@@ -11,7 +11,7 @@ public sealed class AnimatedAdmissionTests
     [Fact]
     public void Equipment_admission_keeps_guardians_melee_and_weapon_variants_disjoint()
     {
-        var conn = new ClientState(new(1, "admission", 1000, 1000, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "admission", 1000, 1000, 100, 100, null, []), 1, 1);
         var gem = new Game.SupportedGem(0, 20, 0, [], new()
             { [Program.Stats.Key("animate_item_maximum_level_requirement")!.Value] = 100 });
         var catalog = new SummonCatalog();
@@ -74,7 +74,7 @@ public sealed class AnimatedAdmissionTests
         readonly Task drain;
         internal readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         internal NetworkStream Stream => writer.GetStream();
-        internal readonly ClientState Conn = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
+        internal readonly Player Conn = new(new(1, "animate", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "Animate" + Guid.NewGuid().ToString("N"), Instance = new(), PlayerLife = 10000,
             PlayerMana = 10000, PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),

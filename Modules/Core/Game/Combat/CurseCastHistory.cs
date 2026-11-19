@@ -17,7 +17,7 @@ public static partial class Game
         .Select(effect => StatConditions.CastEventKey(CurseCastToken(effect)!, CurseCastHistorySeconds));
 
     // Only the completed manual-cast executor calls this. On-hit, aura and triggered curse application do not.
-    public static void RecordCompletedCurseCast(ClientState conn, string effect, double at)
+    public static void RecordCompletedCurseCast(Player conn, string effect, double at)
     {
         lock (conn.Monsters)
         {

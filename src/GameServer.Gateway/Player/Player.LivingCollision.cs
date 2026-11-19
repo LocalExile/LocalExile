@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     /// <summary>A killed monster on a lockstep client, from the kill until its body is out of the client's paths. The
     /// client's monster lives until the death reaches it: it walks on, and in the frame the death is written in

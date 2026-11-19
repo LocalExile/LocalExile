@@ -9,7 +9,7 @@ public static partial class Game
     const string MadnessExplosionChance =
         "explode_enemies_for_25%_life_as_chaos_on_kill_while_affected_by_glorious_madness_chance_%";
 
-    static void CaptureMadnessExplosionLocked(ClientState conn, SpawnedMonster corpse)
+    static void CaptureMadnessExplosionLocked(Player conn, SpawnedMonster corpse)
     {
         if (!corpse.Hostile || conn.PlayerLife == 0 || !CurrentGameRules || !MadnessAt(conn).Active) return;
         using var scope = new PlayerStatScope(conn, fresh: true);
@@ -26,7 +26,7 @@ public static partial class Game
             SkillArea.Radius(MadnessExplosionBaseRadius, Get, spell: false), corpse.Walk.Position(ProjectileWorldTime(conn)));
     }
 
-    public static void QueueMadnessExplosionLocked(ClientState conn, uint id, SpawnedMonster corpse)
+    public static void QueueMadnessExplosionLocked(Player conn, uint id, SpawnedMonster corpse)
     {
         var receipt = corpse.MadnessExplosion;
         corpse.MadnessExplosion = null;
@@ -37,7 +37,7 @@ public static partial class Game
             conn.Madness.Explosions.Enqueue((id, corpse, receipt));
     }
 
-    public static void MadnessExplosionsLocked(ClientState conn, double now)
+    public static void MadnessExplosionsLocked(Player conn, double now)
     {
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused) return;
         // Chained explosions enqueue more primitive receipts. Iteration avoids a recursive kill/notification stack.

@@ -17,7 +17,7 @@ public static partial class Game
         bool ActiveBlood, ushort BloodBuff, int ManaReserved, int LifeReserved,
         bool CanRestore, bool Town, bool Dirty, int Restricted, bool DisabledSpells)
     {
-        public static AuraReconcileInputs Capture(ClientState conn)
+        public static AuraReconcileInputs Capture(Player conn)
         {
             var sources = CharacterStatSources(conn).Stats;
             var saved = CharacterSaves.Remembered(CharacterName(conn));
@@ -45,18 +45,18 @@ public static partial class Game
                 && SameSkillItem(p.First.Item.Item, p.Second.Item.Item, Items));
     }
     sealed class AuraReconcileCache { public AuraReconcileInputs? Inputs; }
-    static readonly Store<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
+    static readonly Store<Player, AuraReconcileCache> AuraReconcileCaches = new();
 
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.
-    public static bool OwnAuraAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
+    public static bool OwnAuraAcknowledgementAllowed(Player conn, int effect, ushort skillId, Func<bool> nativeUse)
     {
         lock (conn.Monsters)
             return !OwnAuraSkillRestricted(conn, effect, skillId) && nativeUse();
     }
 
     // Raw caster sources only: never CharacterPlayerStats, PlayerSkills, aura bonuses or PoolsFor.
-    public static int OwnAuraRestrictionValue(ClientState conn, Dictionary<uint, int>? sources = null)
+    public static int OwnAuraRestrictionValue(Player conn, Dictionary<uint, int>? sources = null)
     {
         lock (conn.Monsters)
         {
@@ -78,7 +78,7 @@ public static partial class Game
          where key.HasValue
          select (family, key.Value)).ToArray();
 
-    static bool SublimeDisables(ClientState conn, int effect, IReadOnlyDictionary<uint, int> sources)
+    static bool SublimeDisables(Player conn, int effect, IReadOnlyDictionary<uint, int> sources)
     {
         string family = AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? "");
         lock (conn.Monsters)
@@ -88,7 +88,7 @@ public static partial class Game
 
     // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources.
     // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428d6330).
-    static bool SpellsDisabled(ClientState conn, Dictionary<uint, int>? sources = null)
+    static bool SpellsDisabled(Player conn, Dictionary<uint, int>? sources = null)
     {
         if (Stats.Key("your_spells_are_disabled") is not uint key) return false;
         lock (conn.Monsters)
@@ -96,13 +96,13 @@ public static partial class Game
     }
 
     // What the client counts as a spell for that restriction: the casting_spell flag SkillCatalog publishes.
-    static bool CastingSpell(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect);
+    static bool CastingSpell(Player conn, int effect) => SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect);
 
     // Auras contains only the current ordinary self-aura executor's source/recipient pairs.
     // Received buffs, RF, flasks and other temporary effects have separate ownership and are untouched.
     // Local policy: suspend runtime effects, retaining ActiveAuras intent; this is not a proven GGG lifecycle.
     // Disabled spells suspend the auras that are spells (every supported one) the same way.
-    public static bool SuspendRestrictedOwnAuras(ClientState conn, Dictionary<uint, int>? sources = null)
+    public static bool SuspendRestrictedOwnAuras(Player conn, Dictionary<uint, int>? sources = null)
     {
         if (conn.Auras.Count == 0) return false;
         lock (conn.Monsters) sources ??= CharacterStatSources(conn).Stats;
@@ -125,13 +125,13 @@ public static partial class Game
         // When an own aura's state next changes on its own (AreaTime): the Stats phase reconciles them then.
         public double NextAt = double.PositiveInfinity;
     }
-    static readonly Store<ClientState, ReservationInputCache> ReservationInputCaches = new();
-    static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
+    static readonly Store<Player, ReservationInputCache> ReservationInputCaches = new();
+    static ReservationInputs CaptureReservationInputs(Player conn) => new(conn.StatSourcesCache, conn.Pools,
         [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values]);
 
     // Pool readers only check immutable inputs. Skill pricing, source qualification and persistence run on change,
     // while the normal player tick reconciles deadlines. This also handles an equipment edit before publication.
-    static void EnsureReservationInputs(ClientState conn)
+    static void EnsureReservationInputs(Player conn)
     {
         if (conn.Auras.Count == 0) return;
         var cache = ReservationInputCaches.GetOrCreateValue(conn);
@@ -145,7 +145,7 @@ public static partial class Game
         EnsureOwnAuraPools(conn);
     }
 
-    public static void EnsureOwnAuraPools(ClientState conn)
+    public static void EnsureOwnAuraPools(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -183,7 +183,7 @@ public static partial class Game
     }
 
     // A Cat or Avian phase ends, a Crab barrier is due, a Glorious Madness touch lands or ends.
-    static double OwnAurasNextChangeAt(ClientState conn)
+    static double OwnAurasNextChangeAt(Player conn)
     {
         var state = conn.Reservations;
         double next = double.PositiveInfinity;
@@ -200,7 +200,7 @@ public static partial class Game
     }
 
     /// <summary>The Stats phase: the own auras' timed changes (<see cref="OwnAurasNextChangeAt"/>) once due.</summary>
-    internal static void StepOwnAuras(ClientState conn)
+    internal static void StepOwnAuras(Player conn)
     {
         if (ReservationInputCaches.TryGetValue(conn, out var cache) && AreaTime(conn) >= cache.NextAt)
             EnsureOwnAuraPools(conn);
@@ -211,9 +211,9 @@ public static partial class Game
     sealed record AuraPriceInputs(StatSourcesResult? Qualified, CharacterStats.Pools Pools,
         string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw);
     sealed class AuraPriceCache { public AuraPriceInputs? Last; }
-    static readonly Store<ClientState, AuraPriceCache> AuraPrices = new();
+    static readonly Store<Player, AuraPriceCache> AuraPrices = new();
 
-    static bool RepriceOwnAuras(ClientState conn, out bool poolsRebuilt)
+    static bool RepriceOwnAuras(Player conn, out bool poolsRebuilt)
     {
         poolsRebuilt = false;
         if (conn.Auras.Count == 0) return false;
@@ -299,7 +299,7 @@ public static partial class Game
         return changed;
     }
 
-    public static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
+    public static void ReconcileOwnAuras(Player conn, bool validateSkills = false)
     {
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
@@ -350,10 +350,10 @@ public static partial class Game
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
     // rather than prebuilding adds/removes across an await. Old instances end once; new ones start once.
     // Reconcile before constructing any player/Actor/mana snapshot, including another mechanic's refresh.
-    public static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false) =>
+    public static byte[] WithOwnAuraChanges(Player conn, Func<byte[]> snapshot, bool replay = false) =>
         [.. WithOwnAuraRecords(conn, () => [snapshot()], replay).SelectMany(p => p)];
 
-    public static byte[][] WithOwnAuraRecords(ClientState conn, Func<byte[][]> snapshot, bool replay = false)
+    public static byte[][] WithOwnAuraRecords(Player conn, Func<byte[][]> snapshot, bool replay = false)
     {
         // At-gate builders are synchronous and hold Monsters. Do not inherit the input handler's
         // older scope across its await; resolve each supported skill once for this snapshot.
@@ -422,7 +422,7 @@ public static partial class Game
 
     // Cat's two phase rows are owned by the exact accepted root aura. Build their diff at this send gate, so an add
     // queued for an old owner can never reach the wire after that owner was removed or replaced.
-    static void PresentCatPhaseLocked(ClientState conn, List<byte[]> packets)
+    static void PresentCatPhaseLocked(Player conn, List<byte[]> packets)
     {
         var state = conn.Reservations;
         bool active = CatAspectRootActiveLocked(conn);
@@ -470,7 +470,7 @@ public static partial class Game
 
     // Cat owns this presentation independently of the kill/flask Onslaught state. Its stats have already composed
     // through UtilityStats; this only keeps one BuffDefinitions row 215 instance on the wire for the current Agility.
-    static void PresentCatOnslaughtLocked(ClientState conn, List<byte[]> packets)
+    static void PresentCatOnslaughtLocked(Player conn, List<byte[]> packets)
     {
         var state = conn.Reservations;
         var onslaught = ItemsFor(conn).Onslaught;
@@ -499,7 +499,7 @@ public static partial class Game
         }
     }
 
-    public static Task SendOwnAuraChanges(ClientState conn,
+    public static Task SendOwnAuraChanges(Player conn,
         bool replay = false) => SendWorldRecords(conn, PlayerId, () =>
         {
             lock (conn.Monsters)

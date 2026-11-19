@@ -43,12 +43,12 @@ public static partial class Game
     public const string AvatarRotationStat = "avatar_of_fire_rotation_active";
     public const string AvatarKeystone = "keystone_avatar_of_fire";
     public const ushort AvatarRotationBuffRow = 1012;
-    static readonly Store<ClientState, AvatarOfFireRotation> AvatarRotations = new();
+    static readonly Store<Player, AvatarOfFireRotation> AvatarRotations = new();
     public sealed record CarriedAvatar(uint[] Hosts, double Age);
 
-    public static AvatarOfFireRotation AvatarRotationOf(ClientState conn) => AvatarRotations.GetOrCreateValue(conn);
+    public static AvatarOfFireRotation AvatarRotationOf(Player conn) => AvatarRotations.GetOrCreateValue(conn);
 
-    static Dictionary<string, bool> RequalifyAvatarOfFire(ClientState conn, IReadOnlyDictionary<string, bool> flags,
+    static Dictionary<string, bool> RequalifyAvatarOfFire(Player conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
         int Get(string name) => Stats.Key(name) is uint key
@@ -80,7 +80,7 @@ public static partial class Game
         };
     }
 
-    static Dictionary<uint, int> WithAvatarOfFire(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithAvatarOfFire(Player conn, Dictionary<uint, int> sources)
     {
         bool active = conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_you_have_avatar_of_fire") == true;
         if (!active) return sources;
@@ -95,18 +95,18 @@ public static partial class Game
         return sources;
     }
 
-    public static CarriedAvatar? CaptureAvatarOfFire(ClientState conn, double at) =>
+    public static CarriedAvatar? CaptureAvatarOfFire(Player conn, double at) =>
         AvatarRotations.TryGetValue(conn, out var state) && state.Hosts.Length > 0
             ? new([.. state.Hosts], state.Elapsed(at)) : null;
 
-    public static void RestoreAvatarOfFire(ClientState conn, CarriedAvatar value, double at)
+    public static void RestoreAvatarOfFire(Player conn, CarriedAvatar value, double at)
     {
         var state = AvatarRotationOf(conn);
         state.Reconcile(CombatLifetime, conn.ProjectileEpoch, [.. value.Hosts], at);
         state.Started = at; state.CarriedAge = Math.Max(0, value.Age);
     }
 
-    public static void RetireAvatarOfFire(ClientState conn)
+    public static void RetireAvatarOfFire(Player conn)
     {
         if (!AvatarRotations.TryGetValue(conn, out var state)) return;
         state.Clear();
@@ -114,10 +114,10 @@ public static partial class Game
         state.Retired.Clear();
     }
 
-    public static Task SendAvatarOfFire(ClientState conn) =>
+    public static Task SendAvatarOfFire(Player conn) =>
         SendWorldRecords(conn, PlayerId, () => AvatarOfFirePresentation(conn));
 
-    public static byte[][]? AvatarOfFirePresentation(ClientState conn)
+    public static byte[][]? AvatarOfFirePresentation(Player conn)
     {
         lock (conn.Monsters)
         {

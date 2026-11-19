@@ -29,7 +29,7 @@ public class LockstepTests : IDisposable
     [Fact]
     public void Instant_replies_share_the_lockstep_sequence_and_suppress_local_action_events()
     {
-        var conn = new ClientState(new(1, "instant", 300, 300, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "instant", 300, 300, 100, 100, null, []), 1, 1)
             { LockstepClient = true, LockstepSequence = 0x575, ActionCount = 17, LockstepBusyUntil = 12.5 };
         // The retained ground and object forms carry 0x0101 and 0x0121; their sequence joins ordinary actions.
         Assert.Equal("01CE0000100000000000000084098576010181F78223",
@@ -94,7 +94,7 @@ public class LockstepTests : IDisposable
         // message's to end (it is held when the hit lands and goes on after).
         foreach (bool lockstep in new[] { true, false })
         {
-            ClientState Player() => new(new(1, "recovery", 300, 300, 100, 100, null, []), 1, 1)
+            Player Player() => new(new(1, "recovery", 300, 300, 100, 100, null, []), 1, 1)
                 { LockstepClient = lockstep, PlayerLife = 100, LockstepFrame = (0, .033) };
             var hit = Player();
             var free = Player();
@@ -146,7 +146,7 @@ public class LockstepTests : IDisposable
         start = .231; walk.Relay(.24);   // nine cells along, before the sideways step
         Assert.True(Sideways(walk, 1) > turned);
         Assert.Equal((40, 1), walk.Destination);
-        var told = new ClientState(new(1, "stats", 300, 300, 100, 100, null, []), 1, 1)
+        var told = new Player(new(1, "stats", 300, 300, 100, 100, null, []), 1, 1)
             { LockstepClient = true, PlayerLife = 100, PlayerSent = true, LockstepFrame = (0, .033) };
         told.Walk.Order(140, 101, 0);
         turned = Sideways(told.Walk, 101);
@@ -255,7 +255,7 @@ public class LockstepTests : IDisposable
     {
         // A Drowned (size 2, the tolerance) 13 cells off and a sword of range 11: the client's MoveTo has max range 10, so
         // the player is in reach only 12 cells off, one step on (the whole range would have it swing where it stands).
-        var conn = new ClientState(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1);
         var drowned = new SpawnedMonster("Drowned", new PlayerWalk(113, 100, 8, size: 2), 0, 4, 100);
         var sword = new SkillCatalog.Unarmed(645, 1, 2, 11);
         var (here, stop, _, atOnce) = Game.WalkUpToSwing(conn, drowned, (113, 100), sword, 0, 1);
@@ -263,7 +263,7 @@ public class LockstepTests : IDisposable
 
         // A predictive walk-up retries every 50 ms (0x141e95400, 0x141e957f0). Even after a late wake
         // beyond three seconds, an out-of-reach target does not start a swing or end the pursuit.
-        var predictive = new ClientState(new(1, "predictive-follow", 300, 300, 100, 100, null, []), 1, 1);
+        var predictive = new Player(new(1, "predictive-follow", 300, 300, 100, 100, null, []), 1, 1);
         predictive.Clock.Reset();
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
@@ -306,9 +306,9 @@ public class LockstepTests : IDisposable
         // every frame after his steps, against the monster as the frame before left it, and at each waypoint; the swing in
         // the goal frame, the stand after the next tick's steps mid-piece; a search again only at the path's end or by the
         // search timer. The player walks 37 cells a second (a step every 27 ms), frames are 33 ms; reach 10, tolerance 2.
-        ClientState Lockstep(SpawnedMonster target)
+        Player Lockstep(SpawnedMonster target)
         {
-            var c = new ClientState(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1)
+            var c = new Player(new(1, "walk-up", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = true, LockstepFrame = (0, .033),
             };
@@ -317,18 +317,18 @@ public class LockstepTests : IDisposable
         }
         var use = new InstanceTransfer.UseSkillOnObject(0x3000, SkillCatalog.FirstSkillId, 0x8001, 0x0400);
         double hold = .5;   // the swing's hold (LockstepAttackCutIn and the tail), read as the swing begins
-        LockstepAttack Attack(ClientState c, SpawnedMonster target)
+        LockstepAttack Attack(Player c, SpawnedMonster target)
         {
             var attack = new LockstepAttack(++c.ActionCount, 0x3000, target, 10, 2, 1, hold: () => hold);
             c.LockstepAttack = attack;
             return attack;
         }
-        byte[]? Gate(ClientState c, LockstepAttack attack, double start)
+        byte[]? Gate(Player c, LockstepAttack attack, double start)
         {
             c.LockstepFrame = (start, start + .033);
             lock (c.Monsters) return Game.LockstepAttackAtGate(c, attack, use);
         }
-        void Replay(ClientState c, double to)   // the frames up to `to`, the start of the frame then being sent
+        void Replay(Player c, double to)   // the frames up to `to`, the start of the frame then being sent
         {
             c.LockstepFrame = (to, to + .033);
             lock (c.Monsters) Game.StepWalkers(c, to);
@@ -434,7 +434,7 @@ public class LockstepTests : IDisposable
         // after it once 64 cells from that cell (0x141e826a0). Here it goes off his line, out of reach of it: 16 and 13
         // cells from (190, 100), the walk-up searches again at the end of the frame from 2.013, a step from a waypoint in
         // goal, where it stands at once; 64 and 13 cells away, at the end of the frame from 0.726.
-        (ClientState Conn, LockstepAttack Attack) Off(int x, int y)
+        (Player Conn, LockstepAttack Attack) Off(int x, int y)
         {
             var target = new SpawnedMonster("Drowned", new PlayerWalk(190, 100, 8, size: 2), 0, 4, 100);
             var c = Lockstep(target);
@@ -503,8 +503,8 @@ public class LockstepTests : IDisposable
     public void The_client_picks_its_mode_and_its_round_trip_only_aims()
     {
         // No server setting: a connection is lockstep until its client sends a mode-only message, then takes that one's.
-        Assert.True(new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1).LockstepClient);
-        var conn = new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = false };
+        Assert.True(new Player(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1).LockstepClient);
+        var conn = new Player(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = false };
         Assert.False(conn.LockstepClient);
         // A resync (a stun's, a freeze's, a movement skill's) puts a predictive client's monsters on the server's cells.
         var near = new SpawnedMonster("Drowned", new PlayerWalk(110, 100, 8), aggroRange: 60, stopRange: 2, maxLife: 23);
@@ -517,7 +517,7 @@ public class LockstepTests : IDisposable
         // A lockstep client's hit and the life it leaves go into the attacker's own turn of the frame, keyed by the
         // attacker at GGG's checkpoints, so they never come before the attacker's order of that frame; a predictive
         // client applies a message on arrival and keeps the frame's start.
-        Assert.Equal(default, Game.HitOrder(new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = false }, 0x1000));
+        Assert.Equal(default, Game.HitOrder(new Player(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = false }, 0x1000));
         var hit = Game.HitOrder(conn, 0x1000);
         Assert.Equal((0x1000u, (ushort)0x7000, (ushort)0x7002), hit);
         Assert.Equal("01AF0000100000001000700080010000000030004201030000", Convert.ToHexString(

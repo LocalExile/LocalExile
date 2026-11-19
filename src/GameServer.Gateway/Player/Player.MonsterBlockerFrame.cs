@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using GameServer.Core.World;
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     MonsterBlockerFrame? monsterFrame;
     // The frame the last path search outside a pass was answered from, and a list to read the next one's bodies into
@@ -28,7 +28,7 @@ public sealed partial class ClientState
         public (int X, int Y)? Player;
         public bool Phasing;
 
-        public void Read(ClientState owner, double now, bool placement)
+        public void Read(Player owner, double now, bool placement)
         {
             Fixed.Clear(); Copies.Clear(); Monsters.Clear();
             Player = null;
@@ -83,7 +83,7 @@ public sealed partial class ClientState
 
     public sealed class MonsterBlockerFrame : IDisposable
     {
-        readonly ClientState owner;
+        readonly Player owner;
         readonly MonsterBlockerFrame? outer;
         readonly BlockerSet current;
         readonly Dictionary<uint, (int Body, int Current)> indices = [];
@@ -95,10 +95,10 @@ public sealed partial class ClientState
         /// <summary>What the frame was made from. Not to be changed while the frame is in use.</summary>
         internal readonly BodyList Read;
 
-        public MonsterBlockerFrame(ClientState owner, double now, MonsterBlockerFrame? outer, bool placement = false)
+        public MonsterBlockerFrame(Player owner, double now, MonsterBlockerFrame? outer, bool placement = false)
             : this(owner, outer, ReadBodies(owner, now, placement, out long startedAt), startedAt) { }
 
-        static BodyList ReadBodies(ClientState owner, double now, bool placement, out long startedAt)
+        static BodyList ReadBodies(Player owner, double now, bool placement, out long startedAt)
         {
             startedAt = Stopwatch.GetTimestamp();
             var read = new BodyList();
@@ -106,7 +106,7 @@ public sealed partial class ClientState
             return read;
         }
 
-        internal MonsterBlockerFrame(ClientState owner, MonsterBlockerFrame? outer, BodyList read, long startedAt)
+        internal MonsterBlockerFrame(Player owner, MonsterBlockerFrame? outer, BodyList read, long startedAt)
         {
             this.owner = owner; this.outer = outer; Read = read;
             FixedBlockers = new BlockerSet(read.Fixed);

@@ -11,7 +11,7 @@ namespace GameServer.Gateway.Tests;
 // calcRadius / crit / projectile inputs).
 public sealed class SurvivorsSupportMatrixTests
 {
-    static ClientState Connection(string name) =>
+    static Player Connection(string name) =>
         new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),

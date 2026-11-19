@@ -7,7 +7,7 @@ public static partial class Game
     // The overlay counts enemies still in the area, including those waiting to emerge, never friendly summons.
     public static bool MonsterLiving(SpawnedMonster m) => m.Hostile && !m.Dead && m.Life > 0;
 
-    public static int LivingMonstersLocked(ClientState conn) =>
+    public static int LivingMonstersLocked(Player conn) =>
         conn.Monsters.Values.Count(MonsterLiving) + conn.DormantMonsters.Values.Count(MonsterLiving)
         + HeldBackLocked(conn).Count;
 
@@ -17,18 +17,18 @@ public static partial class Game
         public int Holds;
     }
     static readonly RuleTable<object, RemainingDelivery> RemainingDeliveries = new();
-    static RemainingDelivery RemainingOf(ClientState conn) =>
+    static RemainingDelivery RemainingOf(Player conn) =>
         RemainingDeliveries.GetValue((object?)conn.Instance ?? conn, _ => new());
 
     // Population is shared by the instance. A second entrant cannot force a partial count while it is being built.
-    public static IDisposable HoldMonstersRemaining(ClientState conn)
+    public static IDisposable HoldMonstersRemaining(Player conn)
     {
         var delivery = RemainingOf(conn);
         lock (conn.Monsters) delivery.Holds++;
         return new RemainingHold(conn, delivery);
     }
 
-    sealed class RemainingHold(ClientState conn, RemainingDelivery delivery) : IDisposable
+    sealed class RemainingHold(Player conn, RemainingDelivery delivery) : IDisposable
     {
         bool disposed;
         public void Dispose()
@@ -38,7 +38,7 @@ public static partial class Game
         }
     }
 
-    public static async Task SendRemainingMonsters(ClientState conn, bool force = false)
+    public static async Task SendRemainingMonsters(Player conn, bool force = false)
     {
         var delivery = RemainingOf(conn);
         // Concurrent deaths and arrivals share this gate, so an older snapshot cannot overwrite a newer count.
@@ -46,13 +46,13 @@ public static partial class Game
         try
         {
             int living;
-            ClientState[] recipients;
+            Player[] recipients;
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent || delivery.Holds > 0) return;
                 living = Math.Min(byte.MaxValue, LivingMonstersLocked(conn));
                 recipients = [conn, .. (conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
-                    .Select(p => p.Owner).OfType<ClientState>().Where(p => !ReferenceEquals(p, conn))];
+                    .Select(p => p.Owner).OfType<Player>().Where(p => !ReferenceEquals(p, conn))];
             }
             foreach (var recipient in recipients)
             {

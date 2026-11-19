@@ -12,10 +12,10 @@ public static partial class Game
         public int ExpiryPercent;
     }
     // Optional buff payloads are not mirrored blindly: each observer owns its native instances.
-    static readonly Store<ClientState, Dictionary<SpawnedMonster, RupturePresentation>> RupturePresentations = new();
+    static readonly Store<Player, Dictionary<SpawnedMonster, RupturePresentation>> RupturePresentations = new();
 
     /// <summary>Reconciles the native Rupture instances under the monster lock, after settling elapsed bleeding.</summary>
-    public static List<byte[]> PresentRupturesLocked(ClientState conn, uint id, SpawnedMonster monster, double now)
+    public static List<byte[]> PresentRupturesLocked(Player conn, uint id, SpawnedMonster monster, double now)
     {
         var set = monster.Ruptures;
         if (monster.Dead || monster.Life == 0) set.Clear();

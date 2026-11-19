@@ -51,13 +51,13 @@ public static partial class Game
     public static EssenceCrafting HardModeEssences = default!;
     public static readonly ConcurrentDictionary<string, ItemDrops> HardModeDrops = new();
 
-    public static ItemCatalog ItemsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeItems : Items;
-    public static SkillCatalog SkillsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeSkills : Skills;
-    public static PassiveTree PassivesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModePassives : Passives;
-    public static ItemRolls RollsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeRolls : Rolls;
-    public static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques : Uniques;
-    public static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences : Essences;
-    public static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
+    public static ItemCatalog ItemsFor(Player conn) => LeagueFor(conn).HardMode ? HardModeItems : Items;
+    public static SkillCatalog SkillsFor(Player conn) => LeagueFor(conn).HardMode ? HardModeSkills : Skills;
+    public static PassiveTree PassivesFor(Player conn) => LeagueFor(conn).HardMode ? HardModePassives : Passives;
+    public static ItemRolls RollsFor(Player conn) => LeagueFor(conn).HardMode ? HardModeRolls : Rolls;
+    public static UniqueCatalog UniquesFor(Player conn) => LeagueFor(conn).HardMode ? HardModeUniques : Uniques;
+    public static EssenceCrafting EssencesFor(Player conn) => LeagueFor(conn).HardMode ? HardModeEssences : Essences;
+    public static ItemDrops DropsFor(Player conn) => LeagueFor(conn) is { HardMode: true } league
         ? HardModeDrops[league.Id] : Drops;
 
     public sealed class VitalsAdmission
@@ -69,10 +69,10 @@ public static partial class Game
     // Registration precedes expensive progress preparation. An older preparation cannot claim resources after a
     // newer connection was admitted. Entries are removed when their latest connection finishes, including refusals.
     public static readonly ConcurrentDictionary<(string Database, Guid Character), VitalsAdmission> VitalsAdmissions = new();
-    public static (string, Guid)? VitalsAdmissionKey(ClientState conn) => conn.CharacterId is { } id
+    public static (string, Guid)? VitalsAdmissionKey(Player conn) => conn.CharacterId is { } id
         ? (Path.GetFullPath(Saves.Db.Path).ToUpperInvariant(), id) : null;
 
-    public static void RegisterVitalsAdmission(ClientState conn)
+    public static void RegisterVitalsAdmission(Player conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals) return;
         lock (conn.Monsters)
@@ -92,7 +92,7 @@ public static partial class Game
         }
     }
 
-    public static void InitializeCharacterVitals(ClientState conn)
+    public static void InitializeCharacterVitals(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -119,7 +119,7 @@ public static partial class Game
         }
     }
 
-    public static void ForgetVitalsAdmission(ClientState conn)
+    public static void ForgetVitalsAdmission(Player conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals || VitalsAdmissionKey(conn) is not { } key
             || !VitalsAdmissions.TryGetValue(key, out var admission)) return;
@@ -128,7 +128,7 @@ public static partial class Game
                 VitalsAdmissions.TryRemove(new KeyValuePair<(string, Guid), VitalsAdmission>(key, admission));
     }
 
-    public static void PersistVitals(ClientState conn, bool bestEffort = false)
+    public static void PersistVitals(Player conn, bool bestEffort = false)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals) return;
         try
@@ -146,7 +146,7 @@ public static partial class Game
 
     // Save and retire before Auth can issue the destination ticket. Neither periodic nor disconnect saves from the
     // source may follow that handoff. An Auth refusal can resume only this same retired token, never a newer owner.
-    public static bool RetireVitalsForTransfer(ClientState conn)
+    public static bool RetireVitalsForTransfer(Player conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals) return true;
         if (conn.CharacterId is not { } id) return false;
@@ -155,7 +155,7 @@ public static partial class Game
                 conn.PlayerLife, conn.PlayerMana, retire: true);
     }
 
-    public static void ResumeVitalsAfterFailedTransfer(ClientState conn)
+    public static void ResumeVitalsAfterFailedTransfer(Player conn)
     {
         if (!LeagueFor(conn).Rules.PersistsVitals || conn.CharacterId is not { } id) return;
         lock (conn.Monsters)
@@ -171,7 +171,7 @@ public static partial class Game
             : (maxLife, maxMana);
     }
 
-    public static IReadOnlyList<(uint Id, uint Life)> RecoverBossesOnDeath(ClientState conn)
+    public static IReadOnlyList<(uint Id, uint Life)> RecoverBossesOnDeath(Player conn)
     {
         lock (conn.Monsters)
         {

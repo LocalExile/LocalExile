@@ -6,20 +6,20 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Pools and published stats already include effective item ES. Raw bases would count suppressed/converted ES.
-    public static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get) =>
+    public static bool PlayerHasEnergyShieldForRecovery(Player conn, Func<string, int> get) =>
         conn.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
 
-    public static PlayerInventories ItemsOf(ClientState conn)
+    public static PlayerInventories ItemsOf(Player conn)
     {
         StatGraph.ReadInput((int)StatInput.Items);
         return ItemsOfUnread(conn);
     }
 
-    static PlayerInventories ItemsOfUnread(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
+    static PlayerInventories ItemsOfUnread(Player conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
 
     // Active local item defences retain their base roll, local conversions and final native rounding.
     public static IEnumerable<(byte Row, (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defence)> EquippedArmourDefences(
-        ClientState conn, Func<string, int>? get = null)
+        Player conn, Func<string, int>? get = null)
     {
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
@@ -38,7 +38,7 @@ public static partial class Game
     }
 
     // Active item-tooltip values become flat inputs to the character-wide pool calculation.
-    public static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(ClientState conn, Func<string, int>? get = null)
+    public static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(Player conn, Func<string, int>? get = null)
     {
         decimal armour = 0, evasion = 0, ward = 0; long energyShield = 0;
         foreach (var (_, defence) in EquippedArmourDefences(conn, get))
@@ -53,7 +53,7 @@ public static partial class Game
 
     // Native 0x14252a660: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
     // The conversion removes all armour-item ES, even when the Life gained is only 50% of its value.
-    public static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(ClientState conn, Func<string, int> get, int energyShield)
+    public static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(Player conn, Func<string, int> get, int energyShield)
     {
         int percent = get("gain_maximum_life_instead_of_maximum_es_from_armour") != 0 ? 100
             : Math.Max(0, get("gain_maximum_life_instead_of_maximum_es_from_armour_at_x%_of_the_value"));
@@ -68,17 +68,17 @@ public static partial class Game
     }
 
     // The item in the main hand (row 2, the active set) and its base type, unless its requirements are not met.
-    public static (Item Item, ItemCatalog.BaseType? Type)? ActiveMainHand(ClientState conn) => ActiveHand(conn, PlayerInventories.Weapon1);
+    public static (Item Item, ItemCatalog.BaseType? Type)? ActiveMainHand(Player conn) => ActiveHand(conn, PlayerInventories.Weapon1);
 
     // "While holding a Fishing Rod" (PoB Condition UsingFishing from weaponData1): the active set's main hand only, and
     // not a rod whose requirements are unmet. The client's calculators test main_hand_weapon_type 15 the same way.
-    static bool HoldingFishingRod(ClientState conn) => ActiveMainHand(conn)?.Type?.Class == "FishingRod";
+    static bool HoldingFishingRod(Player conn) => ActiveMainHand(conn)?.Type?.Class == "FishingRod";
 
     // The item in the off hand (row 3, the active set). The weapon swap trades the hands' items with rows 14/15
     // (SwapWeaponSets), so Offhand2 always holds the inactive set's off hand, which is never swung.
-    public static (Item Item, ItemCatalog.BaseType? Type)? ActiveOffHand(ClientState conn) => ActiveHand(conn, PlayerInventories.Offhand1);
+    public static (Item Item, ItemCatalog.BaseType? Type)? ActiveOffHand(Player conn) => ActiveHand(conn, PlayerInventories.Offhand1);
 
-    public static (Item Item, ItemCatalog.BaseType? Type)? ActiveHand(ClientState conn, byte row) =>
+    public static (Item Item, ItemCatalog.BaseType? Type)? ActiveHand(Player conn, byte row) =>
         ActiveHandIn(ItemsOf(conn).Items(row), id => IsInactive(conn, id), ItemsFor(conn));
 
     // ActiveHand from a row read once, with the items whose requirements are not met (the stat snapshot's tail inputs).
@@ -88,17 +88,17 @@ public static partial class Game
             .Select(i => ((Item, ItemCatalog.BaseType?)?)(i.Item, catalog.ByHash(i.Item.TypeHash))).FirstOrDefault();
 
     // The active weapon's local typed damage, quality and duration; no weapon uses the class's unarmed attack.
-    public static SkillCatalog.Unarmed WeaponFor(ClientState conn) => WeaponOf(conn, ActiveMainHand(conn));
+    public static SkillCatalog.Unarmed WeaponFor(Player conn) => WeaponOf(conn, ActiveMainHand(conn));
 
-    public static SkillCatalog.Unarmed WeaponOf(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? mainHand) =>
+    public static SkillCatalog.Unarmed WeaponOf(Player conn, (Item Item, ItemCatalog.BaseType? Type)? mainHand) =>
         WeaponIn(conn, mainHand) ?? SkillsFor(conn).UnarmedFor(conn.ClassRow);
 
     // A hand's weapon attack (WeaponOf); null when the hand holds no weapon (empty, a shield, a quiver).
-    public static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand) =>
+    public static SkillCatalog.Unarmed? WeaponIn(Player conn, (Item Item, ItemCatalog.BaseType? Type)? hand) =>
         WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand) is { } weapon && hand is { } active
             ? weapon with { LocalSources = QualifiedHandLocalStats(conn, active.Item, weapon.LocalSources!).ToFrozenDictionary() } : null;
 
-    static Dictionary<string, int> QualifiedHandLocalStats(ClientState conn, Item item,
+    static Dictionary<string, int> QualifiedHandLocalStats(Player conn, Item item,
         IReadOnlyDictionary<string, int>? weaponSources = null)
     {
         var result = new Dictionary<string, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(conn).Mods));
@@ -129,10 +129,10 @@ public static partial class Game
 
     // The off-hand weapon of a dual-wielded attack (the active set's Offhand1), with the same values WeaponIn gives the main
     // hand. Null when there is nothing to swing with there (empty, a shield, a quiver) or the main hand holds no weapon.
-    public static SkillCatalog.Unarmed? OffhandWeaponFor(ClientState conn) =>
+    public static SkillCatalog.Unarmed? OffhandWeaponFor(Player conn) =>
         WeaponIn(conn, ActiveMainHand(conn)) is null ? null : WeaponIn(conn, ActiveOffHand(conn));
 
-    public static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(ClientState conn)
+    public static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(Player conn)
     {
         Dictionary<string, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
             ? QualifiedHandLocalStats(conn, active.Item) : [];
@@ -142,12 +142,12 @@ public static partial class Game
 
     // Current attack executors use the main hand. Read only its qualified active item; a shield, an inactive
     // weapon set or an unqualified weapon cannot supply local modifiers to this contact.
-    public static IReadOnlyDictionary<string, int>? MainHandLocalSources(ClientState conn) =>
+    public static IReadOnlyDictionary<string, int>? MainHandLocalSources(Player conn) =>
         WeaponFor(conn).LocalSources;
 
     // Current actions and passive weapon conditions use only the hands' active rows. A normal weapon swap trades
     // these rows with 14/15 before recomputing pools; an explicit false is reserved for inspecting both stored sets.
-    public static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = true)
+    public static WeaponProfile WeaponProfileFor(Player conn, bool activeSet = true)
     {
         var items = ItemsOf(conn);
         return WeaponProfileFrom(row => items.Items(row), id => IsInactive(conn, id), ItemsFor(conn), activeSet, () => HasShield(conn));
@@ -205,13 +205,13 @@ public static partial class Game
     }
 
     // Both stored offhands, used only by the explicit inventory-wide profile inspection above.
-    public static bool HasShield(ClientState conn) => OffhandTypes(conn).Any(t => t.Class == "Shield");
+    public static bool HasShield(Player conn) => OffhandTypes(conn).Any(t => t.Class == "Shield");
 
     // Base block comes from the active, requirement-enabled shield, like its local defences and global modifiers.
-    public static int ShieldBaseBlock(ClientState conn) => ActiveOffHand(conn)?.Type is { Class: "Shield" } shield
+    public static int ShieldBaseBlock(Player conn) => ActiveOffHand(conn)?.Type is { Class: "Shield" } shield
         ? ItemsFor(conn).ShieldBlock(shield) : 0;
 
-    public static IEnumerable<ItemCatalog.BaseType> OffhandTypes(ClientState conn)
+    public static IEnumerable<ItemCatalog.BaseType> OffhandTypes(Player conn)
     {
         var items = ItemsOf(conn);
         foreach (byte row in new byte[] { PlayerInventories.Offhand1, 15 })
@@ -225,7 +225,7 @@ public static partial class Game
         : null;
 
     // The weapon type of an equipment row's item (its BaseItemTypes row), or null: the active (not inactive) item.
-    public static ItemCatalog.BaseType? HandType(ClientState conn, byte row) =>
+    public static ItemCatalog.BaseType? HandType(Player conn, byte row) =>
         ItemsOf(conn).Items(row).Where(i => !IsInactive(conn, i.Id))
             .Select(i => ItemsFor(conn).ByHash(i.Item.TypeHash)).FirstOrDefault();
 
@@ -237,7 +237,7 @@ public static partial class Game
     // What the model wears: the equipped items, dressed in the worn cosmetics (CosmeticEffects). A skin replaces the item's
     // art in its entry's first reference and a weapon effect fills the second; attachments and character effects fill the
     // model slots no item uses, which go out empty when nothing is worn there so taking one off clears it.
-    public static IReadOnlyList<VisibleItem> Looks(ClientState conn, PlayerInventories items)
+    public static IReadOnlyList<VisibleItem> Looks(Player conn, PlayerInventories items)
     {
         var looks = items.Equipped(LookOf).ToList();
         // A weapon whose requirements are not met is not in the hands (WeaponProfileFor, WeaponFor): the model leaves it out
@@ -293,7 +293,7 @@ public static partial class Game
     // Skill Gem Effect (slot 49) is left out: its skill_art_variation belongs to one skill's stats, not the character's.
     // The stats the client reads in place of a cosmetic's own join them (CosmeticDerivedStats): it does not work out a
     // derived stat for a player the server describes.
-    public static IEnumerable<(uint Stat, int Value)> CosmeticStats(ClientState conn)
+    public static IEnumerable<(uint Stat, int Value)> CosmeticStats(Player conn)
     {
         var worn = WornCosmetics(conn).Where(w => w.Slot != 49).SelectMany(w => MtxEffects.Of(w.MtxTypeHash) is not { } fx ? [] :
                 fx.Pet != 0 && Stats.Key(w.Slot == 19 ? "pet_slot2" : "pet_slot1") is uint pet ? [.. fx.Stats, (pet, fx.Pet)] : fx.Stats)
@@ -302,12 +302,12 @@ public static partial class Game
         return [.. worn, .. CosmeticDerivedStats(conn, worn.ToDictionary(s => s.Stat, s => s.Value))];
     }
 
-    public static IEnumerable<(uint Stat, int Value)> CosmeticScaleSources(ClientState conn) =>
+    public static IEnumerable<(uint Stat, int Value)> CosmeticScaleSources(Player conn) =>
         CosmeticStats(conn).Where(s => ActorScale.IsInput(s.Stat));
 
     // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
-    public static async Task SendEquipment(ClientState conn, PlayerInventories items)
+    public static async Task SendEquipment(Player conn, PlayerInventories items)
     {
         RefreshVaalSouls(conn);
         // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
@@ -332,7 +332,7 @@ public static partial class Game
         await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
     }
 
-    public static async Task SendModel(ClientState conn,
+    public static async Task SendModel(Player conn,
         IReadOnlyList<VisibleItem> equipped, string why)
     {
         conn.ModelHands = HandsKey(equipped);
@@ -346,7 +346,7 @@ public static partial class Game
 
     // A weapon's requirements can start or stop being met while the equipment stays (a level, a passive, another item's
     // attributes): the model follows, so a weapon that became inactive leaves the hands and one that qualifies again returns.
-    public static async Task SendModelIfHandsChanged(ClientState conn)
+    public static async Task SendModelIfHandsChanged(Player conn)
     {
         var equipped = Looks(conn, ItemsOf(conn));
         if (conn.ModelHands is { } sent && sent != HandsKey(equipped))
@@ -354,7 +354,7 @@ public static partial class Game
     }
 
     // Takes the held item off the cursor (0xbf); null when nothing is held.
-    public static async Task<InventoryItem?> TakeHeld(ClientState conn, PlayerInventories items, string why)
+    public static async Task<InventoryItem?> TakeHeld(Player conn, PlayerInventories items, string why)
     {
         if (items.Items(PlayerInventories.Cursor) is not [var held, ..] || items.Remove(PlayerInventories.Cursor, held.Id) is null) return null;
         await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),

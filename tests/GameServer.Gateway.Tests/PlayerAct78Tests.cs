@@ -43,7 +43,7 @@ public sealed class PlayerAct78Tests
         });
     }
 
-    static void InGame(Action<ClientState> body)
+    static void InGame(Action<Player> body)
     {
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
@@ -52,7 +52,7 @@ public sealed class PlayerAct78Tests
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-            body(new ClientState(new(1, "native shots", 100, 100, 10, 10, null, []), 1, 1));
+            body(new Player(new(1, "native shots", 100, 100, 10, 10, null, []), 1, 1));
         }
         finally
         {

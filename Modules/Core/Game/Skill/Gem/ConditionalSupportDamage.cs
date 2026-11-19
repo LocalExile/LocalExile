@@ -38,7 +38,7 @@ public static partial class Game
     }
 
     // Call under the Monsters lock, after the per-target outgoing damage hooks.
-    public static DamagePacket WithConditionalSupportDamageLocked(ClientState conn, IReadOnlyDictionary<uint, int>? skill,
+    public static DamagePacket WithConditionalSupportDamageLocked(Player conn, IReadOnlyDictionary<uint, int>? skill,
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;

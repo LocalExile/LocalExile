@@ -6,10 +6,10 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 
 public static partial class Game
 {
-    public static bool PlayerAlwaysHits(ClientState conn) => Stats.Key("global_always_hit") is uint key
+    public static bool PlayerAlwaysHits(Player conn) => Stats.Key("global_always_hit") is uint key
         && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
 
-    public static Dictionary<uint, int> WithAntiquarian(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithAntiquarian(Player conn, Dictionary<uint, int> sources)
     {
         lock (conn.Monsters)
         {
@@ -25,7 +25,7 @@ public static partial class Game
     }
 
     // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
-    static void ObserveAntiquarian(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    static void ObserveAntiquarian(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         lock (conn.Monsters)
@@ -33,7 +33,7 @@ public static partial class Game
                 Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);
     }
 
-    public static void EnsureAntiquarianPools(ClientState conn)
+    public static void EnsureAntiquarianPools(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -49,16 +49,16 @@ public static partial class Game
 
     // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT; mana takes
     // its share of what is left before Life. types: the hit's damage by type (only its proportions count).
-    public static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
+    public static int DamagePlayerHit(Player conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats, DamagePacket types) => DamagePlayerHitTyped(conn, 0, nonChaos, chaos, now, stats, types);
 
-    public static void ClearAntiquarianOnDeath(ClientState conn)
+    public static void ClearAntiquarianOnDeath(Player conn)
     {
         if (conn.PlayerLife != 0) return;
         conn.Antiquarian.Clear(); conn.EnduringCryRecovery.Clear(); conn.Ward.SetMaximum(0);
     }
 
-    public static byte[]? AntiquarianPresentation(ClientState conn)
+    public static byte[]? AntiquarianPresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -104,14 +104,14 @@ public static partial class Game
         }
     }
 
-    public static Task SendAntiquarian(ClientState conn) =>
+    public static Task SendAntiquarian(Player conn) =>
         Send(conn, [], null, atGate: () => AntiquarianPresentation(conn));
 
     public sealed record AntiquarianTransfer(string Character, DateTime At, AntiquarianCombatState.Carried Buffs,
         bool Broken, double WardSeconds, TimedLifeRecovery.Carried Cry);
     public static readonly ConcurrentDictionary<uint, AntiquarianTransfer> CarriedAntiquarian = new();
 
-    public static void CarryAntiquarian(ClientState conn, uint ticket)
+    public static void CarryAntiquarian(Player conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -127,7 +127,7 @@ public static partial class Game
         }
     }
 
-    public static void RestoreAntiquarian(ClientState conn)
+    public static void RestoreAntiquarian(Player conn)
     {
         lock (conn.Monsters)
         {

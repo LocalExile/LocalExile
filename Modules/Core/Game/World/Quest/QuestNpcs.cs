@@ -10,7 +10,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // The instance's quest NPCs, from the town's placements or where the area's rooms place them (entering the area).
-    public static List<QuestNpc> QuestNpcCandidates(ClientState conn, QuestObjectTypes.AreaPlacements placed)
+    public static List<QuestNpc> QuestNpcCandidates(Player conn, QuestObjectTypes.AreaPlacements placed)
     {
         string area = conn.Layout.Id;
         var found = new List<QuestNpc>();
@@ -47,7 +47,7 @@ public static partial class Game
 
     // A character's old kill flags do not mean a new instance's boss has died. Keep the death site in the instance;
     // corpses are omitted from its saved monster list. A later visit uses the NPC's completed entrance state.
-    public static IEnumerable<QuestNpc> AppearedBefore(ClientState conn)
+    public static IEnumerable<QuestNpc> AppearedBefore(Player conn)
     {
         string area = conn.Layout.Id;
         foreach (var rule in QuestsOf(conn).Appearing(area).Where(r => r.GoneWith is not null))
@@ -67,7 +67,7 @@ public static partial class Game
 
     // The quest NPCs as the flags have them: created when they stand there now, removed when they no longer do, moved to
     // their last Transitionable state when a flag transitions them.
-    public static async Task UpdateQuestNpcs(ClientState conn, string why)
+    public static async Task UpdateQuestNpcs(Player conn, string why)
     {
         List<QuestNpc> candidates;
         lock (conn.QuestNpcs) candidates = [.. conn.QuestNpcs];
@@ -114,7 +114,7 @@ public static partial class Game
     }
 
     // A monster died: the NPCs that appear where it fell (Quests.AppearsRule: Sin beside each god).
-    public static async Task QuestNpcsAppear(ClientState conn,
+    public static async Task QuestNpcsAppear(Player conn,
         MonsterCatalog.Variety variety, (int X, int Y) at)
     {
         var instance = conn.Instance;
@@ -127,7 +127,7 @@ public static partial class Game
                     !other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, instance)
                         ? Show(other) : Task.CompletedTask);
 
-        async Task Show(ClientState viewer)
+        async Task Show(Player viewer)
         {
             string area = viewer.Layout.Id;
             foreach (var rule in QuestsOf(viewer).AppearOnKill(area, variety.Id))

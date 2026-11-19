@@ -29,7 +29,7 @@ static class GoddessOfJustice
     /// count is shared among the volly clip's contacts (release-and-repeat.md §6): without it each of the six fired all
     /// five (live). The awakening's (<c>AwakenGargoyle</c>, 0x141991090 → 0x141bf97f0) aims at its target object for its
     /// <c>skill_effect_duration</c> (0x141bf9a20).</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
+    internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
     {
         if (!IsGoddess(variety)) return null;
         var catalog = Game.SkillsFor(conn);
@@ -62,7 +62,7 @@ static class GoddessOfJustice
     static readonly RuleTable<SpawnedMonster, Casting> Casts = new();
 
     /// <summary>Her place kept on Izaro's and her volleys while <paramref name="fighting"/> holds.</summary>
-    internal static async Task Run(ClientState conn, uint id, SpawnedMonster goddess,
+    internal static async Task Run(Player conn, uint id, SpawnedMonster goddess,
         SpawnedMonster izaro, Func<bool> fighting)
     {
         var cast = Casts.GetValue(goddess, _ => new());
@@ -99,7 +99,7 @@ static class GoddessOfJustice
 
     // Waits until she is free (Izaro fights, and a volley or a beam has played out), then holds her for `seconds`. False
     // when she is gone.
-    static async Task<bool> Hold(ClientState conn, SpawnedMonster goddess, double seconds)
+    static async Task<bool> Hold(Player conn, SpawnedMonster goddess, double seconds)
     {
         var cast = Casts.GetValue(goddess, _ => new());
         while (true)
@@ -116,7 +116,7 @@ static class GoddessOfJustice
 
     /// <summary>Her beam to a gargoyle (AwakenGargoyle at it), for <paramref name="seconds"/>; nothing else meanwhile. False
     /// when she is gone.</summary>
-    internal static async Task<bool> Awaken(ClientState conn, uint id,
+    internal static async Task<bool> Awaken(Player conn, uint id,
         SpawnedMonster goddess, uint gargoyle, (int X, int Y) at, double seconds)
     {
         if (!await Hold(conn, goddess, seconds)) return false;
@@ -131,7 +131,7 @@ static class GoddessOfJustice
     }
 
     /// <summary>Her beam stops (its time is up, the gargoyle died, or the trial ended).</summary>
-    internal static async Task EndAwaken(ClientState conn, uint id, SpawnedMonster goddess)
+    internal static async Task EndAwaken(Player conn, uint id, SpawnedMonster goddess)
     {
         lock (conn.Monsters) Casts.GetValue(goddess, _ => new()).Until = conn.Clock.Elapsed.TotalSeconds;
         await Send(conn, InstanceProtocol.ActionEnded(id), null);
@@ -139,7 +139,7 @@ static class GoddessOfJustice
 
     // Her volley: the Spirit Mortar's action at the player's cell, which the client plays and fires (SkillsFor). The server
     // lands the same mortars there, unseen, one at each of the volly clip's contacts, for their hits.
-    static async Task Volley(ClientState conn, uint id, SpawnedMonster goddess, Func<bool> fighting)
+    static async Task Volley(Player conn, uint id, SpawnedMonster goddess, Func<bool> fighting)
     {
         int action;
         lock (conn.Monsters) action = ++goddess.ActionGeneration;
@@ -167,7 +167,7 @@ static class GoddessOfJustice
     }
 
     // LabyrinthSpiritMortar: fire, its FloatStatsValues of the monster damage at her level, landing round its cell.
-    static MonsterAttack MortarAttack(ClientState conn, SpawnedMonster goddess)
+    static MonsterAttack MortarAttack(Player conn, SpawnedMonster goddess)
     {
         double baseDamage = Monsters.BaseDamage(goddess.Level) ?? 1;
         bool high = Game.SkillsFor(conn).MonsterEffectLevel(IzaroGoddess.MortarEffect, goddess.Level) >= 3;
@@ -179,7 +179,7 @@ static class GoddessOfJustice
 
     /// <summary>Her Guardians' mortars, one to each spot, as she casts (her channel clip). They hit nothing; the seconds each
     /// flies, after which its circle opens.</summary>
-    internal static async Task<double[]> ThrowGuardians(ClientState conn, uint id,
+    internal static async Task<double[]> ThrowGuardians(Player conn, uint id,
         SpawnedMonster goddess, IReadOnlyList<(int X, int Y)> spots)
     {
         // Not during a volley or a beam.
@@ -207,7 +207,7 @@ static class GoddessOfJustice
     static double Speed() => ProjectileSpeed.CellsPerSecond(IzaroGoddess.MortarSpeed, _ => 0, _ => 0);
 
     // A mortar from her (her place, the volley's height) to a cell: a damaging one lands its area there.
-    static ProjectileUse Mortar(ProjectileSession session, ClientState conn, uint id, SpawnedMonster goddess, string metadata, (int X, int Y) target,
+    static ProjectileUse Mortar(ProjectileSession session, Player conn, uint id, SpawnedMonster goddess, string metadata, (int X, int Y) target,
         object payload, bool hidden = false)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;

@@ -16,7 +16,7 @@ public static partial class Game
 
     // Same supported attribute calculation as pool construction, from a single current equipment read.
     // No PoolsFor/SupportedSkill recursion, pool assignment/refill or old-snapshot cache publication.
-    public static GemRequirementSnapshot CurrentGemRequirements(ClientState conn,
+    public static GemRequirementSnapshot CurrentGemRequirements(Player conn,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         lock (conn.Monsters)

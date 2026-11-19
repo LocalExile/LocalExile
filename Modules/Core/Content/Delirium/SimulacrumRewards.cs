@@ -7,7 +7,7 @@ public sealed partial class DeliriumModule
     static readonly string[] EncounterUniques = ["Voices", "Megalomaniac", "Split Personality", "Assailum", "Algor Mortis", "Perfidy",
         "The Front Line", "The Interrogation", "Natural Affinity"];
 
-    List<Item> RollRewards(ClientState conn, Run run)
+    List<Item> RollRewards(Player conn, Run run)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return [];
         var random = Random.Shared;

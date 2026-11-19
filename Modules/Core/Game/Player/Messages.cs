@@ -18,7 +18,7 @@ public static partial class Game
     // stands (OpenTownPortal). Waypoint travel: next to the destination's waypoint, which a generated area has only from
     // the walk-map recorder's capture for this seed (live.ps1 -Walkmaps). Otherwise next to the exit back; Resurrect at
     // Checkpoint and the monster packs' clearance use it too. Read when 0x1d goes out (the packs' plan) and at 0x7d.
-    static (AreaLayout Layout, string? Note) ArrivalLayout(ClientState conn)
+    static (AreaLayout Layout, string? Note) ArrivalLayout(Player conn)
     {
         var layout = conn.Layout;
         if (conn.ArriveAt is var (sx, sy))
@@ -37,7 +37,7 @@ public static partial class Game
     }
 
     // How long the hold on the player still has to run, if it is within limit; else 0.
-    static double HoldEndsWithin(ClientState conn, double limit)
+    static double HoldEndsWithin(Player conn, double limit)
     {
         lock (conn.Monsters)
         {
@@ -56,7 +56,7 @@ public static partial class Game
     static long ThreadCpuMilliseconds() =>
         GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
 
-    public static async Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
+    public static async Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player conn, long readAt = 0)
     {
         foreach (var (id, bytes) in messages)
         {

@@ -24,14 +24,14 @@ public static partial class Game
     // A monster record's skill_behaviour_variation: its effect's SkillID, as the client's own skill-stat builder adds it
     // (SkillCatalog.BehaviourVariation), unless the record already says. Projectile records keep their own rule above
     // (MonsterProjectileSkillStats: a mortar's spell forms are sent without it, the server keeping their objects).
-    public static IReadOnlyList<(uint, int)> WithBehaviourVariation(ClientState conn, int effect, IReadOnlyList<(uint, int)> stats) =>
+    public static IReadOnlyList<(uint, int)> WithBehaviourVariation(Player conn, int effect, IReadOnlyList<(uint, int)> stats) =>
         SkillsFor(conn).BehaviourVariation(effect) is int variation and > 0 && stats.All(s => s.Item1 != StatKeys.SkillBehaviourVariation)
             ? [.. stats, (StatKeys.SkillBehaviourVariation, variation)]
             : stats;
 
     // Native projectile actions read final counts from the actor record. The raw base/additional stats alone do
     // not emit a shot. Keep simulated mortars on their own publication path.
-    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(Player conn, int effect, int level, MonsterAttack attack)
     {
         var stats = ActionSkillStats(conn, effect, level, attack);
         if (!attack.Proxy) return stats;
@@ -42,7 +42,7 @@ public static partial class Game
     /// <summary>The flags that make a skill a totem's summon (SpellTotems.TotemProxy clears the same).</summary>
     static readonly string[] TotemFlags = ["is_totem", "base_skill_is_totemified", "skill_is_totemified"];
 
-    static IReadOnlyList<(uint, int)> ActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    static IReadOnlyList<(uint, int)> ActionSkillStats(Player conn, int effect, int level, MonsterAttack attack)
     {
         var catalog = SkillsFor(conn);
         IReadOnlyList<(uint, int)> Art(IReadOnlyList<(uint, int)> stats) =>
@@ -63,7 +63,7 @@ public static partial class Game
         return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
     }
 
-    public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(Player conn, int effect, int level, MonsterAttack attack)
     {
         var own = attack.InPlaceSkillStats();
         // A mortar attack is the client's own: its action fires only with a count on the record and draws the MonsterMortar
@@ -98,7 +98,7 @@ public static partial class Game
     // whether the offset follows the model's scale (use_scaled_contact_offset, MonsterVarieties ModelSizeMultiplier) and
     // whether the monster turns its back for it (action_should_face_away_from_target). Without rig data: null, the
     // halfway release and the default point.
-    public static MonsterRelease? MonsterReleaseFor(ClientState conn, MonsterCatalog.Variety variety, int effect, int level,
+    public static MonsterRelease? MonsterReleaseFor(Player conn, MonsterCatalog.Variety variety, int effect, int level,
         SkillCatalog.MonsterProjectileInfo projectile, ushort sequence = MonsterActionSequence)
     {
         var catalog = SkillsFor(conn);
@@ -120,11 +120,11 @@ public static partial class Game
     /// of the clip its stance plays for the skill's Animation row (SkillAnimations; Leap Slam's hit_ground), chosen with the
     /// action's sequence as the client chooses it. <paramref name="key"/> names the row instead (a walk-up swing's
     /// Melee). Null for any other monster, or without a pool for the row.</summary>
-    public static double? StanceContact(ClientState conn, SpawnedMonster m, MonsterAttack a, ushort sequence, string? key = null) =>
+    public static double? StanceContact(Player conn, SpawnedMonster m, MonsterAttack a, ushort sequence, string? key = null) =>
         StanceClipOf(conn, m, a, sequence, key)?.ContactFraction;
 
     /// <summary>The clip a stanced monster plays for the attack (StanceContact); null for one with no stances.</summary>
-    public static SkillCatalog.MonsterClipContact? StanceClipOf(ClientState conn, SpawnedMonster m, MonsterAttack a, ushort sequence,
+    public static SkillCatalog.MonsterClipContact? StanceClipOf(Player conn, SpawnedMonster m, MonsterAttack a, ushort sequence,
         string? key = null)
     {
         if (m.Variety is not { } variety || !SkillAnimations.IsStanced(variety.Id)) return null;
@@ -139,7 +139,7 @@ public static partial class Game
 
     // The native selector seeds the clip from this action (0x141e9fa80). Keep its contact and launch point together;
     // another action may start on the actor while this shot is in flight. Scripted releases retain their own recipe.
-    public static MonsterAttack MonsterAttackForSequence(ClientState conn, SpawnedMonster monster, MonsterAttack attack, ushort sequence) =>
+    public static MonsterAttack MonsterAttackForSequence(Player conn, SpawnedMonster monster, MonsterAttack attack, ushort sequence) =>
         attack is { ReleaseEffect: int effect, Projectile: { } projectile } && monster.Variety is { } variety
             ? attack with { Release = MonsterReleaseFor(conn, variety, effect, monster.Level, projectile, sequence) }
             : attack;
@@ -153,7 +153,7 @@ public static partial class Game
     // it does not run a nearest-clear search. This is shared by normal re-entry and population replay.
     // A planned one (SavedMonster.Planned) is created as the area's population creates its monsters: at a clear cell
     // by its planned one, with its mods rolled now. bulk: see SpawnMonster.
-    public static Task<uint> RestoreMonster(ClientState conn, MonsterCatalog.Variety variety, SavedMonster saved, bool bulk = false) =>
+    public static Task<uint> RestoreMonster(Player conn, MonsterCatalog.Variety variety, SavedMonster saved, bool bulk = false) =>
         saved.Planned
             ? SpawnMonster(conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 log: false, alone: false, bulk: bulk)
@@ -177,13 +177,13 @@ public static partial class Game
         hostile && rarity != MonsterRarity.Unique && !variety.BossHealthBar && Dist(at, player) > PopulationRevealCells;
 
     /// <summary>The monsters the area still holds back: all hostile and alive. Under the Monsters lock.</summary>
-    public static IReadOnlyList<SavedMonster> HeldBackLocked(ClientState conn) =>
+    public static IReadOnlyList<SavedMonster> HeldBackLocked(Player conn) =>
         (IReadOnlyList<SavedMonster>?)conn.Instance?.World.HeldBackMonsters ?? [];
 
     /// <summary>Creates the held-back monsters a player of the instance has come near. The runner's
     /// SyncInstanceMonsters calls it, so they are created on the client whose messages the others mirror; the other
     /// clients' next pass creates them there.</summary>
-    public static async Task RevealHeldBack(ClientState conn)
+    public static async Task RevealHeldBack(Player conn)
     {
         var held = conn.Instance.World.HeldBackMonsters;
         List<SavedMonster> due = [];
@@ -228,7 +228,7 @@ public static partial class Game
         await SendRemainingMonsters(conn);
     }
 
-    public static async Task<uint> SpawnMonster(ClientState conn, MonsterCatalog.Variety variety,
+    public static async Task<uint> SpawnMonster(Player conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
@@ -561,7 +561,7 @@ public static partial class Game
     // The area's monsters, once the player is in (Agents/docs/protocol/14-monster-packs.md): MonsterPacks scattered over the
     // walk map, the room points' packs and the unique boss at "mapboss" (AreaPopulation). Towns have none; neither does an
     // area without a walk map. Game_MONSTERS=0 turns it off.
-    public static async Task PopulateArea(ClientState conn)
+    public static async Task PopulateArea(Player conn)
     {
         // Another player already runs this instance's monsters: this client shows theirs (SharedMonsters.cs).
         if (!ClaimMonsterHost(conn)) return;
@@ -681,7 +681,7 @@ public static partial class Game
             $"; unique: {string.Join(", ", spawns.Where(s => s.Rarity == MonsterRarity.Unique).Select(s => $"{Monsters.Find(s.Variety.ToString())!.Name} at ({s.X}, {s.Y})").DefaultIfEmpty("none"))}");
     }
 
-    public static async Task<int> SpawnMavenRing(ClientState conn, IReadOnlyList<string> ids, (int X, int Y) centre, int radius, byte level)
+    public static async Task<int> SpawnMavenRing(Player conn, IReadOnlyList<string> ids, (int X, int Y) centre, int radius, byte level)
     {
         int n = 0;
         foreach (var (id, x, y) in MavenNucleus.Around(ids, centre, radius))
@@ -724,7 +724,7 @@ public static partial class Game
 
     // The connection's own monster AI where its area does not run the game's systems (MonsterAiSystem.cs runs it once a
     // frame for every player otherwise): checked every frame, stepped at the cadence's pace.
-    static void StartMonsterAi(ClientState conn, PlayerUpdatesState updates)
+    static void StartMonsterAi(Player conn, PlayerUpdatesState updates)
     {
         var cadence = new MonsterAiCadence();
         double next = double.NegativeInfinity;
@@ -739,7 +739,7 @@ public static partial class Game
     }
 
     // Kept separate from socket dispatch so all decisions in a pass use the same game time and player pose.
-    public static MonsterAiPlan PlanMonsterAi(ClientState conn, MonsterAiCadence cadence, double now)
+    public static MonsterAiPlan PlanMonsterAi(Player conn, MonsterAiCadence cadence, double now)
     {
         var plan = new MonsterAiPlan();
         lock (conn.Monsters)
@@ -1101,7 +1101,7 @@ public static partial class Game
     // cell ahead). So a monster whose estimate is walking is ordered again only at a frame start right after the
     // estimate's step, where the fraction is under a frame and a client a cell off loses little; the order waits at most
     // two steps past its cadence for such a frame. A standing estimate, and a predictive client, order as ever.
-    static bool LockstepReorderDue(ClientState conn, MonsterAiPlan plan, SpawnedMonster m, MonsterAiCadence cadence, double now)
+    static bool LockstepReorderDue(Player conn, MonsterAiPlan plan, SpawnedMonster m, MonsterAiCadence cadence, double now)
     {
         if (!conn.LockstepClient || double.IsNaN(plan.FrameStart)) return true;
         var (into, step) = m.Walk.StepPhase(plan.FrameStart);
@@ -1145,7 +1145,7 @@ public static partial class Game
     }
 
     // The nearest other cell a monster can stand on, or its own when it has none.
-    static (int X, int Y) NextCell(ClientState conn, SpawnedMonster m, int x, int y)
+    static (int X, int Y) NextCell(Player conn, SpawnedMonster m, int x, int y)
     {
         int size = Math.Max(0, LivingCollision.Size(m));
         for (int reach = 1; reach <= 3; reach++)
@@ -1155,7 +1155,7 @@ public static partial class Game
         return (x, y);
     }
 
-    public static async Task StepMonsterAi(ClientState conn,
+    public static async Task StepMonsterAi(Player conn,
         MonsterAiCadence cadence)
     {
         MonsterAiPlan plan;
@@ -1192,7 +1192,7 @@ public static partial class Game
 
     /// <summary>The orders of an AI pass (its moves, chases and legs), each as the record it writes when its turn comes:
     /// on a lockstep client the walk is placed then, at the start of the frame being sent (LockstepOrderFrom).</summary>
-    public static List<(uint Id, SpawnedMonster M, int Action, Func<byte[]?> Packet, string? Log)> MonsterAiOrders(ClientState conn, MonsterAiPlan plan)
+    public static List<(uint Id, SpawnedMonster M, int Action, Func<byte[]?> Packet, string? Log)> MonsterAiOrders(Player conn, MonsterAiPlan plan)
     {
         var orders = new List<(uint Id, SpawnedMonster M, int Action, Func<byte[]?> Packet, string? Log)>();
         const ushort Move = 0x2909;
@@ -1244,7 +1244,7 @@ public static partial class Game
         return orders;
     }
 
-    public static async Task RunPlannedMonsterSwing(ClientState conn, MonsterAiCadence cadence, uint id, SpawnedMonster m, int action, double? begunAt = null)
+    public static async Task RunPlannedMonsterSwing(Player conn, MonsterAiCadence cadence, uint id, SpawnedMonster m, int action, double? begunAt = null)
     {
         try { await MonsterSwing(conn, id, m, action, begunAt: begunAt); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
@@ -1261,7 +1261,7 @@ public static partial class Game
     // death.
     // PoE's evasion entropy (wiki: Evasion): shared by every attack against the player, reset after 3.33 s. Call under
     // the Monsters lock.
-    public static bool EvadesLocked(ClientState conn, int hitChance, double now)
+    public static bool EvadesLocked(Player conn, int hitChance, double now)
     {
         if (conn.EvasionEntropy < 0 || now - conn.LastEvasionAt > 3.33)
             conn.EvasionEntropy = conn.IncomingHitRandom.Next(100);
@@ -1274,7 +1274,7 @@ public static partial class Game
 
     // Ordinary AI work belongs to this monster object in this connection. Generations also prevent a flinch that has
     // already ended from reviving an old queued order or contact. Callers may already hold Monsters.
-    public static bool MonsterActionCurrent(ClientState conn, uint id, SpawnedMonster m, int action)
+    public static bool MonsterActionCurrent(Player conn, uint id, SpawnedMonster m, int action)
     {
         lock (conn.Monsters)
             return MonsterPresent(conn, id, m) && conn.PlayerLife > 0
@@ -1282,13 +1282,13 @@ public static partial class Game
                 && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
     }
 
-    public static bool MonsterPresent(ClientState conn, uint id, SpawnedMonster m) =>
+    public static bool MonsterPresent(Player conn, uint id, SpawnedMonster m) =>
         CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PendingTransfer is null && !m.Dead && m.Life > 0
         && ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m);
 
     // Apply the stage effect and end recovery on the area game clock, at the actual send gate. Hot-reloaded
     // workers resume the same deadlines and one-shot state; a pause cannot consume the remaining stage time.
-    public static async Task CompleteMonsterStage(ClientState conn, uint id, SpawnedMonster m)
+    public static async Task CompleteMonsterStage(Player conn, uint id, SpawnedMonster m)
     {
         while (true)
         {
@@ -1315,10 +1315,10 @@ public static partial class Game
     }
 
     // Called only at the send gate; all one-shot state changes and their packets belong to the same guarded update.
-    public static byte[]? AdvanceMonsterStage(ClientState conn, uint id, SpawnedMonster m, double now) =>
+    public static byte[]? AdvanceMonsterStage(Player conn, uint id, SpawnedMonster m, double now) =>
         AdvanceMonsterStageRecords(conn, id, m, now) is { } records ? [.. records.SelectMany(r => r)] : null;
 
-    public static byte[][]? AdvanceMonsterStageRecords(ClientState conn, uint id, SpawnedMonster m, double now)
+    public static byte[][]? AdvanceMonsterStageRecords(Player conn, uint id, SpawnedMonster m, double now)
     {
         lock (conn.Monsters)
         {
@@ -1364,7 +1364,7 @@ public static partial class Game
     // Returns the walker's cell, the cell to order and whether to send the attack aimed at the player instead: an
     // estimate that finds no way keeps the attack order, as the planner does without frames (the client's own search
     // may find one; a Move to its own cell would leave it standing).
-    public static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(ClientState conn, SpawnedMonster m, int action, double at)
+    public static ((int X, int Y) Here, (int X, int Y) Aim, bool Attack) PlaceLockstepLeg(Player conn, SpawnedMonster m, int action, double at)
     {
         var player = conn.Walk.Position(at);
         var before = m.Walk.Save();
@@ -1386,7 +1386,7 @@ public static partial class Game
 
     // A chase order at the send gate: the attack aimed at the player, from the cell its walk-up starts on, or null when
     // the walk-up it replaces began its swing first (LockstepOrderFrom).
-    public static byte[]? ChaseAtGate(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
+    public static byte[]? ChaseAtGate(Player conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
         (int X, int Y) from, (int X, int Y) to)
     {
         // Placed at the gate, the chase aims at the player's cell at that frame's start, as the plan would have.
@@ -1403,7 +1403,7 @@ public static partial class Game
     // A melee chase order (the attack aimed at the player) placed at a lockstep frame's start `at`: the walk-up to the
     // player's cell then, as the order starts at the frame's start, before any object ticks (a monster in a hit's recovery
     // is ordered only from the frame after it: TakeHitPacket). Returns the walker's cell and the player's.
-    public static ((int X, int Y) Here, (int X, int Y) Aim) PlaceLockstepChase(ClientState conn, SpawnedMonster m, int action, double at)
+    public static ((int X, int Y) Here, (int X, int Y) Aim) PlaceLockstepChase(Player conn, SpawnedMonster m, int action, double at)
     {
         var player = conn.Walk.Position(at);
         var here = m.Walk.Approach(player.X, player.Y, m.Attack!.Range - 1, at, LivingCollision.PlayerSize).Here;
@@ -1452,7 +1452,7 @@ public static partial class Game
     // client the walk is placed at the start of the frame being sent (LockstepOrderFrom); a Move it would not take is not
     // sent and the estimate keeps its walk, as the client's action goes on (any walk-up too); one it takes ends that
     // action.
-    public static byte[]? PlanMoveAtGate(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
+    public static byte[]? PlanMoveAtGate(Player conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
         (int X, int Y) from, (int X, int Y) to, string why)
     {
         const ushort Move = 0x2909;
@@ -1476,7 +1476,7 @@ public static partial class Game
     // The actor installs each order's sequence on its action (0x14219aa10); its hit lookup matches that sequence
     // on the same actor (0x141e977f0). Lockstep Moves and chases share the actor's rising order counter.
     // Called only after admission, under the Monsters lock, so a refused Move consumes no sequence.
-    static ushort NextMonsterMoveSequence(ClientState conn, SpawnedMonster m) =>
+    static ushort NextMonsterMoveSequence(Player conn, SpawnedMonster m) =>
         conn.LockstepClient ? m.NextSequence() : conn.NextActionSequence();
 
     // A lockstep client takes a Move order only when its target is 3 or more cells from the walker's cell. The test is
@@ -1498,7 +1498,7 @@ public static partial class Game
         }
     }
 
-    static (int X, int Y)? LockstepOrderFrom(ClientState conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
+    static (int X, int Y)? LockstepOrderFrom(Player conn, MonsterAiPlan plan, uint id, SpawnedMonster m, int action,
         (int X, int Y) from, Func<double, (int X, int Y)> place)
     {
         if (double.IsNaN(plan.FrameStart) || conn.LockstepFrame is not { } frame) return from;
@@ -1522,14 +1522,14 @@ public static partial class Game
     // (LockstepOrderFrom). Those steps are usually replayed already (the plan's pass and the frame pass after each 0x2b7
     // step the walkers to the frame's start); a gate that runs between a 0x2b7 and that frame pass still has the frame
     // before it to replay, where a step the client found blocked would otherwise leave the from cell a step ahead.
-    public static double LockstepOrderStart(ClientState conn, double now)
+    public static double LockstepOrderStart(Player conn, double now)
     {
         if (!conn.LockstepClient || conn.LockstepFrame is not { } frame) return now;
         StepWalkers(conn, frame.Start);
         return Math.Min(now, frame.Start);
     }
 
-    public static async Task<bool> SendMonsterAction(ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+    public static async Task<bool> SendMonsterAction(Player conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
     {
         while (MonsterActionCurrent(conn, id, m, action))
         {
@@ -1557,7 +1557,7 @@ public static partial class Game
 
     const int MonsterActionRecheckMs = 100;
 
-    public static async Task<bool> WaitMonsterActionTime(ClientState conn, uint id, SpawnedMonster m, int action, double until)
+    public static async Task<bool> WaitMonsterActionTime(Player conn, uint id, SpawnedMonster m, int action, double until)
     {
         if (!CurrentGameWork || !double.IsFinite(until)) return false;
         // Waits for the time itself, looking again at most every MonsterActionRecheckMs (a cancelled action is let go
@@ -1579,7 +1579,7 @@ public static partial class Game
 
     // Only an admitted ordinary melee swing with complete clock metadata uses this progress clock. The area clock
     // stops during a pause; generations and the same presence/recovery checks as other contacts cancel stale work.
-    public static async Task<bool> WaitMonsterMeleeContact(ClientState conn, uint id, SpawnedMonster m, int action)
+    public static async Task<bool> WaitMonsterMeleeContact(Player conn, uint id, SpawnedMonster m, int action)
     {
         if (!CurrentGameWork) return false;
         while (true)
@@ -1604,7 +1604,7 @@ public static partial class Game
             idle, clip.SlowBeginMs, clip.SlowEndMs, clip.BudgetSeconds)
         : null;
 
-    public static bool BeginMonsterMeleeClockLocked(ClientState conn, SpawnedMonster m, int action, ushort sequence,
+    public static bool BeginMonsterMeleeClockLocked(Player conn, SpawnedMonster m, int action, ushort sequence,
         double startedAt, double now)
     {
         if (m.ActionGeneration != action || m.SwingGeneration != action) return false;
@@ -1641,7 +1641,7 @@ public static partial class Game
     // Commit the flinch with native Actor TakeHit recovery, which cancels the current walk/attack and blocks new
     // actions. ActionEnded or a rig-only AnimationUpdate leaves Positioned's movement advancing underneath the clip.
     // If the send gate was busy, recovery starts when sent; a pause does not consume that recovery time.
-    public static async Task SendMonsterFlinch(ClientState conn, uint id, SpawnedMonster m, StunHit stun, bool log)
+    public static async Task SendMonsterFlinch(Player conn, uint id, SpawnedMonster m, StunHit stun, bool log)
     {
         while (true)
         {
@@ -1683,7 +1683,7 @@ public static partial class Game
     // A walker on frames is stopped here, in the frame the client gets the 0x1d1 in, not where the hit was committed
     // (HitReaction.TryFlinch): a projectile's output goes out after its commit, often a frame later, and the client walks
     // until then.
-    public static byte[] TakeHitPacket(ClientState conn, uint id, SpawnedMonster m, double until, double now)
+    public static byte[] TakeHitPacket(Player conn, uint id, SpawnedMonster m, double until, double now)
     {
         float seconds = (float)(until - now);
         if (m.Walk.OnFrames(now)) m.Walk.Cancel(now);
@@ -1722,7 +1722,7 @@ public static partial class Game
     // "Gain X% of Missing Unreserved Life before being Hit by an Enemy" (PoB CalcDefence: only while alive, capped at the
     // recoverable unreserved Life). A blocked hit still counts:
     // blocking does not prevent the defender's when-hit effects (wiki Blocking). Call under the Monsters lock.
-    public static void GainLifeBeforeEnemyHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static void GainLifeBeforeEnemyHitLocked(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         uint lifeCap = LifeCap(conn);
         if (conn.PlayerLife == 0 || conn.PlayerLife >= lifeCap
@@ -1738,7 +1738,7 @@ public static partial class Game
     // cannot act. A generic swing's action speed is read at `now`, not at the order's start: a freeze or chill sent
     // earlier in the frame reaches the client before the order applies.
     public static (double StartedAt, double Seconds, (int X, int Y) From, (int X, int Y) Player, ushort Sequence)? MonsterSwingOrderLocked(
-        ClientState conn, SpawnedMonster m, MonsterAttack a, int action, bool generic, double seconds, double now,
+        Player conn, SpawnedMonster m, MonsterAttack a, int action, bool generic, double seconds, double now,
         ushort sequence = MonsterActionSequence)
     {
         double startedAt = LockstepOrderStart(conn, now);
@@ -1766,7 +1766,7 @@ public static partial class Game
         return (startedAt, seconds, m.Walk.Position(startedAt), conn.Walk.Position(startedAt), sequence);
     }
 
-    public static async Task MonsterSwing(ClientState conn, uint id,
+    public static async Task MonsterSwing(Player conn, uint id,
         SpawnedMonster m, int action, MonsterAttack? use = null, bool area = false, double areaRadius = 0, ushort? sequence = null,
         double? begunAt = null)
     {
@@ -1932,14 +1932,14 @@ public static partial class Game
     // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown and, for a skill with no
     // limit of its own, fewer than MaxSummoned of its monsters alive; one with a limit retires its oldest instead);
     // any other attack may.
-    public static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+    public static bool SummonReadyLocked(Player conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
         a.Summon is null || now >= m.SummonReadyAt && (a.Summon.Limit > 0
             || conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned);
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
     // and giving no experience or items when the skill says so.
-    public static async Task MonsterSummon(ClientState conn, uint id,
+    public static async Task MonsterSummon(Player conn, uint id,
         SpawnedMonster m, SkillCatalog.MonsterSummonInfo summon)
     {
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
@@ -1978,7 +1978,7 @@ public static partial class Game
 
     /// <summary>An area skill's contact: the player takes the hit when they still stand in the aimed area. The area is
     /// centred on the target cell captured when the action began; moving out of it dodges the hit.</summary>
-    public static async Task MonsterAreaContact(ClientState conn,
+    public static async Task MonsterAreaContact(Player conn,
         uint id, SpawnedMonster m, MonsterAttack a, int action, double radius, ushort sequence = 0)
     {
         if (sequence == 0) sequence = conn.NextActionSequence();
@@ -1999,7 +1999,7 @@ public static partial class Game
 
     /// <summary>An area skill's hit at its contact: every golem and the player within <paramref name="radius"/> of
     /// <paramref name="aim"/>.</summary>
-    public static async Task MonsterAreaHit(ClientState conn,
+    public static async Task MonsterAreaHit(Player conn,
         uint id, SpawnedMonster m, MonsterAttack a, int action, (int X, int Y) aim, double radius, ushort sequence)
     {
         if (a.Damage.IsZero)
@@ -2018,7 +2018,7 @@ public static partial class Game
 
     /// <summary>The ground a monster skill leaves where it landed (MonsterAttack.Ground), unless its own action draws
     /// it on another object (a trap's: MonsterTraps).</summary>
-    public static async Task LeaveSkillGround(ClientState conn, uint owner, MonsterAttack a, (int X, int Y) at)
+    public static async Task LeaveSkillGround(Player conn, uint owner, MonsterAttack a, (int X, int Y) at)
     {
         if (a.Ground is not { } ground || GroundKindOf(ground.Type, ground.ArtVariation) is not { } kind) return;
         await PlaceHostileGround(conn, owner, ground.ClientDrawn ? kind with { Art = "" } : kind, ground.Stats, at,
@@ -2028,7 +2028,7 @@ public static partial class Game
     /// <summary>A monster skill's area hit that no longer belongs to the monster's own action: a trap of its going off,
     /// a strike that lands after the cast. It is gated on <paramref name="still"/> (its source still there) at the send
     /// gate instead of on the monster's current swing; the monster's stats and damage pipeline still make the hit.</summary>
-    public static async Task MonsterDetachedAreaHit(ClientState conn,
+    public static async Task MonsterDetachedAreaHit(Player conn,
         uint id, SpawnedMonster m, MonsterAttack a, (int X, int Y) aim, double radius, ushort sequence, Func<bool> still)
     {
         if (a.Damage.IsZero)
@@ -2056,7 +2056,7 @@ public static partial class Game
 
     /// <summary>A skill that deals no damage (Wither): the player standing in its area at its contact gets its debuffs,
     /// with no hit.</summary>
-    static async Task MonsterAreaDebuffs(ClientState conn, uint id, MonsterAttack a, (int X, int Y) aim, double radius)
+    static async Task MonsterAreaDebuffs(Player conn, uint id, MonsterAttack a, (int X, int Y) aim, double radius)
     {
         if (a.Debuffs.Count == 0) return;
         bool inside;
@@ -2067,7 +2067,7 @@ public static partial class Game
     }
 
     // At the send gate: every golem and the player within radius of aim take the hit; the player's outcome, or null.
-    static MonsterHitOutcome? AreaHitLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
+    static MonsterHitOutcome? AreaHitLocked(Player conn, uint id, SpawnedMonster m, MonsterAttack a,
         (int X, int Y) aim, double radius, ushort sequence)
     {
         if (InGracePeriod(conn)) return null;
@@ -2084,7 +2084,7 @@ public static partial class Game
     // A melee contact at the clip's keyframe: committed at the actual send gate under the monster's action, so a
     // flinch accepted while it was queued suppresses both the packet and the life mutation. A ranged monster's shot commits
     // the same pipeline when its flight reaches the player instead (Program.ProjectileHostile.cs).
-    public static async Task MonsterContact(ClientState conn,
+    public static async Task MonsterContact(Player conn,
         uint id, SpawnedMonster m, int action, ushort sequence = MonsterActionSequence, MonsterAttack? use = null)
     {
         if ((use ?? m.Attack) is not { } a) return;
@@ -2126,7 +2126,7 @@ public static partial class Game
     // The monster's hit on the player, committed under the Monsters lock at the moment it lands: reach (melee only),
     // evasion, the mod-rolled packet, block, armour, resistances, ailments, recovery and death. Null when it misses or is
     // evaded. `from` is where the hit comes from: the monster for a swing, the shot's contact point for a projectile.
-    public static MonsterHitOutcome? CommitMonsterHitLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
+    public static MonsterHitOutcome? CommitMonsterHitLocked(Player conn, uint id, SpawnedMonster m, MonsterAttack a,
         double now, (int X, int Y) here, (int X, int Y) from, bool checkRange, ushort sequence = MonsterActionSequence)
     {
         // A retired producer is refused before recording an accepted hit or touching any current resource state.
@@ -2310,7 +2310,7 @@ public static partial class Game
     }
 
     // The packets after a committed hit: energy shield, native recovery, the life bar and life, mana, death or flask charges.
-    public static async Task PresentMonsterHit(ClientState conn, uint id,
+    public static async Task PresentMonsterHit(Player conn, uint id,
         MonsterHitOutcome hit)
     {
         if (!CurrentGameWork) return;
@@ -2347,14 +2347,14 @@ public static partial class Game
 
     // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
-    public static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now) =>
+    public static double MonsterSwingSeconds(Player conn, SpawnedMonster m, double now) =>
         m.Attack is not { } a ? 0
         : now - m.HitPlayerAt <= RecentlySeconds ? m.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
 
     // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
     // its attack time changes or goes back, so the client's swing can follow the server's. After a hit, and as a stat
     // presentation (the player's slow changes with the stats; a slowed monster's "recently" ends on PresentIn).
-    public static async Task SendAttackerSlows(ClientState conn)
+    public static async Task SendAttackerSlows(Player conn)
     {
         var changed = new List<(uint Id, double Seconds, IReadOnlyList<(uint, int)> Stats)>();
         lock (conn.Monsters)

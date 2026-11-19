@@ -13,7 +13,7 @@ public static partial class Game
 
     // Called after raw character/utility inputs and before attack damage/panel calculations. Derived values are
     // authoritative: setting current_rage cannot create resources or bypass gain prevention.
-    public static void WithRage(ClientState conn, StatMap stats)
+    public static void WithRage(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
         {
@@ -30,7 +30,7 @@ public static partial class Game
     }
 
     // Only accepted contacts call these, in the same Monsters critical section as life mutation, before any await.
-    public static bool RageOnHitLocked(ClientState conn, bool attack, bool melee, bool critical,
+    public static bool RageOnHitLocked(Player conn, bool attack, bool melee, bool critical,
         IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         if (conn.Character is null || conn.Closed || conn.LeavingArea || conn.RageRetired
@@ -43,7 +43,7 @@ public static partial class Game
             soulGainPrevention: Get("has_soul_gain_prevention") != 0);
     }
 
-    public static void RageWhenHitLocked(ClientState conn)
+    public static void RageWhenHitLocked(Player conn)
     {
         if (conn.RageRetired || conn.Closed || conn.LeavingArea || conn.Paused) return;
         // The lethal hit retires combat here, before PlayerDiedAtEpoch: the orb's stage icon must be queued for removal
@@ -55,14 +55,14 @@ public static partial class Game
             Random.Shared.Next(100), soulGainPrevention: RageStat(stats, "has_soul_gain_prevention") != 0);
     }
 
-    public static void ClearRageOnDeath(ClientState conn)
+    public static void ClearRageOnDeath(Player conn)
     {
         lock (conn.Monsters) conn.Rage.Clear();
     }
 
     // Successful Auth transfer moves count, loss fraction, activity age and shared interval exactly once. Loading time
     // is frozen by policy. The old connection is retired even when empty; it cannot mint a second carried balance.
-    public static void CarryRage(ClientState conn, uint ticket)
+    public static void CarryRage(Player conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -77,7 +77,7 @@ public static partial class Game
         }
     }
 
-    public static void RestoreRage(ClientState conn)
+    public static void RestoreRage(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -90,7 +90,7 @@ public static partial class Game
     }
 
     // Executed inside the connection's send gate so a queued refresh cannot resurrect a dead/retired balance or buff.
-    public static byte[]? RagePresentation(ClientState conn, RagePrepared? prepared = null)
+    public static byte[]? RagePresentation(Player conn, RagePrepared? prepared = null)
     {
         if (!CurrentGameWork) return null;
         using (conn.Performance.Lock(conn.Monsters, "rage"))
@@ -103,7 +103,7 @@ public static partial class Game
     }
 
     // Called only by RagePresentation under the send gate and state lock; no send or reconciliation recursion.
-    public static byte[] RageSnapshot(ClientState conn, RagePrepared? prepared = null)
+    public static byte[] RageSnapshot(Player conn, RagePrepared? prepared = null)
     {
         if (!CurrentGameWork) return [];
         var stats = CharacterPlayerStats(conn);
@@ -146,11 +146,11 @@ public static partial class Game
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
         CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
-        public static SkillSnapshotInputs Capture(ClientState conn, Dictionary<uint, int> stats) =>
+        public static SkillSnapshotInputs Capture(Player conn, Dictionary<uint, int> stats) =>
             new(new(stats), [.. ItemsOf(conn).EquipmentSnapshot().Select(e => e.Item)],
                 new(CharacterSaves.SkillCosmetics(CharacterName(conn))), conn.Pools, conn.PlayerLife, conn.LockstepClient);
 
-        public bool Matches(ClientState conn, Dictionary<uint, int> stats)
+        public bool Matches(Player conn, Dictionary<uint, int> stats)
         {
             if (LockstepClient != conn.LockstepClient || Pools != conn.Pools || Life != conn.PlayerLife || Stats.Count != stats.Count
                 || Stats.Any(kv => !stats.TryGetValue(kv.Key, out int value) || value != kv.Value)) return false;
@@ -184,7 +184,7 @@ public static partial class Game
     // The skill list is the expensive part of a Rage change (every gem's panel damage): build it before the send gate, so
     // the gate, which every hit and echo waits on, normally holds only comparison and packet assembly. Changed inputs
     // fall back to a current build rather than publishing the prepared list under the wrong owner state.
-    public static Task SendRage(ClientState conn)
+    public static Task SendRage(Player conn)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
         RagePrepared? prepared = null;

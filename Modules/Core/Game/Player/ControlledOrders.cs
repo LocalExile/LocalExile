@@ -12,19 +12,19 @@ public static partial class Game
         public ControlledIntent? Intent;
         public ControlledReceipt? Receipt;
     }
-    static readonly Store<ClientState, ControlledBrain> ControlledBrains = new();
+    static readonly Store<Player, ControlledBrain> ControlledBrains = new();
 
-    public static void ClearControlledIntent(ClientState conn)
+    public static void ClearControlledIntent(Player conn)
     {
         lock (conn.Monsters) ControlledBrains.Remove(conn);
     }
 
-    public static ControlledReceipt? ControlledIntentReceipt(ClientState conn)
+    public static ControlledReceipt? ControlledIntentReceipt(Player conn)
     {
         lock (conn.Monsters) return ControlledBrains.TryGetValue(conn, out var brain) ? brain.Receipt : null;
     }
 
-    public static void QueueControlledIntent(ClientState conn, ControlledIntent intent)
+    public static void QueueControlledIntent(Player conn, ControlledIntent intent)
     {
         lock (conn.Monsters)
         {
@@ -41,7 +41,7 @@ public static partial class Game
         }
     }
 
-    public static ControlledIntent? CurrentControlledIntent(ClientState conn, double now)
+    public static ControlledIntent? CurrentControlledIntent(Player conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -53,7 +53,7 @@ public static partial class Game
         }
     }
 
-    static void FinishControlledIntent(ClientState conn, ControlledIntent intent, string state, string detail, double now)
+    static void FinishControlledIntent(Player conn, ControlledIntent intent, string state, string detail, double now)
     {
         lock (conn.Monsters)
         {
@@ -65,7 +65,7 @@ public static partial class Game
         }
     }
 
-    public static bool ControlledMoveFits(ClientState conn, ClientState leader, int x, int y, double now)
+    public static bool ControlledMoveFits(Player conn, Player leader, int x, int y, double now)
     {
         var at = (X: x, Y: y);
         var origin = leader.Walk.Position(now);
@@ -82,12 +82,12 @@ public static partial class Game
             .Any(p => ClientPathfinder.Line(p.First, p.Second).Any(cell => Dist(cell, origin) > ControlledFollowerLeash));
     }
 
-    static bool ControlledExternalMovement(ClientState conn, ClientState leader, double now) =>
+    static bool ControlledExternalMovement(Player conn, Player leader, double now) =>
         CurrentControlledIntent(conn, now) is { Action: "move" } move
         && Dist((move.X, move.Y), leader.Walk.Position(now)) <= ControlledFollowerLeash;
 
     // Decisions arrive asynchronously; execution stays in the bot's normal simulation and native skill pipeline.
-    static async Task<bool> ExecuteControlledIntent(ClientState conn, ClientState leader, double now, bool following)
+    static async Task<bool> ExecuteControlledIntent(Player conn, Player leader, double now, bool following)
     {
         var intent = CurrentControlledIntent(conn, now);
         if (intent is null) return false;
@@ -217,7 +217,7 @@ public static partial class Game
         return true;
     }
 
-    public static object ObserveControlledPlayer(ClientState conn, ClientState leader)
+    public static object ObserveControlledPlayer(Player conn, Player leader)
     {
         lock (conn.Monsters)
         {

@@ -5,7 +5,7 @@ public static partial class Game
     sealed record RampageTransfer(string Character, DateTime At, RampageState.Carried State);
     static readonly ConcurrentDictionary<uint, RampageTransfer> CarriedRampage = new();
 
-    public static void CarryRampage(ClientState conn, uint ticket)
+    public static void CarryRampage(Player conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -20,7 +20,7 @@ public static partial class Game
         }
     }
 
-    public static void RestoreRampage(ClientState conn)
+    public static void RestoreRampage(Player conn)
     {
         lock (conn.Monsters)
         {

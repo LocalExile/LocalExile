@@ -13,13 +13,13 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(ClientState conn, int effect) =>
+    public static bool VaalExecutor(Player conn, int effect) =>
         SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
             || IsVaalMinion(SkillsFor(conn).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
-    static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
+    static double VaalResourceTime(Player conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
-    static void WithVaalPrevention(ClientState conn, StatMap stats)
+    static void WithVaalPrevention(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
         {
@@ -33,7 +33,7 @@ public static partial class Game
         }
     }
 
-    static VaalUseReservation? PlanVaalUse(ClientState conn, ushort id)
+    static VaalUseReservation? PlanVaalUse(Player conn, ushort id)
     {
         var gem = SupportedSkill(conn, id);
         if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
@@ -72,7 +72,7 @@ public static partial class Game
             { RageConverted = conversion };
     }
 
-    static bool CanPayVaalUse(ClientState conn, VaalUseReservation plan)
+    static bool CanPayVaalUse(Player conn, VaalUseReservation plan)
     {
         var stats = CharacterPlayerStats(conn);
         var rage = conn.Rage.Read(VaalResourceTime(conn), RageStats.Inputs(n => RageStat(stats, n)));
@@ -86,7 +86,7 @@ public static partial class Game
 
     // Paid attacks reserve the same cadence as ordinary attacks, before an action/echo or any resource is spent.
     // Approach-only checks leave the timer alone; arrival must reserve the actual swing under its action token.
-    static bool TryVaalAttackDeadline(ClientState conn, VaalUseReservation plan, out double? deadline)
+    static bool TryVaalAttackDeadline(Player conn, VaalUseReservation plan, out double? deadline)
     {
         deadline = null;
         if (!SkillsFor(conn).IsAttack(plan.Effect)) return true;
@@ -96,7 +96,7 @@ public static partial class Game
         return true;
     }
 
-    static void CommitVaalUse(ClientState conn, VaalUseReservation plan, double? attackDeadline)
+    static void CommitVaalUse(Player conn, VaalUseReservation plan, double? attackDeadline)
     {
         // The caller checked every resource under this same combat lock before changing action/cooldown state.
         var stats = CharacterPlayerStats(conn);
@@ -126,7 +126,7 @@ public static partial class Game
     }
 
     public const string MaximumPowerOnVaalUse = "gain_maximum_power_charges_on_vaal_skill_use";
-    public static void GrantVaalUseChargesLocked(ClientState conn, double at)
+    public static void GrantVaalUseChargesLocked(Player conn, double at)
     {
         if (conn.Paused || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameWork) return;
         var stats = CharacterPlayerStats(conn);
@@ -138,7 +138,7 @@ public static partial class Game
         if (step.CountsChanged) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
     }
 
-    static VaalUseReservation? ExecuteVaalUse(ClientState conn, ushort id, int effect)
+    static VaalUseReservation? ExecuteVaalUse(Player conn, ushort id, int effect)
     {
         lock (conn.Monsters)
         {
@@ -152,7 +152,7 @@ public static partial class Game
         }
     }
 
-    static bool VaalAdmissionCurrent(ClientState conn, VaalUseReservation paid) => CurrentGameRules
+    static bool VaalAdmissionCurrent(Player conn, VaalUseReservation paid) => CurrentGameRules
         && ReferenceEquals(conn.VaalUse, paid) && conn.OwnedCombatState is RampageWorld world
         && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(conn))
         && conn.OwnedCombatWorker.Current(CombatLifetime!, world.SourceOwner, world, paid.WorkGeneration)
@@ -160,7 +160,7 @@ public static partial class Game
             && CharacterStatSources(conn).Stats.GetValueOrDefault(conversion) != 0);
 
     // All native action acknowledgements share the same accepted-use guard at their send gate.
-    public static bool SkillAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
+    public static bool SkillAcknowledgementAllowed(Player conn, int effect, ushort skillId, Func<bool> nativeUse)
     {
         lock (conn.Monsters)
         {
@@ -171,7 +171,7 @@ public static partial class Game
         }
     }
 
-    static void PublishVaalRageCost(ClientState conn, ushort id, Dictionary<uint, int> stats)
+    static void PublishVaalRageCost(Player conn, ushort id, Dictionary<uint, int> stats)
     {
         if (PlanVaalUse(conn, id) is not { } plan) return;
         void Put(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
@@ -182,7 +182,7 @@ public static partial class Game
             && SkillsFor(conn).IsAttack(gem.Effect)) Put("virtual_vaal_skill_require_no_souls_per_use", 1);
     }
 
-    static async Task PublishVaalUse(ClientState conn,
+    static async Task PublishVaalUse(Player conn,
         VaalUseReservation paid)
     {
         var previous = Program.ProjectileOutputGuard.Value;

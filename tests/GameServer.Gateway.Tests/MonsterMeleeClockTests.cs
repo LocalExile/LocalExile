@@ -47,7 +47,7 @@ public sealed class MonsterMeleeClockTests
 
         foreach (bool lockstep in new[] { false, true })
         {
-            var conn = new ClientState(new(1, "melee-clock", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = lockstep };
+            var conn = new Player(new(1, "melee-clock", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = lockstep };
             var clock = new ActionTimeClock(10, 1);
             var monster = new SpawnedMonster("clock", new(105, 100, 1), 60, 2, 100)
             {

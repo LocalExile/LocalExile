@@ -59,14 +59,14 @@ sealed class Bot
     /// <summary>The instances this bot's body is published in (removed from them when it leaves).</summary>
     public readonly HashSet<InstanceState> Shown = [];
     /// <summary>The player whose party it is in (BotParty), and that party's id; the instance it was placed in there.</summary>
-    public ClientState? Leader;
+    public Player? Leader;
     /// <summary>The leader's character: an area change is a new connection, which the bot follows by this name.</summary>
     public string? LeaderName;
     /// <summary>When the leader's connection went without a new one yet (an area change in progress).</summary>
     public DateTime? LeaderGoneSince;
     public uint Party;
     public InstanceState? FollowIn;
-    public ClientState? Combat;
+    public Player? Combat;
     public Guid ControlEpoch = Guid.NewGuid();
     public BotControlLease? Control;
 }
@@ -428,7 +428,7 @@ sealed partial class BotDirector
 
     // ---- the town ----
 
-    void Step(Bot bot, DateTime now, double seconds, Dictionary<string, List<ClientState>> towns)
+    void Step(Bot bot, DateTime now, double seconds, Dictionary<string, List<Player>> towns)
     {
         if (bot.Phase is BotPhase.Following or BotPhase.Departing) { StepWithLeader(bot, now, seconds); return; }
         if (bot.Phase == BotPhase.Questing)
@@ -477,7 +477,7 @@ sealed partial class BotDirector
         Show(bot, observers);
     }
 
-    void NextActivity(Bot bot, DateTime now, List<ClientState>? observers)
+    void NextActivity(Bot bot, DateTime now, List<Player>? observers)
     {
         var any = observers?.FirstOrDefault();
         if (bot.ActivitiesLeft-- <= 0)
@@ -500,12 +500,12 @@ sealed partial class BotDirector
     // A walkable place in the town, at least StandApart cells from where every other bot of the town stands or is going:
     // mostly in a ring around the stash and the guild stash (as players stand by theirs), else by an NPC, else anywhere
     // walkable within reach of the waypoint. A quick visit goes to an NPC.
-    (double X, double Y) PickSpot(Bot bot, ClientState town, out string kind)
+    (double X, double Y) PickSpot(Bot bot, Player town, out string kind)
     {
         var layout = town.Layout;
         var spots = town.StationaryBlockers;
-        var stashes = spots.Where(b => b.Size == ClientState.StashBlockerSize).ToList();
-        var npcs = spots.Where(b => b.Size == ClientState.NpcBlockerSize).ToList();
+        var stashes = spots.Where(b => b.Size == Player.StashBlockerSize).ToList();
+        var npcs = spots.Where(b => b.Size == Player.NpcBlockerSize).ToList();
         var taken = _bots.Where(b => b != bot && b.Town == bot.Town && b.Phase != BotPhase.Questing && b.PlacedIn == bot.Town)
             .SelectMany(b => new[] { (b.X, b.Y), (b.TargetX, b.TargetY) }).ToList();
         (int X, int Y) centre = layout.Waypoint is { } wp ? (wp.GridX, wp.GridY) : (layout.SpawnX, layout.SpawnY);
@@ -572,9 +572,9 @@ sealed partial class BotDirector
     // ---- being seen ----
 
     // The towns players are in now: every live in-game connection by its area.
-    static Dictionary<string, List<ClientState>> LiveTowns()
+    static Dictionary<string, List<Player>> LiveTowns()
     {
-        var towns = new Dictionary<string, List<ClientState>>();
+        var towns = new Dictionary<string, List<Player>>();
         foreach (var conn in Program.InGame.Keys)
         {
             if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null) continue;
@@ -584,7 +584,7 @@ sealed partial class BotDirector
         return towns;
     }
 
-    internal void Show(Bot bot, List<ClientState>? observers)
+    internal void Show(Bot bot, List<Player>? observers)
     {
         var instances = (observers ?? []).Select(c => c.Instance).Distinct().ToHashSet();
         foreach (var gone in bot.Shown.Where(i => !instances.Contains(i)).ToList()) { gone.RemovePlayer(bot.PeerId); bot.Shown.Remove(gone); }

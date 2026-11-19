@@ -20,13 +20,13 @@ static partial class KitavaActTen
     internal const string Epilogue = "2_11_endgame_town", PortalType = "Metadata/QuestObjects/Act10/EpiloguePortal";
     internal const uint EpilogueLabel = 410179532; // ClientStrings.EpilogueActName2; localized by the client.
 
-    internal static AreaTransitionObject PortalFor(ClientState c, AreaTransitionObject portal) =>
+    internal static AreaTransitionObject PortalFor(Player c, AreaTransitionObject portal) =>
         c.Layout.Id == Area && portal.SourceType == PortalType && AreaTransitionCatalog.HashOf(Epilogue) is { } destination
             ? portal with { DestinationHash16 = destination, Label = EpilogueLabel } : portal;
 
     // The quest table supplies the native portal's position/model. Its server destination is the epilogue directly.
     // Replace only this connection's exit so cached layouts and already-open arenas behave alike after a module reload.
-    internal static IReadOnlyList<uint> ConfigurePortal(ClientState c)
+    internal static IReadOnlyList<uint> ConfigurePortal(Player c)
     {
         if (c.Layout.Id != Area) return [];
         List<uint> changed = [];
@@ -40,7 +40,7 @@ static partial class KitavaActTen
         return changed;
     }
 
-    static async Task RefreshPortal(ClientState c)
+    static async Task RefreshPortal(Player c)
     {
         var changed = ConfigurePortal(c);
         foreach (uint objectId in changed)
@@ -58,20 +58,20 @@ static partial class KitavaActTen
         }
     }
     static string Flag(string name) => Quests.InstanceFlag("KitavaAct10-" + name);
-    internal static bool PreFightNpcShown(ClientState c, string type) => c.Layout.Id != Area || type is not (PreSin or PreInnocence)
+    internal static bool PreFightNpcShown(Player c, string type) => c.Layout.Id != Area || type is not (PreSin or PreInnocence)
         || !c.Instance.HasState(Flag("Started"));
-    internal static bool? GateShown(ClientState c, AreaTransitionObject t)
+    internal static bool? GateShown(Player c, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area || t.SourceType != PortalType) return null;
         return c.Instance.HasState(Flag("Won")) && c.HasQuestFlag(Talked);
     }
-    static Anchor AnchorOf(ClientState c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
+    static Anchor AnchorOf(Player c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
     {
         if (c.LaterFormPoints.TryGetValue(Body, out var supplied)) return new(supplied.X, supplied.Y, 0);
         var at = AreaPopulation.LoadPoints(Area, c.Seed, []).FirstOrDefault(p => p.Name == "force:mapboss");
         return at is null ? new(fallback.X, fallback.Y, 0) : new(at.X, at.Y, at.Angle);
     });
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         await RefreshPortal(c);
@@ -86,7 +86,7 @@ static partial class KitavaActTen
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
         finally { f.Gate.Release(); }
     }
-    public static Task Leaving(ClientState c)
+    public static Task Leaving(Player c)
     {
         if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.Degens[e] = 0; e.Dps = 0; }
         return Task.CompletedTask;
@@ -99,8 +99,8 @@ static partial class KitavaActTen
     internal sealed partial class Fight
     {
         internal readonly SemaphoreSlim Gate = new(1);
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> bound = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> bound = [];
         readonly HashSet<uint> guards = [];
         readonly uint id;
         readonly SpawnedMonster body;
@@ -115,7 +115,7 @@ static partial class KitavaActTen
         internal int Round => body.LifePhases!.Completed;
         // 0 waiting, 1 emerge, 2 body, 3 expose, 4 heart, 5 recover, 6 grab Sin, 7 grab Innocence,
         // 8 release, 9 death, 10 complete. The original fight has three body/heart intervals.
-        public Fight(uint objectId, SpawnedMonster monster, ClientState c)
+        public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; body = monster; body.LifePhases ??= Phases(monster.Variety!);
             anchor = AnchorOf(c, body.Walk.Position(c.Clock.Elapsed.TotalSeconds));
@@ -139,9 +139,9 @@ static partial class KitavaActTen
                 while (c.Instance.HasState(Flag($"Guard-{Round}-{guardStep}"))) guardStep++;
             }
         }
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea);
-        bool Awake(ClientState p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
-        public async Task Bind(ClientState c)
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
+        bool Awake(Player p) => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id);
+        public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(c)) { players.Add(c); foreach (var fx in visuals) await CreateFx(c, fx); }
@@ -172,7 +172,7 @@ static partial class KitavaActTen
             foreach (var p in Present.ToArray())
             { await SendWorldRemoval(p, target); }
         }
-        async Task Basic(ClientState c, uint actor, ushort action, double now, double seconds, uint? target = null)
+        async Task Basic(Player c, uint actor, ushort action, double now, double seconds, uint? target = null)
         {
             lock (c.Monsters) if (c.Monsters.TryGetValue(actor, out var m)) { m.ActionGeneration++; m.SwingGeneration = null; m.BusyUntil = now + seconds; }
             var from = actor == id ? (anchor.X, anchor.Y) : actor == sinId ? sinAt : innocenceAt;
@@ -192,7 +192,7 @@ static partial class KitavaActTen
                 if (shown) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id);
             }
         }
-        async Task<uint> Ally(ClientState c, string type, (int X, int Y) at)
+        async Task<uint> Ally(Player c, string type, (int X, int Y) at)
         {
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing Kitava ally");
             uint obj = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
@@ -204,7 +204,7 @@ static partial class KitavaActTen
             }
             return obj;
         }
-        async Task Allies(ClientState c, double now)
+        async Task Allies(Player c, double now)
         {
             if (sinId == 0) sinId = await Ally(c, Sin, sinAt);
             if (innocenceId == 0) innocenceId = await Ally(c, Innocence, innocenceAt);
@@ -216,12 +216,12 @@ static partial class KitavaActTen
                 await Basic(c, obj, 16641, now, 4.833, id);
             }
         }
-        static void KeepAllyVisible(ClientState c, uint id)
+        static void KeepAllyVisible(Player c, uint id)
         {
             if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                 c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = 2 } };
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused) return;
             await CombatMaintenance(c, now);
@@ -329,13 +329,13 @@ static partial class KitavaActTen
                 Console.WriteLine("[Kitava A10] victory; Sin can open the epilogue portal");
             }
         }
-        async Task Expose(ClientState c, double now)
+        async Task Expose(Player c, double now)
         {
             CancelCombat(); body.EntranceGrace = true; await Bar(false);
             foreach (uint ally in new[] { sinId, innocenceId }) if (ally != 0) await Basic(c, ally, 9281, now, 5, id);
             await Basic(c, id, 5828, now, 5); stage = 3; deadline = now + 5;
         }
-        async Task Guard(ClientState c, string type, int ordinal, MonsterRarity rarity)
+        async Task Guard(Player c, string type, int ordinal, MonsterRarity rarity)
         {
             var v = Monsters.Find(type); if (v is not { Supported: true } || v.Id != type) throw new InvalidOperationException($"Unsupported Kitava guard {type}");
             double a = ordinal * 2.1;
@@ -343,7 +343,7 @@ static partial class KitavaActTen
             uint obj = await SpawnMonster(c, v, body.Level, rarity, at.X, at.Y);
             if (obj != 0) { guards.Add(obj); c.Monsters[obj].SummonerId = id; }
         }
-        async Task Wave(ClientState c, double now)
+        async Task Wave(Player c, double now)
         {
             if (guards.Count(g => c.Monsters.TryGetValue(g, out var m) && !m.Dead) < 14)
                 for (int i = 0; i < 6; i++)
@@ -355,7 +355,7 @@ static partial class KitavaActTen
                     }, i, MonsterRarity.Normal);
             nextWave = now + 8;
         }
-        async Task RetireGuards(ClientState c)
+        async Task RetireGuards(Player c)
         {
             foreach (uint obj in guards.ToArray())
             {
@@ -365,7 +365,7 @@ static partial class KitavaActTen
             }
             guards.Clear();
         }
-        async Task RemoveHeart(ClientState c)
+        async Task RemoveHeart(Player c)
         {
             if (heartId == 0) return;
             lock (c.Monsters) { c.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _); }
@@ -373,12 +373,12 @@ static partial class KitavaActTen
             foreach (var p in Present) { p.MonsterViews.Remove(heartId); p.AsleepMonsters.Remove(heartId); p.BossBarsSeen.Remove(heartId); }
             heart = null; heartId = 0;
         }
-        void RegisterSin(ClientState p)
+        void RegisterSin(Player p)
         {
             if (sinId != 0 && Npcs.Find(Sin) is { } npc)
                 lock (p.Npcs) p.Npcs.TryAdd(sinId, new(npc, sinAt.X, sinAt.Y));
         }
-        async Task ReadySin(ClientState p)
+        async Task ReadySin(Player p)
         {
             if (sinId == 0 || !p.Instance.World.MonsterOrigins.TryGetValue(sinId, out var origin)) return;
             var states = origin.Object.StateMachine?.Set("finished", 1);

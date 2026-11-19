@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
+    public static SingleUseCooldown? CooldownFor(Player conn, int effect, int level, int quality)
     {
         var sources = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
         if (SkillsFor(conn).CooldownMs(effect, level) <= 0) return null;
@@ -20,7 +20,7 @@ public static partial class Game
         return CooldownForSkill(conn, sources.FirstOrDefault(g => g.Id == source).Name is not null ? source : sources[0].Id);
     }
 
-    internal static SingleUseCooldown? CooldownForSkill(ClientState conn, ushort skillId)
+    internal static SingleUseCooldown? CooldownForSkill(Player conn, ushort skillId)
     {
         var supported = SupportedSkill(conn, skillId);
         return CooldownPlan(conn, supported, CharacterPlayerStats(conn));
@@ -33,7 +33,7 @@ public static partial class Game
             ? GolemStat(player, "travel_skill_cooldown_speed_+%") + GolemStat(own, "travel_skill_cooldown_speed_+%")
             : 0;
 
-    static SingleUseCooldown? CooldownPlan(ClientState conn, SupportedGem supported, IReadOnlyDictionary<uint, int> player)
+    static SingleUseCooldown? CooldownPlan(Player conn, SupportedGem supported, IReadOnlyDictionary<uint, int> player)
     {
         var skills = SkillsFor(conn);
         int effect = supported.Effect;
@@ -67,19 +67,19 @@ public static partial class Game
     }
 
     // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
-    public static int CooldownKey(ClientState conn, int effect, int level) =>
+    public static int CooldownKey(Player conn, int effect, int level) =>
         (IsDashEffect(SkillsFor(conn).EffectId(effect)) || IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(effect))
             || SkillsFor(conn).EffectId(effect) is TwisterEffect or CatStealthCryEffect)
             && SkillsFor(conn).CooldownGroup(effect, level) is >= 0 and var group ? -1 - group : effect;
 
-    public static int CooldownKey(ClientState conn, int effect, ushort skillId)
+    public static int CooldownKey(Player conn, int effect, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
         return gem.Effect == effect ? CooldownKey(conn, effect, gem.Level) : effect;
     }
 
     static (ushort Skill, int Key, SingleUseCooldown Plan, SingleUseCooldownState State)[] SharedCooldownPeers(
-        ClientState conn, int effect, int key, SingleUseCooldown cooldown, double now) => cooldown.SharedGroup is null ? []
+        Player conn, int effect, int key, SingleUseCooldown cooldown, double now) => cooldown.SharedGroup is null ? []
         : GemSkillEffects(conn).Where(g => g.Effect != effect)
             .GroupBy(g => CooldownKey(conn, g.Effect, g.Id)).Where(g => g.Key != key).Select(g => g.First())
             .Select(g => (Gem: g, Plan: CooldownFor(conn, g.Effect, g.Level, g.Quality)))
@@ -87,7 +87,7 @@ public static partial class Game
             .Select(p => (p.Gem.Id, CooldownKey(conn, p.Gem.Effect, p.Gem.Id), p.Plan!.Value,
                 CooldownStateLocked(conn, CooldownKey(conn, p.Gem.Effect, p.Gem.Id), p.Plan.Value, now))).ToArray();
 
-    static List<(SingleUseCooldownState State, int Version, ushort Skill)> SpendSharedCooldownPeers(ClientState conn,
+    static List<(SingleUseCooldownState State, int Version, ushort Skill)> SpendSharedCooldownPeers(Player conn,
         int key, int effect, ushort? skill, SingleUseCooldown plan, double now,
         (ushort Skill, int Key, SingleUseCooldown Plan, SingleUseCooldownState State)[] peers)
     {
@@ -105,7 +105,7 @@ public static partial class Game
         return receipts;
     }
 
-    public static SingleUseCooldownState CooldownStateLocked(ClientState conn, int key, SingleUseCooldown plan, double now)
+    public static SingleUseCooldownState CooldownStateLocked(Player conn, int key, SingleUseCooldown plan, double now)
     {
         if (!conn.SingleUseCooldowns.TryGetValue(key, out var state))
         {
@@ -133,21 +133,21 @@ public static partial class Game
 
     // Readiness, reservation and action side effects are one short critical section, before any echo/await.
     // An approach checks readiness without spending; arrival must reserve under its original action token.
-    public static bool TryBeginCooldownUse(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
+    public static bool TryBeginCooldownUse(Player conn, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken = null, bool reserve = true, double? requestedAt = null)
         => TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, null);
 
     // admit: a use-specific condition checked in the same critical section, before any cost, cooldown use or charge is
     // spent (Flicker Strike needs a monster in range).
-    public static bool TryBeginSkillCooldownUse(ClientState conn, ushort skillId, int effect,
+    public static bool TryBeginSkillCooldownUse(Player conn, ushort skillId, int effect,
         SingleUseCooldown? plan, bool instant, Action sideEffects, out CooldownUseTicket? ticket,
         int? actionToken = null, bool reserve = true, double? requestedAt = null, Func<bool>? admit = null) =>
         TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, skillId, admit);
 
     /// <summary>Accepts an attack before its movement and action echo, with one time for readiness and the swing.</summary>
-    public static bool TryBeginAttackUse(ClientState conn, ushort skillId, int effect, double requestedAt,
+    public static bool TryBeginAttackUse(Player conn, ushort skillId, int effect, double requestedAt,
         Action<double> sideEffects, out CooldownUseTicket? ticket, Func<double, bool>? admit = null)
     {
         using (ProjectileMutation(conn))
@@ -159,7 +159,7 @@ public static partial class Game
         }
     }
 
-    public static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
+    public static bool TryBeginCooldownUseCore(Player conn, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
         ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false)
     {
@@ -260,18 +260,18 @@ public static partial class Game
     }
 
     // A link gem links its target with no upfront cost, only its cost over time (CastLink).
-    public static bool IsLinkSkill(ClientState conn, int effect) => LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
+    public static bool IsLinkSkill(Player conn, int effect) => LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
 
     // An aura or stance that is not a trap or mine toggles its reservation instead of paying a cost (ToggleAura).
-    public static (int Flat, int Percent)? ToggledReservation(ClientState conn, ushort skillId) =>
+    public static (int Flat, int Percent)? ToggledReservation(Player conn, ushort skillId) =>
         PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false } ? SupportedReservation(conn, skillId) : null;
 
     // Whether a use of the skill pays its cost when it starts (CastGemSkill's PayMana), not a link's or a toggle's.
-    static bool PaysOnUse(ClientState conn, ushort skillId, int effect) =>
+    static bool PaysOnUse(Player conn, ushort skillId, int effect) =>
         !IsLinkSkill(conn, effect) && ToggledReservation(conn, skillId) is null;
 
     // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.
-    static ChargeType? CooldownBypassCharge(ClientState conn, int effect, ushort? skillId)
+    static ChargeType? CooldownBypassCharge(Player conn, int effect, ushort? skillId)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => skillId is ushort id ? g.Id == id : g.Effect == effect);
         if (gem.Name is null || gem.Effect != effect) return null;
@@ -282,7 +282,7 @@ public static partial class Game
         return CooldownBypass.Charge(type, power);
     }
 
-    public static void RefreshSingleUseCooldowns(ClientState conn)
+    public static void RefreshSingleUseCooldowns(Player conn)
     {
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
         var plans = GemSkillEffects(conn).GroupBy(g => CooldownKey(conn, g.Effect, g.Id)).ToDictionary(g => g.Key, g =>
@@ -302,7 +302,7 @@ public static partial class Game
         }
     }
 
-    public static byte[]? NativeCooldownRefresh(ClientState conn, int epoch,
+    public static byte[]? NativeCooldownRefresh(Player conn, int epoch,
         Func<IReadOnlyList<(ushort Id, int Effect)>> currentSkills)
     {
         lock (conn.Monsters)
@@ -329,7 +329,7 @@ public static partial class Game
         }
     }
 
-    public static Task SendNativeCooldownRefresh(ClientState conn)
+    public static Task SendNativeCooldownRefresh(Player conn)
     {
         lock (conn.Monsters)
             if (!conn.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;

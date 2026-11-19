@@ -19,7 +19,7 @@ static partial class QuestobjectsRules
         public bool Carried => State is IzaroStatues.On or IzaroStatues.Lowered or IzaroStatues.Raising;
     }
 
-    static async Task PlaceIzaroStatues(ClientState conn, IzaroArena arena)
+    static async Task PlaceIzaroStatues(Player conn, IzaroArena arena)
     {
         var statues = IzaroEffects.Of(IzaroStatues.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(statues.Count, arena.Lifts.Count); i++)
@@ -34,7 +34,7 @@ static partial class QuestobjectsRules
         }
     }
 
-    static async Task RaiseIzaroStatues(ClientState conn, IzaroArena arena,
+    static async Task RaiseIzaroStatues(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try
@@ -59,7 +59,7 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} Izaro's statues stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static async Task StatueRisen(ClientState conn, IzaroArena arena,
+    static async Task StatueRisen(Player conn, IzaroArena arena,
         StatueSlot slot, Func<bool> here)
     {
         await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseSeconds));
@@ -70,7 +70,7 @@ static partial class QuestobjectsRules
     }
 
     // A statue on (its buff on Izaro) or off.
-    static async Task TurnIzaroStatue(ClientState conn, IzaroArena arena,
+    static async Task TurnIzaroStatue(Player conn, IzaroArena arena,
         StatueSlot slot, bool on)
     {
         ushort buff = 0, old;
@@ -91,7 +91,7 @@ static partial class QuestobjectsRules
     }
 
     // A click on a statue (UseTrialObject): on, it goes off for IzaroStatues.OffSeconds, then on again while the trial lasts.
-    internal static async Task UseIzaroStatue(ClientState conn, uint id)
+    internal static async Task UseIzaroStatue(Player conn, uint id)
     {
         if (!IzaroArenas.TryGetValue(conn, out var arena) || arena.Statues.FirstOrDefault(s => s.Id == id) is not { } slot) return;
         if (slot.State != IzaroStatues.On) return;
@@ -108,7 +108,7 @@ static partial class QuestobjectsRules
     }
 
     // The trial is over: the risen statues go down with their elevators.
-    static async Task LowerIzaroStatues(ClientState conn, List<StatueSlot> risen)
+    static async Task LowerIzaroStatues(Player conn, List<StatueSlot> risen)
     {
         foreach (var s in risen)
             await Send(conn, [.. InstanceEntities.TransitionableUpdate(s.Id, IzaroStatues.StatueTransitionable, IzaroStatues.Lowering),

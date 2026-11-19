@@ -9,7 +9,7 @@ public static partial class Game
     public static readonly ConcurrentDictionary<uint, SoulTransfer> CarriedVaalSouls = new();
 
     // Only the proved native getter inputs are projected. Explicit development values win, including zero.
-    public static int VaalSoulInput(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static int VaalSoulInput(Player conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own, string name)
     {
         if (Stats.Key(name) is not uint key) return 0;
@@ -21,7 +21,7 @@ public static partial class Game
         }
     }
 
-    public static void PublishVaalSoulInputs(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static void PublishVaalSoulInputs(Player conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own, Dictionary<uint, int> stats)
     {
         foreach (string name in VaalSoulCost.Inputs)
@@ -30,7 +30,7 @@ public static partial class Game
 
     // Reconcile before an await as well as at the send gate: a queued removal must lose its balance even if readded
     // before publication. Requirements/inactive equipment are refreshed by the normal character stat seam.
-    public static void RefreshVaalSouls(ClientState conn)
+    public static void RefreshVaalSouls(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -59,11 +59,11 @@ public static partial class Game
 
     // Called with Life=0/Dead=true in the SAME Monsters section as the lethal mutation, before notification awaits.
     // Shared hit paths do not carry an object ID; resolve actual ownership here without accepting another recipient.
-    public static void CollectVaalSoulAtDeathLocked(ClientState conn, SpawnedMonster monster) =>
+    public static void CollectVaalSoulAtDeathLocked(Player conn, SpawnedMonster monster) =>
         CollectVaalSoulOnKill(conn, conn.Monsters.FirstOrDefault(kv => ReferenceEquals(kv.Value, monster)).Key, monster);
 
     // Consume ineligible deaths too. Notifications may only publish current state; they never call this method.
-    public static bool CollectVaalSoulOnKill(ClientState conn, uint id, SpawnedMonster monster)
+    public static bool CollectVaalSoulOnKill(Player conn, uint id, SpawnedMonster monster)
     {
         lock (conn.Monsters)
         {
@@ -93,7 +93,7 @@ public static partial class Game
 
     // Native UPDATE clamps against OLD capacity. Unknown rows and increases must seed first, then restore current.
     // Empty lists preserve native entries, so every removed row needs an explicit zero update.
-    public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(ClientState conn)
+    public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(Player conn)
     {
         RefreshVaalSouls(conn);
         var current = conn.VaalSouls.Read().ToDictionary(b => b.ActiveSkillsRow);
@@ -112,14 +112,14 @@ public static partial class Game
         return ([.. seeds], [.. updates]);
     }
 
-    public static byte[] PlayerSkillsWithVaalSouls(ClientState conn, IReadOnlyList<GrantedSkill> skills,
+    public static byte[] PlayerSkillsWithVaalSouls(Player conn, IReadOnlyList<GrantedSkill> skills,
         IReadOnlyList<ushort> gone)
     {
         var changes = VaalSoulChanges(conn);
         return InstanceEntities.PlayerSkillsChange(PlayerId, skills, gone, changes.Seeds, changes.Updates, CanDetonateMines(conn));
     }
 
-    public static byte[]? VaalSoulPresentation(ClientState conn)
+    public static byte[]? VaalSoulPresentation(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -130,11 +130,11 @@ public static partial class Game
         }
     }
 
-    public static Task SendVaalSouls(ClientState conn) =>
+    public static Task SendVaalSouls(Player conn) =>
         SendWorldRecord(conn, PlayerId, [], null, atGate: () => VaalSoulPresentation(conn));
 
     // Same transfer policy as Rage: one successful ticket owns the balance; loading time is frozen, no save schema.
-    public static void CarryVaalSouls(ClientState conn, uint ticket)
+    public static void CarryVaalSouls(Player conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -150,7 +150,7 @@ public static partial class Game
         }
     }
 
-    public static void RestoreVaalSouls(ClientState conn)
+    public static void RestoreVaalSouls(Player conn)
     {
         lock (conn.Monsters)
         {

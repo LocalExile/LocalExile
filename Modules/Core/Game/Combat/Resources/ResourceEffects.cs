@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using GameServer.Modding;
 
 /// <summary>Rule-owned resources, separate from the animated-actor runtime and its worker.</summary>
-public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? source, ClientState? connection = null) : ITransferCombatState
+public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? source, Player? connection = null) : ITransferCombatState
 {
     public IModuleLifetime? Rules { get; } = rules;
     public IModuleLifetime? Source { get; } = source;
@@ -34,7 +34,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         connection is null ? null : Game.CaptureChargeDegeneration(connection, at),
         connection is null ? null : Game.CaptureRecentHitLifeLoss(connection, at),
         connection is null ? null : Game.CaptureCatCycle(connection, at));
-    public void CollectRetiredTargets(ClientState conn)
+    public void CollectRetiredTargets(Player conn)
     {
         foreach (var (id, value) in Targets.ToArray())
             if (!ReferenceEquals(conn.Monsters.GetValueOrDefault(id), value.Target))
@@ -107,7 +107,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
 public static partial class Game
 {
     static readonly ResourceEffectsState RetiredResourceEffects = new(null, null);
-    public static ResourceEffectsState ResourceEffectsOf(ClientState conn)
+    public static ResourceEffectsState ResourceEffectsOf(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -124,18 +124,18 @@ public static partial class Game
             conn.RetireResourceEffects(); return RetiredResourceEffects;
         }
     }
-    public static bool ResourceEffectsCurrent(ClientState conn, ResourceEffectsState state) => CurrentGameRules
+    public static bool ResourceEffectsCurrent(Player conn, ResourceEffectsState state) => CurrentGameRules
         && !conn.Closed && !conn.RageRetired && ReferenceEquals(conn.ResourceEffectsState, state)
         && ReferenceEquals(state.Source, AscendancyPolicies.SourceOwner(conn)) && state.Rules is { IsActive: true } owner
         && conn.ResourceEffectsLease.Current(owner, state.Source, state, state.Generation);
 
-    public static double ResourceEffectsTime(ClientState conn)
+    public static double ResourceEffectsTime(Player conn)
     {
         if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) return 0;
         return conn.LeavingArea && conn.RampageTransferAt is double at ? at
             : conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : conn.Clock.Elapsed.TotalSeconds;
     }
-    public static void ManaSpentLocked(ClientState conn, uint amount, IReadOnlyDictionary<uint, int> player)
+    public static void ManaSpentLocked(Player conn, uint amount, IReadOnlyDictionary<uint, int> player)
     {
         if (amount == 0 || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameRules) return;
         conn.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(conn), amount);
@@ -145,18 +145,18 @@ public static partial class Game
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
         if (gain > 0) conn.Rage.Gain(gain, ResourceEffectsTime(conn), RageStats.Inputs(Get), Get("has_soul_gain_prevention") != 0);
     }
-    public static void SettleFullManaLocked(ClientState conn, double at)
+    public static void SettleFullManaLocked(Player conn, double at)
     {
         if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state)
             && conn.PlayerMana >= UnreservedMana(conn))
         { state.Mana.Take(at); state.Mana.DiscardRecoveryFraction(); }
     }
-    public static void DiscardResourceLoadingRecovery(ClientState conn, double now)
+    public static void DiscardResourceLoadingRecovery(Player conn, double now)
     {
         if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state))
         { state.Mana.Take(now); state.Mana.DiscardRecoveryFraction(); }
     }
-    public static bool CompleteResourceRecoveryLocked(ClientState conn, double from, double now,
+    public static bool CompleteResourceRecoveryLocked(Player conn, double from, double now,
         IReadOnlyDictionary<uint, int> stats, double earnedMana, uint manaBefore, uint manaCap, ref double manaCarry)
     {
         AdvancePlayerAilmentsLocked(conn, from, now, stats);
@@ -179,7 +179,7 @@ public static partial class Game
     sealed record ResourceTransfer(string Character, DateTime At, IModuleLifetime Rules, IModuleLifetime? Source,
         ResourceEffectsState.Snapshot State);
     static readonly ConcurrentDictionary<uint, ResourceTransfer> CarriedResourceEffects = new();
-    public static void CarryResourceEffects(ClientState conn, uint ticket)
+    public static void CarryResourceEffects(Player conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -193,7 +193,7 @@ public static partial class Game
             state.Clear();
         }
     }
-    public static void RestoreResourceEffects(ClientState conn)
+    public static void RestoreResourceEffects(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -208,7 +208,7 @@ public static partial class Game
             state.Restore(entry.State, 0); state.Loading = true;
         }
     }
-    static void PrimeCatTransfer(ClientState conn)
+    static void PrimeCatTransfer(Player conn)
     {
         if (!CarriedResourceEffects.TryGetValue(conn.Ticket, out var entry)
             || entry.Character != CharacterName(conn) || entry.State.Cat is not { } cat
@@ -220,7 +220,7 @@ public static partial class Game
         conn.Reservations.CatTransferLoading = true;
     }
 
-    public static void ActivateResourceEffects(ClientState conn, double at)
+    public static void ActivateResourceEffects(Player conn, double at)
     {
         lock (conn.Monsters)
             if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true } state && ResourceEffectsCurrent(conn, state))

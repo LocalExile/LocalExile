@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static void ReleaseArcTotem(ClientState conn, ProjectileSession session, TotemState.Totem totem, uint first, ushort sequence)
+    static void ReleaseArcTotem(Player conn, ProjectileSession session, TotemState.Totem totem, uint first, ushort sequence)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         bool Eligible(uint id, SpawnedMonster m) => m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, Asleep: false }

@@ -68,9 +68,9 @@ public sealed class BowProjectileCountTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        ClientState Holding(string character, string? weapon)
+        Player Holding(string character, string? weapon)
         {
-            var conn = new ClientState(new(1, "ordinary-count", 1000, 1000, 100, 100, null, []), 1, 1)
+            var conn = new Player(new(1, "ordinary-count", 1000, 1000, 100, 100, null, []), 1, 1)
             {
                 Character = character, PlayerLife = 1000, PlayerMana = 1000, Instance = new(), LockstepClient = true,
                 Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),

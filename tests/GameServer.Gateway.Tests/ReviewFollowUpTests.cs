@@ -7,9 +7,9 @@ namespace GameServer.Gateway.Tests;
 // throttling, and knockback that reads the skill's own stats and skips the states HitReaction and the AI skip.
 public sealed class ReviewFollowUpTests
 {
-    static ClientState Connection()
+    static Player Connection()
     {
-        var conn = new ClientState(new(1, "review-followup", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "review-followup", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "ReviewFollowUpChar", PlayerLife = 1000, PlayerMana = 100, Instance = new(),
         };

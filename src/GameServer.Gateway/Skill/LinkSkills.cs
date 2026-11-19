@@ -57,7 +57,7 @@ public sealed class LinkSkills
     public double PaidAt, ManaCarry;
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     /// <summary>The player's links (LinkSkills), under the Monsters lock.</summary>
     public readonly LinkSkills Links = new();

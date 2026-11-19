@@ -97,7 +97,7 @@ public sealed class CooldownAdmissionTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly GameServer.Modding.IModuleLifetime? previousRules = Game.CombatLifetime;
         readonly ModuleLifetime rules = new("Game");
-        internal readonly ClientState Conn = new(new(1, "cooldown", 1000, 1000, 100, 100, null, []), 1, 1)
+        internal readonly Player Conn = new(new(1, "cooldown", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "Cooldown" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),

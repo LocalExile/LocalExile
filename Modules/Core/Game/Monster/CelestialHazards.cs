@@ -5,11 +5,11 @@ using static Program;
 using static ArenaHazards;
 
 /// <summary>The bridge's celestial attacks, with server-owned visible footprints and contacts on the same clock.</summary>
-internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, ClientState owner, Func<bool> current)
+internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Player owner, Func<bool> current)
 {
     const string Art = "Metadata/Effects/Spells/monsters_effects/Solaris_and_Lunaris/";
-    readonly HashSet<ClientState> players = [];
-    readonly Dictionary<ClientState, Exposure> exposures = [];
+    readonly HashSet<Player> players = [];
+    readonly Dictionary<Player, Exposure> exposures = [];
     readonly Dictionary<uint, Visual> visuals = [];
     readonly List<Patch> patches = [];
     readonly List<Impact> impacts = [];
@@ -32,13 +32,13 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         internal double NextPatch;
     }
     bool Current => !stopped && CurrentGameWork && current() && !caster.Dead && caster.Life > 0;
-    IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
-    internal async Task Bind(ClientState p)
+    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+    internal async Task Bind(Player p)
     {
         players.Add(p);
         foreach (var v in visuals.Values.ToArray()) await Show(p, v);
     }
-    async Task Show(ClientState p, Visual v)
+    async Task Show(Player p, Visual v)
     {
         lock (p.Monsters) if (p.SceneViews.Contains(v.Id)) return;
         if (await SendWorldCreate(p, v.Id, () => InstanceEntities.CreateObject(v.Id,
@@ -50,7 +50,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
                 InstanceProtocol.AnimationUpdate(v.Id, 0, clip, v.Speed), "[Celestial] effect animation");
         }
     }
-    async Task<uint> Effect(ClientState c, (int X, int Y) at, string art, double until, float rotation = 0, float scale = 1,
+    async Task<uint> Effect(Player c, (int X, int Y) at, string art, double until, float rotation = 0, float scale = 1,
         ushort? clip = null, float speed = 1)
     {
         uint id = c.Instance.World.TakeObjectId();
@@ -69,7 +69,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
             if (shown) { await SendWorldRemoval(p, id, "[Celestial] arena effect ends"); }
         }
     }
-    async Task LinkBeam(ClientState c, (int X, int Y) from, (int X, int Y) to, uint end, double until)
+    async Task LinkBeam(Player c, (int X, int Y) from, (int X, int Y) to, uint end, double until)
     {
         uint id = c.Instance.World.TakeObjectId();
         var link = new BeamEffectObject(from.X, from.Y, casterId, to.X * BeamEffectObject.WorldPerCell,
@@ -90,7 +90,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         return ((int)Math.Round(origin.X + Math.Cos(facing + angle) * radius),
             (int)Math.Round(origin.Y + Math.Sin(facing + angle) * radius));
     }
-    internal async Task Step(ClientState c, double now)
+    internal async Task Step(Player c, double now)
     {
         if (c.Paused || stopped) return;
         if (!Current) { await Clear(); return; }

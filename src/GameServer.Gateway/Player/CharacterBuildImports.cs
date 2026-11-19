@@ -60,7 +60,7 @@ public static class CharacterBuildImports
     public static readonly byte[] Replaced = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 23, 102];
     public static bool IsApplying(Guid id) => Applying.ContainsKey(id);
 
-    public static void Release(ClientState conn)
+    public static void Release(Player conn)
     {
         if (conn.CharacterId is { } id && conn.BuildImport.Confirmed is not null) Applying.TryRemove(id, out _);
         conn.BuildImport.Clear();

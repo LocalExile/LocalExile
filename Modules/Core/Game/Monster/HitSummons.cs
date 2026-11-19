@@ -13,7 +13,7 @@ public static partial class Game
         _ => null,
     };
 
-    internal static void HitSummonsOnHitLocked(ClientState conn, SpawnedMonster monster,
+    internal static void HitSummonsOnHitLocked(Player conn, SpawnedMonster monster,
         IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random)
     {
         if (skill is null || GolemStat(skill, "base_max_number_of_absolution_sentinels") + GolemStat(skill, "base_max_number_of_dominated_normal_monsters") <= 0
@@ -35,7 +35,7 @@ public static partial class Game
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(conn, pair.Key, monster, now);
     }
 
-    static void HitSummonsOnDeathLocked(ClientState conn, uint id, SpawnedMonster monster, double now)
+    static void HitSummonsOnDeathLocked(Player conn, uint id, SpawnedMonster monster, double now)
     {
         QueueMarkedDeath(conn, id, monster, now);
         foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId))
@@ -43,7 +43,7 @@ public static partial class Game
                 QueueMarkedDeath(other, id, monster, now);
     }
 
-    static void QueueMarkedDeath(ClientState conn, uint id, SpawnedMonster monster, double now)
+    static void QueueMarkedDeath(Player conn, uint id, SpawnedMonster monster, double now)
     {
         foreach (var (key, mark) in conn.Summons.HitMarks.Where(p => p.Key.Id == id).ToArray())
         {
@@ -53,7 +53,7 @@ public static partial class Game
         }
     }
 
-    internal static async Task HitSummonsTick(ClientState conn, double now)
+    internal static async Task HitSummonsTick(Player conn, double now)
     {
         SummonedMinions.HitSummon[] pending;
         lock (conn.Monsters)
@@ -107,7 +107,7 @@ public static partial class Game
         }
     }
 
-    static void ConsumeHitSummonCorpseLocked(ClientState conn, SummonedMinions.HitSummon request)
+    static void ConsumeHitSummonCorpseLocked(Player conn, SummonedMinions.HitSummon request)
     {
         ConsumeSummonCorpseLocked(conn, request.Monster);
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(request.Target), "Sentinel corpse consumed",

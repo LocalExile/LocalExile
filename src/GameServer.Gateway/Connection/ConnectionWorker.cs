@@ -13,7 +13,7 @@ public sealed class ConnectionWorker(string key)
     bool running;
     IDisposable? ownerHandle, sourceHandle;
 
-    public bool Bind(ClientState conn, IModuleLifetime rules, IModuleLifetime? provider,
+    public bool Bind(Player conn, IModuleLifetime rules, IModuleLifetime? provider,
         object runtime, out long started)
     {
         started = generation;
@@ -28,7 +28,7 @@ public sealed class ConnectionWorker(string key)
         return Current(rules, provider, runtime, started);
     }
 
-    public bool TryStart(ClientState conn, IModuleLifetime rules, IModuleLifetime? provider,
+    public bool TryStart(Player conn, IModuleLifetime rules, IModuleLifetime? provider,
         object runtime, out long started)
     {
         if (!Bind(conn, rules, provider, runtime, out started) || running) return false;
@@ -53,7 +53,7 @@ public sealed class ConnectionWorker(string key)
             && ReferenceEquals(state, runtime)) running = false;
     }
 
-    sealed class Retirement(ClientState conn, ConnectionWorker worker, long started) : IDisposable
+    sealed class Retirement(Player conn, ConnectionWorker worker, long started) : IDisposable
     {
         public void Dispose()
         {

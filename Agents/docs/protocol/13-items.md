@@ -1624,7 +1624,7 @@ mods or the jewel's stats, where the player or the struck monster stands (radii 
 **Quartz Flask's phasing.** The client's Pathfinding keeps "Phase Through Objects" (+0x52e) from the player's
 `virtual_phase_through_objects` (`0x141ea3618`) and picks its blocker filter with it (`0x141e81e6c`). The Gateway sends
 `virtual_phase_through_objects` 1 while a Quartz Flask runs (live: the client's stat setter got 1), and its walk
-estimate then does not count monsters as blockers (`ClientState.Phasing`); NPCs and stashes still block, since which
+estimate then does not count monsters as blockers (`Player.Phasing`); NPCs and stashes still block, since which
 objects the client's filter lets through is not traced.
 
 **Gold Flask's rarity.** The player's increased rarity of items found (`base_item_found_rarity_+%` 30 from the buff,

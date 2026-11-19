@@ -9,7 +9,7 @@ public static partial class Game
     /// additional-arrow stats use the native arrow alias rather than the generic projectile count alone.</summary>
     public const int BowClassRow = 13;
 
-    public static bool ArrowsFor(ClientState conn, int effect) =>
+    public static bool ArrowsFor(Player conn, int effect) =>
         SkillsFor(conn).IsAttack(effect) && WeaponProfileFor(conn, activeSet: true).Bow;
 
     public static bool ArrowsForSkill(int effect) =>
@@ -50,7 +50,7 @@ public static partial class Game
 
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
-    public static bool ProjectilePathAvailable(ClientState conn, ushort skillId, int effect)
+    public static bool ProjectilePathAvailable(Player conn, ushort skillId, int effect)
     {
         if (!TotemPathAvailable(conn, skillId, effect)) return false;
         if (!UsesProjectileRuntime(effect)) return true;
@@ -76,7 +76,7 @@ public static partial class Game
         }
     }
 
-    public static Task ScheduleGemProjectile(ClientState conn,
+    public static Task ScheduleGemProjectile(Player conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
         ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1)
@@ -175,7 +175,7 @@ public static partial class Game
     // A spell's projectiles are the client's own (ClientPredicted): the server spreads them as the client's volley
     // does, and flies Spark's sparks on the client's seeded wander from the caster's cell (SparkLegs), so a hit lands
     // where a projectile is drawn.
-    static ProjectileUse ClientDrawnVolley(ClientState conn, ProjectileSession session, ushort skillId,
+    static ProjectileUse ClientDrawnVolley(Player conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, ProjectileUse use, ushort sequence,
         uint repeatsLeft)
     {
@@ -249,7 +249,7 @@ public static partial class Game
     // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
     // shortcut: parallel keeps the server's fan until it is ported.
-    public static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
+    public static ProjectileProfile ClientDrawnProfile(Player conn, ProjectileProfile profile, Func<string, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
         double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
@@ -294,7 +294,7 @@ public static partial class Game
         return rolls;
     }
 
-    public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
+    public static ProjectileUse CaptureGemProjectile(Player conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1)

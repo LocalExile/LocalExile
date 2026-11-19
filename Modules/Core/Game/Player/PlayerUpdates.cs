@@ -17,10 +17,10 @@ public static partial class Game
 {
     // The loops of a connection wait on its frames (AreaFrames): they wake at frame boundaries, one after another in
     // PlayerUpdateRole order, and read the boundary's time. The shared default (no connection) is the Clock.
-    sealed class PlayerUpdateSchedule(ClientState? frames = null) : IPlayerUpdateSchedule
+    sealed class PlayerUpdateSchedule(Player? frames = null) : IPlayerUpdateSchedule
     {
-        public double Now(ClientState conn) => frames is null ? conn.Clock.Elapsed.TotalSeconds : conn.Frames.Now(conn);
-        public double ResourceNow(ClientState conn) => ProjectileWorldTime(conn);
+        public double Now(Player conn) => frames is null ? conn.Clock.Elapsed.TotalSeconds : conn.Frames.Now(conn);
+        public double ResourceNow(Player conn) => ProjectileWorldTime(conn);
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.Delay(milliseconds, stopping);
         public Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) =>
             frames?.Frames.Wait(frames, role, milliseconds, stopping) ?? Task.Delay(milliseconds, stopping);
@@ -28,18 +28,18 @@ public static partial class Game
     public static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
     public static bool CurrentGameWork => QuestKillCommitOutput is not null
         || CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
-    public static double AreaTime(ClientState conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Clock.Elapsed.TotalSeconds;
+    public static double AreaTime(Player conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Clock.Elapsed.TotalSeconds;
     public static Task AreaWait(PlayerUpdateRole role, int milliseconds) => AreaUpdateContext.Value is { } state
         ? state.Schedule.Wait(role, milliseconds, state.Stop.Token) : Task.Delay(milliseconds);
 
     public static IPlayerUpdateSchedule PlayerUpdatesSchedule = new PlayerUpdateSchedule();
 
-    public static bool PlayerUpdatesCurrent(ClientState conn, PlayerUpdatesState state) => CurrentGameRules
+    public static bool PlayerUpdatesCurrent(Player conn, PlayerUpdatesState state) => CurrentGameRules
         && !conn.Closed && !conn.RageRetired && !state.Stop.IsCancellationRequested
         && ReferenceEquals(conn.PlayerUpdatesState, state) && ReferenceEquals(CombatLifetime, state.Rules)
         && conn.PlayerUpdatesWorker.Current(state.Rules, null, state, state.Generation);
 
-    public static void EnsurePlayerUpdates(ClientState conn)
+    public static void EnsurePlayerUpdates(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -62,7 +62,7 @@ public static partial class Game
         }
     }
 
-    static async Task RunPlayerUpdates(ClientState conn, PlayerUpdatesState state)
+    static async Task RunPlayerUpdates(Player conn, PlayerUpdatesState state)
     {
         var previous = Program.ProjectileOutputGuard.Value;
         Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(conn, state);
@@ -101,7 +101,7 @@ public static partial class Game
         }
     }
 
-    static async Task ResumeBossStages(ClientState conn, PlayerUpdatesState state)
+    static async Task ResumeBossStages(Player conn, PlayerUpdatesState state)
     {
         foreach (var (id, monster) in state.PendingStages)
             await RunBossStage(conn, id, monster);

@@ -21,7 +21,7 @@ static partial class Game
     /// apply to its damage over time), essence_drain_damage_+%, the supports' more multipliers and the damage over time
     /// multipliers. Duration: base_skill_effect_duration with skill effect duration and siphon_duration_+%. Leech:
     /// siphon_life_leech_from_damage_permyriad. Of Desperation's life loss is not modelled.</summary>
-    internal static MonsterEssenceDrain.Cast? EssenceDrainCast(ClientState conn, ushort skillId, int effect)
+    internal static MonsterEssenceDrain.Cast? EssenceDrainCast(Player conn, ushort skillId, int effect)
     {
         string? id = SkillsFor(conn).EffectId(effect);
         if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY")) return null;
@@ -54,7 +54,7 @@ static partial class Game
 
     // The debuff's leech goes to its caster only, if alive and still in this instance: on this connection directly, on
     // another player's own frame (KillShares) so its pools are changed under its own lock.
-    static void CreditSiphonLeechLocked(ClientState runner, ClientState? caster, SpawnedMonster m, double life)
+    static void CreditSiphonLeechLocked(Player runner, Player? caster, SpawnedMonster m, double life)
     {
         if (caster is null || caster.Closed || caster.LeavingArea || caster.PlayerLife == 0) return;
         if (ReferenceEquals(caster, runner)) { SiphonLeechLocked(runner, m, life); return; }
@@ -67,7 +67,7 @@ static partial class Game
     }
 
     // The debuff's life leech: a leech instance like a hit's (same caps and rate), with no gain on hit.
-    static void SiphonLeechLocked(ClientState conn, SpawnedMonster m, double life)
+    static void SiphonLeechLocked(Player conn, SpawnedMonster m, double life)
     {
         if (!(life > 0) || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
         if (m.Mods.Effects["cannot_have_life_leeched_from"] != 0) return;
@@ -82,9 +82,9 @@ static partial class Game
         TrimLeechLocked(conn);
     }
 
-    internal static async Task TickEssenceDrains(ClientState conn)
+    internal static async Task TickEssenceDrains(Player conn)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner)>();
         double leeched = 0;
         using (ProjectileMutation(conn))
         {

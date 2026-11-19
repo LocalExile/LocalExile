@@ -29,11 +29,11 @@ static partial class QuestobjectsRules
     // A statue gargoyle's damage taken (ours: "little", live).
     static readonly IReadOnlyDictionary<string, int> Dormant = new Dictionary<string, int> { ["base_damage_taken_+%"] = -90 };
 
-    static bool GargoyleDead(ClientState conn, GargoyleSlot g) =>
+    static bool GargoyleDead(Player conn, GargoyleSlot g) =>
         g.Monster.Dead || g.Monster.Life == 0 || !ReferenceEquals(conn.Monsters.GetValueOrDefault(g.Id), g.Monster);
 
     // The arena's gargoyles, one on each small elevator, down in its hole (a new one is in IzaroGargoyle.ot's state 5).
-    static async Task PlaceIzaroGargoyles(ClientState conn, IzaroArena arena)
+    static async Task PlaceIzaroGargoyles(Player conn, IzaroArena arena)
     {
         var gargoyles = IzaroEffects.Of(IzaroGargoyles.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(gargoyles.Count, arena.Lifts.Count); i++)
@@ -48,7 +48,7 @@ static partial class QuestobjectsRules
     // can be hit only once it has risen), then little damage (live: little until its beam starts, all of it after; how
     // little is ours); one an earlier trial left takes none until it comes out (it is behind its railing). Not kept with
     // the instance (the arena places it again).
-    static async Task<GargoyleSlot?> SpawnIzaroGargoyle(ClientState conn,
+    static async Task<GargoyleSlot?> SpawnIzaroGargoyle(Player conn,
         IzaroEffects.Effect effect, AreaPopulation.RoomObject at, string? carried, uint? railing)
     {
         if (Monsters.Find(effect.Variety) is not { Supported: true } variety)
@@ -73,7 +73,7 @@ static partial class QuestobjectsRules
     }
 
     // A gargoyle wakes: its buff goes on Izaro and, once its rise has played (seconds), it fights.
-    static async Task WakeIzaroGargoyle(ClientState conn, IzaroArena arena,
+    static async Task WakeIzaroGargoyle(Player conn, IzaroArena arena,
         GargoyleSlot g, double seconds, string what)
     {
         ushort buff;
@@ -90,7 +90,7 @@ static partial class QuestobjectsRules
     }
 
     // The earlier trials' gargoyles: their alcoves' railings lower, their buffs go on Izaro and they come out.
-    static async Task ReleaseIzaroGargoyles(ClientState conn, IzaroArena arena,
+    static async Task ReleaseIzaroGargoyles(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         var carried = arena.Gargoyles.Where(g => g.Carried is not null).ToList();
@@ -100,7 +100,7 @@ static partial class QuestobjectsRules
             await WakeIzaroGargoyle(conn, arena, g, IzaroFights.RailingSeconds, "comes out of the alcove");
     }
 
-    static async Task LowerIzaroRailing(ClientState conn, uint railing)
+    static async Task LowerIzaroRailing(Player conn, uint railing)
     {
         await Send(conn, [.. InstanceEntities.TransitionableUpdate(railing, IzaroFights.TransitionableIndex, IzaroFights.RailingDown),
             .. InstanceEntities.BlockageUpdate(railing, false)], $"0x02bc alcove railing 0x{railing:x} lowers");
@@ -110,7 +110,7 @@ static partial class QuestobjectsRules
     // The arena's gargoyles rise together with Izaro, stand, then one at a time a beam runs from it to Izaro (the Beam's
     // end follows its object, as the Soul Eater's line follows the player; the original's beam stays on him, live) and it
     // wakes.
-    static async Task RaiseIzaroGargoyles(ClientState conn, IzaroArena arena,
+    static async Task RaiseIzaroGargoyles(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try
@@ -192,7 +192,7 @@ static partial class QuestobjectsRules
     }
 
     // While he fights: a gargoyle killed takes its buff off Izaro; when the last of the arena's own dies he says so.
-    static async Task WatchIzaroGargoyles(ClientState conn, IzaroArena arena,
+    static async Task WatchIzaroGargoyles(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try

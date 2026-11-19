@@ -31,7 +31,7 @@ sealed class ChatService : IDisposable
 {
     readonly ChatServer _local = new(IPAddress.Loopback, 0);
     readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
-    readonly ConcurrentDictionary<ClientState, ConcurrentDictionary<byte, Item>> _linked = new();
+    readonly ConcurrentDictionary<Player, ConcurrentDictionary<byte, Item>> _linked = new();
 
     public ChatChannels Channels { get; } = new();
     public Action<string> Log { get; }
@@ -51,7 +51,7 @@ sealed class ChatService : IDisposable
         foreach (var session in _sessions.Values) session.RouteChanged();
     }
 
-    ChatSession Session(ClientState conn)
+    ChatSession Session(Player conn)
     {
         string name = CharacterName(conn);
         if (_sessions.TryGetValue(name, out var open)) return open;
@@ -62,7 +62,7 @@ sealed class ChatService : IDisposable
     }
 
     // C→S 0x12: an item of the line the next 0x15 brings. Read here, so the line shows it as it is now.
-    public Task<bool> Linked(ClientState conn, InstanceChat.LinkItem link)
+    public Task<bool> Linked(Player conn, InstanceChat.LinkItem link)
     {
         var stash = StashOf(conn);
         IReadOnlyList<InventoryItem> items = stash.TabOf(link.InventoryId) is int tab ? stash.Inventory(tab).Items
@@ -77,7 +77,7 @@ sealed class ChatService : IDisposable
         linked is null ? [] : [.. chat.Links.Select((link, index) => (At: (int)link - cut, Item: linked.GetValueOrDefault((byte)index)))
             .Where(l => l.Item is not null && l.At >= 0 && l.At < text.Length && text[l.At] == ChatWire.ItemMark).Select(l => (l.At, l.Item!))];
 
-    static IReadOnlyList<ChatFrameItem>? FrameItems(ClientState conn, IReadOnlyList<(int At, Item Item)> placed, string text) =>
+    static IReadOnlyList<ChatFrameItem>? FrameItems(Player conn, IReadOnlyList<(int At, Item Item)> placed, string text) =>
         ChatWire.Items(text, [.. placed.Select(l => new ChatFrameItem(l.At, ChatItems.Write(l.Item, ItemsFor(conn))))]);
 
     // The items of the sender's own line, as the 0x17 it comes back with carries them: in the order of the text, up to
@@ -86,7 +86,7 @@ sealed class ChatService : IDisposable
         [.. Placed(chat, linked, text, cut).OrderBy(l => l.At).Take(ChatWire.MaxItems).Select(l => new ChatLineItem((uint)l.At, l.Item.Wire()))];
 
     /// <summary>The items of a line from a chat server that this client can be shown: the others stay '_'.</summary>
-    public IReadOnlyList<ChatLineItem>? LineItems(ClientState conn, string text, IReadOnlyList<ChatFrameItem>? items)
+    public IReadOnlyList<ChatLineItem>? LineItems(Player conn, string text, IReadOnlyList<ChatFrameItem>? items)
     {
         if (ChatWire.Items(text, items) is not { } placed) return null;
         var catalog = ItemsFor(conn);
@@ -94,7 +94,7 @@ sealed class ChatService : IDisposable
     }
 
     // C→S 0x15 without a slash: a slash command is the Gateway's. The sender sees its own line as the server sends it back.
-    public async Task<bool> Typed(ClientState conn, InstanceChat.ChatInput chat)
+    public async Task<bool> Typed(Player conn, InstanceChat.ChatInput chat)
     {
         _linked.TryRemove(conn, out var linked);
         if (chat.IsCommand) return false;
@@ -136,7 +136,7 @@ sealed class ChatService : IDisposable
 
     // Not through a chat server: who is in the area is this Gateway's to know. Each gets its own bytes, as a send encrypts
     // them in place: a second client given the same array read noise and crashed (live 2026-11-07).
-    static async Task SayLocally(ClientState conn, string text, string name, IReadOnlyList<ChatLineItem> items)
+    static async Task SayLocally(Player conn, string text, string name, IReadOnlyList<ChatLineItem> items)
     {
         foreach (var other in InGame.Keys)
             if (other is { Controlled: false, Closed: false, Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, conn.Instance.Presence))
@@ -157,7 +157,7 @@ sealed class ChatService : IDisposable
     // prints "Timeout while joining … chat channel" when no 0x135 comes within 5 s. The join is answered with 0x135 at once,
     // whatever the chat server is doing, then a chat line naming the channel when it is new for the character or was asked
     // for by a command.
-    public async Task<bool> Join(ClientState conn, ReadOnlyMemory<byte> bytes)
+    public async Task<bool> Join(Player conn, ReadOnlyMemory<byte> bytes)
     {
         string remote = conn.Remote;
         if (InstanceChat.ReadJoinChannel(bytes.Span) is not { } join)
@@ -179,7 +179,7 @@ sealed class ChatService : IDisposable
 
     // Every area: the channels the character joined earlier in the session (S→C 0x135), since the new instance connection
     // starts without any and the client asks only once per session.
-    public async Task Entered(ClientState conn)
+    public async Task Entered(Player conn)
     {
         var channels = Channels.Current(CharacterName(conn));
         if (channels.Count == 0) return;
@@ -204,7 +204,7 @@ sealed class ChatService : IDisposable
     }
 
     // An area change closes the connection too, and the next one takes the session over.
-    public Task Leaving(ClientState conn, string why)
+    public Task Leaving(Player conn, string why)
     {
         _linked.TryRemove(conn, out _);
         if (why == "disconnected" && !conn.LeavingArea && conn.PendingTransfer is null

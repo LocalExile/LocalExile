@@ -4,9 +4,9 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static FlaskAutomationState Automation(ClientState conn) => conn.FlaskAutomation;
+    static FlaskAutomationState Automation(Player conn) => conn.FlaskAutomation;
 
-    public static void QueueFlaskTrigger(ClientState conn, FlaskEnchantments.Trigger trigger, uint item = 0, byte slot = 0)
+    public static void QueueFlaskTrigger(Player conn, FlaskEnchantments.Trigger trigger, uint item = 0, byte slot = 0)
     {
         lock (conn.Monsters)
         {
@@ -18,10 +18,10 @@ public static partial class Game
         }
     }
 
-    public static Task<bool> UseUtilityFlask(ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility)
+    public static Task<bool> UseUtilityFlask(Player conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility)
         => UseUtilityFlaskForSignal(conn, slot, flask, type, utility, null);
 
-    static async Task<bool> UseUtilityFlaskForSignal(ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility,
+    static async Task<bool> UseUtilityFlaskForSignal(Player conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility,
         FlaskAutomationStep? signal)
     {
         var state = Automation(conn);
@@ -39,7 +39,7 @@ public static partial class Game
 
     // Runs as a stat presentation after a trigger was queued (QueueFlaskTrigger), outside combat/inventory locks. Each flask is used at most
     // once per event chain, preventing adjacent enchanted flasks from recursively emptying one another.
-    public static async Task DrainFlaskTriggers(ClientState conn)
+    public static async Task DrainFlaskTriggers(Player conn)
     {
         var state = Automation(conn);
         if (!CurrentGameWork || conn.Paused || conn.LeavingArea) return;
@@ -76,14 +76,14 @@ public static partial class Game
         }
     }
 
-    static bool EndSignalCurrent(ClientState conn, InventoryItem flask, FlaskAutomationStep? signal) =>
+    static bool EndSignalCurrent(Player conn, InventoryItem flask, FlaskAutomationStep? signal) =>
         signal is not { Signal: { Trigger: FlaskEnchantments.Trigger.End } end }
         || flask.Id == end.Item && flask.X == end.Slot && conn.UtilityFlaskEffects.IsLatest(end.Item, end.Activation)
             && conn.UtilityFlaskEffects.Of(end.Item) is null
             && FlaskEnchantments.Matches(ItemModStats.Local(flask.Item, ItemsFor(conn).Mods), end.Trigger,
                 flask.X, end.Slot, active: false);
 
-    public static void QueueFlaskAilmentChanges(ClientState conn,
+    public static void QueueFlaskAilmentChanges(Player conn,
         (bool Ignite, int Chill, bool Freeze, int Shock) before, (bool Ignite, int Chill, bool Freeze, int Shock) after)
     {
         if (!before.Ignite && after.Ignite) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Ignite);

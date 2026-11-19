@@ -30,12 +30,12 @@ static partial class QuestobjectsRules
         public readonly List<(IzaroEffects.Effect Effect, ushort Buff)> Returned = [];
     }
 
-    static readonly ConditionalWeakTable<ClientState, IzaroArena> IzaroArenas = new();
+    static readonly ConditionalWeakTable<Player, IzaroArena> IzaroArenas = new();
 
     // The arena's small elevators (lowered), its mechanic on them, and what the run's earlier trials left: in the arena's
     // alcoves (by the trial that left it: the first alcove from the top of the map for the first trial) and on the ledges
     // of the room before it (the right one, largest x, for the first trial: the original, live).
-    static async Task<IzaroArena> PlaceIzaroMechanics(ClientState conn,
+    static async Task<IzaroArena> PlaceIzaroMechanics(Player conn,
         IzaroFights.Trial trial, List<AreaPopulation.RoomObject> all, List<(uint Id, AreaPopulation.RoomObject At)> railings, bool beaten)
     {
         var arena = new IzaroArena(trial);
@@ -60,7 +60,7 @@ static partial class QuestobjectsRules
     }
 
     // What the run's earlier trials left, where the room brings it back (its "…2" secret).
-    static async Task PlaceIzaroCarried(ClientState conn, IzaroArena arena,
+    static async Task PlaceIzaroCarried(Player conn, IzaroArena arena,
         List<AreaPopulation.RoomObject> all, bool beaten)
     {
         if (conn.Character is not { Length: > 0 } character) return;
@@ -142,7 +142,7 @@ static partial class QuestobjectsRules
         Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 
     // Izaro rises: the arena's gargoyles rise with him, and its first statue or portal (the original, live).
-    static void RiseIzaroMechanics(ClientState conn, IzaroArena arena,
+    static void RiseIzaroMechanics(Player conn, IzaroArena arena,
         uint izaro, SpawnedMonster boss, Func<bool> here)
     {
         arena.Izaro = izaro;
@@ -155,7 +155,7 @@ static partial class QuestobjectsRules
     }
 
     // Izaro fights: the earlier trials' statues' buffs go on him, their gargoyles come out and their portals open up.
-    static async Task StartIzaroMechanics(ClientState conn, IzaroArena arena,
+    static async Task StartIzaroMechanics(Player conn, IzaroArena arena,
         uint izaro, SpawnedMonster boss, Func<bool> here)
     {
         arena.Izaro = izaro;
@@ -197,7 +197,7 @@ static partial class QuestobjectsRules
     // The trial ends: what of the arena's mechanic is still on stays on Izaro for the run's later trials (the earlier
     // trials' gargoyles killed here are gone), the risen statues and idols go down with their elevators. His line after the end
     // line: the arena's mechanic's (IzaroFinish…), or null.
-    static async Task<string?> EndIzaroMechanics(ClientState conn)
+    static async Task<string?> EndIzaroMechanics(Player conn)
     {
         if (!IzaroArenas.TryGetValue(conn, out var arena)) return null;
         string? finish = null;

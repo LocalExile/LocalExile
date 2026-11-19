@@ -51,9 +51,9 @@ public static class LeapSlam
 
 public static partial class Game
 {
-    public static bool IsLeapSlam(ClientState conn, int effect) => SkillsFor(conn).ActionHash(effect) == LeapSlam.Action;
+    public static bool IsLeapSlam(Player conn, int effect) => SkillsFor(conn).ActionHash(effect) == LeapSlam.Action;
 
-    public static LeapSlam.Phases LeapSlamTiming(ClientState conn, ushort skillId, int effect, double seconds)
+    public static LeapSlam.Phases LeapSlamTiming(Player conn, ushort skillId, int effect, double seconds)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         var weapon = WeaponProfileFor(conn, activeSet: true);
@@ -67,7 +67,7 @@ public static partial class Game
             hit.Value.EarliestMs, seconds, skipStartup: SkillsFor(conn).BehaviourVariation(effect) != 2);
     }
 
-    public static LeapSlam.Use? PlanLeapSlam(ClientState conn, ushort skillId, int effect, (int X, int Y) aim, double at)
+    public static LeapSlam.Use? PlanLeapSlam(Player conn, ushort skillId, int effect, (int X, int Y) aim, double at)
     {
         var from = conn.Walk.Position(at);
         var landing = LeapSlam.Landing(conn.Layout, conn.Barrier, from, aim, SkillsFor(conn).BehaviourVariation(effect));
@@ -81,13 +81,13 @@ public static partial class Game
         return new(from, landing, at, timing, conn.ActionCount + 1, conn.ActionInterruptionGeneration);
     }
 
-    public static void CommitLeapSlam(ClientState conn, LeapSlam.Use use)
+    public static void CommitLeapSlam(Player conn, LeapSlam.Use use)
     {
         conn.Walk.Teleport(use.Landing.X, use.Landing.Y, use.At);
         conn.LandingUntil = Math.Max(conn.LandingUntil, use.At + use.Timing.End);
     }
 
-    public static Task ScheduleLeapSlam(ClientState conn,
+    public static Task ScheduleLeapSlam(Player conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore)
     {

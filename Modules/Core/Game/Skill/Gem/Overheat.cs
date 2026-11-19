@@ -9,7 +9,7 @@ public static partial class Game
     /// support's per-3 value times the whole groups of three consumed (Fortification's 20-stack base maximum caps it at
     /// 36% at level 1 and 48% at level 3, the exceptional gem's top level). A skill without the support stores nothing.
     /// Under the Monsters lock.</summary>
-    public static void OverheatConsumeLocked(ClientState conn, ushort skillId, Func<string, int> skill, double now)
+    public static void OverheatConsumeLocked(Player conn, ushort skillId, Func<string, int> skill, double now)
     {
         int perThree = skill("support_overheat_ailment_damage_+%_final_per_3_fortification_consumed");
         if (perThree <= 0)
@@ -24,10 +24,10 @@ public static partial class Game
     }
 
     /// <summary>This skill's last use's Overheat more ailment damage (1 when it consumed fewer than three stacks).</summary>
-    public static double OverheatAilmentMore(ClientState conn, ushort skillId) =>
+    public static double OverheatAilmentMore(Player conn, ushort skillId) =>
         conn.SupportGems.OverheatMore.GetValueOrDefault(skillId, 1);
 
-    public static MonsterIgnites.Settings WithOverheat(ClientState conn, ushort skillId, MonsterIgnites.Settings settings)
+    public static MonsterIgnites.Settings WithOverheat(Player conn, ushort skillId, MonsterIgnites.Settings settings)
     {
         double more = OverheatAilmentMore(conn, skillId);
         return more == 1 ? settings : settings with
@@ -37,7 +37,7 @@ public static partial class Game
         };
     }
 
-    public static MonsterPoisons.Settings WithOverheat(ClientState conn, ushort skillId, MonsterPoisons.Settings settings)
+    public static MonsterPoisons.Settings WithOverheat(Player conn, ushort skillId, MonsterPoisons.Settings settings)
     {
         double more = OverheatAilmentMore(conn, skillId);
         return more == 1 ? settings : settings with

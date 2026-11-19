@@ -10,7 +10,7 @@ using GameServer.Core.Protocol.Login;
 /// </summary>
 public static partial class Game
 {
-    static async Task PlaceMonsterMarker(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
+    static async Task PlaceMonsterMarker(Player conn, uint id, SpawnedMonster m, MonsterAttack a,
         MonsterDelayedStrike strike, (int X, int Y) aim)
     {
         if (a.Effect is not int effect) return;
@@ -39,7 +39,7 @@ public static partial class Game
 
     /// <summary>Each tick: markers whose owner is gone leave, due markers (with the others they call down) strike, and
     /// impact art whose time is up leaves.</summary>
-    static async Task MonsterMarkersTick(ClientState conn)
+    static async Task MonsterMarkersTick(Player conn)
     {
         var placed = conn.MonsterPlaced;
         if (placed.Markers.Count == 0 && placed.Impacts.Count == 0) return;

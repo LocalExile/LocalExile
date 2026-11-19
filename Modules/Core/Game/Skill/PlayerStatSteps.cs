@@ -58,12 +58,12 @@ public static partial class Game
         public double BaselineLifePerSecond;
     }
 
-    static readonly Action<ClientState, StatMap, PlayerStepOutputs>[] PlayerSteps = BuildPlayerSteps();
+    static readonly Action<Player, StatMap, PlayerStepOutputs>[] PlayerSteps = BuildPlayerSteps();
 
-    static Action<ClientState, StatMap, PlayerStepOutputs>[] BuildPlayerSteps()
+    static Action<Player, StatMap, PlayerStepOutputs>[] BuildPlayerSteps()
     {
-        var steps = new Action<ClientState, StatMap, PlayerStepOutputs>[Enum.GetValues<PlayerStatStep>().Length];
-        void Step(PlayerStatStep step, Action<ClientState, StatMap, PlayerStepOutputs> run) => steps[(int)step] = run;
+        var steps = new Action<Player, StatMap, PlayerStepOutputs>[Enum.GetValues<PlayerStatStep>().Length];
+        void Step(PlayerStatStep step, Action<Player, StatMap, PlayerStepOutputs> run) => steps[(int)step] = run;
         static int GetIn(StatMap stats, string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         static void AddTo(StatMap stats, uint key, long value) => stats[key] = ActorScale.Saturate(stats.GetValueOrDefault(key) + value);
 
@@ -274,7 +274,7 @@ public static partial class Game
         "main_hand_chance_to_hit_evasive_monsters_%", "off_hand_chance_to_hit_evasive_monsters_%"];
 
     // The tail's inputs as a step reads them: the stats before it and the state it reads.
-    static StatSnapshotTailInputs PlayerTailInputs(ClientState conn, StatMap stats)
+    static StatSnapshotTailInputs PlayerTailInputs(Player conn, StatMap stats)
     {
         var (mainLocal, offLocal) = HandLocalStats(conn);
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
@@ -284,18 +284,18 @@ public static partial class Game
     }
 
     /// <summary>Runs one step (a player stat graph rule).</summary>
-    internal static void RunPlayerStep(PlayerStatStep step, ClientState conn, StatMap stats, PlayerStepOutputs outputs) =>
+    internal static void RunPlayerStep(PlayerStatStep step, Player conn, StatMap stats, PlayerStepOutputs outputs) =>
         PlayerSteps[(int)step](conn, stats, outputs);
 
     public sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw, int PlayerLevel,
         IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
 
-    public static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
+    public static Dictionary<uint, int> CharacterPlayerStatsCore(Player conn, out double baselineLifePerSecond) =>
         CachedPlayerStats(conn, out baselineLifePerSecond);
 
     /// <summary>Every step in order on a plain map: a fresh build (outside an area's frames, or a scope that asks for one).
     /// With <paramref name="capturePanelSources"/>, the stats before the tail too, for the skill publication.</summary>
-    public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
+    public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(Player conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
         var stats = new PlainStatMap();

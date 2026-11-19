@@ -20,10 +20,10 @@ public static partial class Game
     const double DarkBargainChainSeconds = 0.1;
     const int DarkBargainArtMs = 1500;
 
-    public static bool IsDarkBargain(ClientState conn, int effect) =>
+    public static bool IsDarkBargain(Player conn, int effect) =>
         SkillsFor(conn).EffectId(effect) is "DarkPact" or "DarkPactRoyale";
 
-    static async Task DarkBargainCast(ClientState conn,
+    static async Task DarkBargainCast(Player conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
         int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
         double sealDelay = 0, double reoccurrenceMore = 1)

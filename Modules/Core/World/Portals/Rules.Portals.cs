@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 static partial class PortalsRules
 {
-    internal static IEnumerable<ClientState> DeviceVisitors(ClientState conn) =>
+    internal static IEnumerable<Player> DeviceVisitors(Player conn) =>
         Program.InGame.Keys.Append(conn).Distinct().Where(c => !c.Closed && !c.LeavingArea
             && (c.InstanceNumber == conn.InstanceNumber && c.Layout.Hash == conn.Layout.Hash
                 || c.MapPortalRun?.Owner == CharacterName(conn)));
@@ -36,7 +36,7 @@ static partial class PortalsRules
     // burst is not done yet (live 2026-10-20), so each portal is listed MapPortalListMs after its create; on entering the
     // area the objects also wait until the world is active (firstAfterMs). A newer Activate or the portals' removal stops
     // the sequence.
-    internal static Task SpawnMapPortals(ClientState conn, MapDevice.OpenMap open, int firstAfterMs = 0)
+    internal static Task SpawnMapPortals(Player conn, MapDevice.OpenMap open, int firstAfterMs = 0)
     {
         if (MapDeviceHere(conn) is not { } device) return Task.CompletedTask;
         uint deviceId = device.Id;
@@ -96,7 +96,7 @@ static partial class PortalsRules
         return Task.CompletedTask;
     }
 
-    internal static async Task RemoveMapPortals(ClientState conn)
+    internal static async Task RemoveMapPortals(Player conn)
     {
         List<uint> ids;
         Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them

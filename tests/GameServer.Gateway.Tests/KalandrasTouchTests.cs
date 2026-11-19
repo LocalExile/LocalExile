@@ -10,7 +10,7 @@ public class KalandrasTouchTests
         var path = Path.Combine(Path.GetTempPath(), $"kalandra-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         var items = Program.Items;
-        var conn = new ClientState(new(1, "kalandra", 100, 100, 100, 100, null, []), 1, 1) { Character = "KalandraStats" };
+        var conn = new Player(new(1, "kalandra", 100, 100, 100, 100, null, []), 1, 1) { Character = "KalandraStats" };
         try
         {
             var touch = new UniqueCatalog(items).Create("Kalandra's Touch", new Random(3))!;

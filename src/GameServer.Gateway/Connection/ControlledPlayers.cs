@@ -8,9 +8,9 @@ using GameServer.Core.Protocol.Login;
 public interface IControlledPlayerRules
 {
     CharacterSaves.Save BuildControlled(CharacterClass characterClass, int level);
-    Task InitializeControlled(ClientState player, ClientState leader);
-    Task StepControlled(ClientState player, ClientState leader);
-    Task ControlledCompletion(ClientState player);
+    Task InitializeControlled(Player player, Player leader);
+    Task StepControlled(Player player, Player leader);
+    Task ControlledCompletion(Player player);
 }
 
 // Optional command boundary supplied by a game module. The transport does not implement gameplay rules.
@@ -20,9 +20,9 @@ public sealed record ControlledPlayerIntent(string Id, string Action, double Unt
 public interface IControlledPlayerCommands
 {
     double MaximumLeaderDistance { get; }
-    void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent);
-    void ClearControlledIntent(ClientState player);
-    object ObserveControlledPlayer(ClientState player, ClientState leader);
+    void QueueControlledIntent(Player player, ControlledPlayerIntent intent);
+    void ClearControlledIntent(Player player);
+    object ObserveControlledPlayer(Player player, Player leader);
 }
 
 public static class ControlledPlayers
@@ -30,11 +30,11 @@ public static class ControlledPlayers
     static readonly ConditionalWeakTable<ConnectionCiphers, object> Transports = new();
     public static bool IsTransport(ConnectionCiphers ciphers) => Transports.TryGetValue(ciphers, out _);
 
-    public static ClientState Open(Character character, string account, ClientState leader)
+    public static Player Open(Character character, string account, Player leader)
     {
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
         Transports.Add(ciphers, new());
-        var player = new ClientState(leader.Layout, 0, leader.Seed)
+        var player = new Player(leader.Layout, 0, leader.Seed)
         {
             Character = character.Name, CharacterId = character.Id, Account = account, League = character.League,
             ClassRow = Program.Skills.RowOfClass((int)character.Class),
@@ -49,7 +49,7 @@ public static class ControlledPlayers
         return player;
     }
 
-    public static void Close(ClientState player)
+    public static void Close(Player player)
     {
         if (player.Closed) return;
         var updates = (Program.GameLogicOrNull as IControlledPlayerRules)?.ControlledCompletion(player) ?? Task.CompletedTask;

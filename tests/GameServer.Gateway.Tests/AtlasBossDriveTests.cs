@@ -108,9 +108,9 @@ public sealed class AtlasBossDriveTests
     // A connection whose player stands five cells from a spawned Shaper, in a real socket: the boss monster
     // SpawnMonster builds for /spawn_mob Metadata/Monsters/AtlasBosses/TheShaperBoss@83 unique (the variety's row, its
     // life, its three life thresholds), placed in the connection's own monster table under the id the live run used.
-    static (ClientState Conn, SpawnedMonster Boss) MeleeSetup(NetworkStream toClient, ConnectionCiphers serverCiphers)
+    static (Player Conn, SpawnedMonster Boss) MeleeSetup(NetworkStream toClient, ConnectionCiphers serverCiphers)
     {
-        var conn = new ClientState(new(1, "boss-drive", 100, 100, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "boss-drive", 100, 100, 100, 100, null, []), 1, 1)
         {
             PlayerLife = 1000, PlayerSent = true, Character = "BossDrive",
         };

@@ -27,7 +27,7 @@ public sealed class GenerosityAuraPresentationTests
     [Fact]
     public void A_module_reload_removes_both_records_of_an_old_generosity_aura()
     {
-        var conn = new ClientState(new(1, "generosity-reload", 100, 100, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "generosity-reload", 100, 100, 100, 100, null, []), 1, 1)
         {
             PlayerSent = true, PlayerObjectCreated = true, Closed = true,
         };

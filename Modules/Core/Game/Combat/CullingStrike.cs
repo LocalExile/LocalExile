@@ -29,7 +29,7 @@ public static partial class Game
     }
 
     // The hit's own damage, then the cull. A boss stage this hit starts, or one still running, keeps the boss alive.
-    public static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
+    public static (uint Life, bool StageStarts) TakeOwnerHitLocked(Player conn, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null,
         IReadOnlyDictionary<uint, int>? cullPlayer = null)
     {
@@ -113,7 +113,7 @@ public static partial class Game
     // Burning covers the supported non-ignite sources too. Righteous Fire only puts its aura on the monsters in range
     // and ticks their burn; the DoT itself never reaches this hit path, so it cannot cull on its own. `m.Burn` is only
     // the DoT's fractional carry and is never cleared, so it is not a burning signal.
-    static bool BurningTarget(ClientState conn, SpawnedMonster m)
+    static bool BurningTarget(Player conn, SpawnedMonster m)
     {
         if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
         return conn.RighteousFire is { } rf && conn.Monsters.Any(pair =>

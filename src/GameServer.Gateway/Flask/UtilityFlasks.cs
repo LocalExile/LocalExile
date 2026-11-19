@@ -545,7 +545,7 @@ public static class UtilityFlasks
     }
 
     /// <summary>Whether the running flasks make the player phase (Quartz Flask: phase_through_objects): monsters do not
-    /// block the walk (ClientState.Blockers), as the client's pathfinder with its phasing flag. NPCs and stashes still do
+    /// block the walk (Player.Blockers), as the client's pathfinder with its phasing flag. NPCs and stashes still do
     /// (which objects the client's phasing filter lets through is not traced).</summary>
     public static bool Phasing(IEnumerable<(string Stat, int Value)> stats) => stats.Any(s => s.Stat == "phase_through_objects" && s.Value > 0);
 
@@ -578,7 +578,7 @@ public static class UtilityFlasks
 
     /// <summary>Starts an effect and recomputes the character (<paramref name="recompute"/>: the pools and the walk
     /// speed) under the connection's Monsters lock, which every pools writer takes, so no writer keeps a stale total.</summary>
-    public static int? Start(ClientState conn, Active effect, Action recompute)
+    public static int? Start(Player conn, Active effect, Action recompute)
     {
         lock (conn.Monsters)
         {
@@ -590,7 +590,7 @@ public static class UtilityFlasks
 
     /// <summary>Ends the effects that are due (<see cref="Effects.End"/>) and recomputes the character in the same locked
     /// block, when any ended.</summary>
-    public static List<Active> EndDue(ClientState conn, double now, bool dead, Func<Active, bool>? gone, Action recompute, out bool stop)
+    public static List<Active> EndDue(Player conn, double now, bool dead, Func<Active, bool>? gone, Action recompute, out bool stop)
     {
         lock (conn.Monsters)
         {

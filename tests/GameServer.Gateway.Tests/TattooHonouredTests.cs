@@ -37,7 +37,7 @@ public sealed class TattooHonouredTests
     public void The_honoured_consumers_read_their_stats()
     {
         // "You gain Onslaught for 4 seconds on Hit": the stat starts it on a hit and it never shortens.
-        var conn = new ClientState(new(1, "tattoo-honoured", 10, 10, 1, 1, null, []), 1, 1) { PlayerLife = 100 };
+        var conn = new Player(new(1, "tattoo-honoured", 10, 10, 1, 1, null, []), 1, 1) { PlayerLife = 100 };
         Game.ConfigureKillOnslaught(conn, name => name == "gain_onslaught_on_hit_duration_ms" ? 4000 : 0);
         Assert.True(Game.OnslaughtOnHitLocked(conn, 10));
         Assert.Equal(14, Game.KillOnslaughtOf(conn).Until);

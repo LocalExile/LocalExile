@@ -14,12 +14,12 @@ public static partial class Game
     {
         public bool RequiresTerrain { get; init; }
         public bool CancelWindupOnNewAction { get; init; }
-        public Func<ClientState, string?>? Unavailable { get; init; }
+        public Func<Player, string?>? Unavailable { get; init; }
         public Func<ProjectileReleaseContext, ProjectileUse, ProjectileUse>? SpecializeRelease { get; init; }
         public Func<ProjectileEntity, ProjectilePresentation>? Presentation { get; init; }
     }
 
-    public sealed record ProjectileReleaseContext(ClientState Conn, ProjectileSession Session, ushort SkillId,
+    public sealed record ProjectileReleaseContext(Player Conn, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
         int Variation, Func<string, int> Get, Func<string, int> Player, Func<string, int> Own);
 

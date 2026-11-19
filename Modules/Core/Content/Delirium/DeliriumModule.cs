@@ -11,7 +11,7 @@ public sealed partial class DeliriumModule : IModule
 {
     const string StateKey = "Delirium.Simulacrum";
     readonly ConditionalWeakTable<InstanceState, Run> runs = new();
-    readonly ConditionalWeakTable<ClientState, View> views = new();
+    readonly ConditionalWeakTable<Player, View> views = new();
     readonly JsonSerializerOptions serialization = new() { TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() };
     IModuleContext context = null!;
 
@@ -135,12 +135,12 @@ public sealed partial class DeliriumModule : IModule
         });
     }
 
-    Run State(ClientState conn) => runs.GetValue(conn.Instance, instance =>
+    Run State(Player conn) => runs.GetValue(conn.Instance, instance =>
         instance.ContentState.TryGetValue(StateKey, out var text) ? JsonSerializer.Deserialize<Run>(text, serialization) ?? new() : new());
-    void Save(ClientState conn, Run run) => conn.Instance.ContentState[StateKey] = JsonSerializer.Serialize(run, serialization);
-    static bool Current(ClientState conn) => conn.PlayerSent && !conn.LeavingArea && !conn.Closed;
-    static IEnumerable<ClientState> Clients(ClientState conn) => InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, conn.Instance) && Current(c));
-    View? ViewOf(ClientState conn)
+    void Save(Player conn, Run run) => conn.Instance.ContentState[StateKey] = JsonSerializer.Serialize(run, serialization);
+    static bool Current(Player conn) => conn.PlayerSent && !conn.LeavingArea && !conn.Closed;
+    static IEnumerable<Player> Clients(Player conn) => InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, conn.Instance) && Current(c));
+    View? ViewOf(Player conn)
     {
         if (views.TryGetValue(conn, out var view)) return view;
         if (!conn.Instance.ContentState.TryGetValue($"{StateKey}.view.{conn.PeerId}", out var text)) return null;
@@ -150,7 +150,7 @@ public sealed partial class DeliriumModule : IModule
         return views.GetValue(conn, _ => new View { Entity = entity, Stash = stash, At = (x, y), Native = parts.Length == 5 && parts[4] == "1" });
     }
 
-    async Task Enter(ClientState conn)
+    async Task Enter(Player conn)
     {
         if (!SimulacrumRules.IsArena(conn.Layout.Id)) return;
         var view = ViewOf(conn) ?? views.GetOrCreateValue(conn);
@@ -174,7 +174,7 @@ public sealed partial class DeliriumModule : IModule
             : $"Simulacrum: interact with the familiar entity to begin wave {run.Wave + 1}/15.");
     }
 
-    async Task Start(ClientState conn)
+    async Task Start(Player conn)
     {
         var run = State(conn);
         if (run.Wave == SimulacrumRules.Waves && run.Rewarded)
@@ -232,7 +232,7 @@ public sealed partial class DeliriumModule : IModule
         return cleared;
     }
 
-    async Task Step(ClientState conn)
+    async Task Step(Player conn)
     {
         var run = State(conn);
         lock (conn.Monsters)
@@ -257,7 +257,7 @@ public sealed partial class DeliriumModule : IModule
         finally { lock (conn.Monsters) run.Busy = false; }
     }
 
-    static async Task Broadcast(ClientState conn, string text)
+    static async Task Broadcast(Player conn, string text)
     {
         foreach (var peer in Clients(conn))
             await PlayerOf(peer).Tell(text);

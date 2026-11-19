@@ -1,7 +1,7 @@
 public static partial class Game
 {
     // Percent recovery uses the maximum pool, including its reserved part, and rounds down.
-    public static (int Life, int Mana, uint EnergyShield) BlockRecovery(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static (int Life, int Mana, uint EnergyShield) BlockRecovery(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         long Pct(string name, long maximum) => Stats.Key(name) is uint key ? maximum * Math.Max(0, stats.GetValueOrDefault(key)) / 100 : 0;
         return ((int)Pct("recover_%_of_maximum_life_on_block", conn.PlayerMaxLife), (int)Pct("mana_%_gained_on_block", conn.Pools.Mana),
@@ -13,7 +13,7 @@ public static partial class Game
     // pool is lost. Commit all three pools under Monsters before routing the hit through ES/Mana/Life. Reaching full here
     // ends leech even though this same hit lowers the pool again: GGG's servers remove the leech buff between those two
     // updates (5 of 5 blocks that filled Life while leeching), and leech runs on after blocks that do not fill it.
-    static void RecoverOnBlockLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    static void RecoverOnBlockLocked(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;

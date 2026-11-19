@@ -21,7 +21,7 @@ public static partial class Game
 
     // A new connection of a character in god mode is in it again (LoadProgress, before its pools are worked out). It only
     // switches on: a caller may have set it already.
-    public static void RestoreGod(ClientState conn)
+    public static void RestoreGod(Player conn)
     {
         if (GodCharacters.ContainsKey(CharacterName(conn))) conn.God = true;
         if (ImmuneCharacters.ContainsKey(CharacterName(conn))) conn.Immune = conn.God;
@@ -29,7 +29,7 @@ public static partial class Game
 
     // The mana the running auras reserve, and what is left for casting and regeneration.
     // Restoring an already enabled aura is not a fresh cast: transient mana availability must not discard its saved intent.
-    public static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, IEnumerable<string> saved)
+    public static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(Player conn, IEnumerable<string> saved)
     {
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn)) return [];
         string[] savedList = [.. saved];
@@ -113,7 +113,7 @@ public static partial class Game
         return restored;
     }
 
-    public static bool InGracePeriod(ClientState conn)
+    public static bool InGracePeriod(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         return conn.EntryProtection.Protects(now, conn.Walk.Position(now));
@@ -121,14 +121,14 @@ public static partial class Game
 
     // The player object is in the new area: what starts on it there, the Grace Period and the passives' self buffs (each
     // area's connection starts without buffs, PassiveBuffAuras).
-    public static async Task PlayerEnteredArea(ClientState conn)
+    public static async Task PlayerEnteredArea(Player conn)
     {
         conn.PlayerSent = true;
         await StartGracePeriod(conn);
         await Send(conn, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
 
-    public static async Task StartGracePeriod(ClientState conn)
+    public static async Task StartGracePeriod(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         ushort buff;
@@ -139,7 +139,7 @@ public static partial class Game
                 $"Grace Period: {GracePeriod.Seconds} seconds of entry protection");
     }
 
-    public static async Task EndGracePeriod(ClientState conn, bool action = false)
+    public static async Task EndGracePeriod(Player conn, bool action = false)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (conn.EntryProtection.End(now, conn.Walk.Position(now), action) is ushort buff)
@@ -147,9 +147,9 @@ public static partial class Game
                 "Grace Period ends: movement, action or deadline");
     }
 
-    public static bool InTown(ClientState conn) => WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true };
+    public static bool InTown(Player conn) => WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true };
 
-    public static async Task EndAurasOnDeath(ClientState conn)
+    public static async Task EndAurasOnDeath(Player conn)
     {
         lock (conn.Monsters)
             if (conn.PlayerLife != 0 || conn.AuraDeathHandled || ProjectileOutputGuard.Value is { } before && !before()) return;
@@ -181,10 +181,10 @@ public static partial class Game
         }
     }
 
-    public static Task PlayerDied(ClientState conn, string label) =>
+    public static Task PlayerDied(Player conn, string label) =>
         PlayerDiedAtEpoch(conn, label);
 
-    public static async Task PlayerDiedAtEpoch(ClientState conn,
+    public static async Task PlayerDiedAtEpoch(Player conn,
         string label, int? expectedEpoch = null)
     {
         int deathEpoch;
@@ -230,7 +230,7 @@ public static partial class Game
         await SendPlayerDeathPresentation(conn, label, deathEpoch);
     }
 
-    public static Task SendPlayerDeathPresentation(ClientState conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
+    public static Task SendPlayerDeathPresentation(Player conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
     {
         lock (conn.Monsters)
         {
@@ -243,7 +243,7 @@ public static partial class Game
         }
     });
 
-    public static int ReservedMana(ClientState conn)
+    public static int ReservedMana(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -255,14 +255,14 @@ public static partial class Game
         }
     }
 
-    public static int UnreservedMana(ClientState conn) => Math.Max(0, (int)conn.Pools.Mana - ReservedMana(conn));
+    public static int UnreservedMana(Player conn) => Math.Max(0, (int)conn.Pools.Mana - ReservedMana(conn));
 
     // Pure preview for proposed or current aura sets. Never changes current Life or the advertised cap.
-    public static LifeReservation.Value LifeReservationFor(ClientState conn, IEnumerable<AuraCatalog.Aura> auras)
+    public static LifeReservation.Value LifeReservationFor(Player conn, IEnumerable<AuraCatalog.Aura> auras)
         => LifeReservation.Of(conn.Pools, conn.QualifiedItemLifeReservationPercent, auras,
             AdditionalLifeReservation(conn));
 
-    public static LifeReservation.Value LifeReservationOf(ClientState conn)
+    public static LifeReservation.Value LifeReservationOf(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -277,11 +277,11 @@ public static partial class Game
             return value;
         }
     }
-    public static int ReservedLife(ClientState conn) => LifeReservationOf(conn).Reserved;
-    public static uint LifeCap(ClientState conn) => (uint)LifeReservationOf(conn).Unreserved;
+    public static int ReservedLife(Player conn) => LifeReservationOf(conn).Reserved;
+    public static uint LifeCap(Player conn) => (uint)LifeReservationOf(conn).Unreserved;
 
     // Every player Life pool update carries the shared owner's reserved amount.
-    public static byte[] PlayerLifeUpdate(ClientState conn)
+    public static byte[] PlayerLifeUpdate(Player conn)
     {
         lock (conn.Monsters)
             return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
@@ -290,7 +290,7 @@ public static partial class Game
     // 0x1b1 for the mana pool: every update carries the reserved amount, or the client would clear it. The pool and the
     // reservation are read under one lock, so a packet never pairs a pool from before an aura toggle with the
     // reservation from after it.
-    public static async Task SendPlayerMana(ClientState conn,
+    public static async Task SendPlayerMana(Player conn,
         string? log = null)
     {
         await SendWorldRecords(conn, PlayerId, () =>
@@ -317,7 +317,7 @@ public static partial class Game
 
     // A paid skill's Life cost, then its mana update. Petrified Blood's and Lifetap's life costs change the life pool
     // at once and the client must see it before its own prediction does anything with the new value.
-    public static async Task SendSkillCost(ClientState conn, uint lifeCost, string? log)
+    public static async Task SendSkillCost(Player conn, uint lifeCost, string? log)
     {
         if (lifeCost > 0)
             await SendWorldRecord(conn, PlayerId, [], log, atGate: () =>
@@ -329,7 +329,7 @@ public static partial class Game
 
     // The Lifetap buff's client instance: it is added by the mana publication after a supported skill's cost (the
     // same send gate as the other own buffs) and is removed here when its countdown runs out.
-    public static Task SendLifetap(ClientState conn) =>
+    public static Task SendLifetap(Player conn) =>
         SendWorldRecords(conn, PlayerId, () =>
         {
             lock (conn.Monsters)
@@ -345,7 +345,7 @@ public static partial class Game
     // The client's Life step reads life_recovery_per_minute and cannot know Petrified Blood's Low Life cap. Send 0
     // while the pool is at or above the boundary and the real modelled rate once it is below, so the local prediction
     // and the server agree. Pool updates themselves remain authoritative whole points.
-    public static Task SendPetrifiedBloodRecoveryRate(ClientState conn, bool blocked) => SendWorldRecord(conn, PlayerId, [], null, atGate: () =>
+    public static Task SendPetrifiedBloodRecoveryRate(Player conn, bool blocked) => SendWorldRecord(conn, PlayerId, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -356,7 +356,7 @@ public static partial class Game
             }
         });
 
-    public static Task SendPlayerEnergyShield(ClientState conn) =>
+    public static Task SendPlayerEnergyShield(Player conn) =>
         SendWorldRecords(conn, PlayerId, () =>
         {
             // Sample and deduplicate after earlier sends: a queued pool change can clamp ES or end recharge.
@@ -399,7 +399,7 @@ public static partial class Game
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
-    static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
+    static bool SkillCostLocked(Player conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
         out uint es, out uint fromEs, out Dictionary<uint, int> player)
     {
         cost = 0;
@@ -457,7 +457,7 @@ public static partial class Game
 
     // Whether the player can pay a use of the skill now: checked before a use's admission spends a cooldown use or a
     // bypass charge, or moves the player (TryBeginCooldownUseCore), so a refused payment leaves them as they were.
-    public static bool CanPaySkillCost(ClientState conn, ushort skillId)
+    public static bool CanPaySkillCost(Player conn, ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;
         lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _, out _, out _);
@@ -469,7 +469,7 @@ public static partial class Game
     // Mana cost from what Energy Shield is left before Mana. False when the player lacks the pool it actually uses.
     // cost is what Mana paid, and only that is Mana spent (ManaSpentLocked: Ravenous Passion's Rage, recoup): the part
     // Energy Shield paid is not (a player's test, 2025: Indigon did not count it; no official statement found).
-    public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
+    public static bool PayMana(Player conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var supported = SupportedSkill(conn, skillId);
         var own = supported.Stats;
@@ -506,7 +506,7 @@ public static partial class Game
     }
 
     // Shared supported spell timing, before the new-action frame limit or an integer-ms wait is applied.
-    static SpellCastTiming? SpellTimingFor(ClientState conn, int effect, ushort skillId)
+    static SpellCastTiming? SpellTimingFor(Player conn, int effect, ushort skillId)
     {
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
         var player = CharacterPlayerStats(conn);
@@ -518,7 +518,7 @@ public static partial class Game
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
     // Null refuses an invalid/unrepresentable cast rather than turning it into an immediate hit.
-    public static int? CastMs(ClientState conn, int effect, ushort skillId = 0)
+    public static int? CastMs(Player conn, int effect, ushort skillId = 0)
     {
         if (SpellTimingFor(conn, effect, skillId)?.DurationMilliseconds is not int duration) return null;
         // A new action starts at most once per server frame (30/s); channelling repeats are exempt and use their own
@@ -537,7 +537,7 @@ public static partial class Game
     // Spell Echo's support_multicast_cast_speed_+%_final, Screaming Reels' only for main_hand_weapon_type 15 (a fishing
     // rod), the totem supports' only off a totem, Fanaticism's only for a hand-cast spell, the Frostbolt one at most
     // +200%, the metamorphosis boss's in permyriad. A total of −100% or less keeps its existing refusal.
-    static int FinalCastSpeedPct(ClientState conn, IReadOnlyDictionary<uint, int> stats, int increased) =>
+    static int FinalCastSpeedPct(Player conn, IReadOnlyDictionary<uint, int> stats, int increased) =>
         FinalCastSpeedPct(name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0, () => HoldingFishingRod(conn), increased);
 
     public static int FinalCastSpeedPct(Func<string, int> get, Func<bool> holdingFishingRod, int increased)
@@ -575,14 +575,14 @@ public static partial class Game
     sealed record RighteousFireDetachPlan(RighteousFireState State, IReadOnlyList<RighteousFireDetachRecord> Packets);
 
     // The committed owner identity and physical source lease, without an outgoing-work or supported-skill query.
-    private static bool RighteousFireOwnerCurrentLocked(ClientState conn, RighteousFireState rf) =>
+    private static bool RighteousFireOwnerCurrentLocked(Player conn, RighteousFireState rf) =>
         ReferenceEquals(conn.RighteousFire, rf) && CurrentGameRules && !conn.Closed && !conn.LeavingArea
         && ReferenceEquals(conn.Instance, rf.Instance) && conn.PlayerLife != 0
         && rf.SourceLifetime is { } lifetime && conn.GemSourceLifetimes.IsCurrent(lifetime);
 
     // A raw player-stat projection, not another RF owner: read only the committed neutral scalar and owner guards.
     // Calling SupportedSkill/CharacterPlayerStats here would recursively rebuild the sources it is projecting.
-    private static Dictionary<uint, int> WithRighteousFireSpellBonus(ClientState conn, Dictionary<uint, int> sources)
+    private static Dictionary<uint, int> WithRighteousFireSpellBonus(Player conn, Dictionary<uint, int> sources)
     {
         if (Stats.Key("righteous_fire_spell_damage_+%_final") is not uint key) return sources;
         int more;
@@ -598,7 +598,7 @@ public static partial class Game
     }
 
     // The canonical row named by the still-current owner and lease, for profile refreshes that are not output work.
-    private static bool RighteousFireSourceCurrentLocked(ClientState conn, RighteousFireState rf)
+    private static bool RighteousFireSourceCurrentLocked(Player conn, RighteousFireState rf)
     {
         if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return false;
         using var scope = new PlayerStatScope(conn, fresh: true);
@@ -611,16 +611,16 @@ public static partial class Game
     }
 
     // Output and consumer work additionally retain the accepted outgoing-work guard.
-    private static bool RighteousFireCurrentLocked(ClientState conn, RighteousFireState rf) =>
+    private static bool RighteousFireCurrentLocked(Player conn, RighteousFireState rf) =>
         CurrentGameWork && RighteousFireSourceCurrentLocked(conn, rf);
 
-    private static bool RighteousFireRingCurrentLocked(ClientState conn, PlayerMinions.RighteousFireRingReceipt receipt) =>
+    private static bool RighteousFireRingCurrentLocked(Player conn, PlayerMinions.RighteousFireRingReceipt receipt) =>
         receipt.State.Ring == receipt.Ring && receipt.State.RingArt is not null
         && RighteousFireCurrentLocked(conn, receipt.State);
 
     // Activation and retained-profile refreshes use one radius formula: the current supported skill stats over the
     // current area player stats, as the skill is actually burning now.
-    private static int RighteousFireRadius(ClientState conn, IReadOnlyDictionary<uint, int> supported)
+    private static int RighteousFireRadius(Player conn, IReadOnlyDictionary<uint, int> supported)
     {
         var stats = MergeSkillStats(AreaPlayerStats(conn), supported);
         int Get(string name, int fallback) =>
@@ -643,7 +643,7 @@ public static partial class Game
         return InstanceEntities.CreateObject(ring, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob());
     }
 
-    private static void QueueRighteousFireRingLocked(ClientState conn, RighteousFireState rf, uint ring, (int X, int Y) at)
+    private static void QueueRighteousFireRingLocked(Player conn, RighteousFireState rf, uint ring, (int X, int Y) at)
     {
         string art = rf.RingArt!;
         byte[] create = RighteousFireRingCreate(rf, ring, at);
@@ -660,7 +660,7 @@ public static partial class Game
     // Re-reads the retained RF owner's current effect rows after a gem/passive/equipment profile mutation. The owner,
     // lease, buff ids, burning enemies, pools and owed life loss stay untouched; an invalid source uses the existing
     // detach plan. A radius change replaces only the ring and queues neutral exact-receipt presentation.
-    private static void RefreshRighteousFireProfileLocked(ClientState conn)
+    private static void RefreshRighteousFireProfileLocked(Player conn)
     {
         if (conn.RighteousFire is not { } rf) return;
         lock (conn.Monsters)
@@ -705,7 +705,7 @@ public static partial class Game
 
     // Detach is synchronous and returns immutable old-id packets. The optional expected reference refuses an older
     // snapshot without consulting mutable live RF fields after the boundary.
-    private static RighteousFireDetachPlan? PlanRighteousFireDetachLocked(ClientState conn, RighteousFireState? expected)
+    private static RighteousFireDetachPlan? PlanRighteousFireDetachLocked(Player conn, RighteousFireState? expected)
     {
         if (conn.RighteousFire is not { } rf || expected is not null && !ReferenceEquals(rf, expected)) return null;
         conn.RighteousFire = null;
@@ -722,7 +722,7 @@ public static partial class Game
         return new(rf, packets);
     }
 
-    private static void QueueRighteousFireCleanupLocked(ClientState conn, RighteousFireDetachPlan plan, string log)
+    private static void QueueRighteousFireCleanupLocked(Player conn, RighteousFireDetachPlan plan, string log)
     {
         foreach (var record in plan.Packets)
             conn.Minions.OutputQueue.Add(new(record.Packet, log, WorldId: record.Id, RemovesObject: record.RemovesObject));
@@ -730,7 +730,7 @@ public static partial class Game
 
     // The skill_art_variation of the skill effects worn in a gem type's Cosmetics tab slots (0: none), which picks the
     // skill's art (SkillArt).
-    public static int SkillArtVariation(ClientState conn, uint gem) =>
+    public static int SkillArtVariation(Player conn, uint gem) =>
         Stats.Key("skill_art_variation") is not uint key ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
@@ -740,7 +740,7 @@ public static partial class Game
         source.Id == expected.Id && source.Effect == expected.Effect
         && source.Identity == expected.Identity;
 
-    public static async Task ActivateRighteousFire(ClientState conn, ushort skillId,
+    public static async Task ActivateRighteousFire(Player conn, ushort skillId,
         int effect, int level, int quality, uint gem, RighteousFireState? expectedRelight = null,
         PlayerSkillSource? expectedRelightSource = null)
     {
@@ -871,7 +871,7 @@ public static partial class Game
         await SendWorldRecord(conn, ringId!.Value, ringWake, null, atGate: () => RingCurrent() ? ringWake : null);
     }
 
-    public static async Task<bool> EndRighteousFire(ClientState conn, string why, RighteousFireState? expected = null, PlayerSkillSource? expectedSource = null,
+    public static async Task<bool> EndRighteousFire(Player conn, string why, RighteousFireState? expected = null, PlayerSkillSource? expectedSource = null,
         InstanceState? expectedInstance = null)
     {
         RighteousFireDetachPlan? plan;
@@ -895,7 +895,7 @@ public static partial class Game
         return true;
     }
 
-    private static async Task PublishRighteousFireDetach(ClientState conn, RighteousFireDetachPlan plan, string why)
+    private static async Task PublishRighteousFireDetach(Player conn, RighteousFireDetachPlan plan, string why)
     {
         for (int i = 0; i < plan.Packets.Count; i++)
         {
@@ -915,7 +915,7 @@ public static partial class Game
     // The content's work for this area (GameEvents.AreaTick: boss fights, Delve, Delirium), every frame while the player's
     // updates run; no timer when no content has work here. With Game_PRESENT_VERIFY=1 the presentations' check (a debug
     // tool) runs every PlayerTickMs.
-    static void StartContentTick(ClientState conn, PlayerUpdatesState state)
+    static void StartContentTick(Player conn, PlayerUpdatesState state)
     {
         var work = GameEvents.AreaTickWork(conn);
         if (work.Count > 0)
@@ -934,7 +934,7 @@ public static partial class Game
     sealed class RecoveryRateState { public volatile bool Stale = true; }
     static readonly RuleTable<PlayerUpdatesState, RecoveryRateState> RecoveryRates = new();
 
-    static void RecoveryRatesChanged(ClientState conn)
+    static void RecoveryRatesChanged(Player conn)
     {
         if (conn.PlayerUpdatesState is PlayerUpdatesState updates) RecoveryRates.GetOrCreateValue(updates).Stale = true;
     }
@@ -949,7 +949,7 @@ public static partial class Game
 
     // One writer for continuous recovery: regeneration, flask recovery and the player's RF burn.
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
-    static void StartResourceRecovery(ClientState conn, PlayerUpdatesState updates)
+    static void StartResourceRecovery(Player conn, PlayerUpdatesState updates)
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(conn);
         double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
@@ -1187,7 +1187,7 @@ public static partial class Game
     }
 
     // Called under the combat lock. Advance deadlines and consume accrued recovery without paying it into pools.
-    public static void DiscardLoadingRecovery(ClientState conn, double now)
+    public static void DiscardLoadingRecovery(Player conn, double now)
     {
         LeechOf(conn).TakeRecovery(now);
         FortificationOf(conn).TakeRecovery(now);
@@ -1199,7 +1199,7 @@ public static partial class Game
     }
 
     // The ended flask effects' buffs come off the player (S→C 0x1c2).
-    public static async Task EndFlaskEffects(ClientState conn, List<Flasks.Effect> ended, string why)
+    public static async Task EndFlaskEffects(Player conn, List<Flasks.Effect> ended, string why)
     {
         foreach (var e in ended)
             if (FlaskBuffs && e.Buff != 0) await SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
@@ -1220,7 +1220,7 @@ public static partial class Game
 
     // Righteous Fire's burn: a damage aura (DamageAuras.cs) around the player, its fire damage a share of the player's
     // maximum life and energy shield per minute, with its aura buff on the hostile monsters inside.
-    static void StartRighteousFireBurn(ClientState conn, RighteousFireState rf) => StartDamageAura(conn, new DamageAura
+    static void StartRighteousFireBurn(Player conn, RighteousFireState rf) => StartDamageAura(conn, new DamageAura
     {
         Name = "Righteous Fire",
         Radius = () => rf.Radius,
@@ -1261,9 +1261,9 @@ public static partial class Game
     // mirrors it from the same flags. (In the 3.29.3b tables QuestStaticRewards 38 is a5q6-CompletedBoss and 39 is
     // EndGameAvailable, set when Kitava dies in The Feeding Trough; a10q3-UsedRewardBook, Lani's book after him, implies
     // it. EndGameAvailable counts only once earned: every character is given it for the Atlas (in a hideout and the maps
-    // only until then, Quests.EndgameOnly), ClientState.UnearnedQuestFlags.
+    // only until then, Quests.EndgameOnly), Player.UnearnedQuestFlags.
     // a9q5-KilledBoss is the Act 9 boss and does not grant it.)
-    public static int ResistancePenalty(ClientState conn)
+    public static int ResistancePenalty(Player conn)
     {
         bool act5, act10;
         lock (conn.Monsters)
@@ -1279,7 +1279,7 @@ public static partial class Game
         changed.Any(ResistancePenaltyAct5.Concat(ResistancePenaltyAct10).Contains);
 
     // The player's final resistance for one damage type: the passive/gear modifier plus the Kitava quest penalty.
-    public static int Resistance(ClientState conn, DamageType type)
+    public static int Resistance(Player conn, DamageType type)
     {
         int modifier = type switch
         {
@@ -1293,7 +1293,7 @@ public static partial class Game
     }
 
     // The per-type maximum from Character.ot's 75 plus the passive/gear maximum-resistance modifiers, hard-capped at 90.
-    public static int MaxResistance(ClientState conn, DamageType type) => type switch
+    public static int MaxResistance(Player conn, DamageType type) => type switch
     {
         DamageType.Fire => conn.Pools.FireMaxResistance,
         DamageType.Cold => conn.Pools.ColdMaxResistance,
@@ -1303,9 +1303,9 @@ public static partial class Game
     };
 
     // Damage immunities as the damage model sees them, from the same sources the panel's "Immune to X" rows use.
-    public static HashSet<DamageType> PlayerImmunities(ClientState conn) => PlayerImmunities(conn, null);
+    public static HashSet<DamageType> PlayerImmunities(Player conn) => PlayerImmunities(conn, null);
 
-    public static HashSet<DamageType> PlayerImmunities(ClientState conn, IReadOnlyDictionary<uint, int>? prepared)
+    public static HashSet<DamageType> PlayerImmunities(Player conn, IReadOnlyDictionary<uint, int>? prepared)
     {
         if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
         prepared ??= CharacterPlayerStats(conn);
@@ -1317,7 +1317,7 @@ public static partial class Game
     // Spell Suppression: chance in 0..100 with the conditional passives that hold now (full life, full energy shield,
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
-    public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(ClientState conn)
+    public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         bool fullLife, fullEnergyShield, hitRecently;
@@ -1341,7 +1341,7 @@ public static partial class Game
     static readonly string[] WhileMovingFinals = ["evasion_rating", "life_recovery_per_minute",
         "total_life_recovery_per_minute_from_regeneration", "mana_recovery_per_minute", "total_mana_recovery_per_minute_from_regeneration"];
 
-    public static Task SendWhileMovingStats(ClientState conn) =>
+    public static Task SendWhileMovingStats(Player conn) =>
         !conn.Pools.WhileMovingStats ? Task.CompletedTask : Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
@@ -1355,7 +1355,7 @@ public static partial class Game
         });
 
     // The evasion rating monster attacks roll against: the while-moving rating during a walk (Devout of Garukhan).
-    public static int PlayerEvasionBase(ClientState conn, double now)
+    public static int PlayerEvasionBase(Player conn, double now)
     {
         EnsureConditionalItemPools(conn);
         return conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion;
@@ -1365,7 +1365,7 @@ public static partial class Game
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),
     // "in town" in the character's last town (an area change;
     // in that town it is the same as the checkpoint).
-    public static async Task Resurrect(ClientState conn, bool inTown)
+    public static async Task Resurrect(Player conn, bool inTown)
     {
         // The native button is hidden for HC, but a forged 0x54 must not revive the old character in its source league.
         if (conn.Hardcore || conn.HardcoreDeathRecorded) return;
@@ -1424,7 +1424,7 @@ public static partial class Game
     // "Resurrect at Checkpoint" in a map leaves it for where it was entered from, the map device's area (the hideout),
     // where its portals stand; "Resurrect in Town" still goes to the last town (the official servers, 3.30.0b; issue #1002). Null outside
     // maps: there the checkpoint is in the area.
-    public static PendingTransfer? MapCheckpointExit(ClientState conn) =>
+    public static PendingTransfer? MapCheckpointExit(Player conn) =>
         MapDevice.ForInstance(conn) is { } map && (map.ReturnTo ?? map.Entrance) is { } origin
             ? new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y))
             : MapDevices.IsMapArea(conn.Layout.Hash) && HomeHideout(conn) is { } hideout
@@ -1432,7 +1432,7 @@ public static partial class Game
 
     // The player in its class: the Characters.dat row's object type (Metadata/Characters/StrInt/StrInt for the Templar), model
     // (AOFile), class byte (IntegerId), attributes and unarmed attack; the name is the character's.
-    public static PlayerObject PlayerForCreation(ClientState conn)
+    public static PlayerObject PlayerForCreation(Player conn)
     {
         var (layout, name, classRow, pools) = (conn.Layout, conn.Character, conn.ClassRow, conn.Pools);
         var cls = SkillsFor(conn).ClassFor(classRow);
@@ -1486,7 +1486,7 @@ public static partial class Game
         }
     }
 
-    public static async Task SendPlayer(ClientState conn)
+    public static async Task SendPlayer(Player conn)
     {
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);

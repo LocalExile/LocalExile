@@ -47,7 +47,7 @@ public class ClusterJewelTests
         Assert.DoesNotContain("AfflictionNotablePrismaticHeart__", rolls.Pool(large, plain).Select(p => p.Mod.Id));
 
         // A small passive grants the theme's own stats and what the jewel's "also grant" adds.
-        var conn = new ClientState(new(1, "cluster", 100, 100, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "cluster", 100, 100, 100, 100, null, []), 1, 1);
         InventoryItem[] placed = [new(11, 20, 0, jewel)];
         var layout = ClusterJewelLayout.For(20, jewel)!;
         int small = layout.ByOffset.First(p => p.Value == ClusterJewelLayout.Kind.Small).Key;

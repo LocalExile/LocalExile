@@ -14,20 +14,20 @@ public static class VaalOversoul
     static readonly int[] Effects = [Rocks, Ice, Travel, Slam, Summon, Laser, RockHit, Cold];
     const string Art = "Metadata/Effects/Spells/monsters_effects/act2/inca_boss/";
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly Store<ClientState, GroundExposure> Exposures = new();
+    static readonly Store<Player, GroundExposure> Exposures = new();
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), IReadOnlyDictionary<uint, int>>> SkillStats = new();
     sealed class GroundExposure { public double Dps; }
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     public static int Level(SkillCatalog catalog, int effect, int monsterLevel) => catalog.MaxLevelAt(effect, monsterLevel);
-    public static int Stat(ClientState conn, int effect, int level, string name)
+    public static int Stat(Player conn, int effect, int level, string name)
     {
         var catalog = Game.SkillsFor(conn);
         var values = SkillStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), pair =>
             catalog.EffectStats(pair.Effect, Level(catalog, pair.Effect, pair.Level)).ToDictionary(p => p.Item1, p => p.Item2));
         return Stats.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
     }
-    internal static MonsterAttack Attack(ClientState conn, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(Player conn, MonsterCatalog.Variety v, byte level, int effect)
     {
         var catalog = Game.SkillsFor(conn);
         var damage = catalog.HitDamage(effect, Level(catalog, effect, level));
@@ -49,7 +49,7 @@ public static class VaalOversoul
             Ailments = IncomingAilmentSettings(name => Stat(conn, effect, level, name)),
         };
     }
-    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety v, byte level)
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety v, byte level)
     {
         if (!IsBoss(v)) return null;
         var catalog = Game.SkillsFor(conn);
@@ -63,7 +63,7 @@ public static class VaalOversoul
     }
     public static bool CannotCrit(SpawnedMonster m, MonsterAttack attack) => IsBoss(m.Variety) && attack.SkillId == Skill(Slam);
 
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         if (conn.Layout.Id != Area || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         (uint Id, SpawnedMonster M)? found;
@@ -74,8 +74,8 @@ public static class VaalOversoul
         try { await fight.Bind(conn); if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds); }
         finally { fight.Gate.Release(); }
     }
-    public static Task Leaving(ClientState conn) { ClearExposure(conn); return Task.CompletedTask; }
-    static void ClearExposure(ClientState conn)
+    public static Task Leaving(Player conn) { ClearExposure(conn); return Task.CompletedTask; }
+    static void ClearExposure(Player conn)
     {
         if (!Exposures.TryGetValue(conn, out var exposure)) return;
         lock (conn.Monsters) { conn.Degens[exposure] = 0; exposure.Dps = 0; }
@@ -96,8 +96,8 @@ public static class VaalOversoul
         readonly uint id;
         readonly SpawnedMonster boss;
         readonly (int X, int Y) centre;
-        readonly List<ClientState> players = [];
-        readonly HashSet<ClientState> bound = [];
+        readonly List<Player> players = [];
+        readonly HashSet<Player> bound = [];
         readonly List<(uint Id, double Ends)> effects = [];
         readonly List<(double At, int Generation, int Kind, (int X, int Y) Aim, int Index)> events = [];
         readonly List<(double At, (int X, int Y) Aim, int Effect, double Radius, int? Generation)> hits = [];
@@ -108,7 +108,7 @@ public static class VaalOversoul
         int stance = 1, pending, laserLeft;
         bool rising, burrowing, stopped, dead, exitOpened;
         (int X, int Y) destination;
-        public Fight(uint objectId, SpawnedMonster monster, ClientState conn)
+        public Fight(uint objectId, SpawnedMonster monster, Player conn)
         {
             (id, boss) = (objectId, monster);
             centre = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -117,8 +117,8 @@ public static class VaalOversoul
             nextSummon = readyAt;
             lastTick = conn.Clock.Elapsed.TotalSeconds;
         }
-        bool Awake(ClientState c) { lock (c.Monsters) return c.MonsterViews.ContainsKey(id) && !c.AsleepMonsters.Contains(id); }
-        public async Task Bind(ClientState conn)
+        bool Awake(Player c) { lock (c.Monsters) return c.MonsterViews.ContainsKey(id) && !c.AsleepMonsters.Contains(id); }
+        public async Task Bind(Player conn)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             bound.RemoveWhere(p => p.Closed || p.LeavingArea);
@@ -130,7 +130,7 @@ public static class VaalOversoul
                 InstanceEntities.TransitionableUpdate(id, TransitionIndex(), 2), "[Vaal Oversoul] targetable actor");
             if (!burrowing) await Send(conn, ModelScale(), "[Vaal Oversoul] model scale");
         }
-        public async Task Step(ClientState runner, double now)
+        public async Task Step(Player runner, double now)
         {
             if (stopped || !CurrentGameWork || runner.Paused) return;
             if (!rising && !burrowing && boss.BusyUntil > lastTick)
@@ -230,7 +230,7 @@ public static class VaalOversoul
             if (selected == Laser) laserLeft = 2;
             await Cast(target, selected, now);
         }
-        async Task Basic(ClientState c, ushort skill, double now, double seconds)
+        async Task Basic(Player c, ushort skill, double now, double seconds)
         {
             int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + seconds; }
@@ -238,7 +238,7 @@ public static class VaalOversoul
             { var p = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds); return [.. InstanceProtocol.ActionStarted(id, p.X, p.Y, p.X, p.Y, skill, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)]; },
                 $"[Vaal Oversoul] basic 0x{skill:x4}, stance {stance}");
         }
-        async Task Cast(ClientState c, int effect, double now, (int X, int Y)? overrideAim = null)
+        async Task Cast(Player c, int effect, double now, (int X, int Y)? overrideAim = null)
         {
             var attack = Attack(c, boss.Variety!, boss.Level, effect);
             var pos = boss.Walk.Position(now); var aim = overrideAim ?? c.Walk.Position(now);
@@ -267,7 +267,7 @@ public static class VaalOversoul
                 events.Add((now + .3, generation, Rocks, aim, 0));
             }
         }
-        async Task Events(ClientState c, double now)
+        async Task Events(Player c, double now)
         {
             foreach (var ev in events.Where(e => e.At <= now).ToArray())
             {
@@ -334,7 +334,7 @@ public static class VaalOversoul
                 }
             }
         }
-        async Task LandHits(ClientState c, double now)
+        async Task LandHits(Player c, double now)
         {
             foreach (var hit in hits.Where(h => h.At <= now).ToArray())
             {
@@ -344,7 +344,7 @@ public static class VaalOversoul
                     await Hit(p, Attack(c, boss.Variety!, boss.Level, hit.Effect), hit.Aim, hit.Aim, hit.Radius);
             }
         }
-        async Task Hit(ClientState p, MonsterAttack attack, (int X, int Y) from, (int X, int Y) to, double radius, bool line = false)
+        async Task Hit(Player p, MonsterAttack attack, (int X, int Y) from, (int X, int Y) to, double radius, bool line = false)
         {
             Game.MonsterHitOutcome? outcome = null;
             bool Contains((int X, int Y) at) => line ? LineDistance(at, from, to) <= radius : Distance(at, to) <= radius;
@@ -394,8 +394,8 @@ public static class VaalOversoul
             }
             await Task.CompletedTask;
         }
-        static (int X, int Y) Floor(ClientState c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
-        async Task<uint> Effect(ClientState c, (int X, int Y) at, string art, double expires, uint animation, float scale = 1)
+        static (int X, int Y) Floor(Player c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
+        async Task<uint> Effect(Player c, (int X, int Y) at, string art, double expires, uint animation, float scale = 1)
         {
             uint fx; lock (c.Monsters) fx = c.TakeObjectId();
             await All(InstanceEntities.CreateObject(fx, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()));
@@ -416,7 +416,7 @@ public static class VaalOversoul
         // The travel action squashes x/y to zero underground; restoring only its clip leaves an invisible actor.
         byte[] ModelScale() => InstanceEntities.ComponentUpdate(id, 0,
             new BlobWriter().U16(0x20).F32(1).F32(1).F32(1).ToArray());
-        void UpdateOriginTransition(ClientState c, byte state)
+        void UpdateOriginTransition(Player c, byte state)
         {
             lock (c.Monsters) if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                 c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = state } };
@@ -441,7 +441,7 @@ public static class VaalOversoul
 
 public static partial class Game
 {
-    public static void VaalGroundMinionsLocked(ClientState conn, double now, double rawDps,
+    public static void VaalGroundMinionsLocked(Player conn, double now, double rawDps,
         Func<(int X, int Y), bool> inside, Dictionary<uint, double> carry)
     {
         foreach (var g in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())

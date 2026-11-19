@@ -30,7 +30,7 @@ public static partial class Game
             .Select(b => b.Row)];
     }
 
-    public static async Task TickMapRunBoss(ClientState conn, bool force = false)
+    public static async Task TickMapRunBoss(Player conn, bool force = false)
     {
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is not { } instance
             || MapDevice.ForInstance(conn) is not { } run) return;
@@ -68,7 +68,7 @@ public static partial class Game
         }
     }
 
-    public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(ClientState conn)
+    public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(Player conn)
     {
         if (conn.Layout.Id == MapDevice.CampaignDeviceArea)
             lock (conn.QuestObjects)
@@ -83,7 +83,7 @@ public static partial class Game
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device or
     // using another Portal Scroll: 0x008f carries the variation of every entry and the client re-applies the visual.
     // False when nothing stands.
-    public static async Task<bool> ResendMapPortals(ClientState conn)
+    public static async Task<bool> ResendMapPortals(Player conn)
     {
         bool single = await SendSinglePortals(conn, "listed again");
         uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
@@ -96,7 +96,7 @@ public static partial class Game
 
     // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
     // town portal): object id Ã¢â€ ’ the area it leads to, for the connection that made them.
-    static readonly Store<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
+    static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
 
     /// <summary>
     /// Lists a portal that stands without a map device, <paramref name="afterMs"/> after its create and once more
@@ -106,7 +106,7 @@ public static partial class Game
     /// lockstep mode: 0x8f handled 3 ms before the object was built, sent 100 ms after it). An entry listed again
     /// unchanged leaves the portal as it is.
     /// </summary>
-    public static void ListPortal(ClientState conn, uint id, ushort area,
+    public static void ListPortal(Player conn, uint id, ushort area,
         string what, int afterMs)
     {
         SinglePortals.GetOrCreateValue(conn)[id] = area;
@@ -132,7 +132,7 @@ public static partial class Game
     /// variation for every portal" and 2 "Use random variations for all portals". The pick is kept, per area visit for
     /// 1 and per portal for 2, so a portal listed again keeps its effect. Otherwise the worn effect.
     /// </summary>
-    public static ushort PortalVariation(ClientState conn, uint portal)
+    public static ushort PortalVariation(Player conn, uint portal)
     {
         byte mode = CharacterSaves.Cosmetics(CharacterName(conn)).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
             { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
@@ -143,7 +143,7 @@ public static partial class Game
 
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
     // With an id, only while that portal stands. False when nothing was sent.
-    static async Task<bool> SendSinglePortals(ClientState conn, string why, uint only = 0)
+    static async Task<bool> SendSinglePortals(Player conn, string why, uint only = 0)
     {
         if (conn.Closed || !SinglePortals.TryGetValue(conn, out var portals)) return false;
         bool Stands(uint id) => conn.ReturnPortal?.Id == id || conn.BackPortal?.Id == id;
@@ -159,7 +159,7 @@ public static partial class Game
 
     // SÃ¢â€ ’C 0x8f: the device's portals and where they lead (21-hideouts.md Ã‚§5). Without it the client never draws them; a
     // portal listed with area 0 (one just taken) closes.
-    public static async Task SendMapPortals(ClientState conn, uint deviceId, ushort area, uint closed = 0)
+    public static async Task SendMapPortals(Player conn, uint deviceId, ushort area, uint closed = 0)
     {
         byte style = conn.MapPortalStyle;
         List<(uint Id, int Index)> ids;

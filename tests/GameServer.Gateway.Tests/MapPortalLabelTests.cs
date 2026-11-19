@@ -38,7 +38,7 @@ public sealed class MapPortalLabelTests
     {
         const string owner = "portal-label-owner", guest = "portal-label-guest";
         var area = new MapDevice.MapArea(0x2a5a, "MapWorldsStrand", "Strand", 1);
-        ClientState Player(InstanceState instance, ulong number, MapDevice.MapArea map) =>
+        Player Player(InstanceState instance, ulong number, MapDevice.MapArea map) =>
             new(new(map.Hash16, map.Id, 32, 32, 10, 10, null, []), 0, 1)
             { Character = guest, Account = guest, Instance = instance, InstanceNumber = number, PlayerSent = true, PlayerLife = 100 };
         SpawnedMonster Boss(int row, bool dead = false) => new("boss", new(15, 15, 30), 60, 8, 100)

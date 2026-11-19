@@ -7,7 +7,7 @@ public sealed class CycloneChannelWalkTests
     [Fact]
     public void Channel_update_walks_cyclone_toward_the_aim_at_its_movement_speed()
     {
-        var conn = new ClientState(new(1, "cyclone-walk", 400, 400, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "cyclone-walk", 400, 400, 100, 100, null, []), 1, 1);
         conn.ApplyMovementSpeedAt(0);
         double walk = conn.Walk.Speed;
 

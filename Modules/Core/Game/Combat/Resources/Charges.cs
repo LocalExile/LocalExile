@@ -11,13 +11,13 @@ public static partial class Game
     // Endurance, Frenzy and Power charges (issue #237, 11-skills.md §15). Each connection has a ChargeSession: the combat
     // code enqueues what may grant charges (ChargesOnHit, ChargesOnKill, ChargesWhenHit) and RunCharges rolls, times,
     // expires and presents them. The charges held count in the character's stats through WithCharges.
-    public static readonly Store<ClientState, ChargeSession> ChargeSessions = new();
+    public static readonly Store<Player, ChargeSession> ChargeSessions = new();
 
     // The charges an area change hands on, by the destination's ticket (Transfer): kept with the duration they had left.
     // A ticket nobody connects with (a failed load) is forgotten after a few minutes.
     public static readonly ConcurrentDictionary<uint, (DateTime At, List<Charges.Carried> Charges)> CarriedCharges = new();
 
-    public static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState,
+    public static ChargeSession ChargesOf(Player conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState,
         (type, at) => conn.RecentEvents.Record(type switch
         {
             ChargeType.Frenzy => StatConditions.GainedFrenzyCharge,
@@ -28,7 +28,7 @@ public static partial class Game
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
     // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it.
-    public static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
+    public static void ChargesOnHit(Player conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
         if (critical)
@@ -47,14 +47,14 @@ public static partial class Game
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
-    public static void ChargesOnDeath(ClientState conn)
+    public static void ChargesOnDeath(Player conn)
     {
         lock (conn.Monsters) { ChargesOf(conn).Die(); ClearSiphoningOnDeath(conn); }
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
     // corpse kept a freeze (its killing hit's included) or shattered.
-    public static void ChargesOnKill(ClientState conn, SpawnedMonster m)
+    public static void ChargesOnKill(Player conn, SpawnedMonster m)
     {
         if (conn.PlayerLife == 0) return;
         bool frozen;
@@ -71,7 +71,7 @@ public static partial class Game
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
     // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
-    public static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false)
+    public static void ChargesWhenHit(Player conn, bool blocked, bool spell = false)
     {
         ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit());
         if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
@@ -80,7 +80,7 @@ public static partial class Game
     // Transfer: the charges go with the player to the area of the new ticket.
     // Whether the official server keeps charges across areas is not documented (poewiki's Charge page says nothing about
     // it); this one call is the rule. A dead player carries nothing (Resurrect in Town changes area while dead).
-    public static void CarryCharges(ClientState conn, uint ticket)
+    public static void CarryCharges(Player conn, uint ticket)
     {
         List<Charges.Carried> carried;
         lock (conn.Monsters)
@@ -95,7 +95,7 @@ public static partial class Game
 
     // The character's stat sources with its charges (CharacterStatSources): Character.ot's per-charge stats, what the
     // charges held add (ChargeEffects.Expand) and their counts for the panel and the buffs.
-    public static Dictionary<uint, int> WithCharges(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithCharges(Player conn, Dictionary<uint, int> sources)
     {
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in ChargeEffects.Inherent)
@@ -168,7 +168,7 @@ public static partial class Game
     sealed record ChargeExpansion(Dictionary<uint, int> Stats, int[] Held, bool[] Converted,
         Dictionary<string, int> Added);
     sealed class ChargeExpansionSlot { public volatile ChargeExpansion? Last; }
-    static readonly Store<ClientState, ChargeExpansionSlot> ChargeExpansions = new();
+    static readonly Store<Player, ChargeExpansionSlot> ChargeExpansions = new();
     static long ChargeReuseMismatches;
 
     // The more multiplier of the charges on a hit (AttackHit, SpellDamage) or a burn, from the final stats.
@@ -176,7 +176,7 @@ public static partial class Game
         ChargeEffects.DamageMore(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell);
 
     // The player's additional physical and elemental damage reduction (Endurance Charges, passives) for hits taken.
-    public static (int Physical, int Elemental) PlayerDamageReduction(ClientState conn,
+    public static (int Physical, int Elemental) PlayerDamageReduction(Player conn,
         IReadOnlyDictionary<uint, int>? stats = null)
     {
         stats ??= CharacterPlayerStats(conn);
@@ -187,7 +187,7 @@ public static partial class Game
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
     // armour plus additional physical reduction; the other types take resistance before the shared hit-only pass.
-    public static int MitigateTaken(ClientState conn, DamageType type, int amount, int resistance, int maxResistance)
+    public static int MitigateTaken(Player conn, DamageType type, int amount, int resistance, int maxResistance)
     {
         lock (conn.Monsters)
         {
@@ -203,11 +203,11 @@ public static partial class Game
 
     // Then, as a monster's hit: the flat damage taken, a ranged attack's physical (Turtle Shell) and the increased damage
     // taken with the shock's (PlayerDamageTaken). An attack that is not ranged is melee.
-    public static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
+    public static int MitigateTakenWithArmour(Player conn, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack = true, bool ranged = false) =>
         MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, effectiveArmour, stats, attack, ranged, spell: false);
 
-    public static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
+    public static int MitigateTakenWithArmour(Player conn, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -230,7 +230,7 @@ public static partial class Game
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
     // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
     // True when the skill was a warcry.
-    public static bool UseWarcryInstance(ClientState conn,
+    public static bool UseWarcryInstance(Player conn,
         ushort skillId, int effect)
         => SkillsFor(conn).IsWarcry(effect) && UseWarcry(conn, effect, SupportedSkill(conn, skillId).Stats);
 
@@ -238,14 +238,14 @@ public static partial class Game
 
     // A warcry's use time (PoB CalcOffence calcWarcryCastTime): its cast time over warcry speed (the player's and the
     // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abf4b0).
-    public static double WarcryCastSeconds(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
+    public static double WarcryCastSeconds(Player conn, int effect, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own)
     {
         long speed = Stats.Key("warcry_speed_+%") is uint key ? (long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
         return Math.Max(TickSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(conn));
     }
 
-    public static bool UseWarcry(ClientState conn, int effect,
+    public static bool UseWarcry(Player conn, int effect,
         IReadOnlyDictionary<uint, int> own)
     {
         if (!SkillsFor(conn).IsWarcry(effect)) return false;
@@ -331,7 +331,7 @@ public static partial class Game
     // (ChargeSession.Woken), a stat update or a pool refresh starts it again (WakeCharges). The character's stats are
     // worked out outside the Monsters lock, and only while events wait (their gain chances); the limits come with every
     // stats change (ChargeSession.Observe through WithCharges).
-    static void StartCharges(ClientState conn, PlayerUpdatesState updates)
+    static void StartCharges(Player conn, PlayerUpdatesState updates)
     {
         var session = ChargesOf(conn);
         if (CarriedCharges.TryRemove(conn.Ticket, out var entry) && entry.Charges is var carried)
@@ -347,7 +347,7 @@ public static partial class Game
 
     static readonly RuleTable<PlayerUpdatesState, object> ChargeTickers = new();
 
-    public static void WakeCharges(ClientState conn)
+    public static void WakeCharges(Player conn)
     {
         if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
         lock (conn.Monsters)
@@ -368,7 +368,7 @@ public static partial class Game
         }, conn => StepCharges(conn, updates));
     }
 
-    static async Task StepCharges(ClientState conn, PlayerUpdatesState updates)
+    static async Task StepCharges(Player conn, PlayerUpdatesState updates)
     {
         var session = ChargesOf(conn);
         try
@@ -441,7 +441,7 @@ public static partial class Game
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in
     // its skill records), without SendSkills' skill-bar work (no skill came or went). A changed skill set (a gem moved at
     // the same moment) takes the full SendCharacterStats.
-    public static async Task SendChargeStats(ClientState conn, string why)
+    public static async Task SendChargeStats(Player conn, string why)
     {
         if (StatsPublishedByFrame(conn)) return;
         await PublishStatValues(conn, $"charges {why}");
@@ -449,7 +449,7 @@ public static partial class Game
 
     /// <summary>The stats after a change of their values: 0x1b3, the skills whose records changed and the Energy Shield
     /// (a changed skill set takes the full publication).</summary>
-    public static async Task PublishStatValues(ClientState conn,
+    public static async Task PublishStatValues(Player conn,
         string why = "changed")
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;

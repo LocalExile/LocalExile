@@ -42,7 +42,7 @@ public static partial class Game
         Console.WriteLine($"[hideout] initialized shared account home from {owner.Name}: {save.SelectedHideout}");
     });
 
-    static string? HideoutAccount(ClientState conn, bool instanceOwner)
+    static string? HideoutAccount(Player conn, bool instanceOwner)
     {
         string character = instanceOwner ? conn.InstanceOwner ?? CharacterName(conn) : CharacterName(conn);
         if (string.Equals(character, CharacterName(conn), StringComparison.OrdinalIgnoreCase)) return conn.Account;
@@ -55,7 +55,7 @@ public static partial class Game
             save.HideoutPlacements is null ? [] : new(save.HideoutPlacements),
             save.MonsterStatues is null ? [] : new(save.MonsterStatues));
 
-    static AccountHideoutProfile? SharedHideout(ClientState conn, bool instanceOwner = false, bool create = false) => Saves.Atomically<AccountHideoutProfile?>(() =>
+    static AccountHideoutProfile? SharedHideout(Player conn, bool instanceOwner = false, bool create = false) => Saves.Atomically<AccountHideoutProfile?>(() =>
     {
         if (HideoutAccount(conn, instanceOwner) is not { } account) return null;
         var stash = AccountStash.For(account, ItemsFor(conn));
@@ -94,7 +94,7 @@ public static partial class Game
             player.Furniture = null;
     }
 
-    static void ChangeSharedHideout(ClientState conn, Func<AccountHideoutProfile, AccountHideoutProfile> change) => Saves.Atomically(() =>
+    static void ChangeSharedHideout(Player conn, Func<AccountHideoutProfile, AccountHideoutProfile> change) => Saves.Atomically(() =>
     {
         var profile = SharedHideout(conn, create: true);
         if (profile is null || conn.Account is not { } account) return;
@@ -104,14 +104,14 @@ public static partial class Game
             player.Furniture = null;
     });
 
-    public static void SelectAccountHideout(ClientState conn, string area) => Saves.Atomically(() =>
+    public static void SelectAccountHideout(Player conn, string area) => Saves.Atomically(() =>
     {
         if (conn.Account is null) { CharacterSaves.SetSelectedHideout(CharacterName(conn), area); return; }
         ChangeSharedHideout(conn, p => p with { Area = area });
         SynchronizeHomeSelection(conn.Account, area);
     });
 
-    public static void SetAccountHideoutPlacement(ClientState conn, string area, string key, HideoutPlacement position)
+    public static void SetAccountHideoutPlacement(Player conn, string area, string key, HideoutPlacement position)
     {
         if (conn.Account is null) { CharacterSaves.SetHideoutPlacement(CharacterName(conn), area, key, position); return; }
         ChangeSharedHideout(conn, p =>
@@ -123,12 +123,12 @@ public static partial class Game
         });
     }
 
-    public static IReadOnlyList<CharacterSaves.SavedMonsterStatue> AccountMonsterStatues(ClientState conn) =>
+    public static IReadOnlyList<CharacterSaves.SavedMonsterStatue> AccountMonsterStatues(Player conn) =>
         SharedHideout(conn, instanceOwner: true) is { } shared
             ? shared.Statues.GetValueOrDefault(conn.Layout.Id) ?? []
             : CharacterSaves.MonsterStatues(conn.InstanceOwner ?? CharacterName(conn), conn.Layout.Id);
 
-    public static void AddAccountMonsterStatue(ClientState conn, CharacterSaves.SavedMonsterStatue statue)
+    public static void AddAccountMonsterStatue(Player conn, CharacterSaves.SavedMonsterStatue statue)
     {
         if (conn.Account is null) { CharacterSaves.AddMonsterStatue(CharacterName(conn), conn.Layout.Id, statue); return; }
         ChangeSharedHideout(conn, p =>

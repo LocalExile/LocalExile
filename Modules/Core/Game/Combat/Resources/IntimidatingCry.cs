@@ -31,10 +31,10 @@ public static partial class Game
         internal ushort Buff;
         internal double PresentedUntil;
     }
-    static readonly Store<ClientState, CryRuntime> CryRuntimes = new();
+    static readonly Store<Player, CryRuntime> CryRuntimes = new();
     static readonly RuleTable<SpawnedMonster, List<CryGift>> MinionCryGifts = new();
 
-    static CryRuntime CryOf(ClientState conn)
+    static CryRuntime CryOf(Player conn)
     {
         var state = CryRuntimes.GetOrCreateValue(conn);
         if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch)
@@ -48,7 +48,7 @@ public static partial class Game
         return state;
     }
 
-    static void ReconcileCatCrySourcesLocked(ClientState conn, double now)
+    static void ReconcileCatCrySourcesLocked(Player conn, double now)
     {
         var state = CryOf(conn);
         var live = !CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
@@ -59,7 +59,7 @@ public static partial class Game
         foreach (var grant in live) state.Sources.TryAdd(grant, new(grant, now));
     }
 
-    static void QueueCatStealthLossLocked(ClientState conn, double at, double now)
+    static void QueueCatStealthLossLocked(Player conn, double at, double now)
     {
         ReconcileCatCrySourcesLocked(conn, now);
         var state = CryOf(conn);
@@ -69,9 +69,9 @@ public static partial class Game
                 state.Pending.Enqueue(new(state.Rules, conn.ProjectileEpoch, source));
     }
 
-    public static CatCryLoss[] PendingCatCryLosses(ClientState conn) => [.. CryOf(conn).Pending];
+    public static CatCryLoss[] PendingCatCryLosses(Player conn) => [.. CryOf(conn).Pending];
 
-    public static bool CatCryLossCurrentLocked(ClientState conn, CatCryLoss loss)
+    public static bool CatCryLossCurrentLocked(Player conn, CatCryLoss loss)
     {
         ReconcileCatCrySourcesLocked(conn, AreaTime(conn));
         return !loss.Consumed && CurrentGameWork && ReferenceEquals(loss.Rules, CombatLifetime)
@@ -81,7 +81,7 @@ public static partial class Game
     }
 
     // Source, payment, cooldown and payload commit at the same native-send gate. A revoked receipt spends nothing.
-    public static byte[]? AdmitCatCryLossLocked(ClientState conn, CatCryLoss loss)
+    public static byte[]? AdmitCatCryLossLocked(Player conn, CatCryLoss loss)
     {
         if (!CatCryLossCurrentLocked(conn, loss)) return null;
         var grant = loss.Source.Grant;
@@ -108,7 +108,7 @@ public static partial class Game
             flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
     }
 
-    public static void ApplyIntimidatingCryLocked(ClientState conn, IReadOnlyDictionary<uint, int> own,
+    public static void ApplyIntimidatingCryLocked(Player conn, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> player, double now)
     {
         int Own(string n) => GolemStat(own, n);
@@ -152,12 +152,12 @@ public static partial class Game
             + $"duration={duration:0.###} exerts={CryOf(conn).Exerts}");
     }
 
-    public static int IntimidatingCryMovement(ClientState conn)
+    public static int IntimidatingCryMovement(Player conn)
     {
         lock (conn.Monsters) return IntimidatingCryMovementLocked(conn);
     }
 
-    static int IntimidatingCryMovementLocked(ClientState conn)
+    static int IntimidatingCryMovementLocked(Player conn)
     {
         var state = CryOf(conn);
         double now = AreaTime(conn);
@@ -171,7 +171,7 @@ public static partial class Game
         return state.Gifts.Select(g => g.Movement).DefaultIfEmpty().Max();
     }
 
-    static int MinionIntimidatingCryMovement(ClientState conn, SpawnedMonster? minion)
+    static int MinionIntimidatingCryMovement(Player conn, SpawnedMonster? minion)
     {
         if (minion is null || !MinionCryGifts.TryGetValue(minion, out var gifts)) return 0;
         double now = AreaTime(conn);
@@ -179,20 +179,20 @@ public static partial class Game
         return gifts.Select(g => g.Movement).DefaultIfEmpty().Max();
     }
 
-    public static int IntimidatingCryExerts(ClientState conn)
+    public static int IntimidatingCryExerts(Player conn)
     {
         IntimidatingCryMovement(conn);
         return CryOf(conn).Exerts;
     }
 
-    public static bool ConsumeIntimidatingCryExertLocked(ClientState conn, bool eligible)
+    public static bool ConsumeIntimidatingCryExertLocked(Player conn, bool eligible)
     {
         if (!eligible || IntimidatingCryExerts(conn) <= 0) return false;
         CryOf(conn).Exerts--;
         return true;
     }
 
-    static bool IntimidatingCryCanExert(ClientState conn, ushort skill, int effect) =>
+    static bool IntimidatingCryCanExert(Player conn, ushort skill, int effect) =>
         SkillsFor(conn).IsAttack(effect) && SkillsFor(conn).IsMelee(effect) && !SkillsFor(conn).IsVaal(effect)
         && !SkillsFor(conn).IsChannelled(effect) && MeleeAttackRepeats(conn, skill) == 0
         && !IsTotemSkill(conn, skill) && PlacedKind(SupportedSkill(conn, skill)) is { Trap: false, Mine: false };
@@ -200,7 +200,7 @@ public static partial class Game
     public static GamblerModifiers WithIntimidatingCryExert(GamblerModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
 
-    static bool IntimidatingCryPoolsChangedLocked(ClientState conn)
+    static bool IntimidatingCryPoolsChangedLocked(Player conn)
     {
         int movement = IntimidatingCryMovement(conn);
         var state = CryOf(conn);
@@ -209,7 +209,7 @@ public static partial class Game
         return true;
     }
 
-    static byte[] IntimidatingCryBuffRecordsLocked(ClientState conn)
+    static byte[] IntimidatingCryBuffRecordsLocked(Player conn)
     {
         IntimidatingCryMovement(conn);
         var state = CryOf(conn);
@@ -224,7 +224,7 @@ public static partial class Game
         return [.. packets.SelectMany(p => p)];
     }
 
-    static async Task DrainCatCryLosses(ClientState conn)
+    static async Task DrainCatCryLosses(Player conn)
     {
         CatCryLoss[] losses;
         lock (conn.Monsters) { var state = CryOf(conn); losses = [.. state.Pending]; state.Pending.Clear(); }

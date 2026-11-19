@@ -184,7 +184,7 @@ public sealed partial class InstanceState
         lock (_transitioned) return transitioned ? _transitioned.Add((type, x, y)) : _transitioned.Remove((type, x, y));
     }
 
-    public uint? PlaceTutorialItem(string key, WorldItemObject item, ClientState recipient)
+    public uint? PlaceTutorialItem(string key, WorldItemObject item, Player recipient)
     {
         lock (_startWeapons)
         {

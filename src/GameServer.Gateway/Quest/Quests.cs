@@ -630,13 +630,13 @@ public static partial class Quests
 
     /// <summary>
     /// Of <see cref="EveryCharacter"/>, the flags given for the endgame only, until the character earns them (Kitava's
-    /// end sets EndGameAvailable; ClientState.UnearnedQuestFlags). The client needs EndGameAvailable to activate an Atlas
+    /// end sets EndGameAvailable; Player.UnearnedQuestFlags). The client needs EndGameAvailable to activate an Atlas
     /// map at the map device (live 2026-10-29) and to enter a map area (every map's WorldAreas EndQuestFlags), and every
     /// character here may run maps from its hideout. But the same flag is Kitava's Act 10 penalty (QuestStaticRewards 39,
     /// which the client applies from the flags it has), the Epilogue's gate (Karui Shores' and Oriath's EndQuestFlags) and
     /// the condition of Act 10's last rows (Lilly's "Set Sail from Oriath" 1433, Lani's "Kitava" and "Kitava Reward"
     /// 1415/1416) and exits (Sin's portal home). So an unearned one is not among the character's flags
-    /// (ClientState.QuestFlags): the client gets it only in a hideout or a map area (Game.PlayerQuestFlags, as
+    /// (Player.QuestFlags): the client gets it only in a hideout or a map area (Game.PlayerQuestFlags, as
     /// ThisIsMyHideout only in a hideout), and every server gate reads the flags the client has, so the campaign's gates
     /// stay shut until Kitava. In a hideout or a map before Kitava the client's character panel shows the second −30%;
     /// the server's resistances (Game.ResistancePenalty) count it only once earned.

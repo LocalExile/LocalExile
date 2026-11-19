@@ -10,7 +10,7 @@ using WalkEstimator = GameServer.Core.World.WalkEstimator;
 public static partial class Game
 {
     // The real connection's admission path, shared with regression tests before any area packets are published.
-    public static int PrepareCharacterForArea(ClientState conn, int level)
+    public static int PrepareCharacterForArea(Player conn, int level)
     {
         conn.Instance?.Ground.Observe(conn);
         lock (conn.Monsters)
@@ -40,7 +40,7 @@ public static partial class Game
 
     // The Escape menu (C→S 0x1d4, 22-pause.md) pauses the area outside towns and hideouts, where the client does not ask
     // anyway: the Clock stops, the monster AI and the player tick skip their steps, and S→C 0x1d3 pauses the client's world.
-    public static async Task SetPaused(ClientState conn, bool pause)
+    public static async Task SetPaused(Player conn, bool pause)
     {
         ushort here = conn.Layout.Hash;
         if (pause && (WaypointCatalog.Areas.Find(here) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == here)))
@@ -77,7 +77,7 @@ public static partial class Game
     // The menu's "Exit to character selection" sends C→S 0x153 without a 0x1d4 0 first (issue #991): the pause ends with
     // the connection that asked for it, or the instance's clock stays stopped for whoever comes next. A module-held pause
     // (PauseHeld) is left to its module. Under the Monsters lock; true when the clock started again.
-    public static bool EndEscapePause(ClientState pauser)
+    public static bool EndEscapePause(Player pauser)
     {
         if (pauser.Instance?.World is not { } world || !ReferenceEquals(world.PausedBy, pauser)) return false;
         world.PausedBy = null;
@@ -90,15 +90,15 @@ public static partial class Game
     // An arrival never finds the instance's clock stopped: a player pauses only alone (SetPaused), so another player coming
     // in ends that pause and resumes the pausing player's world, and a stop nobody holds any more (its connection gone) ends
     // too. Only a module-held pause of a player still here (PauseHeld) stays.
-    static void ResumeForArrival(ClientState conn)
+    static void ResumeForArrival(Player conn)
     {
         if (conn.Instance is not { } instance) return;
-        ClientState? resumed;
+        Player? resumed;
         lock (conn.Monsters)
         {
             var world = instance.World;
             if (world.Clock.IsRunning) return;
-            var here = instance.Presence.PlayersExcept(conn.PeerId).Select(p => p.Owner).OfType<ClientState>()
+            var here = instance.Presence.PlayersExcept(conn.PeerId).Select(p => p.Owner).OfType<Player>()
                 .Where(other => !other.Closed).ToList();
             if (here.Any(other => other.PauseHeld)) return;
             resumed = world.PausedBy is { } pauser && here.Contains(pauser) && EndEscapePause(pauser) ? pauser : null;

@@ -6,7 +6,7 @@ public partial class Program
 {
     // Birth waits precede gameplay/send gates. Projection runs once at the existing gate; only neutral records wait
     // for a frame. The existing module lifetime check is retained, without introducing a new reload contract.
-    public static async Task<bool> SendRecords(ClientState conn, IReadOnlyList<WorldObject> requires,
+    public static async Task<bool> SendRecords(Player conn, IReadOnlyList<WorldObject> requires,
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, IReadOnlyList<WorldObject>? creates = null,
         IWorldAdmissionRules? rules = null, bool quest = false)
     {
@@ -53,13 +53,13 @@ public partial class Program
         finally { if (!admitted) admission.Finish(false); }
     }
 
-    public static Task<bool> SendRecords(ClientState conn, OutputBatch batch, Func<bool>? still = null) =>
+    public static Task<bool> SendRecords(Player conn, OutputBatch batch, Func<bool>? still = null) =>
         SendRecords(conn, batch.Records.Where(r => r.Kind == OutputRecord.RecordKind.World).Select(r => r.Object!).Distinct().ToArray(),
             _ => batch, still, batch.Records.Where(r => r.Kind == OutputRecord.RecordKind.Create).Select(r => r.Object!).ToArray());
 
     /// <summary>One of the area's records (GameArea.Output) for this connection's player: a record about an object goes, on a
     /// lockstep client, into the frame once the client has the object (as SendWorld); anything else goes out at once.</summary>
-    public static async Task SendAreaRecord(ClientState conn, AreaOutput.Record record)
+    public static async Task SendAreaRecord(Player conn, AreaOutput.Record record)
     {
         var wire = conn.Session;
         if (record.Object is uint id && conn.LockstepClient && record.Bytes.Length >= 12)
@@ -71,7 +71,7 @@ public partial class Program
         else await Send(wire.Remote, wire.Stream, wire.Ciphers, record.Bytes, record.Log);
     }
 
-    public static Task<bool> SendWorld(ClientState conn, WorldObject target, WorldOrder order,
+    public static Task<bool> SendWorld(Player conn, WorldObject target, WorldOrder order,
         Func<byte[]?> atGate, string? log = null, Func<bool>? still = null) =>
         SendRecords(conn, [target], _ => atGate() is { } bytes ? new(OutputRecord.World(target, order, bytes, log)) : null, still);
 
@@ -81,7 +81,7 @@ public partial class Program
     // once. What the game does at a frame end is asked of the rules loaded then, so after a game module reload the new
     // rules take over at the next frame; the driver runs on an execution context of its own, since the caller's async-local
     // values (the game module's) would ride along for the area's life.
-    public static void StartWorldFrames(ClientState conn)
+    public static void StartWorldFrames(Player conn)
     {
         var (remote, stream, ciphers) = conn.Session;
         if (ExecutionContext.IsFlowSuppressed())
@@ -93,7 +93,7 @@ public partial class Program
             _ = Task.Run(() => conn.Frames.Join(remote, stream, ciphers, conn));
     }
 
-    public static async Task<double> BeginWorldFrames(ClientState conn, double frameSeconds)
+    public static async Task<double> BeginWorldFrames(Player conn, double frameSeconds)
     {
         var gate = SendGates.GetValue(conn.Session.Ciphers, _ => new(1, 1));
         await gate.WaitAsync();
@@ -104,7 +104,7 @@ public partial class Program
                 ObjectDisposedException.ThrowIf(conn.Closed || conn.WorldOutput.Closed, conn.WorldOutput);
                 // Frames start on the instance clock's own grid (whole frame lengths), so every connection of an instance
                 // ends its frames at the same instants, as the clients of one stepped world do: what one of them is sent
-                // in a frame can then reach the others exactly one frame later (ClientState.FrameFrom).
+                // in a frame can then reach the others exactly one frame later (Player.FrameFrom).
                 double first = Math.Ceiling(conn.Clock.Elapsed.TotalSeconds / frameSeconds) * frameSeconds;
                 conn.WorldOutput.Begin(conn.ServerFrame);
                 if (conn.LockstepClient) conn.LockstepFrame = (first, first + frameSeconds);
@@ -114,7 +114,7 @@ public partial class Program
         finally { gate.Release(); }
     }
 
-    public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
+    public static async Task<bool> EndWorldFrame(Player conn, (double Start, double End) next)
     {
         var wire = conn.Session;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
@@ -153,7 +153,7 @@ public partial class Program
     /// records, 0x2b7, then 0x2b8 back to the frame length). The client runs a frame its time already covers at once, and
     /// a 0 ms frame is covered by no time at all (0x14218a2a0), so its records apply and the world does not move. Not on
     /// the frame timeline: it ends no frame of the clock's.</summary>
-    public static async Task EndPausedFrame(ClientState conn)
+    public static async Task EndPausedFrame(Player conn)
     {
         var wire = conn.Session;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
@@ -180,7 +180,7 @@ public partial class Program
         finally { gate.Release(); }
     }
 
-    static void FailWorldOutput(ClientState conn)
+    static void FailWorldOutput(Player conn)
     {
         conn.CloseReason ??= "World output failed; its cipher stream cannot be retried";
         conn.Closed = true;

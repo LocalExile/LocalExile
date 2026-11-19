@@ -18,7 +18,7 @@ public static partial class Game
     /// and of the player (it does not leave him for a distant pack), not lurking unrisen. Null when there is none or the
     /// player is dead; it then follows him. Under the Monsters lock.
     /// </summary>
-    public static MinionTarget? MinionTargetLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at,
+    public static MinionTarget? MinionTargetLocked(Player conn, uint id, SpawnedMonster m, (int X, int Y) at,
         (int X, int Y) player, double now)
     {
         if (m.Attack is not { } a || conn.PlayerLife == 0) return null;
@@ -45,11 +45,11 @@ public static partial class Game
     /// mitigated by the target as any hit. It is the minion's hit, not the player's (no hit-recently). Null when it did not
     /// land.
     /// </summary>
-    public static (MonsterHit Hit, int Damage)? MinionHitLocked(ClientState conn, uint id, SpawnedMonster m, MinionTarget target,
+    public static (MonsterHit Hit, int Damage)? MinionHitLocked(Player conn, uint id, SpawnedMonster m, MinionTarget target,
         double now, Random random) =>
         MinionHitTargetLocked(conn, id, m, target.Id, target.Monster, now, random, checkReach: true);
 
-    static (MonsterHit Hit, int Damage)? MinionHitTargetLocked(ClientState conn, uint id, SpawnedMonster m,
+    static (MonsterHit Hit, int Damage)? MinionHitTargetLocked(Player conn, uint id, SpawnedMonster m,
         uint targetId, SpawnedMonster targetMonster, double now, Random random, bool checkReach,
         MonsterAttack? attack = null, int? accuracy = null)
     {
@@ -79,7 +79,7 @@ public static partial class Game
     // player), and at the contact point (half the attack time) the hit lands (MinionHitLocked): 0x1af from the minion, then
     // the target's hit and death as for the player's hits. Its kills give the player their experience, items and quest
     // progress, but are not his for his on-kill effects.
-    static void StartMinionSwing(ClientState conn,
+    static void StartMinionSwing(Player conn,
         PlayerMinions.Attack attack)
     {
         var updates = AreaUpdateContext.Value;
@@ -97,7 +97,7 @@ public static partial class Game
         }
     }
 
-    public static async Task MinionSwing(ClientState conn,
+    public static async Task MinionSwing(Player conn,
         PlayerMinions.Attack attack)
     {
         uint id = attack.Id;

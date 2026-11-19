@@ -8,9 +8,9 @@ namespace GameServer.Gateway.Tests;
 // supports the main hand's gems; the same gems in a shield without the mod do not.
 public sealed class SquireOffhandSupportTests
 {
-    static ClientState Connection(string name)
+    static Player Connection(string name)
     {
-        var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = name, PlayerLife = 2000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),

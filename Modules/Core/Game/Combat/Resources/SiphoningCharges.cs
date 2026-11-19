@@ -12,14 +12,14 @@ public static partial class Game
     public sealed record CarriedSiphoning(int Held, uint[] Sources, double Seconds, double UsedSeconds,
         double Pending, double TakenCarry, double BypassCarry);
 
-    public static CarriedSiphoning CaptureSiphoning(ClientState conn, double at)
+    public static CarriedSiphoning CaptureSiphoning(Player conn, double at)
     {
         var state = SiphoningAt(conn, at);
         return new(state.Held, [.. state.Sources], Math.Max(0, state.Until - at),
             Math.Max(0, state.UsedUntil - at), state.Pending, state.TakenCarry, state.BypassCarry);
     }
 
-    public static void RestoreSiphoning(ClientState conn, CarriedSiphoning value, double at)
+    public static void RestoreSiphoning(Player conn, CarriedSiphoning value, double at)
     {
         var state = conn.Siphoning;
         state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch;
@@ -29,7 +29,7 @@ public static partial class Game
         state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
     }
 
-    static void SettleSiphoning(ClientState conn, SiphoningState state, double now)
+    static void SettleSiphoning(Player conn, SiphoningState state, double now)
     {
         double end = Math.Min(now, Math.Min(state.Until, state.UsedUntil));
         if (end > state.At) state.Pending += (end - state.At) * state.Held * state.PerMinute / 60d;
@@ -39,7 +39,7 @@ public static partial class Game
         if (state.Degenerating != active) { state.Degenerating = active; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning); }
     }
 
-    static SiphoningState SiphoningAt(ClientState conn, double now, IReadOnlyDictionary<uint, int>? raw = null)
+    static SiphoningState SiphoningAt(Player conn, double now, IReadOnlyDictionary<uint, int>? raw = null)
     {
         var state = conn.Siphoning;
         if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) now = 0;
@@ -89,7 +89,7 @@ public static partial class Game
         return state;
     }
 
-    public static void SiphoningSkillUsedLocked(ClientState conn, double at, Random? random = null)
+    public static void SiphoningSkillUsedLocked(Player conn, double at, Random? random = null)
     {
         var raw = CharacterStatSources(conn).Stats;
         var state = SiphoningAt(conn, at, raw);
@@ -110,24 +110,24 @@ public static partial class Game
         Console.WriteLine($"[gateway] Siphoning charge {state.Held}/{state.Maximum} until={state.Until:0.000} t={at:0.000}");
     }
 
-    public static long SiphoningRevision(ClientState conn)
+    public static long SiphoningRevision(Player conn)
     {
         lock (conn.Monsters) return SiphoningAt(conn, AreaTime(conn)).Revision;
     }
 
-    public static bool SiphoningDegenerationActive(ClientState conn)
+    public static bool SiphoningDegenerationActive(Player conn)
     {
         lock (conn.Monsters) return SiphoningAt(conn, AreaTime(conn)).Degenerating;
     }
 
-    public static void ClearSiphoningOnDeath(ClientState conn)
+    public static void ClearSiphoningOnDeath(Player conn)
     {
         var state = conn.Siphoning;
         state.Held = 0; state.Until = state.UsedUntil = 0;
         state.Pending = state.TakenCarry = state.BypassCarry = 0; state.Degenerating = false; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
     }
 
-    public static IReadOnlyList<(uint Key, int Value)> SiphoningRawStatsLocked(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> SiphoningRawStatsLocked(Player conn,
         IReadOnlyDictionary<uint, int> raw)
     {
         var state = SiphoningAt(conn, AreaTime(conn), raw);
@@ -149,7 +149,7 @@ public static partial class Game
         return rows;
     }
 
-    public static int AdvanceSiphoningDamageLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static int AdvanceSiphoningDamageLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
         var state = SiphoningAt(conn, now);
         double raw = state.Pending; state.Pending = 0;
@@ -167,7 +167,7 @@ public static partial class Game
         return life;
     }
 
-    static async Task PresentSiphoningCharges(ClientState conn)
+    static async Task PresentSiphoningCharges(Player conn)
     {
         lock (conn.Monsters)
             if (conn.Siphoning.Sources.Count == 0 && conn.Siphoning.Buff == 0) return;

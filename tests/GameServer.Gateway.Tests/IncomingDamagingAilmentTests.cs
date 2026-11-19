@@ -11,7 +11,7 @@ static class IncomingDamagingAilmentTestCases
         public override int Next(int maxValue) => maxValue - 1;
     }
 
-    static ClientState Fresh() => new(new(1, "incoming-damaging-ailments", 300, 300, 100, 100, null, []), 1, 1)
+    static Player Fresh() => new(new(1, "incoming-damaging-ailments", 300, 300, 100, 100, null, []), 1, 1)
     {
         Pools = new(1, 10000, 100, 0, 0), PlayerLife = 10000,
         IncomingHitRandom = new UpperRoll(),

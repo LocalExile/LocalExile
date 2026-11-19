@@ -17,7 +17,7 @@ using static Game;
 /// <c>teleporting/orion_teleport.ao</c> at both ends with no action of its own, because an action would also land its
 /// contact.</para>
 /// </summary>
-sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasBossFight(id, boss, conn)
+sealed class SirusFight(uint id, SpawnedMonster boss, Player conn) : AtlasBossFight(id, boss, conn)
 {
     protected override string Name => "[Sirus]";
     protected override ushort ImmunityRow => AtlasBosses.SirusImmunityRow;
@@ -27,7 +27,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
     (int X, int Y)? stage;
     // The seated stage stays where he sat; the walking Sirus goes back to the arena's middle marker, not to his own
     // spawn cell and never to the map entry.
-    protected override (int X, int Y) Stage(ClientState conn) => stage ??= seated ? centre : ArenaCentre(conn, boss);
+    protected override (int X, int Y) Stage(Player conn) => stage ??= seated ? centre : ArenaCentre(conn, boss);
 
     readonly (int X, int Y) centre = Pose(boss, conn);
     // The throne row is the arena's first stage (AtlasBosses.IsSirusSeated): he casts from the throne and does not blink
@@ -50,12 +50,12 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
     double waveAt;
 
     // His position on entry, the point the intermission returns him to.
-    static (int X, int Y) Pose(SpawnedMonster boss, ClientState conn)
+    static (int X, int Y) Pose(SpawnedMonster boss, Player conn)
     {
         lock (conn.Monsters) return boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
     }
 
-    protected override async Task Ticks(ClientState conn, double now)
+    protected override async Task Ticks(Player conn, double now)
     {
         while (sweep.Count > 0 && sweep.Peek().At <= now)
         {
@@ -81,7 +81,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
             if (Distance(player.Walk.Position(now), groundAt) <= 8) await Hit(player, groundTick, groundAt);
     }
 
-    protected override async Task Act(ClientState conn, double now)
+    protected override async Task Act(Player conn, double now)
     {
         var watchers = Watchers();
         if (watchers.Length == 0) return;
@@ -130,7 +130,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
     /// <summary>The corridor "Die" beam (10948): the cast, the blast at the far end, and the corridor between them that
     /// the player has 1.1 s to step out of. Its 7.5 s clip is the encounter's own, not a telegraph a fight can wait for,
     /// so the action is cut to the two seconds the corridor stays dangerous.</summary>
-    async Task Die(ClientState conn, (int X, int Y) player, double now)
+    async Task Die(Player conn, (int X, int Y) player, double now)
     {
         var from = boss.Walk.Position(now);
         double angle = Math.Atan2(player.Y - from.Y, player.X - from.X);
@@ -145,7 +145,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>The meteor arena (10141): eight meteors around the player, then the desolation underfoot (10945) that
     /// burns for four seconds. The arena is what the player has to keep moving through.</summary>
-    async Task Meteors(ClientState conn, (int X, int Y) player, double now)
+    async Task Meteors(Player conn, (int X, int Y) player, double now)
     {
         var attack = Attack(conn, AtlasBosses.SirusMeteorEffect);
         for (int i = 0; i < 8; i++)
@@ -169,7 +169,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>The circle maze (10949-10953): the carpet of beams leaving as one sweep, five blasts at a fifth of a turn
     /// each, so the player walks around them.</summary>
-    async Task Maze(ClientState conn, (int X, int Y) player, double now)
+    async Task Maze(Player conn, (int X, int Y) player, double now)
     {
         var from = boss.Walk.Position(now);
         double angle = Math.Atan2(player.Y - from.Y, player.X - from.X);
@@ -182,7 +182,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>The multi-beam barrage (8098): three beams of the clone's kind leave in a fan (the clip plays the whole
     /// fan; the hits are the geometry the player has to sidestep).</summary>
-    async Task Triple(ClientState conn, (int X, int Y) player, double now)
+    async Task Triple(Player conn, (int X, int Y) player, double now)
     {
         var from = boss.Walk.Position(now);
         double angle = Math.Atan2(player.Y - from.Y, player.X - from.X);
@@ -200,7 +200,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
     }
 
     /// <summary>The beam bomb (10973): the doom geyser under the player, a 1.3 s warning and then an eight unit blast.</summary>
-    async Task Bomb(ClientState conn, (int X, int Y) player, double now)
+    async Task Bomb(Player conn, (int X, int Y) player, double now)
     {
         var at = conn.Layout.Near((player.X, player.Y));
         await Effect(conn, at, AtlasBosses.SirusDoomGeyserArt, 2.6, 1.2f);
@@ -211,7 +211,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>His teleport (6809): the clip is played at both ends by the art, and the walk estimate and the client's
     /// actor move. No action goes out — a teleport that played an attack would land that attack's contact.</summary>
-    async Task Blink(ClientState conn, (int X, int Y) player, double now, bool away)
+    async Task Blink(Player conn, (int X, int Y) player, double now, bool away)
     {
         var from = boss.Walk.Position(now);
         double angle = Math.Atan2(from.Y - player.Y, from.X - player.X);
@@ -225,7 +225,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasB
 
     /// <summary>A threshold's intermission: the protective shield (atlas_orion_immunity), the return to the throne and
     /// three barrage fans around it, the way his storms take the arena while he cannot be hurt.</summary>
-    protected override async Task Intermission(ClientState conn, double now)
+    protected override async Task Intermission(Player conn, double now)
     {
         if (!intermission)
         {

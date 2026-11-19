@@ -4,10 +4,10 @@ public static partial class Game
 {
     // These spells have a single radial hit executor. Do not silently turn ground damage, chains, corpses or
     // persistent entities into one area hit merely because their extracted stat set contains damage.
-    static bool TriggerAreaSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
+    static bool TriggerAreaSpell(Player conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
         is "IceNova";
 
-    public static bool TriggerPayloadAvailable(ClientState conn, SupportedGem gem)
+    public static bool TriggerPayloadAvailable(Player conn, SupportedGem gem)
     {
         if (TriggerGuardSpell(conn, gem) || TriggerSummonSpell(conn, gem)
             || MinionUtility(SkillsFor(conn).EffectId(gem.Effect))) return true;
@@ -18,7 +18,7 @@ public static partial class Game
     }
 
     // Prepare without payment or a player action. The caller commits exactly one cost before invoking this release.
-    static Action? PrepareTriggeredPayload(ClientState conn, ProjectileSession session, ushort id,
+    static Action? PrepareTriggeredPayload(Player conn, ProjectileSession session, ushort id,
         (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(conn, id);
@@ -43,7 +43,7 @@ public static partial class Game
         return () => session.Enqueue(() => ReleaseTriggeredNonProjectile(conn, session, id, aim, current));
     }
 
-    public static async Task ReleaseTriggeredNonProjectile(ClientState conn, ProjectileSession session, ushort id,
+    public static async Task ReleaseTriggeredNonProjectile(Player conn, ProjectileSession session, ushort id,
         (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(conn, id);

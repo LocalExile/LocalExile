@@ -22,7 +22,7 @@ public sealed class DescendancyProtocolTests
             InstanceProtocol.KnownClientLength(InstanceWaypoints.DescendancyChosenId));
 
         // A client cannot select without a selector the server opened in this area.
-        var conn = new ClientState(new(1, "descendancy-admission", 100, 100, 50, 50, null, []), 0, 1);
+        var conn = new Player(new(1, "descendancy-admission", 100, 100, 50, 50, null, []), 0, 1);
         Assert.False(Game.CanSelectDescendancy(conn, 6, out _));
         conn.OfferedDescendancyRow = 6;
         conn.OfferedDescendancyArea = conn.Layout.Hash;

@@ -9,9 +9,9 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Gateway.Tests;
 public sealed class SpellTotemExecutionTests
 {
-    internal static ClientState Connection(string name)
+    internal static Player Connection(string name)
     {
-        var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
             LockstepClient = false, Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
@@ -23,7 +23,7 @@ public sealed class SpellTotemExecutionTests
 
     static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)
         ?? Program.Items.FindGem(name)!.Value.Type);
-    static ushort Equip(ClientState conn, string active, string support)
+    static ushort Equip(Player conn, string active, string support)
     {
         var items = Game.ItemsOf(conn);
         foreach (var previous in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))

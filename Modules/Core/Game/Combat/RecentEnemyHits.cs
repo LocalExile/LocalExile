@@ -5,14 +5,14 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Read sources, count and clock together. Development input cannot replace either authoritative output.
-    public static (int Count, int Chance) RecentEnemyHitStatsLocked(ClientState conn, IReadOnlyDictionary<uint, int> sources)
+    public static (int Count, int Chance) RecentEnemyHitStatsLocked(Player conn, IReadOnlyDictionary<uint, int> sources)
     {
         int count = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
         int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
         return (count, RecentEnemyHits.Chance(count, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance)));
     }
 
-    public static void AddRecentEnemyHitStatsLocked(ClientState conn, StatMap stats)
+    public static void AddRecentEnemyHitStatsLocked(Player conn, StatMap stats)
     {
         var value = RecentEnemyHitStatsLocked(conn, stats);
         if (conn.RecentEnemyHits.NextChangeIn(conn.Clock.Elapsed.TotalSeconds) is double left) StatsChangeIn(left);
@@ -20,7 +20,7 @@ public static partial class Game
         if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
     }
 
-    public static RecentEnemyHits.Decision IncomingArmourLocked(ClientState conn, bool relevant, int priorContacts,
+    public static RecentEnemyHits.Decision IncomingArmourLocked(Player conn, bool relevant, int priorContacts,
         IReadOnlyDictionary<uint, int> stats)
     {
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
@@ -31,7 +31,7 @@ public static partial class Game
 
     // A stat presentation (the RecentHits step times the expiry). Sample inside the shared send gate, including when
     // a queued refresh crosses a contact, death, modifier change or exact expiry boundary.
-    public static Task SendRecentEnemyHits(ClientState conn) =>
+    public static Task SendRecentEnemyHits(Player conn) =>
         Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)

@@ -11,7 +11,7 @@ public static partial class Game
             ? new(GolemStat(player, FrenzyOnAttackIgnite) > 0, GolemStat(player, EnduranceOnAttackFreeze) > 0) : default;
     }
 
-    static void GainFromAttackAilmentLocked(ClientState conn, bool enabled, ChargeType type, string source)
+    static void GainFromAttackAilmentLocked(Player conn, bool enabled, ChargeType type, string source)
     {
         if (enabled && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea && CurrentGameWork)
             ChargesOf(conn).Enqueue(new ChargeEvent.Grant(type, 1, source));

@@ -6,12 +6,12 @@ using static Program;
 
 static class PortalsFeature
 {
-    static MapDevice.Origin? MapReturnOrigin(ClientState conn) =>
+    static MapDevice.Origin? MapReturnOrigin(Player conn) =>
         MapDevice.ForInstance(conn) is { } map ? map.ReturnTo ?? map.Entrance : null;
 
     // In a map's area (one a map item opens): a portal back to the hideout next to the arrival point, listed in 0x8f without
     // a device once the world is active (21-hideouts.md §5). It is not used up.
-    internal static async Task SpawnMapReturnPortal(ClientState conn)
+    internal static async Task SpawnMapReturnPortal(Player conn)
     {
         var origin = MapReturnOrigin(conn);
         var hideout = HomeHideout(conn);
@@ -33,7 +33,7 @@ static class PortalsFeature
 
     // A click on a map portal (C→S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
     // instance for the first portal and that same instance for the others.
-    internal static async Task UseMapPortal(ClientState conn,
+    internal static async Task UseMapPortal(Player conn,
         InstanceTransfer.UseSkillOnObject use, (int X, int Y, int Index) at, double requestedAt)
     {
         var run = conn.MapPortalRun;
@@ -76,7 +76,7 @@ static class PortalsFeature
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
     // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
     // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.
-    internal static async Task ActivateMapDevice(ClientState conn, (ushort Target, byte Index) activate)
+    internal static async Task ActivateMapDevice(Player conn, (ushort Target, byte Index) activate)
     {
         var device = MapDeviceHere(conn);
         var items = ItemsOf(conn);
@@ -156,7 +156,7 @@ static class PortalsFeature
 
     // A click on the portal back (C→S 0x24, the map's own or a Portal Scroll's): walk there, then to the hideout next to its
     // waypoint, or to the town the scroll's portal leads to (ReturnPortalTo), at its spawn.
-    internal static async Task UseMapReturnPortal(ClientState conn,
+    internal static async Task UseMapReturnPortal(Player conn,
         InstanceTransfer.UseSkillOnObject use, (int X, int Y) at, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, AreaTransitionObjectSize, out var objectWalk)) return;
@@ -175,7 +175,7 @@ static class PortalsFeature
 
     // A click on the map device (C→S 0x24): walk there, then S→C 0x7b kind 5 opens the map device window (21-hideouts.md §4).
     // Its slots and the activation are not served yet.
-    internal static async Task UseMapDevice(ClientState conn,
+    internal static async Task UseMapDevice(Player conn,
         InstanceTransfer.UseSkillOnObject use, HideoutCatalog.Doodad device, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, device.X, device.Y, StashReach, out var objectWalk, centreRange: true)) return;
@@ -190,7 +190,7 @@ static class PortalsFeature
     // C→S 0xe8: Ctrl + click with the Atlas map device open. A map/fragment in the inventory goes into Map1's first
     // free cell; an item already in the slots goes back to the inventory. The client only sends this after the window's
     // +0x10b8 check (0x14030e970 → 0x14216e750).
-    internal static async Task MoveToMapDevice(ClientState conn,
+    internal static async Task MoveToMapDevice(Player conn,
         InstanceMapDevice.Move request)
     {
         var items = ItemsOf(conn);
@@ -211,7 +211,7 @@ static class PortalsFeature
     internal static bool OriginExpired(ControlResponse response, ulong instance) =>
         response.Ok && response.Instances is { } available && available.All(i => i.Id != instance);
 
-    internal static async Task<bool> ExpireTownPortal(ClientState conn, OpenPortal portal)
+    internal static async Task<bool> ExpireTownPortal(Player conn, OpenPortal portal)
     {
         var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = portal.Area });
         if (!OriginExpired(response, portal.Instance)) return false;
@@ -222,7 +222,7 @@ static class PortalsFeature
     // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
     // portal again at its cell; in the town or hideout it leads to, a portal back beside the arrival, which brings the player
     // to that cell (SpotArrivals).
-    internal static async Task SpawnTownPortals(ClientState conn)
+    internal static async Task SpawnTownPortals(Player conn)
     {
         // A map's own portal stands again in its instance; it has no portal back beside the hideout's device.
         if (MapTownPortals.TryGetValue(CharacterName(conn), out var inMap) && inMap.Area == conn.Layout.Hash
@@ -252,7 +252,7 @@ static class PortalsFeature
     // stands, replacing the one there was (the scroll's earlier one, or a map's own portal back). From a map it leads to the
     // hideout (the player came through its map device), anywhere else to the character's last town. In a town or a hideout
     // nothing happens and nothing is spent.
-    internal static async Task UsePortalScroll(ClientState conn, byte row, InventoryItem item,
+    internal static async Task UsePortalScroll(Player conn, byte row, InventoryItem item,
         ItemCatalog.BaseType type)
     {
         if (!PortalAllowed(conn))
@@ -270,14 +270,14 @@ static class PortalsFeature
     }
 
     // Whether a town portal can open here: not in a town or a hideout, and not where the area's own mods forbid portals.
-    internal static bool PortalAllowed(ClientState conn) =>
+    internal static bool PortalAllowed(Player conn) =>
         WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { IsTown: true } && HideoutCatalog.Hideouts.All(h => h.AreaHash16 != conn.Layout.Hash)
         && !AreaMods.DisablesPortals(conn.Layout.Id);
 
     // A town portal (Portal Scroll, the Portal skill) beside (px, py): from a map to the hideout, anywhere else to the
     // character's last town. It replaces the one there was, and the character's town / hideout gets a portal back to it
     // (OpenPortals, SpawnBackPortal), which brings the player back to this cell of this instance.
-    internal static async Task OpenTownPortal(ClientState conn, int px, int py, string why,
+    internal static async Task OpenTownPortal(Player conn, int px, int py, string why,
         bool replace = true)
     {
         ushort here = conn.Layout.Hash;
@@ -315,7 +315,7 @@ static class PortalsFeature
     }
     // C→S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
     // what the next generic map key opens.
-    internal static async Task SelectAtlasMap(ClientState conn, (ushort Area, byte Mode) picked)
+    internal static async Task SelectAtlasMap(Player conn, (ushort Area, byte Mode) picked)
     {
         var layout = MapDevices.Atlas?.ByHash16(picked.Area);
         if (layout is not null && CharacterName(conn) is { } character)
@@ -328,7 +328,7 @@ static class PortalsFeature
     }
 
     // A hideout's placed doodads (HideoutCatalog.IsPlaced: the map device) from its decoration, with their HideoutDoodad data.
-    internal static async Task SpawnHideoutDoodads(ClientState conn)
+    internal static async Task SpawnHideoutDoodads(Player conn)
     {
         if (HideoutFurniture(conn) is not { } scene) return;
         foreach (var d in new[] { scene.Device })

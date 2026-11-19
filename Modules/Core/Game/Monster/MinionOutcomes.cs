@@ -7,10 +7,10 @@ using Progression = GameServer.Core.World.Progression;
 public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
-    static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
+    static void CommitMinionHitLocked(Player conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, StunHit? stun = null) => CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
 
-    static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
+    static void CommitAcceptedHitLocked(Player conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
     {
         var state = conn.Minions;
@@ -24,7 +24,7 @@ public static partial class Game
         if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
     }
 
-    public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
+    public static void CommitAcceptedKillLocked(Player conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         HitSummonsOnDeathLocked(conn, victimId, monster, now);
         var state = conn.Minions;
@@ -121,10 +121,10 @@ public static partial class Game
     }
 
     // Only the existing current minion role/caller drains. Selection, validation and consumption share the real send gate.
-    public static Task PublishMinionOutcomes(ClientState conn) =>
+    public static Task PublishMinionOutcomes(Player conn) =>
         PublishMinionOutcomesFor(conn, CombatLifetime);
 
-    static async Task PublishMinionOutcomesFor(ClientState conn,
+    static async Task PublishMinionOutcomesFor(Player conn,
         IModuleLifetime? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);

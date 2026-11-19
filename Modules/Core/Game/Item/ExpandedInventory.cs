@@ -5,7 +5,7 @@ static partial class Game
     internal const string ExpandedInventoryStat = "primalist_ascendancy_expanded_main_inventory";
 
     // The grant is the real source value, never the presentation-only recovery flag below.
-    internal static bool ExpandedInventoryGranted(ClientState conn)
+    internal static bool ExpandedInventoryGranted(Player conn)
     {
         if (Stats.Key(ExpandedInventoryStat) is not uint key) return false;
         long value = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
@@ -17,11 +17,11 @@ static partial class Game
 
     internal static int ExpandedInventoryMode(bool granted, bool occupied) => granted ? 1 : occupied ? 2 : 0;
 
-    internal static int ExpandedInventoryMode(ClientState conn) =>
+    internal static int ExpandedInventoryMode(Player conn) =>
         ExpandedInventoryMode(ExpandedInventoryGranted(conn), ItemsOf(conn).Items(PlayerInventories.ExpandedInventory).Count > 0);
 
     // Keep saved contents accessible after a mod unload/removal. This does not grant permission to deposit.
-    internal static void KeepExpandedInventoryVisible(ClientState conn, IDictionary<uint, int> stats)
+    internal static void KeepExpandedInventoryVisible(Player conn, IDictionary<uint, int> stats)
     {
         if (Stats.Key(ExpandedInventoryStat) is uint key
             && ItemsOf(conn).Items(PlayerInventories.ExpandedInventory).Count > 0
@@ -29,7 +29,7 @@ static partial class Game
     }
 
     // A stat presentation owns publication: enabling/disabling a stat mod needs no relog or mod-owned timer.
-    internal static async Task SyncExpandedInventory(ClientState conn)
+    internal static async Task SyncExpandedInventory(Player conn)
     {
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
         int mode = ExpandedInventoryMode(conn);

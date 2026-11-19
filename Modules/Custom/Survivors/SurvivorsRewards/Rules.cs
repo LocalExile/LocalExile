@@ -18,7 +18,7 @@ static partial class SurvivorsRewards
     internal const uint SurvivorsOfferInventory = 0x600;
 
     /// <summary>The blessings a level-up may offer: support gems whose names describe the run-local effect.</summary>
-    internal static IReadOnlyList<SurvivorsBlessingItem> SurvivorsBlessingsFor(ClientState conn)
+    internal static IReadOnlyList<SurvivorsBlessingItem> SurvivorsBlessingsFor(Player conn)
     {
         (string Path, string Name, SurvivorsBlessing Blessing)[] candidates =
         [
@@ -35,7 +35,7 @@ static partial class SurvivorsRewards
             .Select(c => new SurvivorsBlessingItem(c.Path, c.Name, c.Blessing))];
     }
 
-    internal static async Task<bool> SurvivorsEquip(ClientState conn, Item item)
+    internal static async Task<bool> SurvivorsEquip(Player conn, Item item)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return false;
         try
@@ -50,7 +50,7 @@ static partial class SurvivorsRewards
         }
     }
 
-    internal static async Task<bool> SurvivorsEquipCore(ClientState conn, Item item, SurvivorsOwnership ownership)
+    internal static async Task<bool> SurvivorsEquipCore(Player conn, Item item, SurvivorsOwnership ownership)
     {
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return false;
         var items = ItemsOf(conn);
@@ -94,7 +94,7 @@ static partial class SurvivorsRewards
     /// mods resolve to at least one global or local stat. A name in "No stat found" is a unique whose mechanic is not
     /// a plain stat (or a conditional one) and needs its own implementation.
     /// </summary>
-    internal static async Task SurvivorsUniqueReport(ClientState conn)
+    internal static async Task SurvivorsUniqueReport(Player conn)
     {
         var uniques = UniquesFor(conn).All;
         var catalog = ItemsFor(conn);
@@ -133,7 +133,7 @@ static partial class SurvivorsRewards
     /// A run starts with one life flask: the emptied character would otherwise have no recovery at all against the
     /// horde. It is created with its full charges and refills from kills like any flask; the next run's reset clears it.
     /// </summary>
-    internal static async Task SurvivorsGiveFlask(ClientState conn)
+    internal static async Task SurvivorsGiveFlask(Player conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         if (ItemsFor(conn).Find("Metadata/Items/Flasks/FlaskLife1") is not { } baseType) return;
@@ -151,7 +151,7 @@ static partial class SurvivorsRewards
     /// unique picked in one run is still worn in the next. Only the flask is replaced with a fresh full one (and the
     /// cursor cleared). Every kept item's requirement is waived again, because the emptied character's own level and
     /// attributes never met a unique's.</summary>
-    internal static async Task SurvivorsResetInventory(ClientState conn)
+    internal static async Task SurvivorsResetInventory(Player conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         var items = ItemsOf(conn);
@@ -176,7 +176,7 @@ static partial class SurvivorsRewards
 
     /// <summary>Removes every item on the ground of the area for this run: the client forgets the object and the
     /// instance's store drops it, so loot neither shows nor comes back on the next connection.</summary>
-    internal static async Task SurvivorsClearGround(ClientState conn)
+    internal static async Task SurvivorsClearGround(Player conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         foreach (var (id, _) in conn.Instance.Ground.All())
@@ -189,7 +189,7 @@ static partial class SurvivorsRewards
 
     /// <summary>The unique items a level-up may still offer: the catalogue's definitions the run has not taken and the
     /// character is not already wearing (a worn unique is matched by its name word).</summary>
-    internal static IReadOnlyList<int> SurvivorsItemPool(ClientState conn, SurvivorsRun run)
+    internal static IReadOnlyList<int> SurvivorsItemPool(Player conn, SurvivorsRun run)
     {
         var all = UniquesFor(conn).All;
         var catalog = ItemsFor(conn);
@@ -213,7 +213,7 @@ static partial class SurvivorsRewards
         return pool;
     }
 
-    internal static async Task SurvivorsOfferIfDue(ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
+    internal static async Task SurvivorsOfferIfDue(Player conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return;
         // A run that was stopped or replaced while this call was in flight must not deal an offer into the next run's
@@ -315,7 +315,7 @@ static partial class SurvivorsRewards
     }
 
     /// <summary>A click in the level-up window (C→S 0x88/0x8a). False when the id is not one of its choices.</summary>
-    internal static async Task<bool> ChooseSurvivorsSkill(ClientState conn, uint itemId)
+    internal static async Task<bool> ChooseSurvivorsSkill(Player conn, uint itemId)
     {
         if (StateOf(conn).SurvivorsOffer is not { } shown) return false;
         if (!shown.TryGetValue(itemId, out var choice))
@@ -328,7 +328,7 @@ static partial class SurvivorsRewards
     }
 
     /// <summary>Applies one choice (the window's click or `/survivors pick`), closes the window and deals the next one.</summary>
-    internal static async Task<bool> ApplySurvivorsChoice(ClientState conn, SurvivorsChoice choice)
+    internal static async Task<bool> ApplySurvivorsChoice(Player conn, SurvivorsChoice choice)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return false;
         var run = ownership.Run;

@@ -124,7 +124,7 @@ public class PlayerDamageTakenTests
 
         // With no ward or energy shield, the hit pool takes Mind Over Matter's 40 of a 100 hit from mana. The pool only takes
         // hits while the game's rules are active and the player lives.
-        var conn = new ClientState(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1) { PlayerLife = 100 };
+        var conn = new Player(new(1, "mana-before-life", 100, 100, 100, 100, null, []), 0, 1) { PlayerLife = 100 };
         var stats = new Dictionary<uint, int> { [Program.Stats.Key("keystone_mana_shield")!.Value] = 1 };
         var previousLogic = Program.GameLogicOrNull;
         var previousLifetime = global::Game.CombatLifetime;
@@ -155,7 +155,7 @@ public class PlayerDamageTakenTests
     [Fact]
     public void Ailments_read_the_shifted_damage_taken_but_ignite_reads_the_damage_dealt_that_lands()
     {
-        var conn = new ClientState(new(1, "taken-as", 100, 100, 100, 100, null, []), 0, 1);
+        var conn = new Player(new(1, "taken-as", 100, 100, 100, 100, null, []), 0, 1);
         lock (conn.Monsters) { conn.Pools = conn.Pools with { Life = 1000 }; conn.PlayerLife = 1000; }
         var stats = new Dictionary<uint, int>();
         double now = conn.Clock.Elapsed.TotalSeconds;

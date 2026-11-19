@@ -19,7 +19,7 @@ public sealed class TattooForbiddenTests
     [Fact]
     public void Every_forbidden_tattoo_has_a_pool_of_its_class_ascendancy_notables()
     {
-        var conn = new ClientState(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TattooForbiddenChar", PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
@@ -50,7 +50,7 @@ public sealed class TattooForbiddenTests
         Assert.False(ForbiddenTattoo.IsForbidden("Tattoo of the Kitava Heart Eater"));
         Assert.Null(ForbiddenTattoo.Pool("Tattoo of the Kitava Heart Eater"));
 
-        var conn = new ClientState(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TattooForbiddenChar", PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
@@ -83,7 +83,7 @@ public sealed class TattooForbiddenTests
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-forbidden-dedupe-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "tattoo-forbidden", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TattooForbiddenDedupe", PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),

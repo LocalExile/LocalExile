@@ -575,16 +575,16 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool Aggro, Dead;
     /// <summary>The player the instance's monster acts for now (its chase, swings and damage run on that player's
     /// connection: SharedMonsters.cs MonsterTargetsLocked); null while it has none.</summary>
-    public ClientState? Target;
+    public Player? Target;
     /// <summary>The player whose hit landed on it last: an ignite, bleed or poison that kills it is theirs (SharedKills.cs).</summary>
-    public ClientState? LastHitBy;
+    public Player? LastHitBy;
     // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
     // removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
     // Kept on this exact monster instance until the kill publication consumes it.
     public UnhingedHitKillReceipt? UnhingedHitKill;
-    public sealed record UnhingedHitKillReceipt(ClientState Owner, bool DestroyCorpse);
+    public sealed record UnhingedHitKillReceipt(Player Owner, bool DestroyCorpse);
 
     // A warcry's Howl of the Wolf already rerolled this corpse's loot: one reroll per corpse, like another use of it.
     // Guarded by the Monsters lock.
@@ -713,19 +713,19 @@ public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, 
 // The last instance list shown (0xae); 0xaf picks a row of it.
 public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false, int? ArrivalEntrance = null);
 
-/// <summary>An input of the player's stats the framework holds; its change is handed to the game (ClientState.StatsChanged).
+/// <summary>An input of the player's stats the framework holds; its change is handed to the game (Player.StatsChanged).
 /// Pools, Items and Passives are read through the stat graph (StatGraph.ReadInput), so their change runs again only the
 /// steps that read them.</summary>
 public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects, EnemyHit }
 
-public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed) : IHasComponents
+public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : IHasComponents
 {
     /// <summary>What modules keep on this player (their stores).</summary>
     public Components Components { get; } = new();
 
     /// <summary>The hand-over for a change of what the player's stats are built from: the game sets it and marks what reads
     /// the input. An input the framework holds marks itself when it changes (its setter).</summary>
-    public static Action<ClientState, StatInput>? StatsChanged;
+    public static Action<Player, StatInput>? StatsChanged;
     public void MarkStatsDirty(StatInput input) => StatsChanged?.Invoke(this, input);
 
     public readonly CharacterBuildImports.Session BuildImport = new();

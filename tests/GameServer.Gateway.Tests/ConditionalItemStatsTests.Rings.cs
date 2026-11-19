@@ -23,7 +23,7 @@ public partial class ConditionalItemStatsTests
         try
         {
             PlayerInventories.SetClass(character, 1);
-            var conn = new ClientState(AreaLayouts.For(AreaLayouts.TheCoast, 1), 1, 1)
+            var conn = new Player(AreaLayouts.For(AreaLayouts.TheCoast, 1), 1, 1)
             {
                 Character = character, ClassRow = 1, Instance = new(), PlayerLife = 1000,
                 PlayerSent = true, PlayerObjectCreated = true, Pools = new(100, 1000, 1000, 0, 0),

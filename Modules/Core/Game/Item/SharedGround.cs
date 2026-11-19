@@ -10,7 +10,7 @@ public static partial class Game
 {
     // Evaluate at the cipher gate: a kill's delayed output may outlive the item's auto-pickup.
     // Creation and wake must stay together, before any competing pickup's removal can be sent.
-    public static byte[]? GroundItemPresentation(ClientState conn, uint id, bool justDropped,
+    public static byte[]? GroundItemPresentation(Player conn, uint id, bool justDropped,
         WorldItemObject? expected = null, bool includeWake = true)
     {
         lock (conn.Monsters)
@@ -25,15 +25,15 @@ public static partial class Game
         }
     }
 
-    public static Task SendGroundItem(ClientState conn,
+    public static Task SendGroundItem(Player conn,
         uint id, WorldItemObject item, string? log, bool justDropped = false) =>
         SendWorldCreate(conn, id, () => GroundItemPresentation(conn, id, justDropped, item, includeWake: false),
             log, wake: true);
 
-    public static Task SyncSharedGround(ClientState conn) =>
+    public static Task SyncSharedGround(Player conn) =>
         SyncGround(conn, entering: false);
 
-    static async Task SyncGround(ClientState conn, bool entering)
+    static async Task SyncGround(Player conn, bool entering)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         var ground = conn.Instance.Ground;
@@ -44,7 +44,7 @@ public static partial class Game
             {
                 ground.Observe(conn);
                 if (conn.Character is not null)
-                    ground.Reassign(by => by is ClientState earlier
+                    ground.Reassign(by => by is Player earlier
                         && string.Equals(earlier.Character, conn.Character, StringComparison.OrdinalIgnoreCase), conn);
             }
             var all = ground.All();

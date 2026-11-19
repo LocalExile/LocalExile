@@ -40,7 +40,7 @@ public sealed class PlacedSkills
                 p.Flat, p.Percent, ReservationEfficiencyPct: p.Efficiency)));
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     PlacedSkills? placedSkills;
     public PlacedSkills Placed => System.Threading.LazyInitializer.EnsureInitialized(ref placedSkills);

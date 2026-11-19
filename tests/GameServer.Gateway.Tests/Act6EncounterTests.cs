@@ -192,16 +192,16 @@ public sealed class Act6EncounterTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        readonly List<ClientState> players = [];
+        readonly List<Player> players = [];
         public Runtime()
         {
             Saves.Open(saves);
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
-        public ClientState Connection(string character, InstanceState instance, int x, int y, Wire wire)
+        public Player Connection(string character, InstanceState instance, int x, int y, Wire wire)
         {
-            var conn = new ClientState(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
+            var conn = new Player(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
             { LockstepClient = false,
                 Character = character, Instance = instance, PlayerLife = 1000000, PlayerSent = true,
                 Pools = new(49, 1000000, 100, 2, 0), Session = new(character, wire.Stream, wire.Ciphers),

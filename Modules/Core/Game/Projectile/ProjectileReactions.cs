@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static void CommitBossStage(ClientState conn, uint id, SpawnedMonster monster, double at)
+    public static void CommitBossStage(Player conn, uint id, SpawnedMonster monster, double at)
     {
         var session = ProjectilesFor(conn);
         CommitProjectileBossStage(session, id, monster, Math.Max(session.Runtime.Now, ProjectileRuntime.Time(at)));

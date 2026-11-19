@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static async Task RegisterStationaryCollision(ClientState conn, uint id, string type, int x, int y,
+    public static async Task RegisterStationaryCollision(Player conn, uint id, string type, int x, int y,
         float rotation, string? editorKey = null, string? model = null)
     {
         var (size, hull) = StationaryCollision.Resolve(type, model);

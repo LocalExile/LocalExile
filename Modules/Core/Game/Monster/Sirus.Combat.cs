@@ -6,7 +6,7 @@ using static Program;
 
 static partial class Sirus
 {
-    static readonly Store<ClientState, Exposure> Exposures = new();
+    static readonly Store<Player, Exposure> Exposures = new();
     sealed class Exposure
     {
         public double Dps, BeamUntil, NextBeam, BloodUntil, BloodDps;
@@ -14,7 +14,7 @@ static partial class Sirus
         public ushort BeamBuff, BloodBuff;
         public readonly double[] DotCarry = new double[5];
     }
-    static ushort[] ClearExposure(ClientState c)
+    static ushort[] ClearExposure(Player c)
     {
         if (!Exposures.TryGetValue(c, out var e)) return [];
         lock (c.Monsters)
@@ -25,7 +25,7 @@ static partial class Sirus
             Array.Clear(e.DotCarry); return buffs;
         }
     }
-    static async Task RemoveExposure(ClientState c)
+    static async Task RemoveExposure(Player c)
     {
         ushort[] buffs = ClearExposure(c);
         if (buffs.Length == 0 || c.Closed || c.LeavingArea) return;
@@ -33,12 +33,12 @@ static partial class Sirus
             await SendWorldRecord(c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null);
         await RefreshPlayerStats(c);
     }
-    static async Task RefreshPlayerStats(ClientState c)
+    static async Task RefreshPlayerStats(Player c)
     {
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
         await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
-    internal static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
+    internal static Dictionary<uint, int> PlayerStats(Player c, Dictionary<uint, int> stats)
     {
         if (Exposures.TryGetValue(c, out var e) && e.BeamUntil > c.Clock.Elapsed.TotalSeconds)
         {
@@ -47,10 +47,10 @@ static partial class Sirus
         }
         return stats;
     }
-    sealed record Deferred(double At, int Generation, ClientState Target, (int X, int Y) From, (int X, int Y) Aim);
+    sealed record Deferred(double At, int Generation, Player Target, (int X, int Y) From, (int X, int Y) Aim);
     sealed record TimedAnimation(double At, int Generation, byte Animation, float Seconds);
     sealed record Hit(double At, int Generation, int Group, int Effect, (int X, int Y) From, (int X, int Y) To,
-        double Radius, bool Beam = false, ClientState? Track = null, bool ApparitionHit = false);
+        double Radius, bool Beam = false, Player? Track = null, bool ApparitionHit = false);
     sealed record Visual(uint Id, (int X, int Y) At, string Model, uint? Clip, double Until, float Rotation, bool Blocking, bool Temporary);
     sealed class StormState(uint id, SpawnedMonster monster, double born, double angle)
     {
@@ -75,8 +75,8 @@ static partial class Sirus
         readonly List<StormState> storms = [];
         readonly List<Patch> patches = [];
         readonly List<Quad> quads = [];
-        readonly HashSet<(int, ClientState, uint)> struck = [];
-        readonly Dictionary<(ClientState, uint), double> carry = [];
+        readonly HashSet<(int, Player, uint)> struck = [];
+        readonly Dictionary<(Player, uint), double> carry = [];
         int group, special, apparitionRotation;
         (int X, int Y) mazeCentre, corridorEnd;
         double specialUntil, lastGround;
@@ -89,7 +89,7 @@ static partial class Sirus
             if (Distance(at, scene.Centre) < 10) a = Math.PI * -.3 + Round * .7;
             storms.Add(new(key, m, now, a));
         }
-        async Task Retire(ClientState c, uint actor)
+        async Task Retire(Player c, uint actor)
         {
             if (actor == 0) return;
             lock (c.Monsters)
@@ -99,17 +99,17 @@ static partial class Sirus
             }
             await Remove(actor);
         }
-        async Task ClearNearbyStorms(ClientState c, (int X, int Y) at, double radius)
+        async Task ClearNearbyStorms(Player c, (int X, int Y) at, double radius)
         {
             foreach (var s in storms.Where(s => Distance(s.Monster.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) < radius).ToArray())
             { storms.Remove(s); await Retire(c, s.Id); }
         }
-        async Task ClearWalls(ClientState c)
+        async Task ClearWalls(Player c)
         {
             foreach (var fx in visuals.Where(v => v.Blocking).ToArray())
             { visuals.Remove(fx); foreach (var p in players) p.RemoveBlocker(fx.Id); await Remove(fx.Id); }
         }
-        async Task ClearTemporary(ClientState c)
+        async Task ClearTemporary(Player c)
         {
             hits.Clear(); patches.Clear(); quads.Clear();
             foreach (var v in visuals.Where(v => v.Temporary).ToArray())
@@ -124,7 +124,7 @@ static partial class Sirus
             foreach (var s in storms.ToArray()) await Retire(players[0], s.Id);
             storms.Clear(); patches.Clear(); quads.Clear();
         }
-        async Task Cast(ClientState c, uint actor, int effect, (int X, int Y) aim, double now)
+        async Task Cast(Player c, uint actor, int effect, (int X, int Y) aim, double now)
         {
             var m = c.Monsters[actor]; var from = m.Walk.Position(now);
             var attack = Attack(c, m.Variety!, m.Level, effect);
@@ -132,13 +132,13 @@ static partial class Sirus
             await All(actor, [InstanceProtocol.ActionStarted(actor, from.X, from.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408),
                 InstanceProtocol.ActionEnded(actor)], true);
         }
-        async Task Beam(ClientState c, Hit hit, (int X, int Y) aim, double now)
+        async Task Beam(Player c, Hit hit, (int X, int Y) aim, double now)
         {
             double angle = Math.Atan2(aim.Y - hit.From.Y, aim.X - hit.From.X);
             string model = hit.ApparitionHit ? "fusion_beam.ao" : Round == 3 ? "spam_beam_final.ao" : "spam_beam.ao";
             await Fx(c, hit.From, Art + model, now + .6, rotation: (float)(angle + Math.PI / 2));
         }
-        async Task Combat(ClientState c, double now)
+        async Task Combat(Player c, double now)
         {
             if (special == 1 && Distance(c.Walk.Position(now), Position(now)) < 10)
             {
@@ -180,7 +180,7 @@ static partial class Sirus
             double a = Math.Atan2(to.Y - from.Y, to.X - from.X);
             return (from.X + (int)(Math.Cos(a) * length), from.Y + (int)(Math.Sin(a) * length));
         }
-        (int X, int Y) RingPoint(ClientState c, (int X, int Y) origin, int radius, double now)
+        (int X, int Y) RingPoint(Player c, (int X, int Y) origin, int radius, double now)
         {
             for (int i = 0; i < 16; i++)
             {
@@ -191,7 +191,7 @@ static partial class Sirus
             }
             return Position(now);
         }
-        async Task Maze(ClientState c, double now)
+        async Task Maze(Player c, double now)
         {
             special = 2; int rings = Math.Min(3, Round + 1); double duration = 5 + (rings - 1) * 3;
             specialUntil = ready = now + duration + 1.5; mazeCentre = Position(now);
@@ -221,7 +221,7 @@ static partial class Sirus
             hits.Add(new(now + duration, body!.ActionGeneration, ++group, rings == 1 ? 10949 : rings == 2 ? 10950 : 10951,
                 mazeCentre, mazeCentre, 17 + (rings - 1) * 15));
         }
-        async Task Corridor(ClientState c, double now)
+        async Task Corridor(Player c, double now)
         {
             special = 1; specialUntil = ready = now + 7.5;
             var aim = c.Walk.Position(now); var at = RingPoint(c, aim, 42, now);
@@ -238,7 +238,7 @@ static partial class Sirus
             foreach (double contact in new[] { 1.173, 1.825, 2.485, 3.156, 3.818, 4.497, 5.167, 5.812 })
                 hits.Add(new(now + contact, body.ActionGeneration, ++group, 10948, at, corridorEnd, 7, Beam: true));
         }
-        async Task QuadBeam(ClientState c, double now)
+        async Task QuadBeam(Player c, double now)
         {
             await Voice(5667); var at = Position(now); await Cast(c, id, 10973, at, now);
             double start = now + Attack(c, body!.Variety!, body.Level, 10973).Seconds;
@@ -253,7 +253,7 @@ static partial class Sirus
             }
             ready = start + .8;
         }
-        async Task Clones(ClientState c, double now)
+        async Task Clones(Player c, double now)
         {
             special = 3; specialUntil = ready = now + 5.33; var aim = c.Walk.Position(now);
             int real = Random.Shared.Next(12);
@@ -272,7 +272,7 @@ static partial class Sirus
             }
             hits.Add(new(now + 4.7, body!.ActionGeneration, ++group, 7031, at, Extend(at, aim, 180), 6, Beam: true, Track: c));
         }
-        async Task ApparitionAttack(ClientState c, double now)
+        async Task ApparitionAttack(Player c, double now)
         {
             if (!c.Monsters.ContainsKey(apparition)) return;
             var aim = c.Walk.Position(now); var from = Position(now);
@@ -298,7 +298,7 @@ static partial class Sirus
                     patches.Add(new(at, contact + 8, 8, 10945));
                 }
         }
-        async Task Maintenance(ClientState c, double now)
+        async Task Maintenance(Player c, double now)
         {
             foreach (var fx in visuals.Where(v => v.Until <= now).ToArray())
             { visuals.Remove(fx); foreach (var p in players) p.RemoveBlocker(fx.Id); await Remove(fx.Id); }
@@ -371,7 +371,7 @@ static partial class Sirus
             double seconds = Math.Clamp(now - lastGround, 0, 1); lastGround = now;
             foreach (var p in Present.ToArray()) await GroundDamage(p, now, seconds);
         }
-        async Task Damage(ClientState p, Hit hit)
+        async Task Damage(Player p, Hit hit)
         {
             uint actor = hit.ApparitionHit ? apparition : id;
             if (body is null || !p.Monsters.TryGetValue(actor, out var caster)) return;
@@ -396,13 +396,13 @@ static partial class Sirus
             });
             if (outcome is not null) await PresentMonsterHit(p, actor, outcome);
         }
-        async Task<uint> Fx(ClientState c, (int X, int Y) at, string model, double until, uint? clip = null, float rotation = 0, bool blocking = false, bool temporary = true)
+        async Task<uint> Fx(Player c, (int X, int Y) at, string model, double until, uint? clip = null, float rotation = 0, bool blocking = false, bool temporary = true)
         {
             var fx = new Visual(c.Instance.World.NewMonsterId(), at, model, clip, until, rotation, blocking, temporary); visuals.Add(fx);
             foreach (var p in Present.ToArray()) await CreateFx(p, fx);
             return fx.Id;
         }
-        static async Task CreateFx(ClientState p, Visual fx)
+        static async Task CreateFx(Player p, Visual fx)
         {
             if (fx.Blocking) p.SetBlocker(fx.Id, fx.At.X, fx.At.Y, 2);
             var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model) { Rotation = fx.Rotation };

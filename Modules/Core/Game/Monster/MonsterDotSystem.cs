@@ -5,9 +5,9 @@
 /// </summary>
 public static partial class Game
 {
-    public static bool AreaRunsGame(ClientState conn) => AreaSetup.Runs(conn);
+    public static bool AreaRunsGame(Player conn) => AreaSetup.Runs(conn);
 
-    public static void StartMonsterDamageOverTime(GameArea area, ClientState conn, object source)
+    public static void StartMonsterDamageOverTime(GameArea area, Player conn, object source)
     {
         var frames = conn.Frames;
         Task pass = Task.CompletedTask;

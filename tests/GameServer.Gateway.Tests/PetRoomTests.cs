@@ -11,7 +11,7 @@ public class PetRoomTests
     public void A_pet_rejoins_its_owner_across_disconnected_rooms_only_when_following(bool following)
     {
         var layout = new AreaLayout(1, "arena", 80, 20, 5, 10, (x, _) => x != 30, []);
-        var conn = new ClientState(layout, 1, 1);
+        var conn = new Player(layout, 1, 1);
         var pet = new SpawnedPet(conn.NewWalk(5, 10, 10), 1);
         var to = (X: 65, Y: 10);
         var order = CosmeticsFeature.PetMove(conn, 123, pet, to, 1, following);
@@ -33,7 +33,7 @@ public class PetRoomTests
     [Fact]
     public void Pet_speed_changes_match_the_client_and_preserve_an_in_flight_walk_after_unload()
     {
-        var conn = new ClientState(new AreaLayout(1, "pets", 300, 50, 10, 10, null, []), 1, 1);
+        var conn = new Player(new AreaLayout(1, "pets", 300, 50, 10, 10, null, []), 1, 1);
         const uint id = 123;
         foreach (bool following in new[] { false, true })
         {

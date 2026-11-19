@@ -18,7 +18,7 @@ public sealed class KitavaActTenTests
         var originalExit = new AreaTransitionObject(1900, 1900, AreaTransitionCatalog.HashOf("2_10_town")!.Value, "portal.ao")
             { SourceType = KitavaActTen.PortalType };
         var layout = new AreaLayout(1, KitavaActTen.Area, 4000, 4000, 2000, 1930, (_, _) => true, [(8195, originalExit)]);
-        var c = new ClientState(layout, 1, 1) { LockstepClient = false, Character = "FinalKitavaRegression", PlayerSent = true, PlayerLife = 1000000,
+        var c = new Player(layout, 1, 1) { LockstepClient = false, Character = "FinalKitavaRegression", PlayerSent = true, PlayerLife = 1000000,
             Instance = new(), Pools = new(67, 1000000, 100, 1, 0), Session = new("kitava-final", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.LaterFormPoints[KitavaActTen.Body] = (2000, 2000);
         c.QuestFlags.Add(KitavaActTen.Started); c.QuestFlags.Add("a5q6-CompletedBoss");
@@ -49,7 +49,7 @@ public sealed class KitavaActTenTests
             Assert.Equal(2, origin.Object.TransitionState);
             c.Instance.World.MonsterOrigins[ally.Key] = origin with { Object = origin.Object with { TransitionState = 3 } };
         }
-        var observer = new ClientState(layout, 2, 1) { LockstepClient = false, Instance = c.Instance, Session = c.Session, PlayerSent = true };
+        var observer = new Player(layout, 2, 1) { LockstepClient = false, Instance = c.Instance, Session = c.Session, PlayerSent = true };
         var shown = new List<byte[]>();
         observer.MonsterViews[id] = new((2000, 2000), (2000, 2000), body.Life);
         await fight.Bind(observer);
@@ -127,7 +127,7 @@ public sealed class KitavaActTenTests
     public async Task Final_roster_uses_actor_level_conversion_and_damage_respects_live_immunity_and_unload()
     {
         using var runtime = new Runtime(); using var wire = new Wire();
-        var c = new ClientState(new(1, KitavaActTen.Area, 4000, 4000, 2000, 1930, (_, _) => true, []), 1, 1)
+        var c = new Player(new(1, KitavaActTen.Area, 4000, 4000, 2000, 1930, (_, _) => true, []), 1, 1)
         { LockstepClient = false, Character = "FinalKitavaDamage", PlayerSent = true, Instance = new(), PlayerLife = 1000000,
             Pools = new(67, 1000000, 100, 1, 0), Session = new("kitava-damage", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.LaterFormPoints[KitavaActTen.Body] = (2000, 2000); c.QuestFlags.Add(KitavaActTen.Started);
@@ -156,7 +156,7 @@ public sealed class KitavaActTenTests
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
         readonly IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
-        public ClientState? Player;
+        public Player? Player;
         public Runtime() { Saves.Open(saves); Game.CombatLifetime = lifetime; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic()); }
         public void Dispose() { if (Player is { } c) c.Closed = true; lifetime.Stop(ex => throw ex); Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previousLogic!); TestEnvironment.ReleaseSaves(saves); }
     }

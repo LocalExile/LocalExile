@@ -10,7 +10,7 @@ public class LioneyesFallTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"lioneyes-fall-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "bow", 100, 100, 100, 100, null, []), 1, 1) { Character = "BowConversion" };
+        var conn = new Player(new(1, "bow", 100, 100, 100, 100, null, []), 1, 1) { Character = "BowConversion" };
         try
         {
             var tree = Program.Passives;

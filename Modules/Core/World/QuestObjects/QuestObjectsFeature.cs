@@ -9,7 +9,7 @@ static class QuestObjectsFeature
     // The rooms' server objects a quest manages (Quests.RoomObjectRemovedBy), where the room fit places them, while the
     // character lacks the flag that takes them away: The Twilight Strand's force wall (Tutorial_Blocker_3) blocks the way to
     // the gate until Hillock is dead (12-quests.md §6). Ids from QuestRoomObjectFirstId.
-    internal static async Task SpawnQuestRoomObjects(ClientState conn)
+    internal static async Task SpawnQuestRoomObjects(Player conn)
     {
         var notes = new List<string>();
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
@@ -45,7 +45,7 @@ static class QuestObjectsFeature
         }
     }
 
-    internal static async Task SpawnOpeningTutorial(ClientState conn)
+    internal static async Task SpawnOpeningTutorial(Player conn)
     {
         if (conn.Layout.Id != TutorialObjects.Strand || CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, []);
@@ -75,7 +75,7 @@ static class QuestObjectsFeature
     // a1q4 "Breaking Some Eggs" (GlyphQuest, 12-quests.md §2–4): The Mud Flats' three Rhoa Nests, the Glyph Wall and the
     // waterfall where the recorder captured them, and the client's invisible blockers on the server's walk estimate until
     // PlacedGlyphs. The recorder writes the capture while the client generates the area: wait briefly for it.
-    internal static async Task SpawnGlyphQuest(ClientState conn)
+    internal static async Task SpawnGlyphQuest(Player conn)
     {
         if (conn.Layout.Id != GlyphQuest.Area) return;
         // Usually captured on an earlier visit: created at once, with the area. Else wait for the recorder in the background.
@@ -91,7 +91,7 @@ static class QuestObjectsFeature
         });
     }
 
-    internal static async Task OpenTutorialChest(ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
+    internal static async Task OpenTutorialChest(Player conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return;
@@ -107,7 +107,7 @@ static class QuestObjectsFeature
     }
 
     // The support gem chest opens (walked up to, or a warcry with open_nearby_chests_on_warcry): saved first, once.
-    internal static async Task<bool> OpenTutorialChestCore(ClientState conn,uint id,TutorialObjects.Placement chest)
+    internal static async Task<bool> OpenTutorialChestCore(Player conn,uint id,TutorialObjects.Placement chest)
     {
         if(!LeagueFor(conn).Rules.TutorialGifts || CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return false;
         // The walk-up and a warcry can both get here at once: only the first opens it.
@@ -121,7 +121,7 @@ static class QuestObjectsFeature
     }
 
     // C→S 0x24 on a Rhoa Nest: walk up, open it (once per instance) and drop its glyph, unless the character has it already.
-    internal static async Task OpenRhoaNest(ClientState conn, InstanceTransfer.UseSkillOnObject use, GlyphQuest.Nest nest)
+    internal static async Task OpenRhoaNest(Player conn, InstanceTransfer.UseSkillOnObject use, GlyphQuest.Nest nest)
     {
         var at = nest.At;
         if (conn.Instance.ChestOpened(at.X, at.Y)) return;
@@ -139,7 +139,7 @@ static class QuestObjectsFeature
     }
 
     // A Rhoa Nest opens (walked up to, or a warcry with open_nearby_chests_on_warcry): once per instance.
-    internal static async Task<bool> OpenRhoaNestCore(ClientState conn,
+    internal static async Task<bool> OpenRhoaNestCore(Player conn,
         uint id, GlyphQuest.Nest nest)
     {
         var at = nest.At;
@@ -161,7 +161,7 @@ static class QuestObjectsFeature
 
     // C→S 0x24 on the Glyph Wall: walk up; seeing it sets SeenGlyphWall; with all three glyphs it takes them and sets
     // PlacedGlyphs (SetQuestFlags then opens the passage).
-    internal static async Task UseGlyphWall(ClientState conn, InstanceTransfer.UseSkillOnObject use)
+    internal static async Task UseGlyphWall(Player conn, InstanceTransfer.UseSkillOnObject use)
     {
         if (conn.Glyphs?.Wall is not { } wall) return;
         int action = Interlocked.Increment(ref conn.ActionCount);
@@ -183,7 +183,7 @@ static class QuestObjectsFeature
     }
 
 
-    internal static async Task TalkToWoundedExile(ClientState conn,uint id,SpawnedNpc npc)
+    internal static async Task TalkToWoundedExile(Player conn,uint id,SpawnedNpc npc)
     {
         if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
         if (tutorial.Talked || conn.TutorialSceneRunning)

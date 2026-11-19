@@ -8,7 +8,7 @@ public static partial class Game
     // this value is not a measurement of the retail Spider range.
     public const int SpiderSimulationRadius = 40;
 
-    public static void SpiderReconcileOwnerLocked(ClientState conn, double now)
+    public static void SpiderReconcileOwnerLocked(Player conn, double now)
     {
         var state = conn.Reservations;
         var root = ReservationAura(conn, SpiderAspect);
@@ -22,7 +22,7 @@ public static partial class Game
         state.NextSpiderWeb = now + Math.Max(.05, interval / 1000d);
     }
 
-    static void EndSpiderAspectLocked(ClientState conn, AuraCatalog.Aura root)
+    static void EndSpiderAspectLocked(Player conn, AuraCatalog.Aura root)
     {
         if (conn.Reservations.SpiderOwner != new ReservationState.CatAspectOwner(root.SkillId, root.Buff)) return;
         conn.Reservations.SpiderOwner = null;
@@ -30,7 +30,7 @@ public static partial class Game
         // Existing recipient webs keep their earned expiry when a reservation or its equipment is removed.
     }
 
-    public static void SpiderAspectTickLocked(ClientState conn, double now)
+    public static void SpiderAspectTickLocked(Player conn, double now)
     {
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.Paused) return;
         var state = conn.Reservations;
@@ -143,7 +143,7 @@ public static partial class Game
         return reduction == 0 ? 1 : increased > 0 ? Math.Max(0, increased + reduction) / increased : 0;
     }
 
-    public static void SpiderHitRewardsLocked(ClientState conn, SpawnedMonster target, double now,
+    public static void SpiderHitRewardsLocked(Player conn, SpawnedMonster target, double now,
         IReadOnlyDictionary<uint, int>? player = null, Random? random = null)
     {
         if (!target.Hostile || target.SpiderWebs.Count(now) == 0 || conn.PlayerLife == 0) return;

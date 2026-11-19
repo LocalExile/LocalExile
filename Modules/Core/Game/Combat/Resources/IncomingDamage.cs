@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
-    public static int DamagePlayerHitTyped(ClientState conn, int physical, int other, int chaos, double at,
+    public static int DamagePlayerHitTyped(Player conn, int physical, int other, int chaos, double at,
         IReadOnlyDictionary<uint, int> player, GameServer.Core.World.DamagePacket types)
     {
         if (conn.Immune) return 0;
@@ -78,7 +78,7 @@ public static partial class Game
         return result;
     }
 
-    public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
+    public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(Player conn,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;

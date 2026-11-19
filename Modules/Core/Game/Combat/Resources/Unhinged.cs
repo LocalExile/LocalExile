@@ -18,7 +18,7 @@ public static partial class Game
     /// this connection-owned state. A changed owner, host/mod/GEPL identity, inactive item, mode refusal or death retires
     /// the toggle and queues its native buff for removal.
     /// </summary>
-    static UnhingedState UnhingedAt(ClientState conn, double now)
+    static UnhingedState UnhingedAt(Player conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -51,12 +51,12 @@ public static partial class Game
         }
     }
 
-    static void RetireUnhinged(ClientState conn)
+    static void RetireUnhinged(Player conn)
     {
         if (conn.Unhinged.Retire() is ushort buff and not 0) conn.RetiredUnhingedBuffs.Add(buff);
     }
 
-    public static bool Unhinged(ClientState conn)
+    public static bool Unhinged(Player conn)
     {
         lock (conn.Monsters) return UnhingedAt(conn, ResourceEffectsTime(conn)).Active;
     }
@@ -74,7 +74,7 @@ public static partial class Game
     /// Accepted hit contact while sane starts or refreshes one non-stacking one-second regeneration contribution. This
     /// runs after block/avoidance/range admission, so a fully absorbed or blocked hit still recovers and a miss does not.
     /// </summary>
-    public static void UnhingedHitRecoveryLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static void UnhingedHitRecoveryLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.PlayerLife == 0) return;
         var state = UnhingedAt(conn, now);
@@ -87,7 +87,7 @@ public static partial class Game
         if (perSecond > 0) state.HitRecovery.Begin(now, 1, perSecond);
     }
 
-    public static bool UnhingedCorpseDestruction(ClientState conn)
+    public static bool UnhingedCorpseDestruction(Player conn)
     {
         if (!Unhinged(conn)) return false;
         var stats = CharacterPlayerStats(conn);
@@ -95,14 +95,14 @@ public static partial class Game
     }
 
     /// <summary>Freeze the item decision as part of the lethal hit mutation, before hit notifications can yield.</summary>
-    public static void CaptureUnhingedHitKillLocked(ClientState conn, SpawnedMonster m, bool playerHit)
+    public static void CaptureUnhingedHitKillLocked(Player conn, SpawnedMonster m, bool playerHit)
     {
         if (m.Life == 0)
             m.UnhingedHitKill = new(conn, playerHit && UnhingedCorpseDestruction(conn));
     }
 
     /// <summary>Consume the decision for this exact monster and owner. No current-state fallback is allowed.</summary>
-    public static bool TakeUnhingedHitKillLocked(ClientState conn, SpawnedMonster m)
+    public static bool TakeUnhingedHitKillLocked(Player conn, SpawnedMonster m)
     {
         var receipt = m.UnhingedHitKill;
         if (receipt is null || !ReferenceEquals(receipt.Owner, conn)) return false;
@@ -110,7 +110,7 @@ public static partial class Game
         return receipt.DestroyCorpse;
     }
 
-    public static Task PublishUnhingedCorpseDestruction(ClientState conn, uint id, SpawnedMonster m, bool committed)
+    public static Task PublishUnhingedCorpseDestruction(Player conn, uint id, SpawnedMonster m, bool committed)
     {
         if (!committed) return Task.CompletedTask;
         lock (conn.Monsters)
@@ -131,7 +131,7 @@ public static partial class Game
             });
     }
 
-    public static async Task<bool> ToggleUnhinged(ClientState conn, ushort skillId, int effect, Func<bool> current)
+    public static async Task<bool> ToggleUnhinged(Player conn, ushort skillId, int effect, Func<bool> current)
     {
         bool toggled = false;
         await SendWorldRecord(conn, PlayerId, [], "0x01c1 player buff unhinged toggled", atGate: () =>
@@ -159,13 +159,13 @@ public static partial class Game
         return toggled;
     }
 
-    public static Task SendUnhinged(ClientState conn) =>
+    public static Task SendUnhinged(Player conn) =>
         SendWorldRecords(conn, PlayerId, () => UnhingedPresentationRecords(conn));
 
-    public static byte[]? UnhingedPresentation(ClientState conn) =>
+    public static byte[]? UnhingedPresentation(Player conn) =>
         UnhingedPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
 
-    static byte[][]? UnhingedPresentationRecords(ClientState conn)
+    static byte[][]? UnhingedPresentationRecords(Player conn)
     {
         lock (conn.Monsters)
         {

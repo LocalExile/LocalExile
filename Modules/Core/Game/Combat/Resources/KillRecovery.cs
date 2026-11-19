@@ -41,7 +41,7 @@ public static partial class Game
 {
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): its "on kill" recovery, at once. The
     // amounts follow the last player stat snapshot (ConfigureLeech), so a pack's deaths do not each rebuild the stats.
-    public static void RecoverOnKill(ClientState conn, SpawnedMonster m)
+    public static void RecoverOnKill(Player conn, SpawnedMonster m)
     {
         lock (conn.Monsters)
         {

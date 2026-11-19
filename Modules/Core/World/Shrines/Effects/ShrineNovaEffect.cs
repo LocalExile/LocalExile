@@ -41,7 +41,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
         public double Began = began;
         public bool Ground;
         public readonly HashSet<uint> HitMonsters = [];
-        public readonly HashSet<ClientState> HitPlayers = [];
+        public readonly HashSet<Player> HitPlayers = [];
     }
     sealed record Ground((int X, int Y) At, int Radius, double Until, uint Object);
     readonly List<Cast> casts = [];
@@ -113,7 +113,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
         MaintainGround(conn, standing, now);
     }
 
-    async Task<bool> Start(ClientState conn, ShrineInstance shrine, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
+    async Task<bool> Start(Player conn, ShrineInstance shrine, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
     {
         var catalog = SkillsFor(conn);
         ushort skillId = (ushort)(catalog.ActionHash(spell.Effect)!.Value & 0x3fff);
@@ -151,7 +151,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
         return true;
     }
 
-    void PlaceGround(ClientState conn, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
+    void PlaceGround(Player conn, ShrineNovaRules.Spell spell, (int X, int Y) at, double now)
     {
         lock (conn.Monsters)
         for (int i = 0; i < spell.GroundCount; i++)
@@ -175,7 +175,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
         }
     }
 
-    void MaintainGround(ClientState conn, bool standing, double now)
+    void MaintainGround(Player conn, bool standing, double now)
     {
         var kind = cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock;
         int magnitude = cold ? 10 : 15;
@@ -213,7 +213,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
     public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
     public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
-    Task Clear(ClientState conn)
+    Task Clear(Player conn)
     {
         lock (conn.Monsters)
         {

@@ -6,7 +6,7 @@ internal sealed partial class HarbingerGameplay
 {
     sealed record CurseCast(ushort Skill, double At, (int X, int Y) Aim, Func<bool> Current);
     readonly HarbingerCurseSources curseSources = new(new ModCatalog());
-    bool? CastCurse(ClientState conn, ushort skill, (int X, int Y) aim, Func<bool> current)
+    bool? CastCurse(Player conn, ushort skill, (int X, int Y) aim, Func<bool> current)
     {
         lock (conn.Monsters)
         {
@@ -22,14 +22,14 @@ internal sealed partial class HarbingerGameplay
         curseSources.Get(m, "hexproof") != 0, curseSources.Get(m, "reflect_curses") != 0)
         { Rate = RecipientEffectTime.Rate(5, name => m.Mods.Effects[name], temporalChains: true) };
 
-    static void WithSelfCurse(ClientState conn, State state, Dictionary<uint, int> raw)
+    static void WithSelfCurse(Player conn, State state, Dictionary<uint, int> raw)
     {
         int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
         var self = state.Curses.SelfStats(Now(conn), conn.PlayerLife > 0, Get);
         if (Stats.Key("temporal_chains_action_speed_+%_final") is uint slow) raw[slow] = raw.GetValueOrDefault(slow) + self.Slow;
         if (Stats.Key("buff_time_passed_+%_other_than_temporal_chains") is uint other) raw[other] = raw.GetValueOrDefault(other) + self.OtherEffects;
     }
-    void ReconcileCurses(ClientState conn, State state, double now, List<byte> bytes)
+    void ReconcileCurses(Player conn, State state, double now, List<byte> bytes)
     {
         if (conn.PlayerLife == 0) { state.Curses.Clear(); state.CurseCast = null; }
         var raw = CharacterStatSources(conn).Stats;

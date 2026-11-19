@@ -74,11 +74,11 @@ public static class SpectralThrowRelease
         // doublestrike_sword_shield 1033 ms, views split at 443; contacts 333 and 699; attack_time 0.5 and 0.35.
         ["Metadata/Characters/StrDexInt/StrDexInt.ao"] = [new(.443, .333, .5), new(.590, .256, .35)],
     };
-    static readonly Store<ClientState,
+    static readonly Store<Player,
         System.Runtime.CompilerServices.StrongBox<int>> Swings = new();
 
     /// <summary>Seconds from the use to the release, or null where the stance's swings are not known.</summary>
-    public static double? Delay(ClientState conn, string animatedObject, WeaponProfile weapon, double attackSeconds)
+    public static double? Delay(Player conn, string animatedObject, WeaponProfile weapon, double attackSeconds)
     {
         // A one-handed mace or axe takes the sword's stance (the ACTs have no one-handed mace or axe stance).
         if (!SwordShield.TryGetValue(animatedObject, out var swings) || !weapon.Shield || !weapon.OneHandMelee

@@ -32,9 +32,9 @@ public static class JewelPathEffects
             && Jewels.Length == jewels.Count && Jewels.Zip(jewels).All(p => p.First.Id == p.Second.Id
                 && p.First.X == p.Second.X && ReferenceEquals(p.First.Item, p.Second.Item));
     }
-    static readonly Store<ClientState, Cache> Caches = new();
+    static readonly Store<Player, Cache> Caches = new();
 
-    public static List<InventoryItem> Apply(ClientState conn, PassiveTree tree, ItemCatalog catalog,
+    public static List<InventoryItem> Apply(Player conn, PassiveTree tree, ItemCatalog catalog,
         AscendancyFamily family, ushort[] nodes, ushort[] clusters, IReadOnlyList<InventoryItem> jewels,
         List<InventoryItem> active)
     {

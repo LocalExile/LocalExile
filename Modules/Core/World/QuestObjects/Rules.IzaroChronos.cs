@@ -20,7 +20,7 @@ static partial class QuestobjectsRules
     }
 
     // The arena's idols, one on each small elevator, down in its hole.
-    static async Task PlaceIzaroIdols(ClientState conn, IzaroArena arena)
+    static async Task PlaceIzaroIdols(Player conn, IzaroArena arena)
     {
         var idols = IzaroEffects.Of(IzaroChronos.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(idols.Count, arena.Lifts.Count); i++)
@@ -34,7 +34,7 @@ static partial class QuestobjectsRules
     // It takes no hits until it is up (what rises can be hit only once it has risen, live) and cannot die: its life stops
     // at the gate's 1 % (set_cannot_die). A returning one takes none (IzaroChronosStatuePhase2.ot: base_cannot_be_damaged).
     // Not kept with the instance (the arena places it again).
-    static async Task<IdolSlot?> SpawnIzaroIdol(ClientState conn,
+    static async Task<IdolSlot?> SpawnIzaroIdol(Player conn,
         IzaroEffects.Effect effect, AreaPopulation.RoomObject at)
     {
         if (Monsters.Find(effect.Variety) is not { Supported: true } variety)
@@ -61,7 +61,7 @@ static partial class QuestobjectsRules
     }
 
     // The arena's idols rise together with Izaro (the original, live); up, each fills and casts.
-    static async Task RaiseIzaroIdols(ClientState conn, IzaroArena arena,
+    static async Task RaiseIzaroIdols(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         try
@@ -96,7 +96,7 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} Izaro's idols stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    static void RunIzaroIdol(ClientState conn, IzaroArena arena, IdolSlot i,
+    static void RunIzaroIdol(Player conn, IzaroArena arena, IdolSlot i,
         double fillSeconds, Func<bool> here)
     {
         bool Up() { lock (conn.Monsters) return here() && !arena.Over && i.Up; }
@@ -105,7 +105,7 @@ static partial class QuestobjectsRules
 
     // The earlier trials' idols in the alcoves: their buffs go on Izaro and they cast their circles (the returning ones
     // fill at their own rate).
-    static async Task ReleaseIzaroIdols(ClientState conn, IzaroArena arena,
+    static async Task ReleaseIzaroIdols(Player conn, IzaroArena arena,
         Func<bool> here)
     {
         foreach (var i in arena.Idols.Where(i => i.Carried is not null))
@@ -126,7 +126,7 @@ static partial class QuestobjectsRules
     static bool IdolLeft(IdolSlot i) => i.Up && i.Monster.MaxLife > 0 && i.Monster.Life * 100L > i.Monster.MaxLife * (long)IzaroChronos.LeftAbovePercent;
 
     // He leaves: the arena's idols stop and go down with their elevators (the original, live).
-    static async Task LowerIzaroIdols(ClientState conn, List<IdolSlot> risen)
+    static async Task LowerIzaroIdols(Player conn, List<IdolSlot> risen)
     {
         if (risen.Count == 0) return;
         lock (conn.Monsters)

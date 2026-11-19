@@ -4,7 +4,7 @@ public static partial class Game
     /// The player's stats changed (or a life, mana or moving condition flipped), after the area's Stats phase: the systems
     /// that take their configuration from the stats read them here, once, instead of inside the steps that compute them.
     /// </summary>
-    static void PlayerStatsUpdated(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    static void PlayerStatsUpdated(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         PresentStats(conn);

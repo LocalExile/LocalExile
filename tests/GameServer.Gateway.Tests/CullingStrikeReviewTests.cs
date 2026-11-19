@@ -9,8 +9,8 @@ public sealed class CullingStrikeReviewTests
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
         stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
 
-    static ClientState Player(uint life = 1000, uint mana = 1000) =>
-        new ClientState(new(1, "cull-review", 300, 300, 100, 100, null, []), 1, 1)
+    static Player Player(uint life = 1000, uint mana = 1000) =>
+        new Player(new(1, "cull-review", 300, 300, 100, 100, null, []), 1, 1)
         {
             Pools = new(1, life, mana, 0, 0), PlayerLife = life, PlayerMana = mana,
         };

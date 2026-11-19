@@ -12,7 +12,7 @@ static partial class Game
     /// <summary>A corpse the player consumed (a warcry, Devour, a raise or offering): an ignited one counts for
     /// Cinderswallow Urn's "Recharges X Charges when you Consume an Ignited corpse", which the flask-charge loop pays
     /// (RunFlaskChargeRegen). Only ignites still present at consumption count. Under the Monsters lock.</summary>
-    internal static void NoteCorpseConsumedLocked(ClientState conn, SpawnedMonster corpse)
+    internal static void NoteCorpseConsumedLocked(Player conn, SpawnedMonster corpse)
     {
         if (corpse.Ignites.IgnitedAt(ProjectileWorldTime(conn))) { Interlocked.Increment(ref conn.IgnitedCorpsesConsumed); PresentStats(conn); }
     }
@@ -21,7 +21,7 @@ static partial class Game
     /// object). A corpse the engine cannot use (Warcries.IsCorpse: a shattered, already consumed or corpse-unusable
     /// monster) is not consumed, and the roll happens before the corpse is taken. Call under the Monsters lock: the
     /// corpse leaves conn.Monsters and the life change uses that lock.</summary>
-    internal static bool ConsumeCorpseOnKillLocked(ClientState conn, uint id, SpawnedMonster m, double now)
+    internal static bool ConsumeCorpseOnKillLocked(Player conn, uint id, SpawnedMonster m, double now)
     {
         if (conn.PlayerLife == 0 || m.Ailments.Shattered || !IsCorpse(m)) return false;
         var player = CharacterPlayerStats(conn);
@@ -44,7 +44,7 @@ static partial class Game
     /// object). The support's life/mana recovery already happened when the hit landed; this takes the corpse from
     /// summoning, explosions and warcries and records the consumed-corpse recently event. A shattered or already
     /// consumed corpse is not consumed again. Call under the Monsters lock.</summary>
-    internal static bool ConsumeDevouredCorpseLocked(ClientState conn, uint id, SpawnedMonster m, double now)
+    internal static bool ConsumeDevouredCorpseLocked(Player conn, uint id, SpawnedMonster m, double now)
     {
         if (!m.DevourCorpse) return false;
         m.DevourCorpse = false;

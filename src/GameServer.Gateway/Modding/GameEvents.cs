@@ -33,13 +33,13 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     public bool Any => !_subscribers.IsEmpty;
 
     /// <summary>The subscribers for this connection's league.</summary>
-    public IEnumerable<T> For(ClientState conn)
+    public IEnumerable<T> For(Player conn)
     {
         foreach (var (_, run) in Subscribers(conn)) yield return run;
     }
 
     /// <summary>The subscribers for this connection's league, with their owners (for <see cref="GameEventOwners.Guard"/>).</summary>
-    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn) => Subscribers(Program.LeagueFor(conn));
+    public IEnumerable<(string Owner, T Run)> Subscribers(Player conn) => Subscribers(Program.LeagueFor(conn));
 
     /// <summary>The subscribers for a league, before a connection exists (an area's inputs are decided first).</summary>
     public IEnumerable<T> For(LeagueRuntime league)
@@ -141,7 +141,7 @@ public static class GameEventOwners
 /// <summary>A hostile monster died by the player's hand, inside the kill's commit. What sends messages goes in <see cref="Later"/>: it runs
 /// after the commit, in order, whichever way the kill came (a melee hit, a projectile). An atomic kill with
 /// CommittedOutput instead requires handlers to commit gameplay synchronously and append primitive output there.</summary>
-public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
+public sealed record KillContext(Player Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
 {
     // Attributed owned kills still dispatch league content; only owner-specific triggers filter this flag.
     public bool PlayerKill { get; init; } = true;
@@ -156,9 +156,9 @@ public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, strin
 public static class GameEvents
 {
     /// <summary>Adjust an entity's walking speed (cells/second) before its movement is resolved and presented.</summary>
-    public static readonly GameEvent<Func<ClientState, uint, double, double>> MovementSpeed = new();
+    public static readonly GameEvent<Func<Player, uint, double, double>> MovementSpeed = new();
 
-    public static double ResolveMovementSpeed(ClientState conn, uint entity, double speed)
+    public static double ResolveMovementSpeed(Player conn, uint entity, double speed)
     {
         foreach (var (owner, run) in MovementSpeed.Subscribers(conn))
         {
@@ -173,41 +173,41 @@ public static class GameEvents
 
     /// <summary>The player's frames started in an area (each entry): return the content's work for every frame of this area
     /// (with the game seconds since the last), or null when it has none there. <see cref="InArea"/> and <see cref="Always"/> build one.</summary>
-    public static readonly GameEvent<Func<ClientState, Func<ClientState, double, Task>?>> AreaTick = new();
+    public static readonly GameEvent<Func<Player, Func<Player, double, Task>?>> AreaTick = new();
 
     /// <summary>An <see cref="AreaTick"/> whose work runs only in the area <paramref name="areaId"/>.</summary>
-    public static Func<ClientState, Func<ClientState, double, Task>?> InArea(string areaId, Func<ClientState, Task> run) =>
+    public static Func<Player, Func<Player, double, Task>?> InArea(string areaId, Func<Player, Task> run) =>
         conn => conn.Layout.Id == areaId ? (c, _) => run(c) : null;
 
     /// <summary>An <see cref="AreaTick"/> whose work runs in every area.</summary>
-    public static Func<ClientState, Func<ClientState, double, Task>?> Always(Func<ClientState, double, Task> run) => _ => run;
+    public static Func<Player, Func<Player, double, Task>?> Always(Func<Player, double, Task> run) => _ => run;
 
     /// <summary>An area's own world (GameArea) was made, or a module loaded while it runs: add the rules' systems, stores,
     /// events and timers to it, with the module's lifetime as their source (GameArea.Drop removes them when it unloads). The
     /// connection is the area's first player's, for its league and the area's data; keep nothing of it but the area's.</summary>
-    public static readonly GameEvent<Action<GameArea, ClientState>> AreaStarted = new();
+    public static readonly GameEvent<Action<GameArea, Player>> AreaStarted = new();
 
     /// <summary>The player's area is ready: the client sent "area generated", and the area's monsters and objects are placed.</summary>
-    public static readonly GameEvent<Func<ClientState, Task>> AreaGenerated = new();
+    public static readonly GameEvent<Func<Player, Task>> AreaGenerated = new();
 
     /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place
     /// a league encounter's monsters and objects here (<see cref="LeagueChances"/> rolls how many).</summary>
     public static readonly GameEvent<Func<AreaPopulated, Task>> AreaPopulated = new();
 
     /// <summary>The player has used an area transition to another room of this instance.</summary>
-    public static readonly GameEvent<Func<ClientState, Task>> LocalGateUsed = new();
+    public static readonly GameEvent<Func<Player, Task>> LocalGateUsed = new();
 
     /// <summary>The player is about to leave the area or the game, with why.</summary>
-    public static readonly GameEvent<Func<ClientState, string, Task>> PlayerLeaving = new();
+    public static readonly GameEvent<Func<Player, string, Task>> PlayerLeaving = new();
 
     /// <summary>The player's hideout is being furnished: place stations here.</summary>
-    public static readonly GameEvent<Func<ClientState, Task>> HideoutReady = new();
+    public static readonly GameEvent<Func<Player, Task>> HideoutReady = new();
 
     /// <summary>Messages sent as the player enters an area, before its objects: a log line and the message.</summary>
-    public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> EnterMessages = new();
+    public static readonly GameEvent<Func<Player, IEnumerable<(string Log, byte[] Message)>>> EnterMessages = new();
 
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
-    public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
+    public static readonly GameEvent<Func<Player, AreaHeader?>> AreaHeader = new();
 
     /// <summary>A map device's checked input before any item is consumed.</summary>
     public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
@@ -237,18 +237,18 @@ public static class GameEvents
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
 
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, GameEvent<Func<ClientState, byte[], Task<bool>>>> Packets = new();
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, GameEvent<Func<Player, byte[], Task<bool>>>> Packets = new();
 
     /// <summary>A client message (C→S) with this opcode, the whole message with its opcode, before the Gateway handles it. True: it was
     /// taken, and the Gateway's own handler does not run.</summary>
-    public static GameEvent<Func<ClientState, byte[], Task<bool>>> Packet(ushort opcode) => Packets.GetOrAdd(opcode, _ => new());
+    public static GameEvent<Func<Player, byte[], Task<bool>>> Packet(ushort opcode) => Packets.GetOrAdd(opcode, _ => new());
 
     /// <summary>Whether anything subscribes to client messages with this opcode.</summary>
     public static bool WantsPacket(ushort opcode) => Packets.TryGetValue(opcode, out var packet) && packet.Any;
 
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>
-    public static IDisposable Command(string owner, string name, string usage, Func<ClientState, string[], Task> run, params string[] arguments) =>
+    public static IDisposable Command(string owner, string name, string usage, Func<Player, string[], Task> run, params string[] arguments) =>
         CommandsBuilding.Add(owner, (commands, conn) => commands.TryAdd(name, usage, async args =>
         {
             if (!await GameEventOwners.Guard(owner, $"/{name}", () => run(conn, args)))
@@ -256,20 +256,20 @@ public static class GameEvents
         }, arguments));
 
     /// <summary>The content's work for the area the player just entered (<see cref="AreaTick"/>); empty when none has any.</summary>
-    public static List<(string Owner, Func<ClientState, double, Task> Run)> AreaTickWork(ClientState conn)
+    public static List<(string Owner, Func<Player, double, Task> Run)> AreaTickWork(Player conn)
     {
-        List<(string, Func<ClientState, double, Task>)> work = [];
+        List<(string, Func<Player, double, Task>)> work = [];
         foreach (var (owner, start) in AreaTick.Subscribers(conn))
             if (start(conn) is { } run) work.Add((owner, run));
         return work;
     }
 
-    public static async Task RunAreaTick(List<(string Owner, Func<ClientState, double, Task> Run)> work, ClientState conn, double seconds)
+    public static async Task RunAreaTick(List<(string Owner, Func<Player, double, Task> Run)> work, Player conn, double seconds)
     {
         foreach (var (owner, run) in work) await GameEventOwners.Guard(owner, nameof(AreaTick), () => run(conn, seconds));
     }
 
-    public static async Task RunAreaGenerated(ClientState conn)
+    public static async Task RunAreaGenerated(Player conn)
     {
         foreach (var (owner, run) in AreaGenerated.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(AreaGenerated), () => run(conn));
     }
@@ -279,29 +279,29 @@ public static class GameEvents
         foreach (var (owner, run) in AreaPopulated.Subscribers(area.Conn)) await GameEventOwners.Guard(owner, nameof(AreaPopulated), () => run(area));
     }
 
-    public static async Task RunLocalGateUsed(ClientState conn)
+    public static async Task RunLocalGateUsed(Player conn)
     {
         foreach (var (owner, run) in LocalGateUsed.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(LocalGateUsed), () => run(conn));
     }
 
-    public static async Task RunPlayerLeaving(ClientState conn, string why)
+    public static async Task RunPlayerLeaving(Player conn, string why)
     {
         foreach (var (owner, run) in PlayerLeaving.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(PlayerLeaving), () => run(conn, why));
     }
 
-    public static async Task RunHideoutReady(ClientState conn)
+    public static async Task RunHideoutReady(Player conn)
     {
         foreach (var (owner, run) in HideoutReady.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(HideoutReady), () => run(conn));
     }
 
-    public static List<(string Log, byte[] Message)> RunEnterMessages(ClientState conn)
+    public static List<(string Log, byte[] Message)> RunEnterMessages(Player conn)
     {
         var messages = new List<(string, byte[])>();
         foreach (var (owner, run) in EnterMessages.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(EnterMessages), () => messages.AddRange(run(conn)));
         return messages;
     }
 
-    public static AreaHeader? RunAreaHeader(ClientState conn)
+    public static AreaHeader? RunAreaHeader(Player conn)
     {
         AreaHeader? header = null;
         foreach (var (owner, run) in AreaHeader.Subscribers(conn))
@@ -329,7 +329,7 @@ public static class GameEvents
     }
 
     /// <summary>True when a subscriber took the message.</summary>
-    public static async Task<bool> AnyPacket(ClientState conn, ushort opcode, byte[] bytes)
+    public static async Task<bool> AnyPacket(Player conn, ushort opcode, byte[] bytes)
     {
         if (!Packets.TryGetValue(opcode, out var packet)) return false;
         foreach (var (owner, run) in packet.Subscribers(conn))
@@ -341,7 +341,7 @@ public static class GameEvents
     }
 
     /// <summary>The subscribers' changes to a kill's drops; null when none of this league's changes drops.</summary>
-    public static DropRoll? RunDrops(ClientState conn, MonsterInfo monster)
+    public static DropRoll? RunDrops(Player conn, MonsterInfo monster)
     {
         if (!Drops.Any) return null;
         DropRoll? roll = null;
@@ -353,7 +353,7 @@ public static class GameEvents
         return roll;
     }
 
-    public static uint RunExperience(ClientState conn, MonsterInfo monster, uint experience)
+    public static uint RunExperience(Player conn, MonsterInfo monster, uint experience)
     {
         if (!Experience.Any) return experience;
         var gain = new ExperienceGain(conn, monster, experience);
@@ -361,7 +361,7 @@ public static class GameEvents
         return gain.Experience;
     }
 
-    public static IReadOnlyDictionary<string, int> RunStats(ClientState conn)
+    public static IReadOnlyDictionary<string, int> RunStats(Player conn)
     {
         if (!Stats.Any) return ImmutableDictionary<string, int>.Empty;
         var sheet = new StatSheet(conn);
@@ -372,98 +372,98 @@ public static class GameEvents
     // ---- The game's own hand-overs ---------------------------------------------------------------------------------------
 
     // Optional gameplay shares the existing minion schedule and current connection writer.
-    public static readonly GameEvent<Func<ClientState, double, Task>> CompanionTick = new();
-    public static readonly GameEvent<Func<ClientState, string, bool>> GrantedSkillExecutable = new();
-    public static readonly GameEvent<Action<ClientState>> TransientClosing = new();
-    public static readonly GameEvent<Action<ClientState, bool>> PauseChanged = new();
-    public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCastAt = new();
+    public static readonly GameEvent<Func<Player, double, Task>> CompanionTick = new();
+    public static readonly GameEvent<Func<Player, string, bool>> GrantedSkillExecutable = new();
+    public static readonly GameEvent<Action<Player>> TransientClosing = new();
+    public static readonly GameEvent<Action<Player, bool>> PauseChanged = new();
+    public static readonly GameEvent<Func<Player, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCastAt = new();
     public static readonly GameEvent<Action<KillContext>> Kill = new();
     /// <summary>Optional league systems' skills and transient skill-bar bindings.</summary>
-    public static readonly GameEvent<Func<ClientState, IReadOnlyList<GrantedSkill>>> GrantedSkills = new();
-    public static readonly GameEvent<Action<ClientState, ushort[]>> SkillBarBuilding = new();
+    public static readonly GameEvent<Func<Player, IReadOnlyList<GrantedSkill>>> GrantedSkills = new();
+    public static readonly GameEvent<Action<Player, ushort[]>> SkillBarBuilding = new();
     /// <summary>Equipment granted by a league system that waives its requirements.</summary>
-    public static readonly GameEvent<Func<ClientState, IReadOnlyCollection<uint>>> RequirementExemptions = new();
-    public static readonly GameEvent<Action<ClientState, Dictionary<uint, int>>> FinalStatsBuilding = new();
-    public static readonly GameEvent<Func<ClientState, int, int>> IncomingDamage = new();
+    public static readonly GameEvent<Func<Player, IReadOnlyCollection<uint>>> RequirementExemptions = new();
+    public static readonly GameEvent<Action<Player, Dictionary<uint, int>>> FinalStatsBuilding = new();
+    public static readonly GameEvent<Func<Player, int, int>> IncomingDamage = new();
     /// <summary>False suppresses drops, ground publication and automatic gold collection.</summary>
-    public static readonly GameEvent<Func<ClientState, bool>> LootAllowed = new();
+    public static readonly GameEvent<Func<Player, bool>> LootAllowed = new();
     /// <summary>True when an optional system handled closing the native reward dialogue.</summary>
-    public static readonly GameEvent<Func<ClientState, Task<bool>>> RewardClosing = new();
+    public static readonly GameEvent<Func<Player, Task<bool>>> RewardClosing = new();
     /// <summary>A league encounter may refuse unrelated travel while its gate is closed.</summary>
-    public static readonly GameEvent<Func<ClientState, PendingTransfer, string?>> TravelRefusal = new();
+    public static readonly GameEvent<Func<Player, PendingTransfer, string?>> TravelRefusal = new();
     /// <summary>The Auth transfer answer, after failed-transfer recovery and before a successful ticket is sent.</summary>
-    public static readonly GameEvent<Func<ClientState, PendingTransfer, ControlResponse, Task>> TransferResolved = new();
+    public static readonly GameEvent<Func<Player, PendingTransfer, ControlResponse, Task>> TransferResolved = new();
     /// <summary>The player came back at a checkpoint or in town: a league encounter may restart its run.</summary>
-    public static readonly GameEvent<Func<ClientState, Task>> Resurrected = new();
+    public static readonly GameEvent<Func<Player, Task>> Resurrected = new();
 
-    public static IReadOnlyList<GrantedSkill> ExtraSkills(ClientState conn) =>
+    public static IReadOnlyList<GrantedSkill> ExtraSkills(Player conn) =>
         [.. GrantedSkills.For(conn).SelectMany(run => run(conn))];
 
-    public static HashSet<uint> ExemptItems(ClientState conn) =>
+    public static HashSet<uint> ExemptItems(Player conn) =>
         [.. RequirementExemptions.For(conn).SelectMany(run => run(conn))];
 
-    public static int AdjustIncomingDamage(ClientState conn, int damage)
+    public static int AdjustIncomingDamage(Player conn, int damage)
     {
         foreach (var run in IncomingDamage.For(conn)) damage = run(conn, damage);
         return damage;
     }
 
-    public static bool AllowsLoot(ClientState conn) => LootAllowed.For(conn).All(run => run(conn));
+    public static bool AllowsLoot(Player conn) => LootAllowed.For(conn).All(run => run(conn));
 
-    public static async Task<bool> AnyRewardClosing(ClientState conn)
+    public static async Task<bool> AnyRewardClosing(Player conn)
     {
         foreach (var run in RewardClosing.For(conn)) if (await run(conn)) return true;
         return false;
     }
 
-    public static async Task RunResurrected(ClientState conn)
+    public static async Task RunResurrected(Player conn)
     {
         foreach (var run in Resurrected.For(conn)) await run(conn);
     }
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
-    public static readonly GameEvent<Func<ClientState, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
     /// <summary>A connection's chat commands are made: a module adds to them.</summary>
-    public static readonly GameEvent<Func<ChatCommands, ClientState, ChatCommands>> CommandsBuilding = new();
+    public static readonly GameEvent<Func<ChatCommands, Player, ChatCommands>> CommandsBuilding = new();
     /// <summary>The campaign driver's /state is made (Agents/docs/dev/campaign-automation.md): a module adds the fields of
     /// what it runs (the Pantheon's "pantheon").</summary>
-    public static readonly GameEvent<Action<ClientState, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
-    public static readonly GameEvent<Func<ClientState, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
-    public static readonly GameEvent<Func<ClientState, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
+    public static readonly GameEvent<Action<Player, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
+    public static readonly GameEvent<Func<Player, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
+    public static readonly GameEvent<Func<Player, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
-    public static readonly GameEvent<Func<ClientState, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();
+    public static readonly GameEvent<Func<Player, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();
     /// <summary>A click on an item on the ground; true when it was this module's.</summary>
-    public static readonly GameEvent<Func<ClientState, uint, WorldItemObject, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> GroundItemUse = new();
+    public static readonly GameEvent<Func<Player, uint, WorldItemObject, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> GroundItemUse = new();
     /// <summary>An NPC option was picked, before its action; false stops it.</summary>
-    public static readonly GameEvent<Func<ClientState, NpcCatalog.Talk, Task<bool>>> NpcOptionPicked = new();
+    public static readonly GameEvent<Func<Player, NpcCatalog.Talk, Task<bool>>> NpcOptionPicked = new();
     /// <summary>A read of client messages was handled.</summary>
-    public static readonly GameEvent<Func<ClientState, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
-    public static readonly GameEvent<Func<ClientState, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
-    public static readonly GameEvent<Func<ClientState, InstanceItems.PlaceItem, Task<bool>>> InventoryPlace = new();
-    public static readonly GameEvent<Func<ClientState, Task>> NpcDialogueClosing = new();
+    public static readonly GameEvent<Func<Player, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
+    public static readonly GameEvent<Func<Player, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
+    public static readonly GameEvent<Func<Player, InstanceItems.PlaceItem, Task<bool>>> InventoryPlace = new();
+    public static readonly GameEvent<Func<Player, Task>> NpcDialogueClosing = new();
     /// <summary>A gem skill's cast: its effect id, skill id, where from, the action; true when the module took it, null for not its skill.</summary>
-    public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
+    public static readonly GameEvent<Func<Player, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
     /// <summary>A currency used; true when it was this module's.</summary>
-    public static readonly GameEvent<Func<ClientState, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
+    public static readonly GameEvent<Func<Player, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
     /// <summary>A warcry with open_nearby_chests_on_warcry went off: a module opens its chests within the radius (cells).</summary>
-    public static readonly GameEvent<Func<ClientState, (int X, int Y), int, Task>> ChestsOpened = new();
+    public static readonly GameEvent<Func<Player, (int X, int Y), int, Task>> ChestsOpened = new();
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
     /// the module delivered it to the party.</summary>
-    public static readonly GameEvent<Func<ClientState, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
+    public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
 
-    public static async Task<bool> AnyNpcTalk(ClientState conn, uint id, SpawnedNpc npc)
+    public static async Task<bool> AnyNpcTalk(Player conn, uint id, SpawnedNpc npc)
     {
         foreach (var run in NpcTalk.For(conn)) if (await run(conn, id, npc)) return true;
         return false;
     }
 
-    public static ChatCommands RunCommandsBuilding(ClientState conn, ChatCommands commands)
+    public static ChatCommands RunCommandsBuilding(Player conn, ChatCommands commands)
     {
         // With no connection, for the list tools read: every module's commands.
         foreach (var run in conn is null ? CommandsBuilding.All : CommandsBuilding.For(conn)) commands = run(commands, conn!);
         return commands;
     }
 
-    public static void RunStateBuilding(ClientState conn, System.Text.Json.Nodes.JsonObject state)
+    public static void RunStateBuilding(Player conn, System.Text.Json.Nodes.JsonObject state)
     {
         foreach (var run in StateBuilding.For(conn)) run(conn, state);
     }
@@ -474,76 +474,76 @@ public static class GameEvents
         foreach (var send in kill.Afterwards) await send();
     }
 
-    public static Dictionary<uint, int> WithPlayerStatSources(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithPlayerStatSources(Player conn, Dictionary<uint, int> sources)
     {
         foreach (var run in PlayerStatSources.For(conn)) sources = run(conn, sources);
         return sources;
     }
 
-    public static DamagePacket WithOutgoingDamage(ClientState conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster monster, DamagePacket rolled)
+    public static DamagePacket WithOutgoingDamage(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster monster, DamagePacket rolled)
     {
         foreach (var run in OutgoingDamage.For(conn)) rolled = run(conn, player, monster, rolled);
         return rolled;
     }
 
-    public static async Task<bool> AnyObjectUse(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> AnyObjectUse(Player conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         foreach (var run in ObjectUse.For(conn)) if (await run(conn, use, requestedAt)) return true;
         return false;
     }
 
-    public static async Task<bool> AnyGroundItemUse(ClientState conn, uint id, WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task<bool> AnyGroundItemUse(Player conn, uint id, WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         foreach (var run in GroundItemUse.For(conn)) if (await run(conn, id, ground, use, requestedAt)) return true;
         return false;
     }
 
-    public static async Task<bool> AllowNpcOption(ClientState conn, NpcCatalog.Talk talk)
+    public static async Task<bool> AllowNpcOption(Player conn, NpcCatalog.Talk talk)
     {
         foreach (var run in NpcOptionPicked.For(conn)) if (!await run(conn, talk)) return false;
         return true;
     }
 
-    public static async Task RunMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)
+    public static async Task RunMessagesHandled(Player conn, IReadOnlyList<ushort> ids)
     {
         foreach (var run in MessagesHandled.For(conn)) await run(conn, ids);
     }
 
-    public static async Task<bool> AnyInventoryPick(ClientState conn, InstanceItems.PickUpItem pick)
+    public static async Task<bool> AnyInventoryPick(Player conn, InstanceItems.PickUpItem pick)
     {
         foreach (var run in InventoryPick.For(conn)) if (await run(conn, pick)) return true;
         return false;
     }
 
-    public static async Task<bool> AnyInventoryPlace(ClientState conn, InstanceItems.PlaceItem place)
+    public static async Task<bool> AnyInventoryPlace(Player conn, InstanceItems.PlaceItem place)
     {
         foreach (var run in InventoryPlace.For(conn)) if (await run(conn, place)) return true;
         return false;
     }
 
-    public static async Task RunChestsOpened(ClientState conn, (int X, int Y) at, int radius)
+    public static async Task RunChestsOpened(Player conn, (int X, int Y) at, int radius)
     {
         foreach (var run in ChestsOpened.For(conn)) await run(conn, at, radius);
     }
 
-    public static async Task RunNpcDialogueClosing(ClientState conn)
+    public static async Task RunNpcDialogueClosing(Player conn)
     {
         foreach (var run in NpcDialogueClosing.For(conn)) await run(conn);
     }
 
-    public static bool? RunSkillCast(ClientState conn, string? effect, ushort skillId, (int X, int Y) from, Func<bool> current)
+    public static bool? RunSkillCast(Player conn, string? effect, ushort skillId, (int X, int Y) from, Func<bool> current)
     {
         foreach (var run in SkillCast.For(conn)) if (run(conn, effect, skillId, from, current) is { } taken) return taken;
         return null;
     }
 
-    public static async Task<bool> AnyItemUse(ClientState conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    public static async Task<bool> AnyItemUse(Player conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         foreach (var run in ItemUse.For(conn)) if (await run(conn, row, item, type)) return true;
         return false;
     }
 
-    public static async Task<bool> RunPartyChat(ClientState conn, string text, IReadOnlyList<ChatLineItem>? items)
+    public static async Task<bool> RunPartyChat(Player conn, string text, IReadOnlyList<ChatLineItem>? items)
     {
         foreach (var run in PartyChat.For(conn)) if (await run(conn, text, items)) return true;
         return false;

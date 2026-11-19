@@ -2,13 +2,13 @@ static partial class Game
 {
     /// <summary>
     /// The player's totems as a test can see them, one line each: id, variety, level, life/maximum life, cell, seconds
-    /// left and the skill each carries. They live in <c>ClientState.Totems</c> and never in
-    /// <c>ClientState.Monsters</c> — that is the point of the separate collection (area hits, monster AI, loot,
+    /// left and the skill each carries. They live in <c>Player.Totems</c> and never in
+    /// <c>Player.Monsters</c> — that is the point of the separate collection (area hits, monster AI, loot,
     /// experience and the instance save must not see them) — so <c>/mobs</c> and the <c>/state</c> <c>monsters</c>
     /// array cannot list one and this is how "was the totem summoned at all?" is answered. Read-only; the Monsters lock
     /// guards the collection and the connection clock, as everywhere else that reads them.
     /// </summary>
-    internal static string TotemsListing(ClientState conn)
+    internal static string TotemsListing(Player conn)
     {
         var lines = new List<string>();
         lock (conn.Monsters)
@@ -43,6 +43,6 @@ static partial class Game
     /// the totem was summoned with, else its row number. It is read from the effect stored on the totem rather than
     /// looked up among the connection's gems: a totem outlives the socket it came from and the gem list is the
     /// player's, and an adopted projectile spell's gem may not survive the summon at all.</summary>
-    internal static string TotemSkillLabel(ClientState conn, int effectRow) =>
+    internal static string TotemSkillLabel(Player conn, int effectRow) =>
         effectRow < 0 ? "totem" : SkillsFor(conn).EffectId(effectRow) ?? $"effect {effectRow}";
 }

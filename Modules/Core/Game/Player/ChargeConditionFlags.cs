@@ -10,7 +10,7 @@ public static partial class Game
         flags[$"_while_at_maximum_{name}_charges"] = alive && !converted && maximum >= 0 && effective >= maximum;
     }
 
-    static Dictionary<string, bool> RequalifyChargeConditions(ClientState conn,
+    static Dictionary<string, bool> RequalifyChargeConditions(Player conn,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
         var flags = new Dictionary<string, bool>(captured);

@@ -37,7 +37,7 @@ public sealed class DamageAura
 public static partial class Game
 {
     /// <summary>Starts a damage aura around the player: its zone in the area and its step every frame while it runs.</summary>
-    static void StartDamageAura(ClientState conn, DamageAura aura)
+    static void StartDamageAura(Player conn, DamageAura aura)
     {
         var zone = new Zone
         {
@@ -68,7 +68,7 @@ public static partial class Game
     }
 
     // One frame of a damage aura: the marks that came and went, then the damage to the monsters inside.
-    static async Task StepDamageAura(ClientState conn,
+    static async Task StepDamageAura(Player conn,
         DamageAura aura, Zone zone, double seconds)
     {
         if (!CurrentGameWork) return;

@@ -19,7 +19,7 @@ public static class KingInMists
 {
     // Actor handler 0x14219aa10 stores the received sequence on the action (+0x11a), which later hits identify.
     // Scripted actions share the actor's counter with ordinary swings; those allocate only at the send gate.
-    public static ushort? SequenceForAction(ClientState conn, SpawnedMonster boss, bool swing) =>
+    public static ushort? SequenceForAction(Player conn, SpawnedMonster boss, bool swing) =>
         !conn.LockstepClient ? conn.NextActionSequence() : swing ? null : boss.NextSequence();
 
     // Action promotion 0x141e95080 places the actor on the first pair: every mismatch in lockstep, large ones in
@@ -146,7 +146,7 @@ public static class KingInMists
 
     /// <summary>The actor skill list for either form, built from the GrantedEffects rows the client must know to play the
     /// action's own animation. The ids are also the 0x1ab ids this controller sends.</summary>
-    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(Player conn, MonsterCatalog.Variety variety, byte level,
         MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
@@ -214,7 +214,7 @@ public static class KingInMists
 
     /// <summary>The Mystic Fetish actor's full granted-effect list. The King controller sends the hazard actions to the
     /// fetish actor itself, as the official server does (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps).</summary>
-    public static IReadOnlyList<GrantedSkill> FetishSkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill> FetishSkillsFor(Player conn, MonsterCatalog.Variety variety, byte level,
         MonsterAttack attack)
     {
         if (!IsFetish(variety)) return [];
@@ -229,7 +229,7 @@ public static class KingInMists
         return list;
     }
 
-    public static void Begin(ClientState conn, uint id)
+    public static void Begin(Player conn, uint id)
     {
         SpawnedMonster? m;
         lock (conn.Monsters) conn.Monsters.TryGetValue(id, out m);
@@ -288,7 +288,7 @@ public static class KingInMists
             .Add(DamageType.Chaos, converted);
     }
 
-    sealed class Fight(ClientState conn, uint id, SpawnedMonster boss)
+    sealed class Fight(Player conn, uint id, SpawnedMonster boss)
     {
         (int X, int Y) _origin;
         int _phase = IsBoss3(boss.Variety) ? 3 : 1;
@@ -1595,7 +1595,7 @@ public static class KingInMists
         // A real route through the hedge-maze rooms: BFS over the placed maze rooms, connecting only rooms whose centers
         // are reachable from one another through the actual walk map. This gives the Guiding Lights a walkable line
         // instead of a straight fallback through the hedge walls.
-        static MazePlan? MazePlanFor(ClientState client)
+        static MazePlan? MazePlanFor(Player client)
         {
             var level = ServerLevels.For(client.Layout.Id, client.Seed);
             if (level is null) return null;
@@ -1648,7 +1648,7 @@ public static class KingInMists
             return new MazePlan(centers[startRoom], centers[exitRoom], route);
         }
 
-        static (int X, int Y)? MazePoint(ClientState client, bool exit)
+        static (int X, int Y)? MazePoint(Player client, bool exit)
         {
             var level = ServerLevels.For(client.Layout.Id, client.Seed);
             if (level is null) return null;
@@ -1667,7 +1667,7 @@ public static class KingInMists
 
         // The exact .arm telepad/portal cell can be a wall or a non-walkable decoration. Scan the room's world box for
         // the walkable cell closest to it instead of letting Near() snap outside the room.
-        static (int X, int Y) RoomCell(ClientState client, PlacedArmRoom room, (int X, int Y) world)
+        static (int X, int Y) RoomCell(Player client, PlacedArmRoom room, (int X, int Y) world)
         {
             var near = client.Layout.Near(world);
             if (Distance(near.X, near.Y, world.X, world.Y) <= 12) return near;

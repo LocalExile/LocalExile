@@ -17,7 +17,7 @@ public class UniqueResistanceTests
         Saves.Open(path);
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "pairres", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "pairres", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "PairResChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(), God = true,
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),

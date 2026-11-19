@@ -7,7 +7,7 @@ public static partial class Game
     // The Cosmetics tab (K) wears what S→C 0x1f3 lists, all slots at once (23-microtransactions.md). Saved picks first; a
     // portal effect set with /cosmetic and no Portal slot saved shows in that slot too.
     // Read from the save once per connection (the stats ask for it on every hit); a pick clears it.
-    public static List<InstanceMicrotransactions.Equipped> WornCosmetics(ClientState conn)
+    public static List<InstanceMicrotransactions.Equipped> WornCosmetics(Player conn)
     {
         if (conn.WornCosmetics is { } cached) return cached;
         var worn = new Dictionary<byte, CharacterSaves.SavedCosmetic>(CharacterSaves.Cosmetics(CharacterName(conn)));
@@ -18,7 +18,7 @@ public static partial class Game
         return conn.WornCosmetics = Mtx.Equipped(worn);
     }
 
-    public static async Task SendWornCosmetics(ClientState conn, string why)
+    public static async Task SendWornCosmetics(Player conn, string why)
     {
         await Send(conn, [], null, atGate: () =>
         {
@@ -35,14 +35,14 @@ public static partial class Game
     // effect slot type it takes (SkillGems MtxSlotTypes: the skill's effect, a totem skin), naming the first socket that
     // holds it (the panel finds the gem item there). Keys start at 50, past the fixed slots, and identify target lifetimes,
     // not positions in this list. Refresh only at the send gate: queued work must not publish an obsolete binding.
-    public static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(ClientState conn) =>
+    public static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(Player conn) =>
         PlayerInventories.For(CharacterName(conn), ItemsFor(conn)).SocketedGemPlaces()
             .Where(g => ItemsFor(conn).GemEffects(g.Gem).Any()).DistinctBy(g => g.Gem.TypeHash)
             .SelectMany(g => (ItemsFor(conn).ByHash(g.Gem.TypeHash) is { } t && ItemsFor(conn).Gem(t) is { MtxSlotTypes.Count: > 0 } gem ? gem.MtxSlotTypes : [0])
                 .Select(slotType => (g.Row, (byte)g.Socket, Gem: g.Gem.TypeHash, SlotType: (byte)slotType)))
             .Take(byte.MaxValue).ToList();
 
-    public static List<InstanceMicrotransactions.SkillSlot> SkillSlots(ClientState conn)
+    public static List<InstanceMicrotransactions.SkillSlot> SkillSlots(Player conn)
     {
         string character = CharacterName(conn);
         var places = SkillCosmeticPlaces(conn);
@@ -63,7 +63,7 @@ public static partial class Game
     // Ends a burning Righteous Fire and lights it again from its gem (only from the gem of type `gem`, when given), so a
     // change of art or ring size shows at once. `expectedRelight` is the exact owner seen by the producer before its own
     // awaits; null means no RF was present and never late-binds to one that appeared later.
-    public static async Task<bool> RelightRighteousFire(ClientState conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
+    public static async Task<bool> RelightRighteousFire(Player conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
     {
         PlayerSkillSource source;
         lock (conn.Monsters)
@@ -123,7 +123,7 @@ public static partial class Game
     /// it for a player the server describes, so the server does and sends the result as that stat. A number whose files
     /// are not known (Morphs) morphs nothing.
     /// </summary>
-    public static Morph? WornMorph(ClientState conn)
+    public static Morph? WornMorph(Player conn)
     {
         // is_in_town_or_hideout_or_heist_hub: the Rogue Harbour (HeistHub, HeistHubEndless) is neither a town nor a
         // hideout in WorldAreas. Nowhere else: the transformation sets have an idle, a run and Emerge, and map a hit,
@@ -231,7 +231,7 @@ public static partial class Game
     /// Effect's (a hit effect, a surge, an ailment's or a mine's art), and the character's worn cosmetics: the
     /// client's calculators run in the skill's context, which sees both.
     /// </summary>
-    public static IEnumerable<(uint Stat, int Value)> SkillCosmeticDerivedStats(ClientState conn, IReadOnlyDictionary<uint, int> skill)
+    public static IEnumerable<(uint Stat, int Value)> SkillCosmeticDerivedStats(Player conn, IReadOnlyDictionary<uint, int> skill)
     {
         var worn = new Dictionary<uint, int>();
         foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
@@ -247,7 +247,7 @@ public static partial class Game
     /// stat only such a calculator reads does nothing until the server sends the result: the morph (WornMorph) and the
     /// charges' art (ChargeArt) and the choices of art (DerivedArt). 23-microtransactions.md §4 lists what is left.
     /// </summary>
-    public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(ClientState conn, IReadOnlyDictionary<uint, int> worn)
+    public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(Player conn, IReadOnlyDictionary<uint, int> worn)
     {
         int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
         if (WornMorph(conn) is { } morph && Stats.Key("mtx_virtual_morph_art_variation_index") is uint morphKey)
@@ -263,7 +263,7 @@ public static partial class Game
     // The BuffVisuals row a charge's buff shows: BuffVisualsArtVariations' row of the charge's art variation (ChargeArt:
     // a worn Alternate Charge Skin), null for the buff's own. The server names it, as for every buff whose art follows a
     // variation (0x1c1's BuffVisuals override, 11-skills.md §12); the derived stat alone changes nothing.
-    public static ushort? ChargeArtVisual(ClientState conn, ChargeType type)
+    public static ushort? ChargeArtVisual(Player conn, ChargeType type)
     {
         string id = type switch { ChargeType.Endurance => "endurance_charge", ChargeType.Frenzy => "frenzy_charge", _ => "power_charge" };
         if (Stats.Key($"virtual_{id}_art_variation") is not uint key) return null;
@@ -277,14 +277,14 @@ public static partial class Game
 
     // The BuffVisuals row one of the player's own buffs shows when a worn cosmetic restyles it: BuffVisualsArtVariations'
     // row ("onslaught_buff", "fortify_buff", "arcane_surge") at the derived stat's value (the rings), null for its own.
-    public static ushort? BuffArtVisual(ClientState conn, string buff, string stat) =>
+    public static ushort? BuffArtVisual(Player conn, string buff, string stat) =>
         Stats.Key(stat) is uint key && CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value is int variation and not 0
             ? Art.BuffVisual(buff, variation) : null;
 
     // The morph to the client again after a pick changed it: the stat goes with the player's stats (CosmeticStats); the
     // model is the Animated component's (0x2bc) and the animation set the Actor's (0x1b6), back to the class's own when
     // the morph ended.
-    public static async Task SendMorph(ClientState conn, Morph? before)
+    public static async Task SendMorph(Player conn, Morph? before)
     {
         var now = WornMorph(conn);
         if (now == before) return;
@@ -306,11 +306,11 @@ public static partial class Game
     }
 
     // The worn portrait's variation (the Player component's +0x1aa), 0 for the class's own.
-    public static ushort WornPortrait(ClientState conn) =>
+    public static ushort WornPortrait(Player conn) =>
         WornCosmetics(conn).FirstOrDefault(w => w.Slot == PortraitSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Portrait ?? 0 : (ushort)0;
 
     // The portrait frame in the Social Frame slot, 0 for the default. What the client draws is the one it logged in with
-    // (ClientState.PortraitFrame).
-    public static ushort WornFrame(ClientState conn) =>
+    // (Player.PortraitFrame).
+    public static ushort WornFrame(Player conn) =>
         WornCosmetics(conn).FirstOrDefault(w => w.Slot == SocialFrameSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Frame ?? 0 : (ushort)0;
 }

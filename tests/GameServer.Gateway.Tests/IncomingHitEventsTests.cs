@@ -39,7 +39,7 @@ public sealed class IncomingHitEventsTests
             foreach (bool spell in new[] { false, true })
             foreach (bool block in new[] { false, true })
             {
-                var conn = new ClientState(new(1, "incoming-hit-events", 1000, 1000, 100, 100, null, []), 1, 1)
+                var conn = new Player(new(1, "incoming-hit-events", 1000, 1000, 100, 100, null, []), 1, 1)
                 {
                     Character = $"HitEvents{synthetic}{spell}{block}", PlayerLife = 1000, PlayerMana = 100,
                     Instance = new(), EvasionEntropy = 100, IncomingHitRandom = new LowRolls(),

@@ -8,7 +8,7 @@ public static partial class Game
     const double MadnessTouchSeconds = 20;
     const string MadnessAllPoison = "all_damage_can_poison_while_affected_by_glorious_madness";
 
-    static MadnessState MadnessAt(ClientState conn)
+    static MadnessState MadnessAt(Player conn)
     {
         var state = conn.Madness;
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !ReferenceEquals(state.Owner, CombatLifetime))
@@ -29,9 +29,9 @@ public static partial class Game
         return state;
     }
 
-    public static bool MadnessActiveLocked(ClientState conn) => MadnessAt(conn).Active;
+    public static bool MadnessActiveLocked(Player conn) => MadnessAt(conn).Active;
 
-    public static void MadnessExpiryRateLocked(ClientState conn, double now, double rate)
+    public static void MadnessExpiryRateLocked(Player conn, double now, double rate)
     {
         var state = conn.Madness;
         rate = Math.Max(.25, rate);
@@ -47,11 +47,11 @@ public static partial class Game
         conn.AuraStatsDirty = true;
     }
 
-    static int MadnessSkillValue(ClientState conn, string name) => Stats.Key(name) is uint key
+    static int MadnessSkillValue(Player conn, string name) => Stats.Key(name) is uint key
         ? SkillsFor(conn).EffectStats(SkillsFor(conn).EffectRow(MadnessEffect), 1)
             .FirstOrDefault(p => p.Item1 == key).Item2 : 0;
 
-    public static bool MadnessReconcileLocked(ClientState conn, double now)
+    public static bool MadnessReconcileLocked(Player conn, double now)
     {
         long before = conn.Madness.Revision;
         var state = MadnessAt(conn);
@@ -89,7 +89,7 @@ public static partial class Game
         }
     }
 
-    public static IReadOnlyList<(uint Key, int Value)> MadnessRawStatsLocked(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> MadnessRawStatsLocked(Player conn,
         IReadOnlyDictionary<uint, int> raw)
     {
         var state = MadnessAt(conn);
@@ -140,7 +140,7 @@ public static partial class Game
         return result;
     }
 
-    public static async Task<bool> ToggleMadness(ClientState conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
+    public static async Task<bool> ToggleMadness(Player conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
     {
         bool accepted = false;
         await SendWorldRecords(conn, PlayerId, () =>
@@ -184,7 +184,7 @@ public static partial class Game
         return accepted;
     }
 
-    static void PresentMadnessLocked(ClientState conn, List<byte[]> packets)
+    static void PresentMadnessLocked(Player conn, List<byte[]> packets)
     {
         var state = MadnessAt(conn);
         Present(ref state.PresentedBuff, state.Active ? state.Buff : (ushort)0, 1535);

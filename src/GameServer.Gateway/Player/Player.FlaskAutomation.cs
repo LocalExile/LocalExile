@@ -71,7 +71,7 @@ public sealed class FlaskAutomationState
         lock (gate) while (Events.TryPeek(out var head)) Complete(head);
     }
 }
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public FlaskAutomationState FlaskAutomation { get; } = new();
 }

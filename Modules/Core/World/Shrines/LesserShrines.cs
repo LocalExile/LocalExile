@@ -47,9 +47,9 @@ public static class LesserShrines
     sealed record Grant(string Source, int Effect, int Level);
     sealed record Request((int X, int Y) At, double Seconds, string Type);
     static readonly ConditionalWeakTable<PlayerInventories, State> States = new();
-    static readonly ConditionalWeakTable<ClientState, List<Request>> Pending = new();
+    static readonly ConditionalWeakTable<Player, List<Request>> Pending = new();
 
-    static Grant? Equipped(ClientState conn)
+    static Grant? Equipped(Player conn)
     {
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
@@ -66,7 +66,7 @@ public static class LesserShrines
         return null;
     }
 
-    static double Cooldown(ClientState conn, Grant? grant)
+    static double Cooldown(Player conn, Grant? grant)
     {
         if (grant is null) return 0;
         var stats = CharacterPlayerStats(conn);
@@ -76,7 +76,7 @@ public static class LesserShrines
         return rate > 0 ? SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0 / rate : double.PositiveInfinity;
     }
 
-    static void Observe(State state, ClientState conn, Grant? grant, double cooldown)
+    static void Observe(State state, Player conn, Grant? grant, double cooldown)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (state.Clock is { } old && !ReferenceEquals(old, conn.Clock)) state.Trigger.Rebase(old.Elapsed.TotalSeconds, now);
@@ -111,7 +111,7 @@ public static class LesserShrines
         }
     }
 
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         Request[] requests;
         lock (conn.Monsters)

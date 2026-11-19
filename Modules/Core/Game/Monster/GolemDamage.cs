@@ -5,7 +5,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool GolemEnemyOrderLocked(ClientState conn, uint id, SpawnedMonster enemy, double now, double ownerDistance)
+    static bool GolemEnemyOrderLocked(Player conn, uint id, SpawnedMonster enemy, double now, double ownerDistance)
     {
         if (!enemy.Hostile || enemy.Attack is not { } attack || InTown(conn) || InGracePeriod(conn)) return false;
         if (conn.Golems.IncomingHits.Any(h => h.Enemy == id && h.Generation == enemy.ActionGeneration)) return true;
@@ -32,7 +32,7 @@ public static partial class Game
         return true;
     }
 
-    static (GolemState.Golem? G, double Distance) GolemTargetLocked(ClientState conn, uint id, SpawnedMonster enemy,
+    static (GolemState.Golem? G, double Distance) GolemTargetLocked(Player conn, uint id, SpawnedMonster enemy,
         (int X, int Y) here, double now, double ownerDistance)
     {
         if (conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count == 0) return default;
@@ -43,7 +43,7 @@ public static partial class Game
             .OrderByDescending(t => t.G.Taunts.GetValueOrDefault(id) > now).ThenBy(t => t.Distance).FirstOrDefault();
     }
 
-    static byte[]? GolemIncomingPresentation(ClientState conn, PlayerMinions.Output output)
+    static byte[]? GolemIncomingPresentation(Player conn, PlayerMinions.Output output)
     {
         var hit = conn.Golems.IncomingHits.FirstOrDefault(h => h.Enemy == output.TargetId && h.Generation == output.Action);
         if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
@@ -55,7 +55,7 @@ public static partial class Game
             0xffff, 0x0408, targetObjectId: hit.Target.Id);
     }
 
-    static void GolemIncomingContactsLocked(ClientState conn, double now)
+    static void GolemIncomingContactsLocked(Player conn, double now)
     {
         foreach (var hit in conn.Golems.IncomingHits.ToArray())
         {
@@ -83,7 +83,7 @@ public static partial class Game
         }
     }
 
-    public static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
+    public static bool GolemTakeHitLocked(Player conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
     {
         if (!GolemCurrent(conn, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (GolemIgnoresDots(g)) return false;
@@ -163,7 +163,7 @@ public static partial class Game
         return true;
     }
 
-    internal static void GolemDieLocked(ClientState conn, GolemState.Golem g, double now, bool emitLife = true)
+    internal static void GolemDieLocked(Player conn, GolemState.Golem g, double now, bool emitLife = true)
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
@@ -187,7 +187,7 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new([], "golem died", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
     }
 
-    static int GolemSafeguardLocked(ClientState conn, int damage, double now)
+    static int GolemSafeguardLocked(Player conn, int damage, double now)
     {
         if (damage <= 0) return damage;
         var candidates = conn.Golems.All.Values.Where(g => !g.Monster.Dead && g.Definition.Kind == "Stone" && g.Definition.Special)

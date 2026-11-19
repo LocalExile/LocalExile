@@ -105,13 +105,13 @@ public sealed class MonsterEmerge
         InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, sequence, 0x0800, id),
     ];
 
-    /// <summary>The buried monsters of a connection by object id: not in <see cref="ClientState.Monsters"/> until they
+    /// <summary>The buried monsters of a connection by object id: not in <see cref="Player.Monsters"/> until they
     /// rise. Guarded by the Monsters lock.</summary>
-    public static SortedDictionary<uint, SpawnedMonster> Buried(ClientState conn) => conn.DormantMonsters;
+    public static SortedDictionary<uint, SpawnedMonster> Buried(Player conn) => conn.DormantMonsters;
 
     /// <summary>Every monster that has not risen yet, buried or lurking (for the instance's saved state). Under the
     /// Monsters lock.</summary>
-    public static List<SpawnedMonster> Unrisen(ClientState conn)
+    public static List<SpawnedMonster> Unrisen(Player conn)
     {
         var g = conn.EmergeGround;
         return [.. conn.DormantMonsters.Values, .. g.Lurking.Select(id => conn.Monsters.GetValueOrDefault(id)).OfType<SpawnedMonster>()];
@@ -120,7 +120,7 @@ public sealed class MonsterEmerge
     /// <summary>Registers a new monster (SpawnMonster): a buried one that has not risen goes to <see cref="Buried"/>,
     /// everything else to the connection's monsters; a lurking one that has not risen is busy until it rises. Returns
     /// whether it waits to rise (the caller then starts the watch). Under the Monsters lock.</summary>
-    public static bool AddLocked(ClientState conn, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
+    public static bool AddLocked(Player conn, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
     {
         m.ObjectId = id;
         var g = conn.EmergeGround;
@@ -136,7 +136,7 @@ public sealed class MonsterEmerge
     }
 
     /// <summary>Marks the connection's watch as running; false when it already was. Under the Monsters lock.</summary>
-    public static bool StartWatch(ClientState conn)
+    public static bool StartWatch(Player conn)
     {
         var g = conn.EmergeGround;
         if (g.Watching) return false;
@@ -147,7 +147,7 @@ public sealed class MonsterEmerge
     /// shorter), or a lurking one that has been hit. A buried one leaves <see cref="Buried"/> for the connection's
     /// monsters; each is aggroed and busy for its clip. Returns them with where they stand; the caller sends the rise.
     /// When none is left waiting the watch ends (<paramref name="watching"/> false). Under the Monsters lock.</summary>
-    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(ClientState conn,
+    public List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> RiseLocked(Player conn,
         (int X, int Y) player, double now, out bool watching)
     {
         var g = conn.EmergeGround;
@@ -190,15 +190,15 @@ public sealed class MonsterEmerge
 
     /// <summary>Whether any monster still waits to rise, and none watches for it (its watcher's connection left).
     /// Under the Monsters lock.</summary>
-    public static bool Unwatched(ClientState conn) =>
+    public static bool Unwatched(Player conn) =>
         conn.EmergeGround is { Watching: false } g && conn.DormantMonsters.Count + g.Lurking.Count > 0;
 
     /// <summary>The watch ended with its connection. Under the Monsters lock.</summary>
-    public static void StopWatch(ClientState conn) => conn.EmergeGround.Watching = false;
+    public static void StopWatch(Player conn) => conn.EmergeGround.Watching = false;
 
     /// <summary>Whether this monster still lies in wait (buried ones are not in the instance's monsters until they rise).
     /// Under the Monsters lock.</summary>
-    public static bool Waiting(ClientState conn, uint id) => conn.EmergeGround.Lurking.Contains(id);
+    public static bool Waiting(Player conn, uint id) => conn.EmergeGround.Lurking.Contains(id);
 
     /// <summary>The kind of one object_types row (see <see cref="EmergeKind"/>); used by the loader and tests.</summary>
     public static EmergeKind KindOf(ClientRow t)

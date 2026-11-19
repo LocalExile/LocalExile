@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Called only inside SpendFlask's accepted charge transaction, under Monsters and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
-    static void AcceptRecoveryFlaskLocked(ClientState conn, uint slot, InventoryItem flask,
+    static void AcceptRecoveryFlaskLocked(Player conn, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
         IReadOnlyDictionary<string, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
@@ -57,7 +57,7 @@ public static partial class Game
     // The extracted "if bleeding/poisoned" suffixes remove an ailment that exists when the paid use is accepted and
     // then protect against new applications for the rolled seconds. Neither suffix grants protection if its trigger
     // ailment was absent. Both live in the shared incoming-ailment owner.
-    static void ApplyConditionalFlaskAilmentProtectionLocked(ClientState conn,
+    static void ApplyConditionalFlaskAilmentProtectionLocked(Player conn,
         IReadOnlyDictionary<string, int> local, double now)
     {
         if (local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") is int bleed
@@ -68,7 +68,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
     }
 
-    static bool ConditionalFlaskAilmentProtectionTriggered(ClientState conn,
+    static bool ConditionalFlaskAilmentProtectionTriggered(Player conn,
         IReadOnlyDictionary<string, int> local, double now) =>
         local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") > 0
             && conn.IncomingAilments.Bleeding(now)

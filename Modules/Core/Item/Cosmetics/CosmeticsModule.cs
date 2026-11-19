@@ -43,7 +43,7 @@ public static class CosmeticsFeature
     // The Microtransactions panel, the store and the hideout picker ask for their lists with C→S 0x1f2 and show "Loading…"
     // until each one arrives (23-microtransactions.md). Every account owns every microtransaction; the hideout and guild
     // personal hideout list includes all exported templates; the guild list stays empty.
-    internal static async Task AnswerMtxRequest(ClientState conn, InstanceMicrotransactions.Lists asked)
+    internal static async Task AnswerMtxRequest(Player conn, InstanceMicrotransactions.Lists asked)
     {
         var owned = Mtx.Owned;
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Records))
@@ -66,7 +66,7 @@ public static class CosmeticsFeature
     // effect slot type, then the skill slots again (what the client shows worn) and the skill list, so the gem's skill
     // carries the effect's stats (skill_art_variation: the art the client draws from the skill, and Righteous Fire's
     // server-made art the next time it is cast).
-    internal static async Task PickSkillCosmetic(ClientState conn, (uint Key, uint RecordId) pick)
+    internal static async Task PickSkillCosmetic(Player conn, (uint Key, uint RecordId) pick)
     {
         InstanceMicrotransactions.SkillSlot slot;
         InstanceMicrotransactions.Record? record;
@@ -104,7 +104,7 @@ public static class CosmeticsFeature
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
     // worn table goes back in 0x1f3, which is what the client wears. The Portal slot also sets the portals' own variation
     // (the same one /cosmetic portal sets), so the map device's portals show the picked effect.
-    internal static async Task PickCosmetic(ClientState conn, (byte Slot, uint RecordId, byte Option) pick)
+    internal static async Task PickCosmetic(Player conn, (byte Slot, uint RecordId, byte Option) pick)
     {
         var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
         if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null))
@@ -154,7 +154,7 @@ public static class CosmeticsFeature
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the
     // old ones first. StepPetFollow walks them after the player.
-    internal static async Task SpawnPets(ClientState conn)
+    internal static async Task SpawnPets(Player conn)
     {
         List<uint> old;
         lock (conn.Pets) { old = [.. conn.Pets.Keys]; conn.Pets.Clear(); }
@@ -182,13 +182,13 @@ public static class CosmeticsFeature
 
     // Where a pet stands by the player: PetDistance cells to the player's side (side +1 or −1, the two Pet slots), on the
     // walk map; the player's own cell if that side is blocked.
-    internal static (int X, int Y) PetSpot(ClientState conn, (int X, int Y) player, int side)
+    internal static (int X, int Y) PetSpot(Player conn, (int X, int Y) player, int side)
     {
         (int X, int Y) spot = (player.X + side * PetDistance, player.Y + PetDistance / 2);
         return conn.Layout.Walkable is { } w && !w(spot.X, spot.Y) ? player : spot;
     }
 
-    internal static async Task FollowThroughGate(ClientState conn)
+    internal static async Task FollowThroughGate(Player conn)
     {
         uint[] ids;
         lock (conn.Pets) ids = [.. conn.Pets.Keys];
@@ -208,7 +208,7 @@ public static class CosmeticsFeature
     }
 
     // One finite walk. Ordinary following resumes after arrival, including when the caller has gone away.
-    public static Task<bool> WalkPetTo(ClientState conn, uint id, (int X, int Y) to, Func<bool>? still = null) =>
+    public static Task<bool> WalkPetTo(Player conn, uint id, (int X, int Y) to, Func<bool>? still = null) =>
         global::Game.SendWorldRecord(conn, id, () =>
         {
             lock (conn.Pets)
@@ -219,7 +219,7 @@ public static class CosmeticsFeature
             }
         }, still: still);
 
-    internal static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
+    internal static byte[] PetMove(Player conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
     {
         int percent = ApplyPetSpeed(conn, id, pet, now);
         var from = pet.Walk.Order(to.X, to.Y, now);
@@ -235,7 +235,7 @@ public static class CosmeticsFeature
             .. InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408)];
     }
 
-    static int ApplyPetSpeed(ClientState conn, uint id, SpawnedPet pet, double now)
+    static int ApplyPetSpeed(Player conn, uint id, SpawnedPet pet, double now)
     {
         double speed = GameEvents.ResolveMovementSpeed(conn, id, Math.Max(conn.Walk.Speed, 1));
         // Metadata/Pet/Pet.ot has Pathfinding base_speed 37. The native final stat is an integer percent;
@@ -246,7 +246,7 @@ public static class CosmeticsFeature
         return percent;
     }
 
-    internal static byte[]? PetSpeedUpdate(ClientState conn, uint id, SpawnedPet pet, double now)
+    internal static byte[]? PetSpeedUpdate(Player conn, uint id, SpawnedPet pet, double now)
     {
         double previous = pet.Walk.Speed;
         int percent = ApplyPetSpeed(conn, id, pet, now);
@@ -256,7 +256,7 @@ public static class CosmeticsFeature
     // Pets follow the player, every frame (GameEvents.AreaTick): when one is farther than PetFollowRange from the player
     // it walks (0x1ab Move, as monsters do) to its spot beside the player, which keeps it near but never on top of the
     // player. On the tick rather than a loop of the module's own, so a reload's new module walks them and the old one stops.
-    internal static async Task StepPetFollow(ClientState conn)
+    internal static async Task StepPetFollow(Player conn)
     {
         try
         {

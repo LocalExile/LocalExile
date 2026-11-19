@@ -291,7 +291,7 @@ public sealed class ScarabEncounterTests
     [Fact]
     public void Named_content_diagnostics_keep_item_provenance_and_allow_enabled_providers_in_either_order()
     {
-        var conn = new ClientState(new(1, "scarab-diagnostics", 100, 100, 10, 10, null, []), 1, 1)
+        var conn = new Player(new(1, "scarab-diagnostics", 100, 100, 10, 10, null, []), 1, 1)
             { Character = "ScarabDiagnostics" };
         var opening = new MapDevice.Opening(new(1, "MapWorldsStrand", "Strand Map", 3), MapMods.None);
         MapOpening Request(params string[] names) => new(conn, names.Select(Slot).ToArray(), false, opening, "");
@@ -351,9 +351,9 @@ public sealed class ScarabEncounterTests
         Assert.Empty(terrors.UnhandledContent);
     }
 
-    sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
+    sealed class Wire(TcpClient writer, TcpClient reader, Player conn, Task drain) : IAsyncDisposable
     {
-        public ClientState Conn => conn;
+        public Player Conn => conn;
         public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -362,7 +362,7 @@ public sealed class ScarabEncounterTests
             var writer = new TcpClient();
             await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             var reader = await accepting;
-            var conn = new ClientState(layout, 1, seed)
+            var conn = new Player(layout, 1, seed)
             {
                 // A predictive client: the test leaves and re-enters on one connection, whose world output (a lockstep
                 // client's) would still hold the shrines published at the first entry.

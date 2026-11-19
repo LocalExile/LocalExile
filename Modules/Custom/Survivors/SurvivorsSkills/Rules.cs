@@ -53,7 +53,7 @@ static partial class SurvivorsSkills
             ["HeraldOfPurity"] = new("Metadata/Effects/Spells/herald/light/slam_impact/slam_impact.ao", 1000),
         };
 
-    internal static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(ClientState conn, SurvivorsSkill skill) =>
+    internal static SurvivorsHeraldImpact? SurvivorsHeraldImpactFor(Player conn, SurvivorsSkill skill) =>
         SkillsFor(conn).EffectId(skill.Effect) is { } id && SurvivorsHeraldImpacts.TryGetValue(id, out var impact)
             ? impact : null;
 
@@ -101,7 +101,7 @@ static partial class SurvivorsSkills
     /// The run's learned skills as Actor skills, so the client puts their gems on the skill bar and draws their cooldown.
     /// Each is the real gem's effect at the run skill's rank, with one stored use and its cast interval as the cooldown.
     /// </summary>
-    internal static IReadOnlyList<GrantedSkill> SurvivorsGrantedSkills(ClientState conn, SurvivorsRun run,
+    internal static IReadOnlyList<GrantedSkill> SurvivorsGrantedSkills(Player conn, SurvivorsRun run,
         IReadOnlyList<SurvivorsSkill> catalog)
     {
         var skills = new List<GrantedSkill>();
@@ -119,7 +119,7 @@ static partial class SurvivorsSkills
 
     // A run skill's stats: the gem's own at its rank. The client creates the bar's cooldown record only with a stored use
     // and the record's duration (0x141ef0f00), and the run pays no mana.
-    internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(ClientState conn, SurvivorsSkill skill, int rank)
+    internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(Player conn, SurvivorsSkill skill, int rank)
     {
         var stats = SkillsFor(conn).EffectStats(skill.Effect, rank).ToDictionary(s => s.Item1, s => s.Item2);
         foreach (var name in new[] { "base_cooldown_count", "virtual_total_cooldown_count" })
@@ -132,7 +132,7 @@ static partial class SurvivorsSkills
     /// <summary>The skill bar's cooldown for one run skill: one server instant action per target runs the gem's own use
     /// there (the client draws its projectile and starts the bar's cooldown, live 2026-10-21), then the actor's cooldown
     /// trailer sets the exact time to the next cast.</summary>
-    internal static async Task SendSurvivorsCooldown(ClientState conn, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
+    internal static async Task SendSurvivorsCooldown(Player conn, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         ushort id = SurvivorsSkillId(skill);
@@ -149,7 +149,7 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>True when a skill id is one of the run's skills: a click on its bar slot must not become a walk.</summary>
-    internal static bool SurvivorsOwnsSkill(ClientState conn, ushort id)
+    internal static bool SurvivorsOwnsSkill(Player conn, ushort id)
     {
         if (StateOf(conn).SurvivorsCatalog is not { } catalog) return false;
         for (int index = 0; index < catalog.Count; index++)
@@ -191,7 +191,7 @@ static partial class SurvivorsSkills
     /// around the player with its own area damage. A gem with neither flight nor area (Arc, a curse) stays out, and so
     /// does a gem that cannot link at least five of the run's supports: the links-first offer needs them.
     /// </summary>
-    internal static IReadOnlyList<SurvivorsSkill> SurvivorsCatalogFor(ClientState conn)
+    internal static IReadOnlyList<SurvivorsSkill> SurvivorsCatalogFor(Player conn)
     {
         var catalog = new List<SurvivorsSkill>();
         var supports = SurvivorsSupportsFor(conn);
@@ -261,7 +261,7 @@ static partial class SurvivorsSkills
 
     /// <summary>Whether the run can present the gem's use: a flight at one monster or a pulse at the cast's centre.
     /// A trap, mine, totem, brand, channel, travel, minion or orb mechanic has no such presentation yet.</summary>
-    internal static bool SurvivorsMechanicsSupported(ClientState conn, int effect)
+    internal static bool SurvivorsMechanicsSupported(Player conn, int effect)
     {
         foreach (string type in SurvivorsUnsupportedSkillTypes)
             if (SkillsFor(conn).HasType(effect, type)) return false;
@@ -270,7 +270,7 @@ static partial class SurvivorsSkills
 
     // A gem's own cast time (GrantedEffects CastTime in EffectStats) is the run's interval base; an attack gem's
     // CastTime is its weapon swing time at 1.0 s here, since the run has no weapon to read a speed from.
-    internal static int SurvivorsCastTimeMs(ClientState conn, int effect)
+    internal static int SurvivorsCastTimeMs(Player conn, int effect)
     {
         foreach (var (key, value) in SkillsFor(conn).EffectStats(effect, 1))
             if (Stats.Name(key) == "base_spell_cast_time_ms" && value > 0) return Math.Clamp(value, 200, 3000);
@@ -282,7 +282,7 @@ static partial class SurvivorsSkills
     /// Each gem keeps its own base damage, its own gem-level curve (rank = gem level) and its own supports, so the run
     /// stays playable in every area without flattening the gems into one number.
     /// </summary>
-    internal static double SurvivorsDamageScale(ClientState conn, IReadOnlyList<SurvivorsSkill> catalog, SurvivorsRoster roster)
+    internal static double SurvivorsDamageScale(Player conn, IReadOnlyList<SurvivorsSkill> catalog, SurvivorsRoster roster)
     {
         List<double> hits = [.. catalog.Where(s => s.Kind == SurvivorsSkillKind.Projectile && !s.Attack)
             .Select(s => SkillsFor(conn).HitDamage(s.Effect, 1).AverageTotal).Where(h => h > 0).Order()];
@@ -316,7 +316,7 @@ static partial class SurvivorsSkills
         "SupportWindburst",
     };
 
-    internal static IReadOnlyList<SurvivorsSupportItem> SurvivorsSupportsFor(ClientState conn)
+    internal static IReadOnlyList<SurvivorsSupportItem> SurvivorsSupportsFor(Player conn)
     {
         if (StateOf(conn).SurvivorsSupports is { Count: > 0 } cached) return cached;
         var result = new List<SurvivorsSupportItem>();
@@ -362,7 +362,7 @@ static partial class SurvivorsSkills
 
     /// <summary>The support gems the run may offer: normal SupportGem rows, without the Royale/playtest/placeholder
     /// duplicates.</summary>
-    internal static IReadOnlyList<string> SurvivorsSupportPaths(ClientState conn) =>
+    internal static IReadOnlyList<string> SurvivorsSupportPaths(Player conn) =>
         [.. ItemsFor(conn).All.Where(t => t.Supported
             && t.Id.Contains("SupportGem", StringComparison.Ordinal)
             && !t.Id.Contains("Royale", StringComparison.Ordinal)
@@ -371,7 +371,7 @@ static partial class SurvivorsSkills
             && !t.Name.StartsWith("WIP", StringComparison.OrdinalIgnoreCase))
             .Select(t => t.Id)];
 
-    internal static int SurvivorsGemEffect(ClientState conn, string path) =>
+    internal static int SurvivorsGemEffect(Player conn, string path) =>
         ItemsFor(conn).Find(path) is { } type && ItemsFor(conn).Gem(type) is { Variants.Count: > 0 } gem
             ? gem.Variant(0).Effect : -1;
 
@@ -381,7 +381,7 @@ static partial class SurvivorsSkills
     /// burn/shatter, not a hit), so these damage supports have nothing to modify; the run's aura pulse is the mode's
     /// own effect, not the gem's hit.
     /// </summary>
-    internal static bool SurvivorsCanSupport(ClientState conn, int skillIndex, int supportIndex)
+    internal static bool SurvivorsCanSupport(Player conn, int skillIndex, int supportIndex)
     {
         if (StateOf(conn).SurvivorsCatalog is not { } catalog || StateOf(conn).SurvivorsSupports is not { } supports
             || skillIndex < 0 || skillIndex >= catalog.Count || supportIndex < 0 || supportIndex >= supports.Count)
@@ -401,11 +401,11 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>The offer pairs a support with a learned skill only when the game's type rules allow the link.</summary>
-    internal static Func<int, int, bool> SurvivorsLinkRule(ClientState conn) => (skill, support) =>
+    internal static Func<int, int, bool> SurvivorsLinkRule(Player conn) => (skill, support) =>
         SurvivorsCanSupport(conn, skill, support);
 
     // BaseItemTypes rows for skill gems, read once; a table without the key yields an empty catalogue.
-    internal static IReadOnlyList<string> SurvivorsGemPaths(ClientState conn) =>
+    internal static IReadOnlyList<string> SurvivorsGemPaths(Player conn) =>
         [.. ItemsFor(conn).All.Where(t => t.Supported && t.Id.Contains("SkillGem", StringComparison.Ordinal)).Select(t => t.Id)];
 
     internal static DamageType SurvivorsDamageType(string name) => name switch
@@ -448,7 +448,7 @@ static partial class SurvivorsSkills
     /// runtime, so the run follows the gem rather than one flat "base damage" number.
     /// Returns the interval to the next cast, 0 when nothing fired.
     /// </summary>
-    internal static async Task<double> SurvivorsCast(ClientState conn,
+    internal static async Task<double> SurvivorsCast(Player conn,
         SurvivorsRun run, SurvivorsRoster roster, SurvivorsSkill skill, int rank, int skillIndex)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return 0;
@@ -575,7 +575,7 @@ static partial class SurvivorsSkills
     /// clip is the class/weapon stance's own (spell_projectile_wand, attack1_bow, ...), stretched over the cast
     /// interval, so the character visibly casts while the run keeps moving the player.
     /// </summary>
-    internal static async Task SurvivorsPlayCastAnimation(ClientState conn, SurvivorsSkill skill, double interval)
+    internal static async Task SurvivorsPlayCastAnimation(Player conn, SurvivorsSkill skill, double interval)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         // A cast clip replaces the rig's walk clip while it plays, which reads as the character strafing sideways.
@@ -600,7 +600,7 @@ static partial class SurvivorsSkills
     /// Agony's <c>mortarimpact</c>, Purity's <c>slam_impact</c>), removed when its clip ends. The same art the real
     /// client plays for that herald's hit.
     /// </summary>
-    internal static async Task SurvivorsHeraldEffect(ClientState conn, int x, int y, string ao, int ms, string label)
+    internal static async Task SurvivorsHeraldEffect(Player conn, int x, int y, string ao, int ms, string label)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         int epoch = conn.ProjectileEpoch;
@@ -657,7 +657,7 @@ static partial class SurvivorsSkills
 
     /// <summary>Drops one monster's experience as an orb at the kill cell. The client object is a permanent effect;
     /// the run tick removes it when the player passes within <see cref="SurvivorsRules.OrbPickupRadius"/>.</summary>
-    internal static async Task SurvivorsDropOrb(ClientState conn, (int X, int Y) at, int experience)
+    internal static async Task SurvivorsDropOrb(Player conn, (int X, int Y) at, int experience)
     {
         if (experience <= 0 || StateOf(conn).Survivors is null) return;
         uint id;
@@ -683,7 +683,7 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>Collects every orb inside the pickup radius around the player and pays its experience.</summary>
-    internal static async Task SurvivorsCollectOrbs(ClientState conn, SurvivorsRun run)
+    internal static async Task SurvivorsCollectOrbs(Player conn, SurvivorsRun run)
     {
         if (StateOf(conn).Survivors is null || conn.PlayerLife == 0) return;
         var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -709,7 +709,7 @@ static partial class SurvivorsSkills
         [.. orbs.Where(orb => Dist(here, (orb.X, orb.Y)) <= radius)];
 
     /// <summary>Removes the run's orbs from the client and the state (run end or a fresh start).</summary>
-    internal static async Task SurvivorsClearOrbs(ClientState conn)
+    internal static async Task SurvivorsClearOrbs(Player conn)
     {
         uint[] ids;
         lock (conn.Monsters)
@@ -722,7 +722,7 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>Removes the run's death ground zones from the client and the state (run end or a fresh start).</summary>
-    internal static async Task SurvivorsClearGroundZones(ClientState conn)
+    internal static async Task SurvivorsClearGroundZones(Player conn)
     {
         uint[] ids;
         lock (conn.Monsters)
@@ -736,7 +736,7 @@ static partial class SurvivorsSkills
 
     /// <summary>Drops one death ground zone for a killed monster: 50/50 under the monster or under the player, drawn
     /// as a desecrated ground patch and drained by <see cref="SurvivorsAdvanceDeathZones"/> while the player stays.</summary>
-    internal static async Task SurvivorsDropDeathZone(ClientState conn, (int X, int Y) at)
+    internal static async Task SurvivorsDropDeathZone(Player conn, (int X, int Y) at)
     {
         if (StateOf(conn).Survivors is null) return;
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -763,7 +763,7 @@ static partial class SurvivorsSkills
     /// <summary>Removes a dead monster's body from the server and the client after
     /// <see cref="SurvivorsRules.CorpseLingerSeconds"/>, so a long run's corpses do not pile up. Runs every half second
     /// from the run tick; the corpse time is tracked per connection.</summary>
-    internal static async Task SurvivorsSweepCorpses(ClientState conn, HashSet<uint> horde)
+    internal static async Task SurvivorsSweepCorpses(Player conn, HashSet<uint> horde)
     {
         if (StateOf(conn).Survivors is null) return;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -794,7 +794,7 @@ static partial class SurvivorsSkills
     /// <summary>Advances the death ground zones each run tick: removes the expired ones and drains life while the
     /// player stands inside one. The drain is <see cref="SurvivorsRules.DeathZoneDamagePercentPerSecond"/> of maximum
     /// life a second; standing still in a zone is fatal.</summary>
-    internal static async Task SurvivorsAdvanceDeathZones(ClientState conn, double step)
+    internal static async Task SurvivorsAdvanceDeathZones(Player conn, double step)
     {
         if (StateOf(conn).Survivors is null) return;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -836,7 +836,7 @@ static partial class SurvivorsSkills
     /// projectile profile and the resolved hit. It reads no position and sends nothing, so the support matrix can be
     /// checked for every gem and support without a live area.
     /// </summary>
-    internal static SurvivorsComputedCast? SurvivorsComputeCast(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
+    internal static SurvivorsComputedCast? SurvivorsComputeCast(Player conn, SurvivorsRun run, SurvivorsSkill skill,
         int rank, int skillIndex, SurvivorsRoster roster)
     {
         var supports = StateOf(conn).SurvivorsSupports ?? [];
@@ -1034,7 +1034,7 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>A gem's own stats by name at a gem level (the run's rank is the gem level).</summary>
-    internal static Dictionary<string, int> SurvivorsStatsByName(ClientState conn, int effect, int level)
+    internal static Dictionary<string, int> SurvivorsStatsByName(Player conn, int effect, int level)
     {
         var stats = new Dictionary<string, int>(StringComparer.Ordinal);
         if (effect < 0) return stats;
@@ -1059,7 +1059,7 @@ static partial class SurvivorsSkills
     /// <see cref="SurvivorsCast"/>, so the profile resolver, the damage resolver and the ailment code read one
     /// dictionary and a support cannot mean one thing to the flight and another to the hit.
     /// </summary>
-    internal static Dictionary<string, int> SurvivorsSkillAndSupportStats(ClientState conn, SurvivorsRun run, SurvivorsSkill skill,
+    internal static Dictionary<string, int> SurvivorsSkillAndSupportStats(Player conn, SurvivorsRun run, SurvivorsSkill skill,
         int skillIndex, int rank, IReadOnlyList<SurvivorsSupportItem> supports, Dictionary<string, int> own)
     {
         var stats = new Dictionary<string, int>(own, StringComparer.Ordinal);
@@ -1149,7 +1149,7 @@ static partial class SurvivorsSkills
     /// </summary>
     /// <summary>Puts a learned Herald's aura buff on the player (S→C 0x1c1), so the client draws it and its icon; the
     /// instances are removed when the run ends.</summary>
-    internal static async Task SurvivorsPublishHeralds(ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
+    internal static async Task SurvivorsPublishHeralds(Player conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return;
         foreach (var (index, _) in run.Skills)
@@ -1175,7 +1175,7 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>Removes every herald aura buff the run put on the player.</summary>
-    internal static async Task SurvivorsClearHeralds(ClientState conn)
+    internal static async Task SurvivorsClearHeralds(Player conn)
     {
         ushort[] buffs;
         lock (conn.Monsters)

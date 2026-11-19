@@ -40,7 +40,7 @@ public sealed class PreventedDamageRecovery
 
 public static partial class Game
 {
-    static readonly Store<ClientState, PreventedDamageRecovery> PreventedDamage = new();
+    static readonly Store<Player, PreventedDamageRecovery> PreventedDamage = new();
 
-    public static PreventedDamageRecovery PreventedDamageOf(ClientState conn) => PreventedDamage.GetValue(conn, _ => new());
+    public static PreventedDamageRecovery PreventedDamageOf(Player conn) => PreventedDamage.GetValue(conn, _ => new());
 }

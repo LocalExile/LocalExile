@@ -71,7 +71,7 @@ public static partial class Game
     /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): a reused result is also computed again and compared.</summary>
     public static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
     // Reads the tail's inputs. Called where the tail starts, after the head; stats is the head's (not copied).
-    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(ClientState conn, StatMap stats,
+    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(Player conn, StatMap stats,
         Dictionary<string, int> mainLocal, Dictionary<string, int> offLocal,
         double lifeRegenerationToEnergyShield, bool moving)
     {

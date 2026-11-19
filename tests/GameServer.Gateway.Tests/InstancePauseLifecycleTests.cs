@@ -15,7 +15,7 @@ public sealed class InstancePauseLifecycleTests
         using var runtime = new PartyFollowerTests.Runtime();
         using var wire = new PartyFollowerTests.Wire();
         var instance = new InstanceState();
-        var arriving = new ClientState(new(1, "pause-arrival", 300, 300, 100, 100, null, []), 1, 1)
+        var arriving = new Player(new(1, "pause-arrival", 300, 300, 100, 100, null, []), 1, 1)
         {
             Character = $"PauseArrival{Guid.NewGuid():N}", ClassRow = 0, Instance = instance,
             LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string>(["Game"])),
@@ -67,7 +67,7 @@ public sealed class InstancePauseLifecycleTests
             TestEnvironment.ReleaseSaves(path);
         }
 
-        static void Close(ClientState conn)
+        static void Close(Player conn)
         {
             lock (conn.Monsters)
             {

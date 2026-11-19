@@ -12,7 +12,7 @@ public sealed class NpcConversationTests
     public void Automatic_conversations_use_catalog_priority_flags_and_visited_rows()
     {
         // Hot reload adds state to existing connections without rerunning their constructors.
-        var existing = (ClientState)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ClientState));
+        var existing = (Player)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Player));
         Assert.Empty(existing.AutomaticNpcTalkRows);
         existing.AutomaticNpcTalkRows.Add(7);
         Assert.Contains(7, existing.AutomaticNpcTalkRows);
@@ -147,7 +147,7 @@ public sealed class NpcConversationTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly ClientState Conn = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
+        public readonly Player Conn = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
         public NetworkStream Stream => writer.GetStream();
         public Wire()
         {

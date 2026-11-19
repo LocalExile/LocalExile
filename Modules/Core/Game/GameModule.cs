@@ -205,25 +205,25 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         HeistModifierMagnitudes.For(item, mods);
     public void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save save) =>
         Rules.ValidateImportedBuild(character, save);
-    public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
-    public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
-    public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);
-    public void ResumePlayerUpdates(ClientState conn)
+    public void QueueControlledIntent(Player player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
+    public void ClearControlledIntent(Player player) => Rules.ClearControlledIntent(player);
+    public object ObserveControlledPlayer(Player player, Player leader) => Rules.ObserveControlledPlayer(player, leader);
+    public void ResumePlayerUpdates(Player conn)
     {
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
             Rules.EnsurePlayerUpdates(conn);
     }
-    public Task WorldFrameEnded(ClientState conn, double nextFrameStart) =>
+    public Task WorldFrameEnded(Player conn, double nextFrameStart) =>
         Rules.LockstepFrameEnded(conn, nextFrameStart);
-    public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt) =>
+    public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player conn, long readAt) =>
         Rules.OnClientMessages(messages, unknown, conn, readAt);
 
-    public void Admitting(ClientState conn) => Rules.RegisterVitalsAdmission(conn);
+    public void Admitting(Player conn) => Rules.RegisterVitalsAdmission(conn);
 
     /// <summary>GGG's login rule: one connection holds a character at a time. The newer login takes it and the older client
     /// is told and dropped, and this one's character is loaded only after that connection saved what it held, so the two
     /// never write the same character (or its items) from two states.</summary>
-    public async Task<bool> AdmittingAsync(ClientState conn)
+    public async Task<bool> AdmittingAsync(Player conn)
     {
         // A Ruthless league's data set is built for its first character, before that character is loaded.
         if (Program.LeagueFor(conn) is { HardMode: true } league) await Task.Run(() => Rules.LoadHardModeData(league));
@@ -248,7 +248,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         return true;
     }
 
-    public int PrepareCharacter(ClientState conn, int level)
+    public int PrepareCharacter(Player conn, int level)
     {
         Rules.RefuseInterruptedHardcoreDeath(conn);
         level = Rules.PrepareCharacterForArea(conn, level);
@@ -258,9 +258,9 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         return level;
     }
 
-    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn) => Rules.LeagueStatsFor(conn);
+    public IReadOnlyDictionary<uint, int>? AreaLeagueStats(Player conn) => Rules.LeagueStatsFor(conn);
 
-    public async Task Entered(ClientState conn, int level, int ticketLevel)
+    public async Task Entered(Player conn, int level, int ticketLevel)
     {
         // The client generates the area from here (S→C 0x1d) until its 0x7d: the packs are planned meanwhile.
         Rules.PlanPopulationAhead(conn);
@@ -274,7 +274,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         Console.WriteLine($"[gateway] {conn.Remote} {Program.CharacterName(conn)}: {Rules.SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
     }
 
-    public void Closing(ClientState conn)
+    public void Closing(Player conn)
     {
         foreach (var close in GameEvents.TransientClosing.For(conn)) close(conn);
         Rules.EndEscapePause(conn);
@@ -291,7 +291,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.VaalPreventionUntil = 0;
     }
 
-    public void Save(ClientState conn, bool prepared)
+    public void Save(Player conn, bool prepared)
     {
         // A refused admission must not load/start inventories or flush a previous connection's cached copy.
         if (prepared)
@@ -304,7 +304,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         Rules.CommitHardcoreDeath(conn);
     }
 
-    public void Left(ClientState conn)
+    public void Left(Player conn)
     {
         Rules.ReleaseCharacter(conn);
         Rules.ForgetVitalsAdmission(conn);
@@ -312,13 +312,13 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         Rules.KeepInstanceMonsters(conn);
     }
 
-    public IDisposable ProjectileMutation(ClientState conn) => Rules.ProjectileMutation(conn, advance: false);
-    public IConnectionPlayer PlayerFor(ClientState conn) => new Rules.ModPlayer(conn);
-    public IPlayerWorld WorldFor(ClientState conn) => new Rules.ModuleWorld(conn);
+    public IDisposable ProjectileMutation(Player conn) => Rules.ProjectileMutation(conn, advance: false);
+    public IConnectionPlayer PlayerFor(Player conn) => new Rules.ModPlayer(conn);
+    public IPlayerWorld WorldFor(Player conn) => new Rules.ModuleWorld(conn);
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
-    public double PlayerActionFactor(ClientState conn) => Rules.PlayerActionFactor(conn);
+    public double PlayerActionFactor(Player conn) => Rules.PlayerActionFactor(conn);
     public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
-    public Task InitializeControlled(ClientState player, ClientState leader) => Rules.InitializeControlledPlayer(player, leader);
-    public Task StepControlled(ClientState player, ClientState leader) => Rules.StepControlledPlayer(player, leader);
-    public Task ControlledCompletion(ClientState player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
+    public Task InitializeControlled(Player player, Player leader) => Rules.InitializeControlledPlayer(player, leader);
+    public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);
+    public Task ControlledCompletion(Player player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
 }

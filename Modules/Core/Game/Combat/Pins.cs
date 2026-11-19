@@ -8,7 +8,7 @@ public static partial class Game
     static readonly ConditionalWeakTable<object, StrongBox<double>> PinnedUntil = new();
 
     /// <summary>Holds the player in place until <paramref name="until"/>. Under conn.Monsters.</summary>
-    public static void PinPlayer(ClientState conn, double until) => Pin(conn, until);
+    public static void PinPlayer(Player conn, double until) => Pin(conn, until);
 
     /// <summary>Holds the monster in place until <paramref name="until"/>. Under conn.Monsters.</summary>
     public static void PinMonster(SpawnedMonster m, double until) => Pin(m, until);

@@ -35,11 +35,11 @@ public static partial class Game
 {
     public const string ElusiveOnCritical = "gain_elusive_on_crit_%_chance", ElusiveOnKill = "gain_elusive_on_kill_chance_%";
     public const ushort ElusiveBuffRow = 1374;
-    static readonly Store<ClientState, ElusiveState> Elusives = new();
-    public static ElusiveState ElusiveOf(ClientState conn) => Elusives.GetOrCreateValue(conn);
+    static readonly Store<Player, ElusiveState> Elusives = new();
+    public static ElusiveState ElusiveOf(Player conn) => Elusives.GetOrCreateValue(conn);
     public sealed record CarriedElusive(string Source, double Age, double Initial, double Rate, double Minimum, double RisingSeconds);
 
-    static Dictionary<string, bool> RequalifyElusive(ClientState conn, IReadOnlyDictionary<string, bool> flags,
+    static Dictionary<string, bool> RequalifyElusive(Player conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
         if (conn.LeavingArea) return new(flags)
@@ -77,7 +77,7 @@ public static partial class Game
         { ["_while_affected_by_elusive"] = running, ["_while_elusive"] = running, ["_while_you_have_elusive"] = running };
     }
 
-    public static bool TryGainElusiveLocked(ClientState conn, bool critical, bool kill, double now, Random? random = null)
+    public static bool TryGainElusiveLocked(Player conn, bool critical, bool kill, double now, Random? random = null)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
         var state = ElusiveOf(conn);
@@ -101,7 +101,7 @@ public static partial class Game
         return state.Effect(now) > 0;
     }
 
-    static (int Movement, int Avoid) ElusivePanelState(ClientState conn)
+    static (int Movement, int Avoid) ElusivePanelState(Player conn)
     {
         if (!Elusives.TryGetValue(conn, out var state)) return default;
         double now = ResourceEffectsTime(conn), effect = state.Effect(now);
@@ -118,7 +118,7 @@ public static partial class Game
         return ((int)Math.Clamp(Math.Floor(30 * effect / 100 + 1e-9), 0, int.MaxValue),
             (int)Math.Clamp(Math.Floor(15 * effect / 100 + 1e-9), 0, int.MaxValue));
     }
-    static Dictionary<uint, int> WithElusive(ClientState conn, Dictionary<uint, int> sources)
+    static Dictionary<uint, int> WithElusive(Player conn, Dictionary<uint, int> sources)
     {
         var (movement, avoid) = ElusivePanelState(conn);
         void Add(string n, int value)
@@ -129,24 +129,24 @@ public static partial class Game
         }
         return sources;
     }
-    public static CarriedElusive? CaptureElusive(ClientState conn, double at) =>
+    public static CarriedElusive? CaptureElusive(Player conn, double at) =>
         Elusives.TryGetValue(conn, out var state) && state.Effect(at) > 0
             ? new(state.Source, state.Age(at), state.Initial, state.Rate, state.Minimum, state.RisingSeconds) : null;
-    public static void RestoreElusive(ClientState conn, CarriedElusive value, double at)
+    public static void RestoreElusive(Player conn, CarriedElusive value, double at)
     {
         var state = ElusiveOf(conn); state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch;
         state.Source = value.Source; state.Started = at; state.CarriedAge = value.Age;
         state.Initial = value.Initial; state.Rate = value.Rate; state.Minimum = value.Minimum; state.RisingSeconds = value.RisingSeconds;
     }
-    public static void RetireElusive(ClientState conn)
+    public static void RetireElusive(Player conn)
     {
         conn.ElusiveUntil = 0;
         if (!Elusives.TryGetValue(conn, out var state)) return;
         state.Clear(); foreach (ushort b in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, b)); state.Retired.Clear();
     }
-    public static Task SendElusive(ClientState conn) =>
+    public static Task SendElusive(Player conn) =>
         SendWorldRecords(conn, PlayerId, () => ElusivePresentation(conn));
-    public static byte[][]? ElusivePresentation(ClientState conn)
+    public static byte[][]? ElusivePresentation(Player conn)
     {
         lock (conn.Monsters)
         {

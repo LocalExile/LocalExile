@@ -21,7 +21,7 @@ public static partial class Game
 
     /// <summary>Whether this connection's area steps its walkers itself: an instance whose frames run, with a lockstep
     /// player in it (an area of predictive clients only keeps their own time-ordered pass).</summary>
-    public static bool AreaSteps(ClientState conn) =>
+    public static bool AreaSteps(Player conn) =>
         conn.Instance is not null && conn.Frames.Running && conn.Frames.Players() is { Length: > 0 } players
         && players.Any(p => p.LockstepClient);
 
@@ -37,7 +37,7 @@ public static partial class Game
         /// <summary>Where each living walker stood after the last movement step.</summary>
         public IReadOnlyDictionary<EntityId, (int X, int Y)> Positions => last;
 
-        public bool Moved(ClientState[] players, double now)
+        public bool Moved(Player[] players, double now)
         {
             bool moved = false;
             void See(uint id, (int X, int Y) at)
@@ -56,7 +56,7 @@ public static partial class Game
         }
     }
 
-    public static void StepAreaWalkers(ClientState conn, double now)
+    public static void StepAreaWalkers(Player conn, double now)
     {
         var world = conn.Instance.World;
         var players = conn.Frames.Players();
@@ -84,13 +84,13 @@ public static partial class Game
         StepAreaFrames(first, players, walks, from, now, Program.FrameMs / 1000d);
     }
 
-    static void StepAreaFrames(ClientState first, ClientState[] players, Dictionary<uint, PlayerWalk> walks,
+    static void StepAreaFrames(Player first, Player[] players, Dictionary<uint, PlayerWalk> walks,
         double from, double to, double length)
     {
-        var chases = new Dictionary<uint, (SpawnedMonster M, ClientState Target)>();
+        var chases = new Dictionary<uint, (SpawnedMonster M, Player Target)>();
         foreach (var (id, m) in first.Monsters)
             if (m.Target is { } target && players.Contains(target) && WalkUpOpen(target, m)) chases[id] = (m, target);
-        var attacks = new Dictionary<uint, (ClientState Player, LockstepAttack Attack)>();
+        var attacks = new Dictionary<uint, (Player Player, LockstepAttack Attack)>();
         foreach (var p in players)
             if (PlayerWalkUpOpen(p) is { } attack) attacks[p.PeerId] = (p, attack);
         if (chases.Count == 0 && attacks.Count == 0 && walks.Values.All(w => w.ArrivesAt <= from && w.Reached)) return;
@@ -178,7 +178,7 @@ public static partial class Game
         finally { world.AreaBodies = null; }
     }
 
-    static void TraceAreaFrame(ClientState first, uint[] order, Dictionary<uint, PlayerWalk> walks, double end, double to, double length)
+    static void TraceAreaFrame(Player first, uint[] order, Dictionary<uint, PlayerWalk> walks, double end, double to, double length)
     {
         var line = new System.Text.StringBuilder();
         line.Append($"[frame] qpc={Stopwatch.GetTimestamp()} n={first.ServerFrame - 1 - (long)Math.Round((to - end) / length)} end={end:0.000} now={to:0.000} m=");
@@ -194,7 +194,7 @@ public static partial class Game
     }
 
     // StepWalkUp for the area: the target's cell is the one its turn this frame left (it ticked first) or the frame before.
-    static (WalkUpResult Result, double TimerFrom) StepAreaWalkUp(ClientState first, AreaBodies bodies, uint id, PlayerWalk walk,
+    static (WalkUpResult Result, double TimerFrom) StepAreaWalkUp(Player first, AreaBodies bodies, uint id, PlayerWalk walk,
         bool blocks, PlayerWalk? targetWalk, bool targetFirst, int reach, int tolerance, double timerFrom, (int X, int Y) ground,
         double start, double end, double length)
     {
@@ -242,7 +242,7 @@ public static partial class Game
     }
 
     // One step, as the client checks it (Step), against the area's bodies.
-    static bool AreaStep(ClientState first, AreaBodies bodies, uint id, PlayerWalk walk, double at, (int X, int Y) cell)
+    static bool AreaStep(Player first, AreaBodies bodies, uint id, PlayerWalk walk, double at, (int X, int Y) cell)
     {
         bool floor = walk.Slides || walk.Floor(cell.X, cell.Y);
         bool body = floor && ClientPathfinder.ObjectBlocks(bodies.For(id), cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
@@ -267,7 +267,7 @@ public static partial class Game
         readonly Dictionary<uint, IReadOnlyList<ClientPathfinder.Blocker>> views = [];
         readonly HashSet<uint> passThrough = [];
 
-        public AreaBodies(ClientState first, ClientState[] players, double now)
+        public AreaBodies(Player first, Player[] players, double now)
         {
             fixedSet = new BlockerSet(first.StationaryBlockers);
             current = new BlockerSet(first.StationaryBlockers);

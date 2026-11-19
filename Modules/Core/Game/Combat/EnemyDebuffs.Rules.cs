@@ -17,7 +17,7 @@ public static partial class Game
     /// <paramref name="seconds"/> (a warcry, a Basalt Flask); a new taunt replaces the player's old one on a monster (wiki
     /// Taunt: "you can replace your own taunts"). The enemy-debuff step shows it and takes it off. Under the Monsters lock;
     /// the number taunted.</summary>
-    public static int TauntLocked(ClientState conn, (int X, int Y) at, int radius, double now, double seconds)
+    public static int TauntLocked(Player conn, (int X, int Y) at, int radius, double now, double seconds)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0 || seconds <= 0) return 0;
         int taunted = 0;
@@ -33,7 +33,7 @@ public static partial class Game
     }
 
     // A nearby presentation (StatPresentations: a walker moved, a debuff changed or ended) steps the player's debuffs on monsters.
-    public static Task TickPassiveAuras(ClientState conn) =>
+    public static Task TickPassiveAuras(Player conn) =>
         EnemyDebuffsTick(conn, AreaTime(conn));
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
@@ -51,7 +51,7 @@ public static partial class Game
 
     // When a timed debuff on a monster next ends (taunt, hit debuffs, exposure, wither, curse), or a step of Pride's
     // 4-second ramp is due.
-    static double? MonsterDebuffsNextChange(ClientState conn, double now)
+    static double? MonsterDebuffsNextChange(Player conn, double now)
     {
         double next = double.PositiveInfinity;
         void Next(double until) { if (until > now && until < next) next = until; }
@@ -68,7 +68,7 @@ public static partial class Game
         return double.IsFinite(next) ? next : null;
     }
 
-    public static async Task EnemyDebuffsTick(ClientState conn, double now)
+    public static async Task EnemyDebuffsTick(Player conn, double now)
     {
         ushort[] nodes;
         lock (conn.Monsters)

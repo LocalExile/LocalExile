@@ -17,7 +17,7 @@ public static partial class Game
         public double ReadyAt;
         public bool Pending;
     }
-    static readonly Store<ClientState, DamageTakenTriggers> DamageTriggers = new();
+    static readonly Store<Player, DamageTakenTriggers> DamageTriggers = new();
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
@@ -40,7 +40,7 @@ public static partial class Game
         && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
 
     // Every payload needs an independent executor; unsupported mechanics stay unavailable.
-    static bool TriggeredSpellExecutable(ClientState conn, ushort id, SupportedGem gem) => SkillsFor(conn).IsSpell(gem.Effect)
+    static bool TriggeredSpellExecutable(Player conn, ushort id, SupportedGem gem) => SkillsFor(conn).IsSpell(gem.Effect)
         && !SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsTravel(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1
@@ -48,7 +48,7 @@ public static partial class Game
         && TriggerPayloadAvailable(conn, gem);
 
     // Called only by accepted hit damage, before Ward/ES/Mana absorb it. DoT and costs never enter this hook.
-    public static void RecordDamageTakenTriggers(ClientState conn, int damage, double at)
+    public static void RecordDamageTakenTriggers(Player conn, int damage, double at)
     {
         lock (conn.Monsters)
         {
@@ -92,7 +92,7 @@ public static partial class Game
         }
     }
 
-    public static void ReleaseDamageTakenTriggers(ClientState conn, ProjectileSession session)
+    public static void ReleaseDamageTakenTriggers(Player conn, ProjectileSession session)
     {
         lock (conn.Monsters)
         {

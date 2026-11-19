@@ -31,7 +31,7 @@ public sealed class BehemothRuntimeTests
         public void Dispose() => Environment.SetEnvironmentVariable(Name, previous);
     }
 
-    static ClientState Connection(params string[] modules) => new(new(1, "behemoth", 300, 300, 100, 100, null, []), 1, 1)
+    static Player Connection(params string[] modules) => new(new(1, "behemoth", 300, 300, 100, 100, null, []), 1, 1)
     {
         PlayerLife = 100, PlayerMana = 80,
         LeagueModule = new(new League("test", "Standard", false, false), modules.ToHashSet(StringComparer.OrdinalIgnoreCase)),
@@ -120,7 +120,7 @@ public sealed class BehemothRuntimeTests
         Assert.NotEqual(ConnectionWorker.NextEpoch(), ConnectionWorker.NextEpoch());
     }
 
-    static Task Dispatch(ClientState conn, ushort skill, bool ground, ushort flags, ConnectionCiphers ciphers)
+    static Task Dispatch(Player conn, ushort skill, bool ground, ushort flags, ConnectionCiphers ciphers)
     {
         ushort id = ground ? InstanceProtocol.UseSkillAtLocationId : InstanceTransfer.UseSkillOnObjectId;
         var packet = new LoginWriter().U16(id);

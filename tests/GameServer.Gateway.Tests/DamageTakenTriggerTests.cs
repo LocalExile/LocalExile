@@ -45,7 +45,7 @@ public class DamageTakenTriggerTests
             Assert.Null(Game.TriggerOnlyReason(Game.SupportedSkill(conn, call.Id)));
         });
     }
-    static void VerifyNonProjectile(ClientState conn, Game.ProjectileSession session)
+    static void VerifyNonProjectile(Player conn, Game.ProjectileSession session)
     {
         foreach (var item in Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).ToArray())
             Game.ItemsOf(conn).Remove(PlayerInventories.Weapon1, item.Id);
@@ -100,7 +100,7 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); }
         });
     }
-    static void EquipLinkedSpells(ClientState conn, bool channel = false, bool awakened = false)
+    static void EquipLinkedSpells(Player conn, bool channel = false, bool awakened = false)
     {
         var names = channel
             ? new[] { "SkillGemCyclone", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastWhileChannelling" }
@@ -111,7 +111,7 @@ public class DamageTakenTriggerTests
         Game.ItemsOf(conn).Add(PlayerInventories.BodyArmour, 0, 0, robe);
         Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find(channel ? "Rusted Sword" : "Driftwood Wand")!));
     }
-    static void Equip(ClientState conn, string support, string active = "SkillGemFireball")
+    static void Equip(Player conn, string support, string active = "SkillGemFireball")
     {
         var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + active)!);
         var trigger = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + support)!);
@@ -120,13 +120,13 @@ public class DamageTakenTriggerTests
         Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand);
     }
     sealed class ZeroCritical : Random { public override int Next(int maxValue) => 0; }
-    static void WithCharacter(Action<ClientState> run)
+    static void WithCharacter(Action<Player> run)
     {
         string path = Path.Combine(Path.GetTempPath(), $"cwdt-{Guid.NewGuid():N}.db");
         var old = Program.GameLogicOrNull; var oldLifetime = Game.CombatLifetime;
         var lifetime = new ModuleLifetime("Game"); Game.CombatLifetime = lifetime; Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "cwdt", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "cwdt", 1000, 1000, 100, 100, null, []), 1, 1)
         { CriticalRandom = new ZeroCritical(), Character = "Cwdt" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
           Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
           LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])) };

@@ -11,7 +11,7 @@ public static partial class Game
     /// Damage per Use (these skills ask for the average, not DPS) and the secondary ailment rows. Display rows only:
     /// a placed trap's actual hit uses the same secondary damage inputs.
     /// </summary>
-    public static List<(string Stat, int Value)> SecondaryPanelRows(ClientState conn, Func<string, int> get,
+    public static List<(string Stat, int Value)> SecondaryPanelRows(Player conn, Func<string, int> get,
         IReadOnlyDictionary<uint, int> player, SupportedGem supported, DamagePacket secondaryBase)
     {
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -45,7 +45,7 @@ public static partial class Game
         return rows;
     }
 
-    static DamagePacket SecondaryRawHit(ClientState conn, SupportedGem gem, DamagePacket basis, Func<string, int> get) =>
+    static DamagePacket SecondaryRawHit(Player conn, SupportedGem gem, DamagePacket basis, Func<string, int> get) =>
         DamageStats.RawAdded(basis, name => name.StartsWith("spell_", StringComparison.Ordinal)
             && name.Contains("_added_", StringComparison.Ordinal) ? 0 : get(name), spell: true,
             AddedEffectiveness(conn, gem.Effect, gem.Level));

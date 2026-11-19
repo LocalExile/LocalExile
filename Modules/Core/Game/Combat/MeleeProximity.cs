@@ -17,7 +17,7 @@ public static partial class Game
     }
 
     // One melee hit on this target, with the player's and the skill's proximity stats. Call under the Monsters lock.
-    public static DamagePacket WithMeleeProximityLocked(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static DamagePacket WithMeleeProximityLocked(Player conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? skill, SpawnedMonster target, DamagePacket hit, double at)
     {
         int Get(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) + (skill?.GetValueOrDefault(k) ?? 0) : 0;

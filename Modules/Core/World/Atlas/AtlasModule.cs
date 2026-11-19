@@ -16,7 +16,7 @@ public sealed class AtlasModule : IModule
 
     /// <summary>Gives the character <paramref name="maps"/> Atlas passive points for maps first completed, saves them and
     /// sends the three presets again so the tree's counter follows (S→C 0x3d, the message a click in the tree gets).</summary>
-    static async Task AwardMapPoints(ClientState conn, IPlayer player, int maps, string label)
+    static async Task AwardMapPoints(Player conn, IPlayer player, int maps, string label)
     {
         if (maps <= 0) return;
         if (conn.AtlasPassivePoints < MapCompletionPoints)
@@ -174,7 +174,7 @@ static class AtlasFeature
     ];
 
     /// <summary>Map-device beacons and Maven invitation gates (Player +0x1d0, bit = id − 1). Applied onto
-    /// <see cref="ClientState.LeagueQuestFlags"/> before the player object is built so a later 0x02bc does not toast.
+    /// <see cref="Player.LeagueQuestFlags"/> before the player object is built so a later 0x02bc does not toast.
     /// AtlasMavenFightComplete1–4 (979–982) make Kirac's "Invitation: The Atlas" the fifth fight; 885 MavenBossComplete
     /// is omitted so the Nucleus still has its later phases.</summary>
     internal static readonly int[] UnlockLeagueFlags =
@@ -200,7 +200,7 @@ static class AtlasFeature
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    internal static async Task<int> EnsureUnlocked(ClientState conn)
+    internal static async Task<int> EnsureUnlocked(Player conn)
     {
         var missing = UnlockFlags.Where(f => !ClientHasQuestFlag(conn, f)).ToList();
         bool leagueChanged = ApplyLeagueFlags(conn);
@@ -222,7 +222,7 @@ static class AtlasFeature
 
     /// <summary>One 0x1a3 before 0x21: the sets replace without a completion event. 0x1a4 is only for a new completion.
     /// League flags are put on the connection here, before <c>PlayerForCreation</c> reads them.</summary>
-    internal static IEnumerable<(string Log, byte[] Message)> Restore(ClientState conn)
+    internal static IEnumerable<(string Log, byte[] Message)> Restore(Player conn)
     {
         ApplyLeagueFlags(conn);
         ApplyTreeFlags(conn);
@@ -259,7 +259,7 @@ static class AtlasFeature
 
     /// <summary>A tree is unlocked by the character's completed maps, or by holding nodes (an old save's nodes in a tree that
     /// is now locked stay reachable).</summary>
-    internal static bool TreeUnlocked(ClientState conn, int tree) =>
+    internal static bool TreeUnlocked(Player conn, int tree) =>
         tree == 0 || (tree < TreeUnlockMaps.Length && tree < conn.AtlasPassives.Length
             && (conn.AtlasPassives[tree].Count > 0
                 || AtlasProgress.Completed(WorldOf(PlayerOf(conn)).CharacterData).Count >= TreeUnlockMaps[tree]));
@@ -267,7 +267,7 @@ static class AtlasFeature
     /// <summary>Sets trees II and III's league flags on the connection (never saved to the account: they follow each
     /// character's own maps and active preset, so a shared save would leak one character's trees to another). The client
     /// shows the tree selector when more than one tree is unlocked and starts on the last tree with Unlocked and Active.</summary>
-    internal static bool ApplyTreeFlags(ClientState conn)
+    internal static bool ApplyTreeFlags(Player conn)
     {
         bool changed = false;
         int active = AtlasActivePreset(conn);
@@ -282,14 +282,14 @@ static class AtlasFeature
     }
 
     /// <summary>Re-evaluates the tree flags and sends the league flags again (S→C 0x2bc) when they changed.</summary>
-    internal static async Task SyncTreeFlags(ClientState conn)
+    internal static async Task SyncTreeFlags(Player conn)
     {
         if (!ApplyTreeFlags(conn) || !conn.PlayerSent) return;
         await global::Game.SendWorldRecord(conn, PlayerId,
             InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)), "0x02bc Atlas tree flags");
     }
 
-    static bool ApplyLeagueFlags(ClientState conn)
+    static bool ApplyLeagueFlags(Player conn)
     {
         bool changed = false;
         foreach (int id in UnlockLeagueFlags) if (conn.LeagueQuestFlags.Add(id)) changed = true;
@@ -298,7 +298,7 @@ static class AtlasFeature
     }
 
     /// <summary>Kirac <c>DispatchRulesetEvent("open_maven_invitation …")</c>: put that MavenFights invitation in the bag.</summary>
-    internal static async Task GiveMavenInvitation(ClientState conn, string script)
+    internal static async Task GiveMavenInvitation(Player conn, string script)
     {
         var match = OpenMavenInvitation.Match(script ?? "");
         if (!match.Success || !MavenInvitationItems.TryGetValue(match.Groups[1].Value, out int row)
@@ -319,7 +319,7 @@ static class AtlasFeature
     }
 
     // C→S 0x2a8: a tab of the Atlas tree picked. The client switches only on a 0x3d with that preset alone.
-    internal static async Task SelectPreset(ClientState conn, byte preset)
+    internal static async Task SelectPreset(Player conn, byte preset)
     {
         if (preset >= conn.AtlasPassives.Length)
         {
@@ -343,7 +343,7 @@ static class AtlasFeature
     // preset and send all three presets back so the client and the save agree. The server holds the Atlas graph
     // (client.db) and refuses a node that is off it, an icon-only node, an allocation not touching the start or an
     // allocated node, and a refund that would cut allocated nodes off from the start.
-    internal static async Task ChangeAtlasPassive(ClientState conn,
+    internal static async Task ChangeAtlasPassive(Player conn,
         byte preset, uint node, bool allocate)
     {
         if (preset >= conn.AtlasPassives.Length || node > ushort.MaxValue
@@ -439,7 +439,7 @@ static class AtlasFeature
 
     // C→S 0xf6 / a bag click / a drop onto inventory 40: a Voidstone into AtlasUpgrades1. GrantAtlasUpgrade is set
     // the first time a stone goes in. A filled 0x1a3 then refreshes the quadrant T16 bits while the Atlas is open.
-    internal static async Task<bool> SocketVoidstone(ClientState conn,
+    internal static async Task<bool> SocketVoidstone(Player conn,
         uint itemId)
     {
         var items = ItemsOf(conn);
@@ -470,7 +470,7 @@ static class AtlasFeature
 
     // C→S 0x28: inventory 40 unsockets onto the cursor; a Voidstone in the bag sockets into its Atlas slot (the
     // window only sends 0xf6 on Ctrl + click, so a plain click would otherwise do nothing).
-    internal static async Task<bool> PickVoidstone(ClientState conn, InstanceItems.PickUpItem pick)
+    internal static async Task<bool> PickVoidstone(Player conn, InstanceItems.PickUpItem pick)
     {
         uint atlas = PlayerInventories.InventoryId(PlayerInventories.AtlasUpgrades);
         uint main = PlayerInventories.InventoryId(PlayerInventories.MainInventory);
@@ -504,7 +504,7 @@ static class AtlasFeature
         return await SocketVoidstone(conn, pick.ItemId);
     }
 
-    internal static async Task Refresh(ClientState conn)
+    internal static async Task Refresh(Player conn)
     {
         await EnsureUnlocked(conn);
         var player = PlayerOf(conn);

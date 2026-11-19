@@ -13,7 +13,7 @@ public sealed class TimelessTattooInteractionTests
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-timeless-tattoo-{Guid.NewGuid():N}.db");
         Saves.Open(path);
-        var conn = new ClientState(new(1, "timeless-tattoo", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "timeless-tattoo", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TimelessTattooChar", PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),

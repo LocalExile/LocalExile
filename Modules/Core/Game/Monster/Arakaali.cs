@@ -14,9 +14,9 @@ public static class Arakaali
     internal const byte SecondStance = 1;
     static readonly Store<InstanceState, Fight> Fights = new();
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
-    public static byte Stance(ClientState c, MonsterCatalog.Variety v) =>
+    public static byte Stance(Player c, MonsterCatalog.Variety v) =>
         IsBoss(v) && c.Instance.HasState(SecondPhase) ? SecondStance : (byte)0;
-    public static LifePhaseGate? Phases(ClientState c, MonsterCatalog.Variety v)
+    public static LifePhaseGate? Phases(Player c, MonsterCatalog.Variety v)
     {
         if (!IsBoss(v) || c.Layout.Id != Area) return null;
         var phases = new LifePhaseGate([50]);
@@ -36,7 +36,7 @@ public static class Arakaali
     }
     // A sleeping observer keeps its Actor; waking does not recreate it from the instance snapshot.
     // Commit its stance with the action at the send gate, under the monster lock.
-    internal static byte[]? StanceUpdateLocked(ClientState c, uint id, double now)
+    internal static byte[]? StanceUpdateLocked(Player c, uint id, double now)
     {
         if (c.Closed || c.LeavingArea || c.AsleepMonsters.Contains(id)
             || !c.Monsters.TryGetValue(id, out var boss) || !IsBoss(boss.Variety)
@@ -47,7 +47,7 @@ public static class Arakaali
         return InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y,
             5828, c.NextActionSequence(), 0x0800, id);
     }
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         KeyValuePair<uint, SpawnedMonster> found;
@@ -63,15 +63,15 @@ public static class Arakaali
     {
         public void Dispose() { foreach (var fight in Fights) fight.Value.Stop(); }
     }
-    internal sealed class Fight(uint id, SpawnedMonster boss, ClientState owner)
+    internal sealed class Fight(uint id, SpawnedMonster boss, Player owner)
     {
         internal readonly SemaphoreSlim Gate = new(1);
-        readonly HashSet<ClientState> players = [];
+        readonly HashSet<Player> players = [];
         double deadline = double.NaN;
         bool stopped;
-        public void Bind(ClientState c) => players.Add(c);
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
-        async Task All(Func<ClientState, byte[]?> message)
+        public void Bind(Player c) => players.Add(c);
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+        async Task All(Func<Player, byte[]?> message)
         {
             var observers = Present.Concat(InGame.Keys.Where(p => ReferenceEquals(p.Instance, owner.Instance)
                 && !p.Closed && !p.LeavingArea)).Distinct().ToArray();
@@ -85,7 +85,7 @@ public static class Arakaali
                 });
             }
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused || boss.Dead || boss.Life == 0) return;
             boss.LifePhases ??= Phases(c, boss.Variety!)!;

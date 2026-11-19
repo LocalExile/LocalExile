@@ -7,7 +7,7 @@ public static partial class Game
     public static int MonsterImpaleDamage(SpawnedMonster target, double stored, double now = double.NaN) =>
         MonsterTakesMitigated(target, DamagePacket.Of(DamageType.Physical, stored, stored), spell: false, now);
 
-    public static (int Damage, double Reflected, bool Applied) WithImpaleHitLocked(ClientState conn, SpawnedMonster target,
+    public static (int Damage, double Reflected, bool Applied) WithImpaleHitLocked(Player conn, SpawnedMonster target,
         int directDamage, DamagePacket rolled, bool critical, int sourceCriticalMultiplier,
         ImpaleStats.Settings settings, double hitMore = 1)
     {

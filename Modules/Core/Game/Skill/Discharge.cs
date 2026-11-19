@@ -18,7 +18,7 @@ public sealed class DischargeUse(IReadOnlyDictionary<ChargeType, int> charges)
 static partial class Game
 {
     // The charges a use can spend, per type: the held ones above the minimum.
-    internal static Dictionary<ChargeType, int> RemovableCharges(ClientState conn)
+    internal static Dictionary<ChargeType, int> RemovableCharges(Player conn)
     {
         var removable = new Dictionary<ChargeType, int>();
         lock (conn.Monsters)
@@ -31,19 +31,19 @@ static partial class Game
     }
 
     // A use of a charge-spending skill counts its charges once (null for other skills).
-    internal static DischargeUse? DischargeUseFor(ClientState conn, int effect, int level, int quality) =>
+    internal static DischargeUse? DischargeUseFor(Player conn, int effect, int level, int quality) =>
         SkillHitPlan.ForSkill(SkillsFor(conn), effect, level, quality).SpendsCharges ? new(RemovableCharges(conn)) : null;
 
     // The worn skill effect of the gem's base (one Cosmetics tab slot covers Discharge and its transfigured versions),
     // for the log: the client draws Discharge's art from the skill record's skill_art_variation (0: the default).
-    static string DischargeSkin(ClientState conn, uint gem) =>
+    static string DischargeSkin(Player conn, uint gem) =>
         CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .Select(kv => Mtx.Resolve(kv.Value)).FirstOrDefault(r => r is not null) is { } worn
             ? $"mtx 0x{worn.MtxTypeHash:x8} art variation {SkillArtVariation(conn, gem)}" : "none";
 
     // A use landed: its first landed sweep spends the charges it counted, unless the gem's quality roll keeps them
     // (discharge_chance_not_to_consume_charges_%). The caster's own charges: only its connection spends them.
-    internal static bool SpendDischargedCharges(ClientState conn, string skill, uint gem, DischargeUse use,
+    internal static bool SpendDischargedCharges(Player conn, string skill, uint gem, DischargeUse use,
         int keepChance, int hit)
     {
         if (!use.TakeSpend()) return false;
@@ -62,7 +62,7 @@ static partial class Game
     // A triggered Discharge (Cast On Critical Strike) runs its action without the cast clip, and the clip is what draws
     // the explosion: the server draws it instead (MiscAnimated DischargeFire/Cold/Lightning and the skins' rows), one
     // per charge type spent, at the area centre and scaled to the radius. A cast by hand draws its own.
-    internal static async Task ShowTriggeredDischarge(ClientState conn,
+    internal static async Task ShowTriggeredDischarge(Player conn,
         uint gem, DischargeUse use, (int X, int Y) at, int radius)
     {
         uint skin = CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)

@@ -7,7 +7,7 @@ public static partial class Game
 {
     // Producers retain packet boundaries while committing a multi-object projection at the send gate.
     // Presentation is already committed data; stateful actions must await the target before entering this scope.
-    sealed class WorldRecordBuilder(ClientState conn, WorldAdmission? admission)
+    sealed class WorldRecordBuilder(Player conn, WorldAdmission? admission)
     {
         readonly List<OutputRecord> records = [];
         bool UsesWorld => conn.LockstepClient && admission is not null;
@@ -68,7 +68,7 @@ public static partial class Game
         return SendWorldRemoval(conn, id, log);
     }
 
-    public static async Task SendWorldReceipt(ClientState conn, PlayerMinions.Output output)
+    public static async Task SendWorldReceipt(Player conn, PlayerMinions.Output output)
     {
         if (output.CreatesObject)
             await SendWorldCreate(conn, output.WorldId!.Value, output.Packet, output.Log);
@@ -83,7 +83,7 @@ public static partial class Game
     // `awaitBirth` holds the producer until the create is written. A presentation object that no later action depends
     // on (a projectile, an effect) does not need that hold: a lockstep create is written at the next frame end, so each
     // held create stalled its producer's queue for up to a frame.
-    public static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
+    public static async Task<bool> SendWorldCreate(Player conn, uint id, Func<byte[]?> create,
         string? log = null, Func<bool>? still = null, bool wake = false,  bool awaitBirth = true,
         // Records for the object that may be written with its create and read after it (a monster's wake and its rarity
         // glow): each waits for the birth otherwise, which on a lockstep client is a frame per object. An area's rare and
@@ -132,16 +132,16 @@ public static partial class Game
         return admitted && (!awaitBirth || QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
     }
 
-    public static Task<bool> SendWorldCreate(ClientState conn, uint id, byte[] bytes, string? log = null, Func<bool>? still = null) =>
+    public static Task<bool> SendWorldCreate(Player conn, uint id, byte[] bytes, string? log = null, Func<bool>? still = null) =>
         SendWorldCreate(conn, id, () => bytes, log, still);
 
     // World output already batches at the frame boundary. Preserve the tick's projection order when it mixes
     // World and immediate records; predictive retains its existing one-write send batch.
-    static Task<bool> SendPlayerTickBatch(ClientState conn, Func<Task<bool>> body) => conn.LockstepClient ? body()
+    static Task<bool> SendPlayerTickBatch(Player conn, Func<Task<bool>> body) => conn.LockstepClient ? body()
             : Program.SendBatched(conn, body);
 
     // The caller declares one complete World record and its target. Opaque sends retain their original path.
-    public static Task SendWorldRecord(ClientState conn, uint id, byte[] bytes, string? log, Func<bool>? still = null,
+    public static Task SendWorldRecord(Player conn, uint id, byte[] bytes, string? log, Func<bool>? still = null,
         Func<byte[]?>? atGate = null, string? sync = null)
     {
         if (!conn.LockstepClient) return Send(conn, bytes, log, still, atGate, sync);
@@ -155,7 +155,7 @@ public static partial class Game
         }, still);
     }
 
-    public static Task SendWorldRecords(ClientState conn, uint id, Func<byte[][]?> records, string? log = null, Func<bool>? still = null, string? sync = null)
+    public static Task SendWorldRecords(Player conn, uint id, Func<byte[][]?> records, string? log = null, Func<bool>? still = null, string? sync = null)
     {
         if (!conn.LockstepClient)
             return Send(conn, [], log, still, atGate: () =>
@@ -167,7 +167,7 @@ public static partial class Game
             still);
     }
 
-    public static async Task SendWorldRemoval(ClientState conn, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
+    public static async Task SendWorldRemoval(Player conn, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
         if (!conn.LockstepClient) await Send(conn, InstanceProtocol.RemoveObject(id), log, still, atGate);
         else
@@ -204,7 +204,7 @@ public static partial class Game
     }
 
     // Explicit convenience used by producers that already own their connection's transport.
-    public static Task<bool> SendWorldRecord(ClientState conn, uint id, Func<byte[]?> record,
+    public static Task<bool> SendWorldRecord(Player conn, uint id, Func<byte[]?> record,
         string? log = null, Func<bool>? still = null)
     {
         if (!conn.LockstepClient) return Predictive();

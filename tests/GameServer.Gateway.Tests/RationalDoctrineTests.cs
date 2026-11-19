@@ -28,7 +28,7 @@ public class RationalDoctrineTests
         stats["intelligence"] = 101;
         Assert.Equal(25, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
 
-        var conn = new ClientState(new(1, "rational", 100, 100, 100, 100, null, []), 0, 1);
+        var conn = new Player(new(1, "rational", 100, 100, 100, 100, null, []), 0, 1);
         conn.FlaskGrounds.SetProfane(7, inside: true, alive: true, now: 1, () => 99);
         Assert.Equal(900, global::Game.CriticalChanceOn(conn, 7, 500, null, new(900, null, null)));
         Assert.Equal(500, global::Game.CriticalChanceOn(conn, 8, 500, null, new(900, null, null)));

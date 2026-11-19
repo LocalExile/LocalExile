@@ -1,7 +1,7 @@
 /// <summary>
 /// An area instance's own world: its monsters, its clock and its object ids, the same for every connection in it. No
 /// monster belongs to a player: whoever comes, goes or comes back, the instance keeps them as they are. The monsters
-/// dictionary is also the instance's lock (ClientState.Monsters, which every connection's code takes).
+/// dictionary is also the instance's lock (Player.Monsters, which every connection's code takes).
 /// </summary>
 public sealed class InstanceWorld
 {
@@ -21,7 +21,7 @@ public sealed class InstanceWorld
     /// player comes near. Under the Monsters lock.</summary>
     public readonly List<SavedMonster> HeldBackMonsters = [];
 
-    /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (ClientState.EmergeGround).</summary>
+    /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (Player.EmergeGround).</summary>
     public readonly EmergeGround EmergeGround = new();
 
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
@@ -39,7 +39,7 @@ public sealed class InstanceWorld
 
     /// <summary>The connection whose Escape menu stopped the Clock (Connection.SetPaused), until its pause ends. Under the
     /// Monsters lock.</summary>
-    public ClientState? PausedBy;
+    public Player? PausedBy;
 
     /// <summary>Server objects of the instance (effects, projectiles, stashes, minions): ids unique to all its clients, from
     /// 0x04000000. A client numbers the objects it makes itself (its predicted projectiles: a wand's bolt) from 0x3000:
@@ -51,7 +51,7 @@ public sealed class InstanceWorld
     public uint NextObjectId = 0x04000000;
     public uint TakeObjectId() => Interlocked.Increment(ref NextObjectId) - 1;
 
-    /// <summary>Buff instances (S→C 0x1c1) of everyone in the instance (ClientState.NextBuff).</summary>
+    /// <summary>Buff instances (S→C 0x1c1) of everyone in the instance (Player.NextBuff).</summary>
     public ushort NextBuff = 1;
 
     // The instance's monsters have ids of their own, the same on every client, below 0x40000000: the client itself puts
@@ -68,7 +68,7 @@ public sealed class InstanceWorld
 
     /// <summary>The connection the monsters' walks were last built for: the area's view (AreaFrames.View), whose loops step
     /// them in the area's frame; before the frames start, the first one in.</summary>
-    public ClientState? Runner;
+    public Player? Runner;
 }
 
 /// <summary>Monsters lying in wait for a player to come near, besides the buried ones (DormantMonsters), and whether a

@@ -11,7 +11,7 @@ public sealed class SiphoningState
     public long Revision;
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public readonly SiphoningState Siphoning = new();
 }

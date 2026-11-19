@@ -22,9 +22,9 @@ static class PartyTravel
         .GroupBy(r => (ushort)r.Int("HASH16"))
         .ToDictionary(g => g.Key, g => g.First().Ints("EndQuestFlags").ToArray());
 
-    internal static ClientState? Member(ClientState conn, string name) => PartyRoster.TravelMember(conn, name);
+    internal static Player? Member(Player conn, string name) => PartyRoster.TravelMember(conn, name);
 
-    internal static PendingTransfer? Destination(ClientState conn, ClientState member)
+    internal static PendingTransfer? Destination(Player conn, Player member)
     {
         if (member.InstanceNumber == 0) return null;
         PendingTransfer destination;
@@ -51,7 +51,7 @@ static class PartyTravel
         return required.All(flags.Contains) ? destination : null;
     }
 
-    internal static async Task<bool> Travel(ClientState conn, string name)
+    internal static async Task<bool> Travel(Player conn, string name)
     {
         var member = Member(conn, name);
         if (member is null) return false;

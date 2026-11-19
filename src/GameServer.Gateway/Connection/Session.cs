@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>A client's connection: its socket and ciphers, and what the network keeps of it (the bytes not yet framed,
-/// the message history, the HNC carrier, the instance keys). Only the framework reaches it (<see cref="ClientState.Session"/>);
+/// the message history, the HNC carrier, the instance keys). Only the framework reaches it (<see cref="Player.Session"/>);
 /// the rules send to the player (Program.Send).</summary>
 public sealed class Session(string remote, NetworkStream stream, ConnectionCiphers ciphers)
 {

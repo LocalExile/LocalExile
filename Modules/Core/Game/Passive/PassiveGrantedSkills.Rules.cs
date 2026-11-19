@@ -20,7 +20,7 @@ public static partial class Game
     /// (<c>has_trigger_on_crit_by_unique_enemy</c> and the like; the level row's AdditionalFlags name the same trigger).
     /// A tattoo that replaces such a node (the Loyalty summons) is a grant of its own: its
     /// PassiveSkillOverrides.Effect and the has_trigger_on_* stat from TattooStats. Call under the Monsters lock.</summary>
-    static IEnumerable<PassiveGrantedSkills.Grant> TriggeredGrantsLocked(ClientState conn, string trigger)
+    static IEnumerable<PassiveGrantedSkills.Grant> TriggeredGrantsLocked(Player conn, string trigger)
     {
         if (Stats.Key(trigger) is not uint key) return [];
         var passives = PassivesFor(conn);
@@ -32,7 +32,7 @@ public static partial class Game
 
     // Tattooed passives whose effect is a granted triggered skill: the tattoo's trigger stat comes from its
     // TattooStats row and the skill from the client's PassiveSkillOverrides.Effect (a GrantedEffectsPerLevel row).
-    internal static IEnumerable<PassiveGrantedSkills.Grant> TattooTriggeredGrantsLocked(ClientState conn, uint triggerKey)
+    internal static IEnumerable<PassiveGrantedSkills.Grant> TattooTriggeredGrantsLocked(Player conn, uint triggerKey)
     {
         var skills = SkillsFor(conn);
         var tree = PassivesFor(conn);
@@ -74,7 +74,7 @@ public static partial class Game
     // (GemSkillEffectsAt, SupportedSkillAt): same id rules, the granted level, quality 0, no supports.
     // shortcut: only self auras (AuraCatalog) have an executor; a granted triggered, minion or other skill stays out of
     // the skill list until its mechanic exists (the client would offer a skill that does nothing).
-    static IReadOnlyList<PassiveGrantedSkills.Grant> GrantedSkillsOf(ClientState conn)
+    static IReadOnlyList<PassiveGrantedSkills.Grant> GrantedSkillsOf(Player conn)
     {
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
@@ -91,7 +91,7 @@ public static partial class Game
     /// <summary>The relic skill the player's passives grant and the radius of the buff (BuffTemplates 546, the player
     /// and his allies within 60 cells) whose can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique
     /// lets their kills and hits trigger it; null without both.</summary>
-    static (PassiveGrantedSkills.Grant Grant, int AllyRadius)? RelicTriggerOf(ClientState conn)
+    static (PassiveGrantedSkills.Grant Grant, int AllyRadius)? RelicTriggerOf(Player conn)
     {
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
@@ -109,7 +109,7 @@ public static partial class Game
     /// spends the skill's 0.3 s cooldown (with cooldown recovery; a roll while it recovers is not made) and queues the
     /// summon for the minion step. True when one was queued.
     /// </summary>
-    public static bool TriggerElementalRelicLocked(ClientState conn, SpawnedMonster target, bool hit, bool killed,
+    public static bool TriggerElementalRelicLocked(Player conn, SpawnedMonster target, bool hit, bool killed,
         (int X, int Y)? allyAt = null)
     {
         if (!CurrentGameWork || !target.Hostile || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return false;
@@ -140,7 +140,7 @@ public static partial class Game
 
     // A granted skill resolved like a gem: its own stats at the granted level and the aura markers SupportedSkillAt
     // adds. No EffectiveGemLevel or GemQualityBonus: those raise gems.
-    static SupportedGem GrantedSupportedSkill(ClientState conn, PassiveGrantedSkills.Grant grant)
+    static SupportedGem GrantedSupportedSkill(Player conn, PassiveGrantedSkills.Grant grant)
     {
         var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         if (SkillsFor(conn).IsAura(grant.Effect)) own[OwnAuraRestriction.BaseAura] = 1;
@@ -154,7 +154,7 @@ public static partial class Game
     // The player's footstep skills (Abberath's Fury): every frame of the area moves the run animation's clock and
     // triggers each skill once per footstep it passed, while the character has a footstep skill. A stats update (the
     // passives changed) starts it again (WakeFootsteps). A pause stops the area's frames, so the clock stands still.
-    static void WakeFootsteps(ClientState conn)
+    static void WakeFootsteps(Player conn)
     {
         if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
         List<ushort> nodes;
@@ -199,7 +199,7 @@ public static partial class Game
     // and chill change the step rate (the wiki: movement speed raises the frequency). It starts over when the walk ends, as
     // the run animation does.
     // Shield Charge walks its charge (ShieldCharge.cs), so it takes steps at the charge speed, as the wiki says.
-    public static int FootstepsDue(ClientState conn, ref double run, double from, double now)
+    public static int FootstepsDue(Player conn, ref double run, double from, double now)
     {
         double before = run, until = Math.Min(now, conn.Walk.ArrivesAt);
         if (until > from) run += (until - from) * conn.Walk.Speed / WalkSpeed;
@@ -211,7 +211,7 @@ public static partial class Game
     // The footstep skills that trigger now: none while the player is dead, leaving, frozen or stunned, in town or in the
     // grace period, nor a disabled one (Devout of Gruthkul's "Your Spells are disabled": the wiki says it disables Abberath's
     // Fury).
-    public static IReadOnlyList<PassiveGrantedSkills.Grant> FootstepSkills(ClientState conn, double now)
+    public static IReadOnlyList<PassiveGrantedSkills.Grant> FootstepSkills(Player conn, double now)
     {
         List<ushort> nodes;
         lock (conn.Monsters)
@@ -226,12 +226,12 @@ public static partial class Game
 
     // A granted spell's hit (no gem, no supports): its base damage with the player's increases, added damage and conversion,
     // as a supported spell's (SupportedHitFor); Spell Skills deal no Damage zeroes it (SkillDamageContext).
-    public static DamagePacket GrantedSpellHit(ClientState conn, int effect, int level) => GrantedSpell(conn, effect, level).Hit;
+    public static DamagePacket GrantedSpellHit(Player conn, int effect, int level) => GrantedSpell(conn, effect, level).Hit;
 
     // The hit, and what its ignite takes: the flat damage (base and added, after conversion, before any increase; wiki
     // Ignite), the caster's and the skill's stats and the damage context.
     public static (DamagePacket Hit, DamagePacket Flat, Dictionary<uint, int> Stats, SkillDamageContext Context) GrantedSpell(
-        ClientState conn, int effect, int level)
+        Player conn, int effect, int level)
     {
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, SkillsFor(conn).EffectStats(effect, level).ToDictionary(v => v.Item1, v => v.Item2));
@@ -250,7 +250,7 @@ public static partial class Game
     // hostile monster within its radius (FootstepExplosionRadius grown by area of effect, SkillArea) of the player, as an
     // area spell's sweep (AreaSkillHit) without a gem: no cost, no cast time, crits and rolls per monster, every hit before
     // the sweep's deaths. A landed hit ignites a surviving monster with its 25% chance or a critical strike (IgniteFromHit).
-    public static async Task TriggerFootstepSkill(ClientState conn,
+    public static async Task TriggerFootstepSkill(Player conn,
         PassiveGrantedSkills.Grant skill)
     {
         var rules = CombatLifetime; var source = AscendancyPolicies.SourceOwner(conn);
@@ -404,13 +404,13 @@ public static partial class Game
     // are left alone (a racy read of the count only delays a removal to the next poll).
     /// <summary>A short-lived effect object the player is shown, removed after <paramref name="seconds"/>. Under the
     /// Monsters lock.</summary>
-    public static void AddTemporarySkillEffect(ClientState conn, uint id, double seconds)
+    public static void AddTemporarySkillEffect(Player conn, uint id, double seconds)
     {
         conn.TemporarySkillEffects[id] = AreaTime(conn) + seconds;
         AfterAsPlayer(conn, seconds, SendTemporarySkillEffects);
     }
 
-    public static Task SendTemporarySkillEffects(ClientState conn) =>
+    public static Task SendTemporarySkillEffects(Player conn) =>
         conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)

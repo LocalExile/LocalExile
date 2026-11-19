@@ -261,7 +261,7 @@ public sealed class DivinationCardTests
         readonly TcpClient reader;
         public NetworkStream Stream => writer.GetStream();
         public ConnectionCiphers Ciphers { get; } = new(new byte[64], false);
-        public ClientState Conn { get; } = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1)
+        public Player Conn { get; } = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1)
             { Instance = new(), PlayerLife = 50, Character = "Cards" + Guid.NewGuid().ToString("N"),
               LeagueModule = new(new League("cards", "Standard", false, false), new HashSet<string>(["Game", "divination-test"])) };
         public Wire()

@@ -14,7 +14,7 @@ public sealed class DevourSupportTests
         var previousLogic = Program.GameLogicOrNull;
         Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "devour", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "devour", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "DevourChar", PlayerLife = 500, PlayerMana = 100, Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0),

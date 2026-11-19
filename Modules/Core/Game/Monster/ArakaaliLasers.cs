@@ -12,7 +12,7 @@ public static class ArakaaliLasers
     internal const double Charge = .533, Contact = 1.999, Duration = 3.333;
     internal const double Radius = 3; // Collision-band calibration in grid cells.
     static readonly Store<InstanceState, Field> Fields = new();
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Arakaali.Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         KeyValuePair<uint, SpawnedMonster> found;
@@ -32,14 +32,14 @@ public static class ArakaaliLasers
         readonly uint bossId;
         readonly SpawnedMonster boss;
         readonly InstanceState instance;
-        readonly HashSet<ClientState> players = [];
+        readonly HashSet<Player> players = [];
         readonly List<Lane> lanes = [];
         internal IReadOnlyList<Lane> Lanes => lanes;
         Lane[] firing = [];
         double next, deadline, hitAt;
         int stage, wave;
         bool hit, stopped, reset = true;
-        public Field(ClientState c, uint id, SpawnedMonster actor)
+        public Field(Player c, uint id, SpawnedMonster actor)
         {
             bossId = id; boss = actor; instance = c.Instance;
             var places = new QuestObjectTypes.AreaPlacements(Arakaali.Area, c.Seed, []);
@@ -75,8 +75,8 @@ public static class ArakaaliLasers
                 }
             }
         }
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
-        public async Task Bind(ClientState c)
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
+        public async Task Bind(Player c)
         {
             if (!c.MonsterViews.ContainsKey(bossId) || c.AsleepMonsters.Contains(bossId)) return;
             players.Add(c);
@@ -118,7 +118,7 @@ public static class ArakaaliLasers
             double t = length == 0 ? 0 : Math.Clamp(((p.X - from.X) * dx + (p.Y - from.Y) * dy) / length, 0, 1);
             return Math.Sqrt(Math.Pow(p.X - from.X - t * dx, 2) + Math.Pow(p.Y - from.Y - t * dy, 2));
         }
-        async Task Damage(ClientState p, Lane lane)
+        async Task Damage(Player p, Lane lane)
         {
             var from = instance.World.SceneObjects[lane.Source].Object;
             var to = instance.World.SceneObjects[lane.End].Object;
@@ -143,7 +143,7 @@ public static class ArakaaliLasers
             });
             if (outcome is not null) await PresentMonsterHit(p, bossId, outcome);
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused || lanes.Count == 0) return;
             if (reset) { await Reset(); reset = false; next = now + 5; }

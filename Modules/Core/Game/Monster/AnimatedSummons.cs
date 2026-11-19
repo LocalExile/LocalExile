@@ -9,19 +9,19 @@ public static partial class Game
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment,
         AnimatedGuardianGear? GuardianGear = null);
 
-    static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(ClientState conn, SummonCatalog.Definition definition) =>
+    static AnimatedGuardianGear? CaptureAnimatedGuardianGearLocked(Player conn, SummonCatalog.Definition definition) =>
         definition.Family == "AnimatedGuardian"
             ? new(conn.Summons.GuardianEquipment, new(conn.Summons.GuardianEquipment))
             : null;
 
-    static bool AnimatedGuardianGearCurrentLocked(ClientState conn, AnimatedGuardianGear gear)
+    static bool AnimatedGuardianGearCurrentLocked(Player conn, AnimatedGuardianGear gear)
     {
         var current = conn.Summons.GuardianEquipment;
         return ReferenceEquals(current, gear.Reference) && current.Count == gear.Equipment.Count
             && current.All(pair => gear.Equipment.TryGetValue(pair.Key, out var item) && ReferenceEquals(item, pair.Value));
     }
 
-    static AnimatedSource? AnimatedItems(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem,
+    static AnimatedSource? AnimatedItems(Player conn, SummonCatalog.Definition definition, SupportedGem gem,
         (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored, double radius = 15)
     {
         var guardian = CaptureAnimatedGuardianGearLocked(conn, definition);
@@ -63,7 +63,7 @@ public static partial class Game
         return new(id, ground, gear, guardian);
     }
 
-    public static byte AnimatedItemSlot(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem, Item item)
+    public static byte AnimatedItemSlot(Player conn, SummonCatalog.Definition definition, SupportedGem gem, Item item)
     {
         var catalog = ItemsFor(conn);
         if (!item.Identified || catalog.ByHash(item.TypeHash) is not { } type
@@ -86,7 +86,7 @@ public static partial class Game
     static readonly IReadOnlyDictionary<byte, byte> SummonVisibleSlots = new Dictionary<byte, byte>
         { [1] = 2, [2] = 0, [3] = 1, [4] = 4, [5] = 11, [6] = 8, [7] = 9, [8] = 5, [9] = 6, [10] = 10 };
 
-    static async Task<bool> AnimateGroundItem(ClientState conn,
+    static async Task<bool> AnimateGroundItem(Player conn,
         WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);

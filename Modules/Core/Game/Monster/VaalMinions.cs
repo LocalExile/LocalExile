@@ -12,7 +12,7 @@ public static partial class Game
         return result;
     }
 
-    static string? VaalMinionProxyDisabled(ClientState conn, int effect, ushort? source)
+    static string? VaalMinionProxyDisabled(Player conn, int effect, ushort? source)
     {
         if (!IsVaalMinion(SkillsFor(conn).EffectId(effect)) || source is not ushort skill) return null;
         var gem = SupportedSkill(conn, skill);
@@ -20,7 +20,7 @@ public static partial class Game
             ? "Vaal minion skills through totems, traps or mines are not implemented" : null;
     }
 
-    static bool SameSummonGem(ClientState conn, GolemState.Golem minion, SupportedGem vaal)
+    static bool SameSummonGem(Player conn, GolemState.Golem minion, SupportedGem vaal)
     {
         var regular = SupportedSkill(conn,minion.Source);
         return regular.SourceGem is not null && vaal.SourceGem is not null && regular.Host == vaal.Host
@@ -28,7 +28,7 @@ public static partial class Game
             && ReferenceEquals(PlayerInventories.GemIdentity(regular.SourceGem), PlayerInventories.GemIdentity(vaal.SourceGem));
     }
 
-    static (GolemState.Golem? Body, GolemState.Golem? Refresh, string Family, int Limit) VaalAscension(ClientState conn, SupportedGem gem, uint target = 0)
+    static (GolemState.Golem? Body, GolemState.Golem? Refresh, string Family, int Limit) VaalAscension(Player conn, SupportedGem gem, uint target = 0)
     {
         lock (conn.Monsters)
         {
@@ -46,7 +46,7 @@ public static partial class Game
         }
     }
 
-    static bool VaalMinionAvailable(ClientState conn, ushort source)
+    static bool VaalMinionAvailable(Player conn, ushort source)
     {
         var gem=SupportedSkill(conn,source);
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("VaalAbsolution" or "VaalDomination")) return true;
@@ -54,7 +54,7 @@ public static partial class Game
         return plan.Limit > 0 && (plan.Body is not null || plan.Refresh is not null);
     }
 
-    static bool VaalMinionTargetAvailable(ClientState conn, ushort source, uint target)
+    static bool VaalMinionTargetAvailable(Player conn, ushort source, uint target)
     {
         var gem = SupportedSkill(conn, source);
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("VaalAbsolution" or "VaalDomination")) return true;
@@ -66,7 +66,7 @@ public static partial class Game
             : minion.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || minion.Definition.Kind == "VaalDomination";
     }
 
-    internal static async Task<bool> ReleaseVaalMinions(ClientState conn, ushort source, (int X,int Y) aim, Func<bool> current, uint target = 0)
+    internal static async Task<bool> ReleaseVaalMinions(Player conn, ushort source, (int X,int Y) aim, Func<bool> current, uint target = 0)
     {
         var gem=SupportedSkill(conn,source);
         bool Live() => current() && SameTriggerSource(gem, SupportedSkill(conn, source));

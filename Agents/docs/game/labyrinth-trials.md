@@ -63,7 +63,7 @@ TriggerableBlockage is u8 blocked, then while blocked a u8 count of sections (no
 
 **What the Gateway does** (`LabyrinthTrials` in the Gateway, `Rules.LabyrinthTrials.cs` in QuestObjects):
 - on entering a trial's area it creates these objects; a door also closes its line across the way between the
-  area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `ClientState.DoorBarriers`);
+  area's spawn and the plaque on the server's walk estimate (`QuestBarriers`, `Player.DoorBarriers`);
 - using the trial's door opens it (0x2bc state 2, then 0x1c6 unblocked);
 - a lever opens itself and what its room links turn on (below); unlinked (room-points.json's objects), the nearest
   Locked Door that is still closed;
@@ -243,7 +243,7 @@ only target.
 The turret's Hull (every turret model but `statueturret_circlevine_noblock.ao`: ±3.25 to walking, ±2.26 to
 projectiles, turned with it) is stamped by the client: live (2026-10-31) the darts vanished at the turrets in their
 way while the server's flew on, unseen, and could hit a player behind one.
-So the Gateway closes those cells too (`ClientState.ProjectileWalls` for the darts, `DoorBarriers` for the walk
+So the Gateway closes those cells too (`Player.ProjectileWalls` for the darts, `DoorBarriers` for the walk
 estimate).
 The rig's flight clip `spine_shoot` is a `loopnoint` clip, which the `.amd` reader did not know: it dropped every rig
 with one (321 of them), so these darts had no clips in `data/projectile-clips.json` before.
@@ -308,7 +308,7 @@ half a second.
 In the original the pools fall smoothly in it (live 2026-10-31/11-01). The client cannot drain a pool itself: its
 pool step (`0x141e718c0`) adds the pool's native recovery rate only when it is above 0, so a negative
 `energy_shield_recovery_per_minute` or `life_recovery_per_minute` is ignored (tried 2026-10-31, reverted). So the
-degeneration (`ClientState.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`StartResourceRecovery`,
+degeneration (`Player.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`StartResourceRecovery`,
 beside regeneration, so one pool update carries both), and while it runs the player's stat updates carry both rates
 as 0 (`PlayerStatsUpdateAtGate`, `SendPlayerEnergyShield`): with its own regeneration predicted up between the
 updates and the damage dealt down at each, the pool went in a saw (live 2026-11-01).
@@ -422,7 +422,7 @@ ones), with no values in the client data; the wiki: fire damage over time, less 
 So the Gateway heats the room's plates together, keeps them at their peak 5 s after the heating clip, cools them and
 rests them 6 s cold, over and over; while the lava lies a player on a hot plate or a wall plate's half line degenerates by 40% of maximum life plus
 50% of maximum energy shield a second (our numbers, the roomba's: it felt the same in the original) less their fire
-resistance, energy shield first, with that buff on them, as a roomba's cut is dealt (`ClientState.TrapDegenPerSecond`).
+resistance, energy shield first, with that buff on them, as a roomba's cut is dealt (`Player.TrapDegenPerSecond`).
 `/trial_lava <life %> <energy shield %> [<peak s> [<cold s>]]` (dev) changes them.
 
 **Levers and gears.** Each lever opens the nearest Locked Door still closed (the room's way meets them in that order,

@@ -12,7 +12,7 @@ public static partial class Game
         ("gain_onslaught_while_you_have_fortify", "_while_you_have_fortify"),
     ];
 
-    static IReadOnlyDictionary<string, bool> RequalifyChargeOnslaught(ClientState conn,
+    static IReadOnlyDictionary<string, bool> RequalifyChargeOnslaught(Player conn,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
         int Get(string name) => Stats.Key(name) is uint key
@@ -28,20 +28,20 @@ public static partial class Game
         };
     }
 
-    public static bool ChargeOnslaughtActive(ClientState conn) => CurrentGameWork && !conn.Closed
+    public static bool ChargeOnslaughtActive(Player conn) => CurrentGameWork && !conn.Closed
         && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
         && conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("source_onslaught") == true;
 
-    public static IEnumerable<UtilityFlasks.Source> ChargeOnslaughtSources(ClientState conn, Func<string, int> character) =>
+    public static IEnumerable<UtilityFlasks.Source> ChargeOnslaughtSources(Player conn, Func<string, int> character) =>
         ChargeOnslaughtActive(conn) && ItemsFor(conn).Onslaught is { } onslaught
             ? UtilityFlasks.OnslaughtSources(onslaught, Math.Max(0, 1 + character("onslaught_effect_+%") / 100d)) : [];
 
     sealed class ChargeOnslaughtVisual { public ushort Buff; public bool Active; }
-    static readonly Store<ClientState, ChargeOnslaughtVisual> ChargeOnslaughtVisuals = new();
+    static readonly Store<Player, ChargeOnslaughtVisual> ChargeOnslaughtVisuals = new();
 
     // A permanent source has no countdown. Its ordinary buff is hidden while another Onslaught owner shows one;
     // the shared utility-source combiner still takes the strongest effect once.
-    public static byte[]? ChargeOnslaughtPresentation(ClientState conn)
+    public static byte[]? ChargeOnslaughtPresentation(Player conn)
     {
         lock (conn.Monsters)
         {

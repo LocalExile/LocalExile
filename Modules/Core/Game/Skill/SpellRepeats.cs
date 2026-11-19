@@ -7,7 +7,7 @@ public static partial class Game
     // calculator 0x1427eaec0: base_spell_repeat_count + skill_repeat_count, + skill_repeat_count_if_mined on a mined
     // skill, none with disable_skill_repeats. Network stats run no calculators, so the skill panel sends it.
     // Ordinary Ice Nova starts one native ring per cast replay. Transfigured actions can expand from Frostbolts.
-    public static int SpellRepeats(ClientState conn, int effect, Func<string, int> get) =>
+    public static int SpellRepeats(Player conn, int effect, Func<string, int> get) =>
         !SkillsFor(conn).IsSpell(effect) || SkillsFor(conn).IsAttack(effect) || Supports.Of(effect)?.Types.Contains(47) == true
             || SkillsFor(conn).ActionHash(effect) == IceNovaRing.Action && SkillsFor(conn).EffectId(effect) is not ("IceNova" or "IceNovaHardMode")
             || get("disable_skill_repeats") != 0 ? 0
@@ -17,7 +17,7 @@ public static partial class Game
     public static double GreaterEchoHitMore(int repeat, Func<string, int> own) => repeat <= 0 ? 1 :
         Math.Max(0, 1 + repeat * (own("support_greater_spell_echo_spell_damage_+%_final_per_repeat") / 100d));
 
-    public static int SpellRepeats(ClientState conn, ushort skillId, int effect)
+    public static int SpellRepeats(Player conn, ushort skillId, int effect)
     {
         Dictionary<uint, int>? stats = null; // Only a repeatable spell reads them.
         return SpellRepeats(conn, effect, name => Stats.Key(name) is uint k

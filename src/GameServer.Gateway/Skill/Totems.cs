@@ -6,7 +6,7 @@ using GameServer.Core.World;
 
 /// <summary>
 /// The player's summoned totems (Agents/docs/protocol/11-skills.md section 10g): team-0 monster objects of the skill's
-/// SkillTotemVariations variety, kept here rather than in <see cref="ClientState.Monsters"/>, so area hits, monster AI,
+/// SkillTotemVariations variety, kept here rather than in <see cref="Player.Monsters"/>, so area hits, monster AI,
 /// loot, experience and the instance save never see them. A totem dies when its Life reaches 0, its duration ends, a new
 /// one replaces it past the limit, or the player dies (wiki Totem, Soul Mantle); it then plays its death (0x1b1 at 0) and
 /// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by

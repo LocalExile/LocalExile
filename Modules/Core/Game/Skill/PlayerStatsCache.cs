@@ -7,13 +7,13 @@ public static partial class Game
 {
     // What the stats read of mana is its conditions (ItemConditionFlags: full, half or less) and empty: a change of the
     // amount alone marks nothing (CheckConditions).
-    static long ManaState(ClientState conn)
+    static long ManaState(Player conn)
     {
         long mana = conn.PlayerMana, pool = conn.Pools.Mana;
         return (mana >= pool ? 1 : 0) | (mana * 2 <= pool ? 2 : 0) | (mana == 0 ? 4 : 0);
     }
 
-    public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
+    public static Dictionary<uint, int> CachedPlayerStats(Player conn, out double baselineLifePerSecond)
     {
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is { } graph)
         {
@@ -61,7 +61,7 @@ public static partial class Game
 
     // The pools from what they are built of now (a new Pools marks the steps that read them). Smaller pools hold no more
     // than they can; a larger one is not refilled.
-    static void RebuildPools(ClientState conn)
+    static void RebuildPools(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -73,7 +73,7 @@ public static partial class Game
     }
 
     /// <summary>The area's stat buffs on a player's entity changed (AreaStatBuffs): its pools and sources are built again.</summary>
-    internal static void PlayerStatBuffsChanged(ClientState conn)
+    internal static void PlayerStatBuffsChanged(Player conn)
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return;
         RebuildPools(conn);
@@ -117,7 +117,7 @@ public static partial class Game
             else if (at < times[i].At) times[i] = (at, now);
         }
     }
-    static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
+    static readonly ConditionalWeakTable<Player, FrameStats> FrameStatsOf = new();
 
     // The steps each change marks (PlayerStatChange).
     static readonly PlayerStatStep[][] PlayerStatChangeReaders = BuildPlayerStatChangeReaders();
@@ -152,7 +152,7 @@ public static partial class Game
 
     // In an area's frames: marks the steps that read the change and asks the Stats phase to publish the panel
     // (SendCharacterStats); false off the frames, which publish at once.
-    static bool PublishByFrame(ClientState conn, PlayerStatChange change)
+    static bool PublishByFrame(Player conn, PlayerStatChange change)
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || !frame.ByFrame || frame.Graph is not { } graph) return false;
         foreach (var step in PlayerStatChangeReaders[(int)change]) graph.MarkRule((int)step);
@@ -172,8 +172,8 @@ public static partial class Game
         PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
     ];
 
-    /// <summary>The framework's hand-over (ClientState.StatsChanged): marks the steps that read the input.</summary>
-    internal static void PlayerStatInputChanged(ClientState conn, StatInput input)
+    /// <summary>The framework's hand-over (Player.StatsChanged): marks the steps that read the input.</summary>
+    internal static void PlayerStatInputChanged(Player conn, StatInput input)
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return;
         switch (input)
@@ -215,7 +215,7 @@ public static partial class Game
 
     // Life, mana and moving change often (regeneration, every step of a walk); what the steps read of them is a few
     // conditions, and only a change of one marks them.
-    static void CheckConditions(ClientState conn, FrameStats frame, StatGraph graph)
+    static void CheckConditions(Player conn, FrameStats frame, StatGraph graph)
     {
         var stats = graph.Values;
         long conditions = ManaState(conn)
@@ -228,7 +228,7 @@ public static partial class Game
         foreach (var step in ConditionReaders) graph.MarkRule((int)step);
     }
 
-    static bool PetrifiedBloodCapped(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    static bool PetrifiedBloodCapped(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         if (!conn.PetrifiedBlood.Active || conn.PlayerLife == 0) return false;
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
@@ -241,7 +241,7 @@ public static partial class Game
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> FrameStatsMisses = new();
 
     /// <summary>The player's part of the Stats phase.</summary>
-    internal static void StepPlayerStats(ClientState conn)
+    internal static void StepPlayerStats(Player conn)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
@@ -304,7 +304,7 @@ public static partial class Game
             : PublishStatValues(conn));
     }
 
-    static StatGraph PlayerStatGraph(ClientState conn, FrameStats frame)
+    static StatGraph PlayerStatGraph(Player conn, FrameStats frame)
     {
         var graph = new StatGraph();
         foreach (var step in Enum.GetValues<PlayerStatStep>())
@@ -349,30 +349,30 @@ public static partial class Game
     /// <summary>A change that one step reads: that step runs again in the next Stats phase (and what it changes, after it).</summary>
     /// <summary>For a step whose result a later step reads as state (not as stats): that step runs in this pass. Only
     /// a run in the graph marks; the steps run in order on a plain map (a fresh build, the verifier) reach it anyway.</summary>
-    internal static void MarkLaterStep(ClientState conn, PlayerStatStep step)
+    internal static void MarkLaterStep(Player conn, PlayerStatStep step)
     {
         if (runningFrame is not null) MarkPlayerStats(conn, step);
     }
 
     /// <summary>Whether the area's Stats phase publishes the player's stats when they change: a send of them after a change
     /// would carry the last phase's values, so it sends nothing (<see cref="PlayerStatsOffFrames"/>).</summary>
-    public static bool StatsPublishedByFrame(ClientState conn) =>
+    public static bool StatsPublishedByFrame(Player conn) =>
         FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is not null;
 
     /// <summary>The player's stats as a 0x1b3 after a change, off an area's frames (empty when the frame publishes them).</summary>
-    public static byte[] PlayerStatsOffFrames(ClientState conn) =>
+    public static byte[] PlayerStatsOffFrames(Player conn) =>
         StatsPublishedByFrame(conn) ? [] : PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
 
     /// <summary>Marks <paramref name="step"/> and is true: for a condition that started an effect the step reads.</summary>
-    internal static bool Marked(ClientState conn, PlayerStatStep step) { MarkPlayerStats(conn, step); return true; }
+    internal static bool Marked(Player conn, PlayerStatStep step) { MarkPlayerStats(conn, step); return true; }
 
-    public static void MarkPlayerStats(ClientState conn, PlayerStatStep step)
+    public static void MarkPlayerStats(Player conn, PlayerStatStep step)
     {
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);
     }
 
     // A mark or a timed end waits for the next Stats phase (the verifiers compare only once it ran).
-    static bool StatsUnsettled(ClientState conn)
+    static bool StatsUnsettled(Player conn)
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return false;
         if (graph.MarksPending) return true;
@@ -383,7 +383,7 @@ public static partial class Game
 
     // Game_STATS_FRAME_VERIFY=1: the graph's values against every step run in order now; what differs is a change no
     // mark reached.
-    static void VerifyFrame(ClientState conn, FrameStats frame)
+    static void VerifyFrame(Player conn, FrameStats frame)
     {
         if (frame.Graph is not { } graph) return;
         var kept = graph.Values;
@@ -408,9 +408,9 @@ public static partial class Game
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
     sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; }
-    static readonly Store<ClientState, SentSkillList> SentSkillLists = new();
+    static readonly Store<Player, SentSkillList> SentSkillLists = new();
 
-    public static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
+    public static byte[] PlayerSkillsIfChanged(Player conn, IReadOnlyList<GrantedSkill> skills)
     {
         var bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
         var sent = SentSkillLists.GetOrCreateValue(conn);
@@ -423,7 +423,7 @@ public static partial class Game
     }
 
     // What the full refresh sent: the base the next partial refresh compares with.
-    public static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
+    public static void RecordPlayerSkills(Player conn, IReadOnlyList<GrantedSkill> skills)
     {
         var sent = SentSkillLists.GetOrCreateValue(conn);
         lock (sent) (sent.Bytes, sent.Skills) = (InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn)), skills);
@@ -432,7 +432,7 @@ public static partial class Game
     /// <summary>A stat of the skill as the client last received it in the skill list (0 when the skill went without it),
     /// null when the skill was not sent. The client times some effects by the skill's stats it holds, not the
     /// character's current ones (Hammerfalls' waves).</summary>
-    public static int? SentSkillStat(ClientState conn, ushort skillId, string stat)
+    public static int? SentSkillStat(Player conn, ushort skillId, string stat)
     {
         if (Stats.Key(stat) is not uint key || !SentSkillLists.TryGetValue(conn, out var sent)) return null;
         lock (sent)

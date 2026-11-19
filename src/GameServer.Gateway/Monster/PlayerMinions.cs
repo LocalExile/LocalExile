@@ -104,7 +104,7 @@ public sealed class PlayerMinions
     }
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     /// <summary>The player's minions (PlayerMinions), under the Monsters lock.</summary>
     public readonly PlayerMinions Minions = new();

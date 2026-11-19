@@ -11,7 +11,7 @@ public sealed class AncestralBloodlinesTests
     [Fact]
     public void Bloodlines_recovery_rates_reach_life_mana_and_energy_shield_consumers()
     {
-        var conn = new ClientState(new(1, "bloodlines", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "bloodlines", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "AncestralBloodlines", PlayerLife = 1000,
             Pools = new(100, 1000, 1000, int.MaxValue, 0),

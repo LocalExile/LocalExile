@@ -21,7 +21,7 @@ static class WornSkillSourceCases
 
         var previous = Program.GameLogicOrNull;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var conn = new ClientState(new(1, "worn-source", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "worn-source", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "WornSource" + Guid.NewGuid().ToString("N"), Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),

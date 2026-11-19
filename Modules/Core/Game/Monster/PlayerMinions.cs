@@ -25,7 +25,7 @@ public static partial class Game
 
     // Every frame of the area (a pause stops them) while the player's updates run: PlayerMinionsTick, then
     // LinkSkillsTick (a link to a minion that just ended sees it gone). A failed step is logged and the next one runs.
-    static void StartPlayerMinions(ClientState conn, PlayerUpdatesState updates)
+    static void StartPlayerMinions(Player conn, PlayerUpdatesState updates)
     {
         // Loads the relic trigger's tables now, so that no step or hit loads them under the Monsters lock.
         _ = RelicTriggerOf(conn);
@@ -52,7 +52,7 @@ public static partial class Game
     /// queued relic summons are made, and each living minion's aura goes on the owner while he
     /// is within its radius and off when he leaves it or it ends; the player's stats are sent again when that changes.
     /// </summary>
-    public static async Task PlayerMinionsTick(ClientState conn, double now)
+    public static async Task PlayerMinionsTick(Player conn, double now)
     {
         var rules = CombatLifetime;
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
@@ -158,7 +158,7 @@ public static partial class Game
 
     /// <summary>The auras the player's minions cast on him, as raw stats. The strongest of one aura applies (wiki Aura):
     /// his own aura of the same family wins when its stats add up to at least as much.</summary>
-    static IEnumerable<(uint Key, int Value)> MinionAuraStats(ClientState conn, IReadOnlyList<AuraCatalog.Aura> own)
+    static IEnumerable<(uint Key, int Value)> MinionAuraStats(Player conn, IReadOnlyList<AuraCatalog.Aura> own)
     {
         List<PlayerMinions.Aura> auras;
         lock (conn.Monsters) auras = [.. conn.Minions.All.Where(m => m.OwnerBuff != 0).Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>()];
@@ -177,7 +177,7 @@ public static partial class Game
     // CreatesMinion skills, which Summon Elemental Relic is); a relic of that element already there has its duration
     // refreshed instead (at most one each).
     // shortcut: Combat Focus's element exclusions (RandomElement skills) are not modelled; every element can come.
-    static async Task SummonElementalRelic(ClientState conn, double now)
+    static async Task SummonElementalRelic(Player conn, double now)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
         var player = CharacterPlayerStats(conn);
@@ -242,7 +242,7 @@ public static partial class Game
 
     // A relic's aura: its variety's aura effect at the relic's level (PlayerMinions.AuraStatsAt), with that level's radius:
     // AuraCatalog.BaseRadius and the level's active_skill_base_radius_+ (Anger at gem level 20: 59).
-    static PlayerMinions.Aura? RelicAura(ClientState conn, MonsterCatalog.Variety variety, int level)
+    static PlayerMinions.Aura? RelicAura(Player conn, MonsterCatalog.Variety variety, int level)
     {
         var skills = SkillsFor(conn);
         foreach (int effect in variety.GrantedEffects ?? [])
@@ -260,7 +260,7 @@ public static partial class Game
     // living monster within the radius, mitigated as any hit (resistances, the player's debuffs on the monster). It is the
     // minion's hit, not the player's: no hit-recently, no on-kill charges; the kills give the player their experience and
     // items, and count as a nearby ally's for the relic trigger.
-    static void CommitMinionExplosionLocked(ClientState conn,
+    static void CommitMinionExplosionLocked(Player conn,
         PlayerMinions.Minion minion, double now)
     {
         if (minion.Explodes is not { } blast) return;
@@ -290,7 +290,7 @@ public static partial class Game
     }
 
     // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
-    public static (int X, int Y) NextToPlayer(ClientState conn)
+    public static (int X, int Y) NextToPlayer(Player conn)
     {
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })

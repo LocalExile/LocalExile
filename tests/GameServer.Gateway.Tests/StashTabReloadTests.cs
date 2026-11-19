@@ -25,7 +25,7 @@ public class StashTabReloadTests : IDisposable
         Assert.NotNull(stash.Place(0, 0, 0, new InventoryItem(1, 0, 0, ItemCatalog.Create(card) with { StackSize = 2 }),
             i => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null, out _));
         uint stack = stash.Inventory(0).Items.Single().Id;
-        var conn = new ClientState(new(ushort.MaxValue, "StashReloadTest", 128, 128, 32, 32, null, []), 0, 1)
+        var conn = new Player(new(ushort.MaxValue, "StashReloadTest", 128, 128, 32, 32, null, []), 0, 1)
             { Account = account, Character = account, League = "Standard" };
         uint inventory = stash.InventoryOf(0);
         using var wire = new Wire();
@@ -86,7 +86,7 @@ public class StashTabReloadTests : IDisposable
                 Assert.NotNull(stash.Place(tab, 0, 0, new InventoryItem((uint)(tab + 1), 0, 0, money),
                     i => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null, out _));
             var payments = new[] { 0, (int)currencyTab }.ToDictionary(t => t, t => stash.Inventory(t).Items.Single());
-            var conn = new ClientState(new(ushort.MaxValue, "UniqueReopenTest", 128, 128, 32, 32, null, []), 0, 1)
+            var conn = new Player(new(ushort.MaxValue, "UniqueReopenTest", 128, 128, 32, 32, null, []), 0, 1)
             {
                 Account = account, Character = account, League = "Standard",
                 StashForcedTab = parent, StashForcedUntil = double.PositiveInfinity
@@ -174,7 +174,7 @@ public class StashTabReloadTests : IDisposable
             var children = stash.UniqueChildren(parent).ToArray();
             Assert.True(children.Length > 1);
             int knownChild = children[^1];
-            var conn = new ClientState(new(ushort.MaxValue, "UniqueRefreshTest", 128, 128, 32, 32, null, []), 0, 1)
+            var conn = new Player(new(ushort.MaxValue, "UniqueRefreshTest", 128, 128, 32, 32, null, []), 0, 1)
                 { Account = account, Character = account, League = "Standard" };
             using var wire = new Wire();
             // Establish the known inventory by the actual child request, not by seeding StashTabsSent.

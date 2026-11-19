@@ -12,11 +12,11 @@ public static partial class Game
         get("active_skill_chill_effect_+%_final"), get("active_skill_shock_duration_+%_final"),
         get("active_skill_ignite_damage_+%_final")) { NeverFreeze = get("never_freeze") != 0 };
 
-    public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
+    public static void ApplyPlayerAilmentsLocked(Player conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
         ApplyPlayerAilmentsLocked(conn, baseHit, taken, critical, blocked, now, stats, default, source);
 
-    public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
+    public static void ApplyPlayerAilmentsLocked(Player conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats,
         PlayerElementalAilments.HitSettings settings, uint? source = null)
     {
@@ -36,7 +36,7 @@ public static partial class Game
 
     /// <summary>Apply one source's ailments under the combat lock. Hit, ground and reflected sources retain their
     /// own admission, magnitude and duration rules; accepted changes share flask events, recent freeze and movement.</summary>
-    public static void ApplyPlayerAilmentsLocked(ClientState conn, double now, Action<PlayerElementalAilments> apply)
+    public static void ApplyPlayerAilmentsLocked(Player conn, double now, Action<PlayerElementalAilments> apply)
     {
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
@@ -51,7 +51,7 @@ public static partial class Game
 
     // A new freeze, or one that outlasts the last, cancels the player's action and channel and holds its walk (ShowFreeze
     // stops the client's too); any change of action speed re-times the walk.
-    public static void PlayerAilmentsChangedLocked(ClientState conn, double previousAction, double now)
+    public static void PlayerAilmentsChangedLocked(Player conn, double previousAction, double now)
     {
         double frozenUntil = conn.ElementalAilments.FreezeUntil(now);
         if (conn.ElementalAilments.ActionFactor(now) == 0 && (previousAction != 0 || frozenUntil > conn.FreezeHeldUntil))
@@ -67,7 +67,7 @@ public static partial class Game
         if (previousAction != conn.ElementalAilments.ActionFactor(now)) conn.ApplyMovementSpeed();
     }
 
-    public static int AdvancePlayerAilmentsLocked(ClientState conn, double from, double until,
+    public static int AdvancePlayerAilmentsLocked(Player conn, double from, double until,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0)
@@ -117,7 +117,7 @@ public static partial class Game
     /// damage and duration come from that monster's own effects and damage packet. Immunity is handled
     /// by the shared incoming owner; an evaded, blocked or damage-immune contact never reaches here.
     /// </summary>
-    public static void ApplyMonsterDamagingAilmentsLocked(ClientState conn, uint source, SpawnedMonster m,
+    public static void ApplyMonsterDamagingAilmentsLocked(Player conn, uint source, SpawnedMonster m,
         DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null)
     {
         if (blocked || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
@@ -169,7 +169,7 @@ public static partial class Game
 
     // The chilled, frozen and shocked buffs on the player, as on monsters (AilmentBuff, on the fixed top instances that
     // NextBuff never hands out); a kind whose magnitude changed is sent again. The player's ignited buff is not sent.
-    static async Task SendPlayerAilmentBuffs(ClientState conn,
+    static async Task SendPlayerAilmentBuffs(Player conn,
         (bool Ignite, int Chill, bool Freeze, int Shock) before, (bool Ignite, int Chill, bool Freeze, int Shock) after)
     {
         foreach (var (packet, log) in PlayerAilmentBuffs(before, after)) await Send(conn, packet, log);
@@ -218,19 +218,19 @@ public static partial class Game
         return packets;
     }
 
-    public static bool PlayerActionBlocked(ClientState conn, double requestedAt, double now) =>
+    public static bool PlayerActionBlocked(Player conn, double requestedAt, double now) =>
         conn.HitRecovery.BlocksInput(requestedAt, now) || conn.ElementalAilments.ActionFactor(now) == 0;
 
     /// <summary>The signed <c>action_speed_-%</c> from the character's raw sources and dev overrides: positive is slower.
     /// The client's own action-speed bucket, and the planned ActionSpeed/EffectClock contract (#246), keep it separate
     /// from attack/cast/movement increases so it is applied once.</summary>
-    public static int ActionSpeedReduction(ClientState conn)
+    public static int ActionSpeedReduction(Player conn)
     {
         if (Stats.Key("action_speed_-%") is not uint key) return 0;
                 return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
     }
 
-    public static double PlayerActionFactor(ClientState conn)
+    public static double PlayerActionFactor(Player conn)
     {
         var sources = CharacterStatSources(conn).Stats;
         // The Spirit Leadership buff joins CharacterPlayerStats, not the raw source cache this path reads; Rakiata's
@@ -249,7 +249,7 @@ public static partial class Game
         }));
     }
 
-    public static double PlayerActionFactorFrom(ClientState conn, Func<string, int> get)
+    public static double PlayerActionFactorFrom(Player conn, Func<string, int> get)
     {
         double extra = get("has_tailwind") == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get("tailwind_effect_on_self_+%") / 100d)) - 8;
         double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get("action_speed_-%") - extra)

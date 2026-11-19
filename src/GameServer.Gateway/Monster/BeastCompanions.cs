@@ -42,7 +42,7 @@ public sealed class BeastCompanions
     public readonly Dictionary<WornGrantedSkills.Grant, SourceGeneration> SourceGenerations = [];
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     /// <summary>The player's source-owned beasts, under the Monsters lock.</summary>
     public readonly BeastCompanions Beasts = new();

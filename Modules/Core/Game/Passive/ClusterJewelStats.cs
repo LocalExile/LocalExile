@@ -78,7 +78,7 @@ public static class ClusterJewelStats
     }
 
     /// <summary>The stats of every socketed cluster jewel's allocated passives.</summary>
-    public static IEnumerable<(uint Key, int Value)> For(ClientState conn, IReadOnlyList<InventoryItem> jewels,
+    public static IEnumerable<(uint Key, int Value)> For(Player conn, IReadOnlyList<InventoryItem> jewels,
         ModCatalog mods, StatCatalog stats)
     {
         if (conn.ClusterPassives.Count == 0) yield break;

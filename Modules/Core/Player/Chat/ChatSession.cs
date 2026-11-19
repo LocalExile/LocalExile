@@ -5,7 +5,7 @@ namespace GameServer.Modules.Chat;
 
 /// <summary>A character's place in chat, from its first channel until it leaves the game: it outlives the connection of each
 /// area. It is on the local chat server, or on the remote one a mod chose while that can be reached.</summary>
-sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDisposable
+sealed class ChatSession(ChatService chat, string name, Player conn) : IDisposable
 {
     /// <summary>The time between tries of a remote server that failed, each at an area change.</summary>
     const long RetryMilliseconds = 60_000;
@@ -18,7 +18,7 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
     long _nextRemoteTry;
     int _trying;
 
-    public ClientState Conn { get; private set; } = conn;
+    public Player Conn { get; private set; } = conn;
 
     /// <summary>Done when the local chat server has the character, so a typed line has somewhere to go.</summary>
     public Task Ready { get; private set; } = Task.CompletedTask;
@@ -30,7 +30,7 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
     }
 
     /// <summary>The character's connection in the area it entered, and another try of a remote server that failed.</summary>
-    public void Entered(ClientState entered)
+    public void Entered(Player entered)
     {
         Conn = entered;
         bool retry;

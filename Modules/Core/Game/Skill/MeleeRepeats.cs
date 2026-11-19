@@ -1,10 +1,10 @@
 public static partial class Game
 {
     sealed record MeleeRepeatUse(double Start, double Seconds, int Repeats, double End, double Hold);
-    static readonly Store<ClientState, MeleeRepeatUse> MeleeRepeatUses = new();
+    static readonly Store<Player, MeleeRepeatUse> MeleeRepeatUses = new();
 
     // The first swing has already reserved NextAttackAt. Repeats cost nothing and hold the same use's cadence.
-    public static void ReserveMeleeRepeats(ClientState conn, ushort skill, double seconds)
+    public static void ReserveMeleeRepeats(Player conn, ushort skill, double seconds)
     {
         int repeats = MeleeAttackRepeats(conn, skill);
         if (repeats == 0) return;
@@ -18,7 +18,7 @@ public static partial class Game
     }
 
     /// <summary>The attack deadline after a replacement cancels only the repeats that have not started.</summary>
-    public static double MeleeRepeatAttackDeadline(ClientState conn, double at)
+    public static double MeleeRepeatAttackDeadline(Player conn, double at)
     {
         lock (conn.Monsters)
         {
@@ -31,7 +31,7 @@ public static partial class Game
 
     // Native 0x1419e6460 lets Multistrike use each swing's cancellation gate. A replacement ends the unstarted
     // repeats, but the swing already in progress keeps its attack-time cost (0x141942b50).
-    public static void CancelMeleeRepeats(ClientState conn, double at)
+    public static void CancelMeleeRepeats(Player conn, double at)
     {
         lock (conn.Monsters)
         {
@@ -41,7 +41,7 @@ public static partial class Game
         }
     }
 
-    public static bool MeleeRepeatAllowsMove(ClientState conn, double at)
+    public static bool MeleeRepeatAllowsMove(Player conn, double at)
     {
         if (!MeleeRepeatUses.TryGetValue(conn, out var use) || at >= use.End) return true;
         int swing = Math.Max(0, (int)Math.Floor((at - use.Start) / use.Seconds));

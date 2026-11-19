@@ -10,7 +10,7 @@ public sealed class OverheatSupportTests
     [Fact]
     public void OverheatConsumeLocked_stores_the_per_skill_more_from_consumed_fortification()
     {
-        var conn = new ClientState(new(1, "overheat", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "overheat", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "OverheatChar", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
         };
@@ -37,7 +37,7 @@ public sealed class OverheatSupportTests
     [Fact]
     public void OverheatConsumeLocked_does_nothing_for_a_skill_without_the_support()
     {
-        var conn = new ClientState(new(1, "overheat-plain", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "overheat-plain", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "OverheatPlain", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
         };
@@ -57,7 +57,7 @@ public sealed class OverheatSupportTests
     [Fact]
     public void Overheat_does_not_store_a_bonus_for_fewer_than_three_stacks()
     {
-        var conn = new ClientState(new(1, "overheat-small", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "overheat-small", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "OverheatSmall", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
         };
@@ -76,7 +76,7 @@ public sealed class OverheatSupportTests
     [Fact]
     public void WithOverheat_scales_an_ignite_settings_block_by_the_stored_more()
     {
-        var conn = new ClientState(new(1, "overheat-scale", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "overheat-scale", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "OverheatScale", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
         };

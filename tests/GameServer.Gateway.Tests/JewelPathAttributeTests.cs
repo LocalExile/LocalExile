@@ -8,7 +8,7 @@ public sealed class JewelPathAttributeTests
     static ItemMod Mod(string stat, int value) => new(ModSection.Explicit,
         Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == stat).Hash, [value]);
 
-    static ClientState Character(string name, params InventoryItem[] jewels)
+    static Player Character(string name, params InventoryItem[] jewels)
     {
         TestEnvironment.OpenOwnSaves(name);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());

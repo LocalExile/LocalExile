@@ -8,7 +8,7 @@ public static partial class Game
     static SummonCatalog.Definition PhantasmDefinition(string effect) => new(effect, "Phantasm",
         "Metadata/Monsters/SummonedPhantasm/SummonedPhantasm", "base_number_of_support_ghosts_allowed", "");
 
-    static SupportedGem PhantasmGem(ClientState conn, SupportedGem source)
+    static SupportedGem PhantasmGem(Player conn, SupportedGem source)
     {
         var support = source.Supports.FirstOrDefault(s => s.Effect.Id == "SupportSummonPhantasm");
         var stats = new Dictionary<uint, int>(source.Stats);
@@ -18,7 +18,7 @@ public static partial class Game
         return source with { Stats = stats };
     }
 
-    internal static void PhantasmsOnHitLocked(ClientState conn, SpawnedMonster victim, ushort source, double now,
+    internal static void PhantasmsOnHitLocked(Player conn, SpawnedMonster victim, ushort source, double now,
         Random random, GolemState.Golem? minion = null, IReadOnlyDictionary<uint, int>? skill = null)
     {
         if (source == 0 || conn.PlayerLife == 0 || !victim.Hostile || minion?.Definition.Kind == "Phantasm"

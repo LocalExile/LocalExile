@@ -6,7 +6,7 @@
 /// </summary>
 public static partial class Game
 {
-    public static void StartMonsterAilments(GameArea area, ClientState conn, object source)
+    public static void StartMonsterAilments(GameArea area, Player conn, object source)
     {
         var frames = conn.Frames;
         var monsters = conn.Monsters;

@@ -11,7 +11,7 @@ namespace GameServer.Gateway.Tests;
 // these fixtures verify source mutation and send-gate contracts, not acceptance of that optional mod.
 static class ConditionalSourceTestDrivers
 {
-    internal static ChatCommands Register(ChatCommands commands, ClientState conn)
+    internal static ChatCommands Register(ChatCommands commands, Player conn)
     {
         return commands
         .Add("god", "fixture god state", async args =>
@@ -83,7 +83,7 @@ static class ConditionalSourceTestDrivers
 
     // /hit and /spellhit are synthetic incoming enemy contacts. /blockhit can additionally block.
     // Admission, prior-history decision, pool mutation and recording are a single combat commit.
-    internal static bool TryDevEnemyHit(ClientState conn, DamageType type, int amount, bool block, bool spell, bool suppress,
+    internal static bool TryDevEnemyHit(Player conn, DamageType type, int amount, bool block, bool spell, bool suppress,
         out DevEnemyHit hit, bool ranged = false)
     {
         lock (conn.Monsters)
@@ -192,7 +192,7 @@ static class ConditionalSourceTestDrivers
             Mods = mods,
         };
     }
-    internal static async Task SetGod(ClientState conn, bool on)
+    internal static async Task SetGod(Player conn, bool on)
     {
         lock (conn.Monsters)
         {

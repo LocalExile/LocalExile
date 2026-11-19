@@ -8,7 +8,7 @@ static partial class Sirus
     internal sealed partial class Fight
     {
         uint introSirus, kirac, zana;
-        async Task MoveAlly(ClientState c, uint actor, (int X, int Y) destination, double now)
+        async Task MoveAlly(Player c, uint actor, (int X, int Y) destination, double now)
         {
             if (actor == 0 || !c.Monsters.TryGetValue(actor, out var monster)) return;
             var from = monster.Walk.Position(now);
@@ -23,7 +23,7 @@ static partial class Sirus
             (0, 5643, 407), (7, 5381, 416), (11, 5644, 407), (14, 5645, 407), (18, 5646, 407),
             (20, 5382, 416), (22, 5383, 416), (24, 5647, 407), (28, 5649, 407), (40, 5650, 407), (53, 5384, 416),
         ];
-        async Task<uint> IntroAlly(ClientState c, string type, double now)
+        async Task<uint> IntroAlly(Player c, string type, double now)
         {
             lock (c.Monsters)
                 foreach (var (existingId, monster) in c.Monsters)
@@ -49,7 +49,7 @@ static partial class Sirus
             }
             return key;
         }
-        async Task Intro(ClientState c, ClientState target, double now)
+        async Task Intro(Player c, Player target, double now)
         {
             if (scene.Trigger is not { } trigger)
             {

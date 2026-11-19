@@ -72,7 +72,7 @@ sealed class SmokeCloudEffect : IShrineEffect
         if (conn.Closed) return;
         double now = ctx.Now;
         var inFog = new List<(uint Id, SpawnedMonster Monster)>();
-        ClientState[] fogged = [];
+        Player[] fogged = [];
         double reach = CloudRadiusCells;
         lock (conn.Monsters)
         {
@@ -107,7 +107,7 @@ sealed class SmokeCloudEffect : IShrineEffect
             _nextBlind = now + BlindRefresh;
             var members = ZoneMembers(conn, conn.PeerId, CloudZones, shrine).Select(e => e.Value).ToArray();
             // The unclaimed shrine's fog blinds whoever walks into it; the claimed shrine's blinds the monsters in it.
-            if (shrine.State == ShrineState.Inactive) fogged = [.. members.Select(id => AreaPlayer(conn, id)).OfType<ClientState>().Where(p => p.PlayerLife > 0)];
+            if (shrine.State == ShrineState.Inactive) fogged = [.. members.Select(id => AreaPlayer(conn, id)).OfType<Player>().Where(p => p.PlayerLife > 0)];
             else
                 foreach (uint id in members)
                     if (conn.Monsters.GetValueOrDefault(id) is { Hostile: true, Dead: false, Life: > 0 } m) inFog.Add((id, m));
@@ -131,7 +131,7 @@ sealed class SmokeCloudEffect : IShrineEffect
 
     public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
-    Task Clear(ClientState conn)
+    Task Clear(Player conn)
     {
         lock (conn.Monsters)
         {

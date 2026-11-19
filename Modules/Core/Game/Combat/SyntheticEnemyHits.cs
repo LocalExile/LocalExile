@@ -9,7 +9,7 @@ public static partial class Game
     /// <paramref name="block"/>, resistance, armour, suppression when <paramref name="suppress"/>), as a monster's hit; for tests
     /// and testing tools. False when the player cannot be hit now.</summary>
     // Admission, prior-history decision, pool mutation and recording are a single combat commit.
-    public static bool TrySyntheticEnemyHit(ClientState conn, DamageType type, int amount, bool block, bool spell, bool suppress,
+    public static bool TrySyntheticEnemyHit(Player conn, DamageType type, int amount, bool block, bool spell, bool suppress,
         out SyntheticEnemyHit hit, bool ranged = false)
     {
         lock (conn.Monsters)
@@ -74,7 +74,7 @@ public static partial class Game
     }
 
     // What MitigateTaken applied, for a hit's report: armour or resistance, and the additional reduction.
-    public static string MitigationLabel(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
+    public static string MitigationLabel(Player conn, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats)
     {
         var (physical, elemental) = PlayerDamageReduction(conn, stats);

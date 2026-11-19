@@ -8,9 +8,9 @@ namespace GameServer.Gateway.Tests;
 // at level 20. The three inputs ToggleAura and ReconcileOwnAuras read must come out of the supported aura's own gem.
 public sealed class ArroganceSupportTests
 {
-    static ClientState Connection(string name)
+    static Player Connection(string name)
     {
-        var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = name, PlayerLife = 2000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
@@ -30,7 +30,7 @@ public sealed class ArroganceSupportTests
         };
     }
 
-    static ushort Equip(ClientState conn, string active, params string[] supports)
+    static ushort Equip(Player conn, string active, params string[] supports)
     {
         var items = Game.ItemsOf(conn);
         foreach (var previous in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Weapon1))

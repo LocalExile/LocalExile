@@ -54,7 +54,7 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
-    public static async Task<bool> ExplodeOnKill(ClientState conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
+    public static async Task<bool> ExplodeOnKill(Player conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
         var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -162,7 +162,7 @@ public static partial class Game
     const int ExplosionArtPerWindow = 64;
     const double ExplosionArtWindowSeconds = 0.15;
 
-    static bool TakeExplosionArt(ClientState conn, double now)
+    static bool TakeExplosionArt(Player conn, double now)
     {
         if (now - conn.ExplosionArtWindow >= ExplosionArtWindowSeconds)
         {
@@ -176,7 +176,7 @@ public static partial class Game
 
     // One gate turn for the effect's create/wake, the corpse removal and every life update. The client still reads
     // separate messages, but the server no longer waits behind four separate world sends for each corpse.
-    static async Task SendKillExplosionBatch(ClientState conn, uint effect, byte[]? effectBytes, (int X, int Y) at, string art, bool removeCorpse,
+    static async Task SendKillExplosionBatch(Player conn, uint effect, byte[]? effectBytes, (int X, int Y) at, string art, bool removeCorpse,
         uint corpseId, string corpseLabel, IReadOnlyList<(uint Id, SpawnedMonster M, MonsterHit Hit)> hits)
     {
         string effectLog = $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})";

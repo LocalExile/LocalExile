@@ -41,7 +41,7 @@ public sealed class TattooLoyaltyTests
     [Fact]
     public void The_loyalty_grants_are_level_1_spirit_summons_with_leadership_and_a_presence_check()
     {
-        var conn = new ClientState(new(1, "tattoo-loyalty", 1000, 1000, 100, 100, null, []), 1, 1)
+        var conn = new Player(new(1, "tattoo-loyalty", 1000, 1000, 100, 100, null, []), 1, 1)
         {
             Character = "TattooLoyaltyChar", PlayerLife = 1000, PlayerMana = 100, Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0),

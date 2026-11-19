@@ -78,7 +78,7 @@ public static partial class Game
 
     /// <summary>Whether this skill is one that summons a totem: a dedicated totem skill or a skill Spell Totem Support
     /// totemified, both of which carry the `is_totem` stat on the instance.</summary>
-    public static bool IsTotemSkill(ClientState conn, ushort skill) =>
+    public static bool IsTotemSkill(Player conn, ushort skill) =>
         SupportedSkill(conn, skill).Stats.GetValueOrDefault(Stats.Key("is_totem") ?? 0) != 0;
 
     /// <summary>The totem variety a gem skill summons, or null. A dedicated totem skill (its ActiveSkills row carries
@@ -86,7 +86,7 @@ public static partial class Game
     /// gem-granted totem skill places, damaging or not. An aura executor summons its native skin. A skill that Spell
     /// Totem Support totemifies is not a dedicated row: it takes a dedicated spell skin when the tables have one and the
     /// generic intelligence skin otherwise.</summary>
-    public static MonsterCatalog.Variety? TotemVariety(ClientState conn, int effect)
+    public static MonsterCatalog.Variety? TotemVariety(Player conn, int effect)
     {
         if (SkillsFor(conn).HasType(effect, TotemSkillType)
             && TotemVarieties.Effects.TryGetValue(effect, out int own)
@@ -107,7 +107,7 @@ public static partial class Game
     /// places when it has a cast time, and a native ranged ballista when its path is available (SpellTotems.cs,
     /// BallistaTotems.cs). Only a totemified skill with no executor of its own is refused, before action or cost
     /// admission.</summary>
-    public static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
+    public static bool TotemPathAvailable(Player conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
         || PlacedKind(SupportedSkill(conn, skill)) is (false, false)
             && TotemVariety(conn, effect) is not null && TotemLimit(conn, skill) > 0
             && (TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
@@ -128,12 +128,12 @@ public static partial class Game
     /// "deal no damage yourself" does not refuse it. Not run yet, so still refused before cost: Decoy Totem's taunt (the
     /// monster AI has no totem target), the ancestral melee totems (their reach, owner buffs and parent range) and
     /// Searing Bond's burning beam.</summary>
-    static bool TotemDoesSomething(ClientState conn, int effect) =>
+    static bool TotemDoesSomething(Player conn, int effect) =>
         TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
         || SkillsFor(conn).EffectId(effect) == "DevouringTotem"
         || TotemNova(conn, effect);
 
-    static bool TotemNova(ClientState conn, int effect) => SkillsFor(conn).HasType(effect, "Nova")
+    static bool TotemNova(Player conn, int effect) => SkillsFor(conn).HasType(effect, "Nova")
         && !SkillsFor(conn).IsAttack(effect) && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
 
     // After placement pays its cost, the totem rises at the aimed point. Placement speed and owner action speed
@@ -148,7 +148,7 @@ public static partial class Game
     // that keeps the skill's own cooldown ticket and the Vaal/channel admission but not the token; what still stops a
     // stray placement is everything below. A live round should measure casts attempted against totems actually placed
     // (Agents/docs/protocol/11-skills.md §10g).
-    static async Task PlaceTotem(ClientState conn,
+    static async Task PlaceTotem(Player conn,
         ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
     {
         double factor, speed;
@@ -188,11 +188,11 @@ public static partial class Game
     /// and the skill's), replacing the oldest. Its aura's stats and radius are the skill's at this moment. Null when the
     /// limit is below one (the client refuses the use itself then) or the player is gone.
     /// </summary>
-    public static Task<uint?> CreateTotem(ClientState conn,
+    public static Task<uint?> CreateTotem(Player conn,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null) =>
         CreateTotem(conn, skillId, effect, gemLevel, variety, at, current, null);
 
-    internal static async Task<uint?> CreateTotem(ClientState conn,
+    internal static async Task<uint?> CreateTotem(Player conn,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
         Func<Task<bool>>? finishPlacement)
     {
@@ -356,7 +356,7 @@ public static partial class Game
     /// each part goes to the nearest living totem's Life, capped by it (PoB ModParser "taken from your nearest totem's life
     /// before you", HaveTotem; reducePoolsByDamage). No distance limit applies. What the player still takes.
     /// </summary>
-    public static (int NonChaos, int Chaos) TotemsTakeHitLocked(ClientState conn, int nonChaos, int chaos, double now,
+    public static (int NonChaos, int Chaos) TotemsTakeHitLocked(Player conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         int pct = Stats.Key(TotemRedirectStat) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -377,7 +377,7 @@ public static partial class Game
 
     // Totems died: with a living Unique enemy within the player's presence, Spirit of Kaom triggers (its node's
     // has_trigger_on_totem_death_in_presence_of_unique; the shared Spirit cooldown decides).
-    static void TotemsDiedLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
+    static void TotemsDiedLocked(Player conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return;
         TriggerSpiritChieftainLocked(conn, TotemDeathInPresenceOfUniqueTrigger, stats);
@@ -386,12 +386,12 @@ public static partial class Game
     // The zones of the totems' auras (one per totem, at it) reaching the player; the strongest covering him applies.
     const string TotemAuraZones = "totem aura";
 
-    static TotemState.Totem? TotemAuraCovering(ClientState conn, double now) => conn.Totems.Living(now)
+    static TotemState.Totem? TotemAuraCovering(Player conn, double now) => conn.Totems.Living(now)
         .Where(t => t.Aura is not null && InZone(conn, conn.PeerId, TotemAuraZones, t.Id, conn.PeerId))
         .OrderByDescending(t => t.Aura!.Stats.Sum(s => (long)s.Value)).FirstOrDefault();
 
     // The aura of the totem covering the living player joins his stats (CharacterPlayerStatsCore), with his aura effect.
-    static void AddTotemAuraStats(ClientState conn, StatMap stats)
+    static void AddTotemAuraStats(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
         {
@@ -411,10 +411,10 @@ public static partial class Game
 
     // The totems as the client should see them, from the totems' timer and after a placement: expired ones die, their Life
     // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
-    public static byte[]? TotemPresentation(ClientState conn) => TotemRecords(conn, new(conn, null)) is { } batch
+    public static byte[]? TotemPresentation(Player conn) => TotemRecords(conn, new(conn, null)) is { } batch
         ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
 
-    static OutputBatch? TotemRecords(ClientState conn, WorldRecordBuilder bytes)
+    static OutputBatch? TotemRecords(Player conn, WorldRecordBuilder bytes)
     {
         lock (conn.Monsters)
         {
@@ -460,7 +460,7 @@ public static partial class Game
     // The nova's contact is scheduled on the projectile runtime, as the Arc totem's release is: a hit can kill, and a kill
     // takes the XP gate, which goes before the Monsters lock (ProjectileMutationScope). This tick holds only the Monsters
     // lock, so a kill committed here deadlocked against any scope waiting on it (live 2026-11-17).
-    static void TotemUseLocked(ClientState conn,
+    static void TotemUseLocked(Player conn,
         TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
         if (conn.PlayerLife == 0) return;
@@ -490,7 +490,7 @@ public static partial class Game
     // per cast (1.0 s base, over its cast speed), giving the gem's own life and mana. The corpse is the totem's, not the
     // player's: as for a totem's summon (SpellTotems.cs, playerConsumesCorpse: false) it meets no "consumed a corpse"
     // condition of his. The corpse the client holds goes with 0x2bd, and the totem plays its action at it.
-    static void TotemDevourLocked(ClientState conn, TotemState.Totem totem, TotemState.Devour devour, double now,
+    static void TotemDevourLocked(Player conn, TotemState.Totem totem, TotemState.Devour devour, double now,
         WorldRecordBuilder bytes)
     {
         if (now < devour.NextUse) return;
@@ -532,7 +532,7 @@ public static partial class Game
     // (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not the totem's), in the Arc totem's steps
     // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
     // but are not his for his on-kill effects.
-    static void TotemNovaLocked(ClientState conn, ProjectileSession session, TotemState.Totem totem, TotemState.Strike strike,
+    static void TotemNovaLocked(Player conn, ProjectileSession session, TotemState.Totem totem, TotemState.Strike strike,
         ushort sequence)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -575,7 +575,7 @@ public static partial class Game
     /// <summary>A dedicated totem skill novas or devours; a totemified spell flies through
     /// <see cref="TickSpellTotemsLocked"/> instead, which keys on <c>Effect >= 0</c>, so neither double-casts the other's
     /// totems.</summary>
-    static void TickTotemUsesLocked(ClientState conn, WorldRecordBuilder bytes)
+    static void TickTotemUsesLocked(Player conn, WorldRecordBuilder bytes)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var t in conn.Totems.Living(now).Where(t => t.Effect < 0).ToArray())
@@ -583,7 +583,7 @@ public static partial class Game
     }
 
     /// <summary>The same tick, taking the lock and dropping the records: what each totem's own use does to the world.</summary>
-    public static void TickTotemUses(ClientState conn)
+    public static void TickTotemUses(Player conn)
     {
         lock (conn.Monsters) TickTotemUsesLocked(conn, new WorldRecordBuilder(conn, null));
     }
@@ -591,7 +591,7 @@ public static partial class Game
     // While the player has totems, every frame: their casts and uses, expiry, removal, life and aura.
     static readonly RuleTable<PlayerUpdatesState, object> TotemTimers = new();
 
-    static void StartTotemTimer(ClientState conn)
+    static void StartTotemTimer(Player conn)
     {
         if (conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
         lock (conn.Monsters)
@@ -610,7 +610,7 @@ public static partial class Game
         }, SendTotems);
     }
 
-    static Task SendTotems(ClientState conn) =>
+    static Task SendTotems(Player conn) =>
         SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)

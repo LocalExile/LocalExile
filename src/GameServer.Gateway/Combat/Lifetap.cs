@@ -1,4 +1,4 @@
-﻿using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Instance;
 
 /// <summary>Lifetap Support's buff and spent-Life counter. Supported skills pay Life instead of Mana; spending
 /// enough Life on their upfront costs grants the Lifetap buff (BuffDefinitions row 1846), which lasts four seconds
@@ -69,17 +69,17 @@ public static class Lifetap
     public static int LifeCost(IReadOnlyDictionary<uint, int> stats, int manaCost) =>
         ConvertsCostToLife(stats) ? Math.Max(0, manaCost) : 0;
 
-    public static bool ActiveAt(ClientState conn, double now) => conn.Lifetap.ActiveAt(now);
+    public static bool ActiveAt(Player conn, double now) => conn.Lifetap.ActiveAt(now);
 
     /// <summary>The flask Life recovery increase while the buff runs, 0 otherwise.</summary>
-    public static int FlaskRecovery(ClientState conn) =>
+    public static int FlaskRecovery(Player conn) =>
         ActiveAt(conn, conn.Clock.Elapsed.TotalSeconds) ? FlaskRecoveryPct : 0;
 
     /// <summary>
     /// One supported skill's upfront Life cost: adds it to the spent-Life counter and grants or refreshes Lifetap
     /// when the counter reaches the skill's threshold. The counter keeps the remainder, so a large cost is not lost.
     /// </summary>
-    public static void Spend(ClientState conn, IReadOnlyDictionary<uint, int> stats, int life, double now)
+    public static void Spend(Player conn, IReadOnlyDictionary<uint, int> stats, int life, double now)
     {
         if (life <= 0 || !Supported(stats)) return;
         var state = conn.Lifetap;
@@ -103,10 +103,10 @@ public static class Lifetap
     /// The buff instance the client must add or remove since the previous call. Called under the send gate and the
     /// Monsters lock, after the cost that granted it, and by the player tick that ends it.
     /// </summary>
-    public static byte[]? Presentation(ClientState conn) =>
+    public static byte[]? Presentation(Player conn) =>
         PresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
 
-    public static byte[][]? PresentationRecords(ClientState conn)
+    public static byte[][]? PresentationRecords(Player conn)
     {
         var state = conn.Lifetap;
         double now = conn.Clock.Elapsed.TotalSeconds;

@@ -6,11 +6,11 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    internal static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
+    internal static bool GolemCurrent(Player conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
         && (conn.Golems.All.GetValueOrDefault(g.Id) == g || conn.Reservations.Fighters.GetValueOrDefault(g.Id) == g || conn.Summons.Fighters.GetValueOrDefault(g.Id) == g)
         && conn.Monsters.GetValueOrDefault(g.Id) == g.Monster;
 
-    public static void GolemStepLocked(ClientState conn, GolemState.Golem g, double now)
+    public static void GolemStepLocked(Player conn, GolemState.Golem g, double now)
     {
         var m = g.Monster;
         if (!GolemCurrent(conn, g) || m.Dead || conn.PlayerLife == 0) return;
@@ -146,7 +146,7 @@ public static partial class Game
         return charges.Count < a.Uses;
     }
 
-    static void GolemReserveLocked(ClientState conn, GolemState.Golem g, GolemState.Ability ability, uint target,
+    static void GolemReserveLocked(Player conn, GolemState.Golem g, GolemState.Ability ability, uint target,
         SpawnedMonster? victim, (int X, int Y) aim, double now)
     {
         var m = g.Monster;
@@ -162,7 +162,7 @@ public static partial class Game
         conn.Minions.OutputQueue.Add(new([], $"golem {g.Id:x} uses {ability.Id}", g.Id, m, PlayerMinions.OutputKind.GolemAction, Action: generation));
     }
 
-    static byte[][]? GolemActionRecords(ClientState conn, PlayerMinions.Output output)
+    static byte[][]? GolemActionRecords(Player conn, PlayerMinions.Output output)
     {
         if (output.TargetId is not uint id || OwnedFighter(conn, id) is not { } g || !GolemCurrent(conn, g)
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
@@ -189,7 +189,7 @@ public static partial class Game
         return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(conn, g.Monster.Level, [a]), []), action];
     }
 
-    static void GolemFollowLocked(ClientState conn, GolemState.Golem g, (int X, int Y) owner, double now)
+    static void GolemFollowLocked(Player conn, GolemState.Golem g, (int X, int Y) owner, double now)
     {
         double distance = Dist(g.Monster.Walk.Position(now), owner);
         if (distance > 18) GolemMoveLocked(conn, g, NextToPlayer(conn), now);
@@ -202,7 +202,7 @@ public static partial class Game
         }
     }
 
-    static void GolemMoveLocked(ClientState conn, GolemState.Golem g, (int X, int Y) to, double now)
+    static void GolemMoveLocked(Player conn, GolemState.Golem g, (int X, int Y) to, double now)
     {
         if (now < g.NextMove || g.Monster.LastTarget is { } old && Dist(old, to) < 5 && now < g.Monster.Walk.ArrivesAt) return;
         if (!conn.Layout.WalkableFor(to.X, to.Y, Math.Max(0, LivingCollision.Size(g.Monster))) || conn.Barrier.Contains(to)) return;
@@ -213,7 +213,7 @@ public static partial class Game
             0x2909, conn.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation, WorldId: g.Id));
     }
 
-    public static void GolemAbilityContactLocked(ClientState conn,
+    public static void GolemAbilityContactLocked(Player conn,
         GolemState.Golem g, GolemState.Action action, double now)
     {
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
@@ -341,7 +341,7 @@ public static partial class Game
     }
 
     static (double DamagePerSecond, double UnitDamagePerSecond, int NormalDamageIncrease) GolemHazardDamage(
-        ClientState conn, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
+        Player conn, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
     {
         RefreshGolemLocked(conn, g, g.Player, now);
         int normalIncrease = g.Monster.Mods.Effects["damage_+%"] - GolemRecentDamageIncrease(g, now)
@@ -355,7 +355,7 @@ public static partial class Game
             intrinsicDamagePerSecond * more, normalIncrease);
     }
 
-    static void GolemPulsesLocked(ClientState conn, GolemState.Golem g, double now)
+    static void GolemPulsesLocked(Player conn, GolemState.Golem g, double now)
     {
         foreach (var pulse in g.Pulses.ToArray())
         {
@@ -374,7 +374,7 @@ public static partial class Game
         }
     }
 
-    public static bool GolemHitLocked(ClientState conn, GolemState.Golem g,
+    public static bool GolemHitLocked(Player conn, GolemState.Golem g,
         GolemState.Ability a, uint id, SpawnedMonster target, double now)
     {
         if (!GolemCurrent(conn, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
@@ -480,7 +480,7 @@ public static partial class Game
     public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0) =>
         mods.Effects["never_crit"] == 0 && (mods.Effects["always_crit"] != 0 || roll < GolemCriticalChance(ability, mods, additionalIncrease));
 
-    static void GolemLaunch(ClientState conn, GolemState.Golem g,
+    static void GolemLaunch(Player conn, GolemState.Golem g,
         GolemState.Ability a, (int X, int Y) aim, double now, bool nova = false)
     {
         if (a.Projectile is not { } p) return;
@@ -517,13 +517,13 @@ public static partial class Game
             () => new(profile, owner, owner, 1, from, to) { Payload = offense });
     }
 
-    static void GolemMeteorLocked(ClientState conn, GolemState.Golem g, double now)
+    static void GolemMeteorLocked(Player conn, GolemState.Golem g, double now)
     {
         if (g.Abilities.FirstOrDefault(a => a.Effect == 5268) is not { } a) return;
         GolemReserveLocked(conn, g, a, 0, null, g.Monster.Walk.Position(now), now);
     }
 
-    public static void GolemHazardsLocked(ClientState conn, GolemState.Golem g, double now)
+    public static void GolemHazardsLocked(Player conn, GolemState.Golem g, double now)
     {
         foreach (var hazard in g.Hazards.ToArray())
         {

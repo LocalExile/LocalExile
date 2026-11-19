@@ -144,14 +144,14 @@ public sealed class SurvivorsLeagueTests
         new UniqueCatalogueTests().Every_unique_resolves_its_mods_and_every_equipment_unique_has_a_stat();
     }
 
-    static ClientState Connection(string name, GameServer.Core.Accounts.League league) =>
+    static Player Connection(string name, GameServer.Core.Accounts.League league) =>
         new(new(1, name, 100, 100, 100, 100, null, []), 1, 1)
         {
             Character = name,
             LeagueModule = new(league, ServerLeagues.ModulesOf(league)),
         };
 
-    static async Task OwnedContinuations(ClientState conn, GameServer.Core.Accounts.League league)
+    static async Task OwnedContinuations(Player conn, GameServer.Core.Accounts.League league)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-survivors-ownership-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;

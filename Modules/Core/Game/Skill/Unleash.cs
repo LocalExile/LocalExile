@@ -6,16 +6,16 @@ public static partial class Game
         public double Since = now;
     }
 
-    static readonly Store<ClientState, Dictionary<ushort, SealProgress>> Seals = new();
+    static readonly Store<Player, Dictionary<ushort, SealProgress>> Seals = new();
 
-    static void RemoveMissingSealSources(ClientState conn, IEnumerable<ushort> ids)
+    static void RemoveMissingSealSources(Player conn, IEnumerable<ushort> ids)
     {
         if (!Seals.TryGetValue(conn, out var tracked)) return;
         lock (tracked)
             foreach (ushort missing in tracked.Keys.Except(ids).ToArray()) tracked.Remove(missing);
     }
 
-    public static int UnleashSeals(ClientState conn, ushort id, SupportedGem source, double now, bool spend = false)
+    public static int UnleashSeals(Player conn, ushort id, SupportedGem source, double now, bool spend = false)
     {
         int cap = GolemStat(source.Stats, "support_anticipation_rapid_fire_count");
         int milliseconds = GolemStat(source.Stats, "support_anticipation_charge_gain_interval_ms");

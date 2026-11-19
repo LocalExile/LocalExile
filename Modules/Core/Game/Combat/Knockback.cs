@@ -47,7 +47,7 @@ static partial class Game
     /// its existing Teleport presentation, without reproducing native knockback speed or animation. Call under the
     /// Monsters lock before damage, with the final skill radius. Only a coincident target uses <paramref name="from"/>
     /// toward <paramref name="landing"/> as its direction; without a nonzero direction it stays in place.</summary>
-    public static void LeapSlamDisplaceOccupants(ClientState conn, (int X, int Y) landing, double radius, double now,
+    public static void LeapSlamDisplaceOccupants(Player conn, (int X, int Y) landing, double radius, double now,
         IReadOnlyDictionary<uint, int>? skill = null, (int X, int Y)? from = null)
     {
         if (!(radius > 0) || !double.IsFinite(radius)) return;
@@ -93,7 +93,7 @@ static partial class Game
     /// distance are skill stats) add. On success the monster is pushed away from the player, its action is interrupted
     /// and <see cref="SpawnedMonster.KnockbackPending"/> carries the cell for the AI tick's packet. Under the Monsters
     /// lock, after the hit's damage.</summary>
-    internal static bool KnockbackOnHitLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
+    internal static bool KnockbackOnHitLocked(Player conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null)
     {
         if (!KnockbackAllowed(m)) return false;

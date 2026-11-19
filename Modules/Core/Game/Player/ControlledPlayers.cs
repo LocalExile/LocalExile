@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static async Task InitializeControlledPlayer(ClientState conn, ClientState leader)
+    public static async Task InitializeControlledPlayer(Player conn, Player leader)
     {
         RegisterVitalsAdmission(conn);
         PrepareCharacterForArea(conn, conn.Pools.Level);
@@ -23,7 +23,7 @@ public static partial class Game
         EnsurePlayerUpdates(conn);
     }
 
-    public static async Task StepControlledPlayer(ClientState conn, ClientState leader)
+    public static async Task StepControlledPlayer(Player conn, Player leader)
     {
         if (conn.Closed || leader.Closed || conn.LeavingArea || conn.Paused || !leader.PlayerSent) return;
         EnsurePlayerUpdates(conn);
@@ -90,7 +90,7 @@ public static partial class Game
         else if (!following) IdleControlledFollower(conn, leader, now);
     }
 
-    static double ControlledInPlaceReach(ClientState conn, ushort skill, int effect)
+    static double ControlledInPlaceReach(Player conn, ushort skill, int effect)
     {
         if (SkillsFor(conn).ActionHash(effect) == GroundSlamWave.Action)
             return GroundSlamWave.Length(SkillRadius(conn, SupportedSkill(conn, skill).Stats, spell: false, effect));

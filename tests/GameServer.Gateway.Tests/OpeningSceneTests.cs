@@ -126,7 +126,7 @@ public class OpeningSceneTests
             (TutorialObjects.Strand, variety with { Id = "Metadata/Monsters/Other" }, 60, 24),
         })
         {
-            var conn = new ClientState(new(0, area, 256, 256, 10, 10, null, []), 0, 1) { Instance = new() };
+            var conn = new Player(new(0, area, 256, 256, 10, 10, null, []), 0, 1) { Instance = new() };
             var m = new SpawnedMonster("wake-boundary", new(100, 100, 1), aggro, 2, 23) { Variety = type };
             Assert.True(MonsterEmerge.AddLocked(conn, 7, m, EmergeKind.Buried, true));
             Assert.Empty(emerges.RiseLocked(conn, (100 - range - 1, 100), 10, out bool watching));
@@ -267,7 +267,7 @@ public class OpeningSceneTests
 
         foreach (var (exile, running, skips) in new[] { (true, true, true), (true, false, false), (false, true, false) })
         {
-            var conn = new ClientState(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1)
+            var conn = new Player(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1)
             {
                 TalkingTo = 123,
                 TutorialSceneRunning = running,
@@ -288,7 +288,7 @@ public class OpeningSceneTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly ClientState Conn;
+        public readonly Player Conn;
         public NetworkStream Stream => writer.GetStream();
         public Wire(InstanceState? instance = null)
         {

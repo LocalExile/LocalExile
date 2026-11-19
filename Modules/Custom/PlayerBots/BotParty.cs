@@ -20,7 +20,7 @@ sealed partial class BotDirector
     // C→S 0x93 "Invite to Party" with a bot's name: NotFound when no bot the player can reach has that name, Refused when
     // their party is already full (the invite is still consumed, so it does not reach the Social module), Joined
     // otherwise.
-    public async Task<BotInvite> Invite(ClientState conn, string name)
+    public async Task<BotInvite> Invite(Player conn, string name)
     {
         Bot? bot;
         uint party;
@@ -89,7 +89,7 @@ sealed partial class BotDirector
             CharacterClassByte.Encode((byte)cls.IntegerId, 0)));
     }
 
-    async Task SendParty(ClientState leader, uint party)
+    async Task SendParty(Player leader, uint party)
     {
         lock (_bots)
             foreach (var bot in _bots.Where(b => b.Party == party && b.Phase == BotPhase.Following))
@@ -98,17 +98,17 @@ sealed partial class BotDirector
     }
 
     // Social's first-entry tick publishes the roster when a connection is not ready yet.
-    Task SendPartyWhenReady(ClientState conn, uint party) =>
+    Task SendPartyWhenReady(Player conn, uint party) =>
         conn is { Closed: false, PlayerSent: true } ? SendParty(conn, party) : Task.CompletedTask;
 
-    static Task Send(ClientState conn, byte[] bytes, string? log) => conn.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
+    static Task Send(Player conn, byte[] bytes, string? log) => conn.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
 
     /// <summary>A chat line back to the player who ran a bot command.</summary>
     public Task Tell(IPlayer player, string text) =>
         Send(Program.ConnOf(player), InstanceChat.ChatLine(text), $"0x0017 {text}");
 
     /// <summary>'/botleave': every bot following this player leaves and goes back to its quests.</summary>
-    public async Task<bool> LeaveAny(ClientState conn)
+    public async Task<bool> LeaveAny(Player conn)
     {
         uint party = PartyRoster.PartyOf(conn);
         if (!PartyRoster.IsLeader(conn, party)) return false;

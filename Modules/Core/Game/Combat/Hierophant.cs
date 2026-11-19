@@ -45,17 +45,17 @@ public static class Hierophant
     sealed class Carry { public double Life; }
     static readonly RuleTable<TotemState.Totem, Carry> TotemCarry = new();
 
-    static readonly Store<ClientState, State> States = new();
-    public static State Of(ClientState conn) => States.GetValue(conn, _ => new());
+    static readonly Store<Player, State> States = new();
+    public static State Of(Player conn) => States.GetValue(conn, _ => new());
 
-    public static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
+    public static long Revision(Player conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
-    static int Raw(ClientState conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
+    static int Raw(Player conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>GameEvents.PlayerStatSources: per-totem regeneration, the unreserved-mana area and mana-to-damage.</summary>
-    public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         void Add(string name, long value)
@@ -77,7 +77,7 @@ public static class Hierophant
 
     /// <summary>The player tick: count the Summoned Totems and the unreserved-mana area (only with a stat that reads
     /// them), regenerate the totems' Life, and when a value changed rebuild the pools and send the stats.</summary>
-    public static async Task Tick(ClientState conn)
+    public static async Task Tick(Player conn)
     {
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         bool changed;
@@ -120,7 +120,7 @@ public static class Hierophant
     }
 
     /// <summary>A new area is a new connection: the leaving one forgets its state.</summary>
-    public static Task Leaving(ClientState conn)
+    public static Task Leaving(Player conn)
     {
         States.Remove(conn);
         return Task.CompletedTask;

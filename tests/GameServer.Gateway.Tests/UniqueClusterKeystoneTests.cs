@@ -9,7 +9,7 @@ public class UniqueClusterKeystoneTests
     {
         var items = Program.Items;
         var catalog = new UniqueCatalog(items);
-        var conn = new ClientState(new(1, "keystone", 100, 100, 100, 100, null, []), 1, 1);
+        var conn = new Player(new(1, "keystone", 100, 100, 100, 100, null, []), 1, 1);
         foreach (var (name, stat) in new[]
         {
             ("Calamitous Visions", "keystone_herald_of_doom"), ("Kitava's Teachings", "keystone_disciple_of_kitava"),

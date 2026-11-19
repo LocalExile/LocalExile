@@ -9,7 +9,7 @@ public static partial class Game
     // (DamageStats.Conversion); null when none applies. Shaper of Flames' "Enemies Ignited by you have 40% of Physical
     // Damage converted to Fire Damage" joins it while the monster burns with the player's ignite (<paramref name="stat"/>:
     // the player's merged stats). Call under the Monsters lock.
-    public static DamageConversion? EnemyAuraConversionLocked(ClientState conn, SpawnedMonster m, (int X, int Y) player, double now,
+    public static DamageConversion? EnemyAuraConversionLocked(Player conn, SpawnedMonster m, (int X, int Y) player, double now,
         Func<string, int>? stat = null)
     {
         if (!m.Hostile || conn.PlayerLife == 0) return null;
@@ -30,7 +30,7 @@ public static partial class Game
 
     // The sum of one stat of the player's passive enemy auras on this monster at contact, by the radius at that moment
     // (Overwhelm's base_critical_strike_multiplier_+ for its critical strikes on the player). Call under the Monsters lock.
-    public static int EnemyAuraStatLocked(ClientState conn, SpawnedMonster m, (int X, int Y) player, double now, string stat)
+    public static int EnemyAuraStatLocked(Player conn, SpawnedMonster m, (int X, int Y) player, double now, string stat)
     {
         if (!m.Hostile || conn.PlayerLife == 0 || Stats.Key(stat) is not uint key) return 0;
         var at = m.Walk.Position(now);

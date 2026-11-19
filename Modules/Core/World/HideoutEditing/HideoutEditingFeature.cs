@@ -7,7 +7,7 @@ using static Program;
 static class HideoutEditingFeature
 {
     /// <summary>Creates the Monster Statue decorations saved for this account's hideout.</summary>
-    internal static async Task SpawnMonsterStatues(ClientState conn)
+    internal static async Task SpawnMonsterStatues(Player conn)
     {
         if (HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
         foreach (var s in global::Game.AccountMonsterStatues(conn))
@@ -25,7 +25,7 @@ static class HideoutEditingFeature
     }
 
     /// <summary>C→S 0x0209: the Monster Statue Creator used on a monster. Replaces it with the stone statue and saves it.</summary>
-    internal static async Task CreateMonsterStatue(ClientState conn, (uint Action, uint Target) create)
+    internal static async Task CreateMonsterStatue(Player conn, (uint Action, uint Target) create)
     {
         if (create.Action != InstanceMonsterStatue.CreatorAction)
         {
@@ -61,7 +61,7 @@ static class HideoutEditingFeature
                 new CharacterSaves.SavedMonsterStatue(x, y, 0, variety.Hash16));
     }
 
-    internal static async Task MoveHideoutObject(ClientState conn, InstanceHideoutEditing.Move move)
+    internal static async Task MoveHideoutObject(Player conn, InstanceHideoutEditing.Move move)
     {
         if (!conn.PlayerSent || conn.PendingTransfer is not null) return;
         if (!OwnHideout(conn) || HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)

@@ -18,7 +18,7 @@ public sealed partial class DeliriumModule
         _ => Setting("simulacrum_progress_normal", 1),
     }, 1, 100);
 
-    Run PrepareWave(ClientState conn, int wave, Run previous)
+    Run PrepareWave(Player conn, int wave, Run previous)
     {
         var random = Random.Shared;
         var effects = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -83,7 +83,7 @@ public sealed partial class DeliriumModule
         };
     }
 
-    async Task SpawnBatch(ClientState conn, Run run)
+    async Task SpawnBatch(Player conn, Run run)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         int count = run.SpawnAllowance(now, (int)Math.Clamp(Setting("simulacrum_pack_size", 15), 10, 20),
@@ -154,7 +154,7 @@ public sealed partial class DeliriumModule
         }
     }
 
-    async Task Complete(ClientState conn, Run run)
+    async Task Complete(Player conn, Run run)
     {
         int wave = run.Wave;
         var loot = RollRewards(conn, run);

@@ -6,7 +6,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     // Reuse the ordinary planner's cadence, action generations and repath budget for owned weapon targets.
-    static bool PlanRampageWeaponTarget(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan,
+    static bool PlanRampageWeaponTarget(Player conn, MonsterAiCadence cadence, MonsterAiPlan plan,
         uint id, SpawnedMonster monster, double now, (int X, int Y) from, double playerDistance)
     {
         if (!CurrentRampageWork) return false;
@@ -41,7 +41,7 @@ public static partial class Game
         return true;
     }
 
-    static async Task RunPlannedRampageWeaponSwing(ClientState conn, MonsterAiCadence cadence, uint id, SpawnedMonster attacker, int action,
+    static async Task RunPlannedRampageWeaponSwing(Player conn, MonsterAiCadence cadence, uint id, SpawnedMonster attacker, int action,
         uint targetId, SpawnedMonster weapon)
     {
         try { await MonsterSwingAtRampageWeapon(conn, id, attacker, action, targetId, weapon); }
@@ -49,7 +49,7 @@ public static partial class Game
         finally { lock (conn.Monsters) cadence.CompleteSwing(attacker, action); }
     }
 
-    static async Task MonsterSwingAtRampageWeapon(ClientState conn, uint id, SpawnedMonster attacker, int action, uint targetId, SpawnedMonster weapon)
+    static async Task MonsterSwingAtRampageWeapon(Player conn, uint id, SpawnedMonster attacker, int action, uint targetId, SpawnedMonster weapon)
     {
         if (attacker.Attack is not { } attack) return;
         bool TargetCurrent() => CurrentRampageWork && conn.OwnedCombatState is RampageWorld world

@@ -15,14 +15,14 @@ public static class Yugul
     static string Done(int round) => Quests.InstanceFlag($"Yugul-Mirrors-{round}");
     static string Spawned(int round, int slot) => Quests.InstanceFlag($"Yugul-Mirrors-{round}-Image-{slot}");
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
-    public static LifePhaseGate? Phases(ClientState c, MonsterCatalog.Variety v)
+    public static LifePhaseGate? Phases(Player c, MonsterCatalog.Variety v)
     {
         if (c.Layout.Id != Area || !IsBoss(v)) return null;
         var phases = new LifePhaseGate([66, 33]);
         for (int n = 0; n < 2 && c.Instance.HasState(Done(n)); n++) { phases.Begin(0, 1); phases.Finish(); }
         return phases;
     }
-    internal static IReadOnlyList<GrantedSkill> AddSkills(ClientState c, MonsterCatalog.Variety v, byte level,
+    internal static IReadOnlyList<GrantedSkill> AddSkills(Player c, MonsterCatalog.Variety v, byte level,
         IReadOnlyList<GrantedSkill> skills)
     {
         if (c.Layout.Id != Area || !IsBoss(v)) return skills;
@@ -32,7 +32,7 @@ public static class Yugul
             BossKits.AttackFor(c, v, level, HideEffect, HideSkill));
         return catalog.FindByRow(HideSkill, HideEffect, rank, stats) is { } hide ? [.. skills, hide] : skills;
     }
-    public static async Task Tick(ClientState c)
+    public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         KeyValuePair<uint, SpawnedMonster> found;
@@ -45,22 +45,22 @@ public static class Yugul
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
     sealed class Cleanup : IDisposable { public void Dispose() { foreach (var f in Fights) f.Value.Stop(); } }
-    internal sealed class Fight(uint id, SpawnedMonster boss, ClientState owner)
+    internal sealed class Fight(uint id, SpawnedMonster boss, Player owner)
     {
         internal readonly SemaphoreSlim Gate = new(1);
         readonly YugulHazards hazards = new(id, boss, owner);
-        readonly HashSet<ClientState> players = [];
+        readonly HashSet<Player> players = [];
         double deadline = double.NaN;
         bool rising, stopped;
-        IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea
+        IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea
             && ReferenceEquals(p.Instance, owner.Instance));
-        public async Task Bind(ClientState c)
+        public async Task Bind(Player c)
         {
             await hazards.Bind(c);
             if (!players.Add(c) || !boss.LifePhases!.Active || double.IsNaN(deadline)) return;
             if (!rising) await Hide(c);
         }
-        async Task Hide(ClientState c)
+        async Task Hide(Player c)
         {
             if (!c.MonsterViews.ContainsKey(id) || c.AsleepMonsters.Contains(id)) return;
             var at = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds);
@@ -68,7 +68,7 @@ public static class Yugul
                 InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, HideSkill,
                     c.NextActionSequence(), 0x0800, id), "[Yugul] dive for mirror interval");
         }
-        async Task MirrorState(ClientState c, int value)
+        async Task MirrorState(Player c, int value)
         {
             lock (c.Monsters)
             {
@@ -81,7 +81,7 @@ public static class Yugul
             { await SendWorldRecord(p, id,
                 InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), "[Yugul] mirror state"); }
         }
-        public async Task Step(ClientState c, double now)
+        public async Task Step(Player c, double now)
         {
             await hazards.Step(c, now);
             if (stopped || !CurrentGameWork || c.Paused || boss.Dead || boss.Life == 0) return;

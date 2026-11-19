@@ -61,7 +61,7 @@ public static class MapEssenceCatalog
         return [.. chosen.Select(e => e.Row)];
     }
 
-    public static MonsterModSet Mods(ClientState conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
+    public static MonsterModSet Mods(Player conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
     {
         var basis = Game.MonsterModsFor(conn, variety, level, MonsterRarity.Rare, null, false);
         var rows = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct();

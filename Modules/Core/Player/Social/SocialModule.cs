@@ -122,10 +122,10 @@ static class SocialFeature
     /// (and bit 0 the active trade for Ctrl + click, 0x140d60630); 0x10 lets Accept send 0xb6 without hovering each item.
     /// Neither bit shows nothing (live 2026-10-28).</summary>
 
-    internal static Task SendTo(ClientState c, byte[] bytes, string? log) => c.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
+    internal static Task SendTo(Player c, byte[] bytes, string? log) => c.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
 
     // Presence is shared even when SSF world state is private. Check the authoritative modes at each trade boundary.
-    internal static bool PlayerTradeAllowed(ClientState a, ClientState b) =>
+    internal static bool PlayerTradeAllowed(Player a, Player b) =>
         !ReferenceEquals(a, b) && !a.Ssf && !b.Ssf
         && a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
         && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase)
@@ -135,24 +135,24 @@ static class SocialFeature
 
     // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table. The
     // third field is the player's area as a WorldAreas HASH16 (+0xa8), not the character's level (#715).
-    internal static async Task Introduce(ClientState to, ClientState about) =>
+    internal static async Task Introduce(Player to, Player about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Layout.Hash,
             PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
     // inventories must exist (inventory 0 crashed both clients at 0x1402d1029 through the grid 0x140317a44). A fresh
     // pair also empties what an earlier trade left in them.
-    internal static async Task FreshOffers(ClientState c)
+    internal static async Task FreshOffers(Player c)
     {
         foreach (var inv in new[] { PlayerTradeMine, PlayerTradeTheirs })
             await SendTo(c, InstanceInventories.AddInventory(inv, NpcShops.Offer, NpcShops.Manager), $"0x00c0 trade offer {inv}");
     }
 
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, object?> Rebound = new();
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, object?> Rebound = new();
 
     // C→S 0xba: "Trade" on another player in the same instance. The requester sees the waiting notice (0xb8 without
     // flags) and the other player the request (0xb8 with TradeRequestFlag and the requester's name), answered by 0xb0.
-    internal static async Task RequestTrade(ClientState conn, uint target)
+    internal static async Task RequestTrade(Player conn, uint target)
     {
         if (conn.Instance.Player(target) is not { Owner: { Outbox: not null } other } || !PlayerTradeAllowed(conn, other)
             || other.Trade is not null || conn.Trade is not null)
@@ -173,7 +173,7 @@ static class SocialFeature
     }
 
     // C→S 0xb1 (u32 the requester, u8) from the notification: the request declined; the requester's box closes.
-    internal static async Task DeclineTradeRequest(ClientState conn, uint requester)
+    internal static async Task DeclineTradeRequest(Player conn, uint requester)
     {
         Console.WriteLine($"[gateway] {CharacterName(conn)} declined the trade request from 0x{requester:x}");
         await SendTo(conn, InstanceNpcs.TradeClose(requester, false), "0x00b9 trade request declined");
@@ -182,7 +182,7 @@ static class SocialFeature
     }
 
     // C→S 0xb1 on the requester's waiting box (Cancel): the box and the other player's notification close (0xb9).
-    internal static async Task CancelTradeRequest(ClientState conn)
+    internal static async Task CancelTradeRequest(Player conn)
     {
         uint to = conn.TradeRequestTo;
         conn.TradeRequestTo = 0;
@@ -193,7 +193,7 @@ static class SocialFeature
     }
 
     // C→S 0xb0: the request accepted (u32 the requester's object id). Both get the open trade window.
-    internal static async Task AcceptTradeRequest(ClientState conn, uint requester)
+    internal static async Task AcceptTradeRequest(Player conn, uint requester)
     {
         if (conn.Instance.Player(requester) is not { Owner: { } other } || other.TradeRequestTo != conn.PeerId
             || !PlayerTradeAllowed(conn, other) || other.Trade is not null || conn.Trade is not null)
@@ -218,7 +218,7 @@ static class SocialFeature
 
     // C→S 0xb2 / 0xb3 / 0xb5 while a player trade is open: an item into the offer (a drop at x, y, or Ctrl / Shift
     // click into the first free cell), or an offered item taken back.
-    internal static async Task PlayerTradeOffer(ClientState conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
+    internal static async Task PlayerTradeOffer(Player conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
     {
         if (!PlayerTradeAllowed(conn, trade.Other(conn)))
         {
@@ -266,7 +266,7 @@ static class SocialFeature
         await SendTradeState(trade);
     }
 
-    internal static async Task PlayerTradeTakeBack(ClientState conn, PlayerTrade trade, uint itemId)
+    internal static async Task PlayerTradeTakeBack(Player conn, PlayerTrade trade, uint itemId)
     {
         var items = ItemsOf(conn);
         if (items.TakeBack(itemId) is not var (row, back)) return;
@@ -291,7 +291,7 @@ static class SocialFeature
 
     // C→S 0xb6: Accept, with the revision of the other's offer this client saw. Both accepted on the current offers
     // completes the trade; any later change clears both acceptances.
-    internal static async Task PlayerTradeAccept(ClientState conn, PlayerTrade trade, uint revision)
+    internal static async Task PlayerTradeAccept(Player conn, PlayerTrade trade, uint revision)
     {
         if (!PlayerTradeAllowed(conn, trade.Other(conn)))
         {
@@ -312,7 +312,7 @@ static class SocialFeature
     }
 
     // C→S 0xb7: Cancel Accept.
-    internal static async Task PlayerTradeUnaccept(ClientState conn, PlayerTrade trade)
+    internal static async Task PlayerTradeUnaccept(Player conn, PlayerTrade trade)
     {
         lock (trade.Lock) trade.Accepted[conn] = null;
         await SendTradeState(trade);
@@ -400,7 +400,7 @@ static class SocialFeature
     }
 
     // C→S 0xb1 (cancel), a disconnect or leaving the area: every offered item is in its cell again on both sides.
-    internal static async Task CancelPlayerTrade(ClientState conn, string why)
+    internal static async Task CancelPlayerTrade(Player conn, string why)
     {
         if (conn.Trade is not { } trade) { conn.TradeRequestTo = 0; return; }
         lock (trade.Lock)
@@ -424,7 +424,7 @@ static class SocialFeature
         }
     }
 
-    internal static async Task EndTradeView(ClientState c, ClientState other, bool accepted)
+    internal static async Task EndTradeView(Player c, Player other, bool accepted)
     {
         c.Trade = null;
         c.TradeRequestTo = 0;

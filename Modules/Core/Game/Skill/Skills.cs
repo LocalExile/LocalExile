@@ -15,7 +15,7 @@ public static partial class Game
     // character does not meet makes its item inactive (EquipmentStatSources) like a worn item the character is too low for,
     // so GemSkillEffects leaves its skill out: the client has nothing to cast. A use that arrives anyway (a stale client) is
     // refused (GemDisabled).
-    public static IReadOnlyList<GrantedSkill> PlayerSkills(ClientState conn)
+    public static IReadOnlyList<GrantedSkill> PlayerSkills(Player conn)
     {
         lock (conn.Monsters) ReconcileBeastCompanionsLocked(conn);
         // Headhunter, Rage, Fortification and charge changes call this many times a second. A short cache keeps the
@@ -53,10 +53,10 @@ public static partial class Game
     }
 
     /// <summary>The PlayerSkills build running on this flow: what it computed once and reuses instead of recomputing.</summary>
-    public sealed class SkillBuildScope(ClientState conn, Dictionary<uint, int>? stats = null)
+    public sealed class SkillBuildScope(Player conn, Dictionary<uint, int>? stats = null)
     {
         Dictionary<uint, int>? character = stats;
-        public ClientState Conn => conn;
+        public Player Conn => conn;
         public volatile bool Active = true;
         /// <summary>The one character snapshot of this flow's work: a client message's whole validation, payment and
         /// launch, or one PlayerSkills build. Built on the first read, so a message that reads no stats pays nothing.
@@ -76,7 +76,7 @@ public static partial class Game
     {
         readonly SkillBuildScope? outer;
         readonly SkillBuildScope? owned;
-        public PlayerStatScope(ClientState conn, bool fresh = false)
+        public PlayerStatScope(Player conn, bool fresh = false)
         {
             outer = StatsScope.Value;
             owned = fresh || outer is null || !outer.Active || !ReferenceEquals(outer.Conn, conn) ? new(conn) : null;
@@ -91,14 +91,14 @@ public static partial class Game
         }
     }
 
-    public static SkillBuildScope? BuildScopeOf(ClientState conn) =>
+    public static SkillBuildScope? BuildScopeOf(Player conn) =>
         StatsScope.Value is { Active: true } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
 
     // The player's stats as the server sets them: what /set_stat set, then the attack's final values computed from them
     // (the client derives nothing itself: 11-skills.md §4).
     // FinalPlayerStats as a full 0x1b3, which only sets the stats it lists: every stat sent before that is gone now (a
     // stat only an unequipped item or a refunded passive gave) goes with 0, so the client does not keep its old value.
-    public static List<(uint, int)> PlayerStatsWithCleared(ClientState conn)
+    public static List<(uint, int)> PlayerStatsWithCleared(Player conn)
     {
         RefreshSingleUseCooldowns(conn);
         var stats = FinalPlayerStats(conn).ToList();
@@ -128,17 +128,17 @@ public static partial class Game
         ("cannot_be_shocked_with_int_higher_than_strength", "cannot_be_shocked", "intelligence", "strength"),
     ];
 
-    public static IEnumerable<(uint, int)> FinalPlayerStats(ClientState conn)
+    public static IEnumerable<(uint, int)> FinalPlayerStats(Player conn)
     {
         if (BuildScopeOf(conn) is not { } scope) return FinalPlayerStatsCore(conn);
         return [.. scope.Final ??= [.. FinalPlayerStatsCore(conn)]];
     }
 
-    public static IEnumerable<(uint, int)> FinalPlayerStatsCore(ClientState conn) =>
+    public static IEnumerable<(uint, int)> FinalPlayerStatsCore(Player conn) =>
         FinalPlayerStatsFrom(conn, CharacterPlayerStats(conn));
 
     // The final stats from a character snapshot already worked out (PlayerSkills reuses its own).
-    public static IEnumerable<(uint, int)> FinalPlayerStatsFrom(ClientState conn, Dictionary<uint, int> stats)
+    public static IEnumerable<(uint, int)> FinalPlayerStatsFrom(Player conn, Dictionary<uint, int> stats)
     {
         KeepExpandedInventoryVisible(conn, stats);
         // Both hands' native weapon types and whether they dual wield (a value /set_stat set stays). The client derives none
@@ -165,7 +165,7 @@ public static partial class Game
     // with a null animation set and the next action crashed (0x141c9b351, AnimationController+0x180 = 0). Frida 2026-10-25:
     // while it creates the attack action the client reads off_hand_minimum/maximum_attack_distance.
     // Each hand's local speed is already in its own duration; both receive only the character's shared speed bucket.
-    public static List<(uint, int)> WeaponStats(ClientState conn, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
+    public static List<(uint, int)> WeaponStats(Player conn, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
     {
         var conversion = DamageStats.Conversion(stats, Stats, attack: true);
         var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(conn), conversion);
@@ -209,7 +209,7 @@ public static partial class Game
     // The off hand's critical-weighted, hit-chance-weighted damage factor for the dual-wield average, from the Off Hand
     // rows already worked out (OffHandPanelStats; rows: the published ones, or a selected gem's); null when no off hand
     // is swung, so the average falls back to the main hand's factor.
-    public static double? OffHandDamageFactor(ClientState conn, IReadOnlyDictionary<uint, int> player, Func<string, int> rows,
+    public static double? OffHandDamageFactor(Player conn, IReadOnlyDictionary<uint, int> player, Func<string, int> rows,
         IReadOnlyDictionary<uint, int>? own)
     {
         if (rows("skill_uses_off_hand") == 0) return null;
@@ -217,7 +217,7 @@ public static partial class Game
             rows("off_hand_critical_strike_multiplier"), CriticalExtraRollsFor(conn, player, own), rows("off_hand_chance_to_hit_%"));
     }
 
-    public static AttackAccuracyProfile OrdinaryAccuracy(ClientState conn, IReadOnlyDictionary<uint, int> stats,
+    public static AttackAccuracyProfile OrdinaryAccuracy(Player conn, IReadOnlyDictionary<uint, int> stats,
         IReadOnlyDictionary<string, int>? local) =>
         OrdinaryAccuracy(SkillsFor(conn), SkillEffectId(conn, SkillCatalog.FirstSkillId), conn.Pools, stats, local)
             with { Rating = PlayerAccuracy(conn, stats) };
@@ -232,7 +232,7 @@ public static partial class Game
     }
 
     // The player's stats (PlayerStatSteps.cs): in an area's frames the stat graph's last step.
-    public static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
+    public static Dictionary<uint, int> CharacterPlayerStats(Player conn)
     {
         // Temporary lag instrumentation: how often the full stat build runs and what it costs (per connection).
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -247,7 +247,7 @@ public static partial class Game
     // spell_effective_total_chance_permyriad_for_hit_to_be_critical / _double_critical: the spell chance after the
     // luck policy (CriticalExtraRollsFor) and the Assassin's bifurcation (spell_critical_strikes_bifurcate); zero when
     // critical strikes are prohibited, as the chance row itself is.
-    public static IEnumerable<(string Stat, int Value)> SpellEffectiveCritical(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static IEnumerable<(string Stat, int Value)> SpellEffectiveCritical(Player conn, IReadOnlyDictionary<uint, int> player,
         int chance, IReadOnlyDictionary<uint, int>? own) =>
         SpellEffectiveCritical(() => CriticalOnLowLife(conn, player), player, chance, own);
 
@@ -269,7 +269,7 @@ public static partial class Game
     // The melee context of an attack's damage modifiers. An attack gem classifies
     // its own ActiveSkillType Melee; the default attack and the panel swing the active weapon set's weapon where an
     // inactive weapon is not there at all (WeaponProfileFor) and unarmed swings are melee.
-    public static bool MeleeAttack(ClientState conn, int gemEffect = -1) =>
+    public static bool MeleeAttack(Player conn, int gemEffect = -1) =>
         gemEffect >= 0 && SkillsFor(conn).IsAttack(gemEffect) ? SkillsFor(conn).IsMelee(gemEffect)
             : WeaponProfileFor(conn, activeSet: true).Melee;
 
@@ -289,9 +289,9 @@ public static partial class Game
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
 
-    public static double AddedEffectiveness(ClientState conn, int effect, int level) => SkillsFor(conn).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
+    public static double AddedEffectiveness(Player conn, int effect, int level) => SkillsFor(conn).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
 
-    public static GameServer.Core.World.DamageConversion ConversionFor(ClientState conn, int effectRow, int level, bool attack)
+    public static GameServer.Core.World.DamageConversion ConversionFor(Player conn, int effectRow, int level, bool attack)
     {
         return DamageStats.Conversion(CharacterPlayerStats(conn),
             effectRow >= 0 ? SkillsFor(conn).EffectStats(effectRow, level) : [], Stats, attack);
@@ -376,7 +376,7 @@ public static partial class Game
     // The skills of the gems socketed in the equipped items: each gem's GrantedEffects row at the gem's level with its own stats
     // (SkillCatalog.EffectStats: damage, cast time, mana cost) after the player's, with ids after the default attack's that
     // no basic action uses (SkillCatalog.SkillIds).
-    public static IEnumerable<GrantedSkill> GemSkills(ClientState conn, IEnumerable<(uint, int)> player,
+    public static IEnumerable<GrantedSkill> GemSkills(Player conn, IEnumerable<(uint, int)> player,
         IReadOnlyDictionary<uint, int> characterInputs, PanelSourceSnapshot panelSources)
     {
         string? character = conn.Character;
@@ -744,18 +744,18 @@ public static partial class Game
     // What a skill bar slot holds, as saved (CharacterSaves): a gem or the default attack by GrantedEffects Id (skill ids
     // change with the socketed gems), a basic action as "Action/<ActionTypes Id>" ("Action/Move": "Move only" on a mouse
     // button), "" for a cleared slot. Null for an id the server does not know.
-    public static string? SkillBarEntry(ClientState conn, ushort skillId) =>
+    public static string? SkillBarEntry(Player conn, ushort skillId) =>
         skillId == 0 ? "" : SkillEffectId(conn, skillId) ?? (SkillsFor(conn).ActionName(skillId) is { } a ? "Action/" + a : null);
 
     // The saved skill bar as the player's current skill ids, sent with S→C 0x53 together with the saved per-slot option
     // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
-    public static Task SendSkillBar(ClientState conn) =>
+    public static Task SendSkillBar(Player conn) =>
         Send(conn, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(conn));
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
-    internal static byte[]? SkillBarRecord(ClientState conn)
+    internal static byte[]? SkillBarRecord(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -784,7 +784,7 @@ public static partial class Game
     // Puts the skills that are nowhere on the saved bar into its empty slots (SkillBarLayout), leaving every other slot as
     // it is: the default attack on the left mouse button of a new bar, each gem skill of the equipment on the right mouse
     // button or the next empty slot. True when the bar changed (saved).
-    public static bool FillSkillBar(ClientState conn)
+    public static bool FillSkillBar(Player conn)
     {
         lock (conn.Monsters)
         {
@@ -804,14 +804,14 @@ public static partial class Game
     }
 
     // The GrantedEffects Id behind a skill id of the player (the default attack or a gem skill), or null.
-    public static string? SkillEffectId(ClientState conn, ushort skillId) =>
+    public static string? SkillEffectId(Player conn, ushort skillId) =>
         skillId == SkillCatalog.FirstSkillId ? Environment.GetEnvironmentVariable("Game_PLAYER_ATTACK") ?? "PlayerMelee"
         : GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId) is { Name: not null } g ? SkillsFor(conn).EffectId(g.Effect) : null;
 
     // Why the held item may not go into an equipment row: the character is below its level requirement
     // (ItemModStats.LevelRequirement). The client also checks it (0x1421f33c0) against the level we send in the item data,
     // but the server does not trust that.
-    public static string? LevelTooLow(ClientState conn, byte row, Item? held)
+    public static string? LevelTooLow(Player conn, byte row, Item? held)
     {
         if (held is null || !(ItemModStats.EquipmentRows.Contains(row) || row is 14 or 15)) return null;
         if (ItemsFor(conn).ByHash(held.TypeHash) is not { } t) return null;
@@ -822,10 +822,10 @@ public static partial class Game
     // Why a gem may not go into a socket: the character's level is below the gem's level requirement (GrantedEffectStatSetsPerLevel
     // PlayerLevelReq at the gem's level) or an attribute requirement is not met. The client checks both (0x142476ac0 for the
     // level, 0x142476710 per attribute) and refuses the move itself, but the server does not trust that.
-    public static string? GemRequirementsUnmet(ClientState conn, Item? gem)
+    public static string? GemRequirementsUnmet(Player conn, Item? gem)
         => GemRequirementsUnmetAt(conn, gem, null);
 
-    public static string? GemRequirementsUnmetAt(ClientState conn, Item? gem, GemRequirementSnapshot? snapshot)
+    public static string? GemRequirementsUnmetAt(Player conn, Item? gem, GemRequirementSnapshot? snapshot)
     {
         if (gem is null || ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
         if (!LeagueFor(conn).Rules.AllowsGemBase(baseType.Id))
@@ -850,10 +850,10 @@ public static partial class Game
     }
 
     // A gem's attribute requirements at its level: each SkillGems percentage through SkillCatalog.GemAttributeRequirement.
-    public static (int Str, int Dex, int Int) GemAttributeRequirements(ClientState conn, Item gem, ItemCatalog.GemType type, int effect)
+    public static (int Str, int Dex, int Int) GemAttributeRequirements(Player conn, Item gem, ItemCatalog.GemType type, int effect)
         => GemAttributeRequirements(conn, gem, type, effect, AttributeRequirementsPct(conn));
 
-    public static (int Str, int Dex, int Int) GemAttributeRequirements(ClientState conn, Item gem, ItemCatalog.GemType type, int effect, int pct)
+    public static (int Str, int Dex, int Int) GemAttributeRequirements(Player conn, Item gem, ItemCatalog.GemType type, int effect, int pct)
     {
         int level = Math.Clamp(ItemsFor(conn).GemLevel(gem), 1, Math.Max(1, type.MaxLevel));
         int needs = SkillsFor(conn).PlayerLevelReq(effect, level);
@@ -865,7 +865,7 @@ public static partial class Game
     // The requirements a gem socketed in a worn item adds to that item (the client shows the item red when they are not
     // met): the level its skill needs at the gem's level, and its attribute requirements. Pure catalog data, so the
     // equipment resolver can read it before the pools exist.
-    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(ClientState conn, Item gem, int attributePct)
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player conn, Item gem, int attributePct)
     {
         if (ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return default;
         int effect = type.Variant(gem.GemVariant).Effect;
@@ -877,14 +877,14 @@ public static partial class Game
 
     // The value the client's requirement checks compare (virtual_*_for_requirements, 13-items.md §2d): what /set_stat set,
     // else the character's attribute.
-    public static int RequirementAttribute(ClientState conn, string attribute, int value)
+    public static int RequirementAttribute(Player conn, string attribute, int value)
     {
         return value;
     }
 
     // Actor restrictions use the actual caster's current sources, never a skill overlay (which may replace a key).
     // CharacterPlayerStats does not build PlayerSkills or call GemDisabled, so this cannot recurse through admission.
-    public static string? ActorSkillDisabled(ClientState conn, int effect)
+    public static string? ActorSkillDisabled(Player conn, int effect)
     {
         // Legacy effect-only callers can use support metadata only when the instance is unambiguous.
         // Production admission always supplies the requested skill ID through ActorSkillInstanceDisabled.
@@ -892,10 +892,10 @@ public static partial class Game
         return ActorSkillDisabledCore(conn, effect, copies.Length == 1 ? copies[0].Id : null);
     }
 
-    public static string? ActorSkillInstanceDisabled(ClientState conn, int effect, ushort skillId) =>
+    public static string? ActorSkillInstanceDisabled(Player conn, int effect, ushort skillId) =>
         ActorSkillDisabledCore(conn, effect, skillId);
 
-    public static bool OwnAuraSkillRestricted(ClientState conn, int effect, ushort? skillId)
+    public static bool OwnAuraSkillRestricted(Player conn, int effect, ushort? skillId)
     {
         var sources = CharacterStatSources(conn).Stats;
         if (OwnAuraRestrictionValue(conn, new(sources)) == 0 && !SublimeDisables(conn, effect, sources)) return false;
@@ -905,7 +905,7 @@ public static partial class Game
         return gem.Effect == effect && OwnAuraRestriction.IsAura(gem.Stats);
     }
 
-    public static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
+    public static string? ActorSkillDisabledCore(Player conn, int effect, ushort? skillId)
     {
         if (VaalMinionProxyDisabled(conn, effect, skillId) is { } proxy) return proxy;
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
@@ -925,7 +925,7 @@ public static partial class Game
     // Why a gem skill may not be used: an actor restriction, unmet gem requirements or provider equipment restrictions.
     // The client reds the gem but still sends the use, so this is the backstop for a client whose item is not inactive yet.
     // Null when the actor restriction and requirements allow the effect.
-    public static string? GemDisabled(ClientState conn, int effect)
+    public static string? GemDisabled(Player conn, int effect)
     {
         if (ActorSkillDisabled(conn, effect) is { } restriction) return restriction;
         if (WeaponRestricted(conn, effect) is { } weapon) return weapon;
@@ -943,7 +943,7 @@ public static partial class Game
 
     // Keep source-gem requirements and accepted supports local to the actual requested instance.
     // A second gem with the same GrantedEffects row may have a different level or link group.
-    public static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId, bool triggered = false)
+    public static string? GemSkillInstanceDisabled(Player conn, int effect, ushort skillId, bool triggered = false)
     {
         var gem = SupportedSkill(conn, skillId);
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null)
@@ -960,7 +960,7 @@ public static partial class Game
         return SkillsFor(conn).EffectId(effect) is { } effectId ? ProjectileDefinition(effectId)?.Unavailable?.Invoke(conn) : null;
     }
 
-    static string? TravelSkillsExceptDashDisabled(ClientState conn, int effect, ushort skillId)
+    static string? TravelSkillsExceptDashDisabled(Player conn, int effect, ushort skillId)
     {
         if (!SkillsFor(conn).IsTravel(effect) || IsDashEffect(SkillsFor(conn).EffectId(effect))
             || Stats.Key("your_travel_skills_except_dash_are_disabled") is not uint travelKey) return null;
@@ -977,7 +977,7 @@ public static partial class Game
     // A skill neither active hand can use (its ActiveSkills weapon restriction, the client's FUN_141eeec70): the client
     // greys it out, and a use that still arrives is refused here. An empty or inactive main hand is Unarmed; an inactive
     // weapon is not in the hands (HandType), as the model the client checks does not show it (Looks).
-    public static string? WeaponRestricted(ClientState conn, int effect)
+    public static string? WeaponRestricted(Player conn, int effect)
     {
         var allowed = SkillsFor(conn).WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
@@ -987,7 +987,7 @@ public static partial class Game
     }
 
     // A worn item whose requirements are not met (CharacterStatSources): its mods and gems do nothing.
-    public static bool IsInactive(ClientState conn, uint itemId) => InactiveItems.GetValueOrDefault(CharacterName(conn))?.Contains(itemId) == true;
+    public static bool IsInactive(Player conn, uint itemId) => InactiveItems.GetValueOrDefault(CharacterName(conn))?.Contains(itemId) == true;
 
     // The skills of the active gems socketed in the equipped items in skill-list order: skill id, GrantedEffects row, gem
     // name, the gem's own level (from its experience; the experience stalls at the character's level requirement instead,
@@ -995,7 +995,7 @@ public static partial class Game
     // its base skill (ItemCatalog.GemEffects). Each skill keeps its id while its gem stays socketed (GemSkillIds): the client
     // binds skill bar keys by skill id. A gem whose requirements the character does not meet makes its item inactive
     // (EquipmentStatSources), so it grants nothing here; a use that still arrives is refused (GemDisabled).
-    public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
+    public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(Player conn)
     {
         string name = CharacterName(conn);
         var equipment = ItemsOf(conn).EquipmentSnapshot();
@@ -1027,7 +1027,7 @@ public static partial class Game
         IReadOnlyList<ushort> Nodes, IReadOnlyDictionary<ushort, ushort> Masteries, AscendancyProgress Ascendancy,
         ushort RefundPoints, CharacterSaves.PassiveProgressSnapshot? Expected, bool Trimmed);
 
-    public static PassiveLevelChange CaptureLevelChange(ClientState conn, int level)
+    public static PassiveLevelChange CaptureLevelChange(Player conn, int level)
     {
         lock (conn.Monsters)
         {
@@ -1040,7 +1040,7 @@ public static partial class Game
         }
     }
 
-    public static int CommitLevelChange(ClientState conn, PassiveLevelChange change)
+    public static int CommitLevelChange(Player conn, PassiveLevelChange change)
     {
         lock (conn.Monsters)
         {
@@ -1060,7 +1060,7 @@ public static partial class Game
 
     // XP is shared by overlapping area connections. Reconcile from the durable tree, not a stale connection's
     // candidate; the read, optional trim and comparison stay in one transaction before runtime publication.
-    public static int CommitExperienceLevel(ClientState conn, int level)
+    public static int CommitExperienceLevel(Player conn, int level)
     {
         lock (conn.Monsters)
         {
@@ -1090,7 +1090,7 @@ public static partial class Game
         }
     }
 
-    public static int PublishCommittedLevel(ClientState conn, PassiveLevelChange change)
+    public static int PublishCommittedLevel(Player conn, PassiveLevelChange change)
     {
         conn.Passives = [.. change.Nodes];
         conn.MasteryEffects = new(change.Masteries);
@@ -1108,7 +1108,7 @@ public static partial class Game
     // its level change): the level's stats (0x1b3: level, life, mana, accuracy, ...), the skills with them (0x2bc Actor),
     // full life, as a level up gives, and the passive skill points (0x33). Passives beyond a lower level's points are
     // taken back, last allocated first.
-    public static async Task ApplyLevel(ClientState conn, int level)
+    public static async Task ApplyLevel(Player conn, int level)
     {
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
@@ -1116,7 +1116,7 @@ public static partial class Game
         await PublishLevelChange(conn, before, level);
     }
 
-    public static async Task PublishLevelChange(ClientState conn, int before, int level)
+    public static async Task PublishLevelChange(Player conn, int before, int level)
     {
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
@@ -1136,11 +1136,11 @@ public static partial class Game
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.
-    // The inputs the cached skill list (ClientState.PlayerSkillsCache) was built from.
+    // The inputs the cached skill list (Player.PlayerSkillsCache) was built from.
     sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
-    static readonly Store<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
+    static readonly Store<Player, PlayerSkillsBuild> PlayerSkillsInputs = new();
 
-    public static async Task SendCharacterStats(ClientState conn, PlayerStatChange why)
+    public static async Task SendCharacterStats(Player conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;   // a build change: the skill list is built again
         if (QuestKillCommitOutput is not null)
@@ -1154,7 +1154,7 @@ public static partial class Game
     }
 
     // The character panel, the skills and the Energy Shield as they are now.
-    internal static async Task PublishCharacterStats(ClientState conn, PlayerStatChange why)
+    internal static async Task PublishCharacterStats(Player conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;
         await SendPlayerStatSnapshot(conn,
@@ -1165,7 +1165,7 @@ public static partial class Game
 
     // The player's skills again, and the removal of the ones the client still has whose gems left the equipment, in one
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
-    public static async Task SendSkills(ClientState conn)
+    public static async Task SendSkills(Player conn)
     {
         if (!CurrentGameRules) return;
         lock (conn.Monsters) ReconcileBeastCompanionsLocked(conn);
@@ -1255,7 +1255,7 @@ public static partial class Game
 
     // Skills the player no longer has (their gems left the equipment): their auras and Righteous Fire end with them, and the
     // reserved mana comes back.
-    public static async Task EndSkillEffects(ClientState conn, IReadOnlyCollection<ushort> gone)
+    public static async Task EndSkillEffects(Player conn, IReadOnlyCollection<ushort> gone)
     {
         if (!CurrentGameRules || !CurrentGameWork) return;
         (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) ending;
@@ -1315,7 +1315,7 @@ public static partial class Game
     // The non-Righteous-Fire owners that end with an actual source can share this synchronous mutation. The caller holds
     // Monsters; only immutable cleanup packets are queued here and every async presentation remains in a wrapper.
     private static (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) EndNonRighteousFireSkillEffectsLocked(
-        ClientState conn, IReadOnlyCollection<ushort> gone)
+        Player conn, IReadOnlyCollection<ushort> gone)
     {
         List<AuraCatalog.Aura> ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
         foreach (var aura in ended)

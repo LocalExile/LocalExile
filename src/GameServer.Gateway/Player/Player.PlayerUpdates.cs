@@ -2,13 +2,13 @@
 public enum PlayerUpdateRole { Player, MonsterAction, Tour, Minions, Projectiles }
 public interface IPlayerUpdateSchedule
 {
-    double Now(ClientState conn);
-    double ResourceNow(ClientState conn) => Now(conn);
+    double Now(Player conn);
+    double ResourceNow(Player conn) => Now(conn);
     Task Wait(int milliseconds, CancellationToken stopping);
     Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) => Wait(milliseconds, stopping);
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
     public ITransientCombatState? PlayerUpdatesState;
     public double FootstepRun;
@@ -30,7 +30,7 @@ public sealed partial class ClientState
 }
 
 // Host-owned identities, not a retained Game closure; removal cannot touch a replacement runtime.
-public sealed class ConnectionProjectileRetirement(ClientState conn, IProjectileRuntime runtime) : IDisposable
+public sealed class ConnectionProjectileRetirement(Player conn, IProjectileRuntime runtime) : IDisposable
 {
     public void Dispose()
     {

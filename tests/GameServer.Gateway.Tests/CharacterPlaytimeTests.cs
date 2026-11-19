@@ -8,7 +8,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class CharacterPlaytimeTests : IDisposable
 {
     public void Dispose() => TestEnvironment.ReleaseOwnSaves();
-    static ClientState Conn(string name) => new(new(1, "played", 1000, 1000, 100, 100, null, []), 1, 1)
+    static Player Conn(string name) => new(new(1, "played", 1000, 1000, 100, 100, null, []), 1, 1)
     {
         Character = name, PlayerSent = true,
         LeagueModule = new(new GameServer.Core.Accounts.League("played-test", "Standard", false, false), new HashSet<string>(["Game", "Commands"]))

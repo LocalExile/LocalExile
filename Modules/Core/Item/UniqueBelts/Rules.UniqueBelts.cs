@@ -7,7 +7,7 @@ static partial class UniquebeltsRules
 {
     /// <summary>Mageblood's flask buffs as they should be now: the packets that end those no longer applied (moved, off the
     /// bar, the belt off, death) and start those missing, with no timer: the effect is permanent.</summary>
-    internal static List<byte[]> StepMagebloodBuffs(ClientState conn)
+    internal static List<byte[]> StepMagebloodBuffs(Player conn)
     {
         var items = ItemsFor(conn);
         var wanted = new Dictionary<uint, (byte Slot, UtilityFlasks.Utility Utility)>();

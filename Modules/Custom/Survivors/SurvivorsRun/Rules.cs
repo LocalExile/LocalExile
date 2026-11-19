@@ -40,7 +40,7 @@ static partial class SurvivorsRunRules
             ? Math.Clamp(n, 10, 800) : SurvivorsRules.DefaultMaxAlive;
 
     /// <summary>The area's packs, deduplicated and ordered by the life the client gives the variety at the area level.</summary>
-    internal static SurvivorsRoster? SurvivorsRosterFor(ClientState conn)
+    internal static SurvivorsRoster? SurvivorsRosterFor(Player conn)
     {
         if (Packs.For(conn.Layout.Id) is not { } area) return null;
         byte level = (byte)Math.Clamp(area.AreaLevel, 1, 100);
@@ -66,7 +66,7 @@ static partial class SurvivorsRunRules
     }
 
     /// <summary>Whether a variety's attack is a projectile: a bow/wand/mortar the player must dodge.</summary>
-    internal static bool SurvivorsIsRanged(ClientState conn, MonsterCatalog.Variety variety)
+    internal static bool SurvivorsIsRanged(Player conn, MonsterCatalog.Variety variety)
     {
         var catalog = SkillsFor(conn);
         int effect = MavenNucleus.CombatEffect(catalog, variety);
@@ -77,7 +77,7 @@ static partial class SurvivorsRunRules
     internal static IReadOnlyList<MonsterCatalog.Variety> SurvivorsRangedPool(SurvivorsRoster roster) =>
         roster.Ranged is { Count: > 0 } ranged ? ranged : [];
 
-    internal static async Task StartSurvivors(ClientState conn,
+    internal static async Task StartSurvivors(Player conn,
         int? only = null)
     {
         if (!Enabled(conn)) return;
@@ -165,7 +165,7 @@ static partial class SurvivorsRunRules
     }
 
     /// <summary>Restores a run that changed area, on the next connection.</summary>
-    internal static async Task ResumeSurvivors(ClientState conn)
+    internal static async Task ResumeSurvivors(Player conn)
     {
         if (!Enabled(conn) || StateOf(conn).Survivors is not null || conn.Character is null) return;
         if (!SurvivorsCarried.TryRemove(conn.Ticket, out var carry) || carry.Character != conn.Character) return;
@@ -211,7 +211,7 @@ static partial class SurvivorsRunRules
 
     /// <summary>Ends the run: no more spawns or casts, the run's skills off the Actor, and the result in chat. Safe when no
     /// run is active.</summary>
-    internal static async Task EndSurvivors(ClientState conn, string why)
+    internal static async Task EndSurvivors(Player conn, string why)
     {
         if (StateOf(conn).Survivors is not { } run) return;
         await SurvivorsClearOrbs(conn);
@@ -241,7 +241,7 @@ static partial class SurvivorsRunRules
         $"{(int)(seconds / 60):00}:{(int)(seconds % 60):00}";
 
     /// <summary>The /survivors command: start, stop, pick a choice without the window, or report the run.</summary>
-    internal static async Task SurvivorsCommand(ClientState conn, string[] args)
+    internal static async Task SurvivorsCommand(Player conn, string[] args)
     {
         string what = args.Length == 0 ? "status" : args[0].ToLowerInvariant();
         if (what == "start") { await StartSurvivors(conn); return; }
@@ -489,7 +489,7 @@ static partial class SurvivorsRunRules
             $"horde up to {run.TargetAlive} of {run.MaxAlive}." + offer);
     }
 
-    internal static async Task RunSurvivors(ClientState conn,
+    internal static async Task RunSurvivors(Player conn,
         SurvivorsRun run, SurvivorsRoster roster, IReadOnlyList<SurvivorsSkill> catalog, int stage, CancellationToken token)
     {
         // Each stage is one area: two minutes of horde (with its champions), then a gate boss whose death opens the
@@ -677,7 +677,7 @@ static partial class SurvivorsRunRules
         }
     }
 
-    internal static async Task SpawnSurvivorsWave(ClientState conn,
+    internal static async Task SpawnSurvivorsWave(Player conn,
         SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         if (roster.Varieties.Count == 0) return;
@@ -707,7 +707,7 @@ static partial class SurvivorsRunRules
     /// A ring of the area's ranged varieties, every twenty run-seconds: the archers/wands/mortars that shoot at the
     /// player from 22 cells, so standing still means eating projectiles.
     /// </summary>
-    internal static async Task SpawnSurvivorsRangedRing(ClientState conn, SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
+    internal static async Task SpawnSurvivorsRangedRing(Player conn, SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         var ranged = SurvivorsRangedPool(roster);
         if (ranged.Count == 0) return;
@@ -733,7 +733,7 @@ static partial class SurvivorsRunRules
     /// Halfway between bosses, a closing ring of the moment's weakest: 28 bodies at the start, 88 by the end. The
     /// reference mode's surround wave, which punishes standing still more than the trickle does.
     /// </summary>
-    internal static async Task SpawnSurvivorsRing(ClientState conn,
+    internal static async Task SpawnSurvivorsRing(Player conn,
         SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         if (roster.Varieties.Count == 0) return;
@@ -756,7 +756,7 @@ static partial class SurvivorsRunRules
         if (spawned > 0) await conn.Commands!.Reply("They're surrounding you!");
     }
 
-    internal static async Task<uint> SpawnSurvivorsBoss(ClientState conn,
+    internal static async Task<uint> SpawnSurvivorsBoss(Player conn,
         SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde, int bossIndex = 0)
     {
         if (roster.Bosses.Count == 0) return 0;
@@ -846,7 +846,7 @@ static partial class SurvivorsRunRules
     }
 
     /// <summary>A walkable cell on a ring around the player, or null when this area is too cramped for one.</summary>
-    internal static (int X, int Y)? SurvivorsSpawnCell(ClientState conn, double radius)
+    internal static (int X, int Y)? SurvivorsSpawnCell(Player conn, double radius)
     {
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         // The wave rings are far from the player, so a cramped area needs more attempts to find a walkable cell.
