@@ -229,19 +229,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   of a capsule's grid (inventory 113) and only there besides the main inventory; Send to Surface moves them, unmarked,
   to the deck's collection. A Voyage's start Bathysphere is sent `landed` 0 once one is called, so it stays unusable.
   Verified live 2026-11-19: the drag, the Ctrl+click both ways, the client refusing an unmarked item, Send to Surface
-  from a cell capsule (the entry one refuses), the unlabelled start Bathysphere. Not working yet: the deck's Loot window
-  (0x7b kind 0x6f) shows no items though 114 holds them (its grid binding is not decoded; Take All stays disabled).
-  In ordinary areas an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot Plunder rooms the level
-  generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that opens once they are dead
-  for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's Craiceann's Call, Possession or
-  Sailor's Lantern (`DeepwaterEncounters.cs`, `DeepwaterBuffs.cs`; verified live 2026-11-19 in 1_2_1 and 1_1_4_1, not
-  for a Standard character). The trigger
-  distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`, `deepwater_*_chance`).
-  Charts drop only from these chests, at normal rarity, with the area's level and a random room of their biome (no chart
-  mods yet). Not built: removing Possession
-  by right-clicking its buff, and its monster touches outside torment maps; the Drowned Crawlers' possessed rares; the
-  Brinerot barrels' own monsters and `free` state (plain Brinerots stand in); dungeon areas such as The Submerged
-  Passage, where the port rolls the room but does not place it.
+  from a cell capsule (the entry one refuses), the unlabelled start Bathysphere. An encounter area also gets ruleset 172,
+  before 0x21, so the deck's Loot window (0x7b kind 0x6f) shows the collection; its Ctrl+click (C→S 0x0113) and Take
+  All (ruleset 172 op 9) move it to the main inventory (verified live 2026-11-19). What is still in a capsule's grid at
+  a ride up goes, unmarked, to the collection or the inventory (G).
+- **Allflame encounters in ordinary areas:** an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot
+  Plunder rooms the level generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that
+  opens once they are dead for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's
+  Craiceann's Call, Possession or Sailor's Lantern (`Modules/Core/Content/Deepwater`, `DeepwaterEncounters.cs`,
+  `DeepwaterBuffs.cs`). Verified live 2026-11-19 in 1_2_1 and 1_1_4_1; a Standard character gets none. The trigger
+  distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`,
+  `deepwater_*_chance`). Charts drop only from these chests, at normal rarity, with the area's level and a random room of
+  their biome (no chart mods yet). Not built: removing Possession by right-clicking its buff, and its monster touches
+  outside torment maps; the Drowned Crawlers' possessed rares; the Brinerot barrels' own monsters and `free` state
+  (plain Brinerots stand in); dungeon areas such as The Submerged Passage, where the port rolls the room but does not
+  place it.
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.

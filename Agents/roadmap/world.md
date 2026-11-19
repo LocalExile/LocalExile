@@ -126,14 +126,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      the gate of the "Deepwater (2)" item of
      [server-side level generation](#server-side-level-generation), and the chart's own room, rotation, level, cell
      stats and border mods once charts exist (step 3).
-  2. The rest of a Chart (the run and the in-area encounters are in the status, "The Sovereign"): in a Chart the
+  2. The rest of a Chart (the run is in the status, "The Sovereign"; the in-area encounters, "Allflame encounters in
+     ordinary areas"): in a Chart the
      Pointer arrow, auto-placement (league flag 1841), Valerie's lantern lines (the lantern's Functions; no trigger
      found), the other interactables, the rare-class and Anchor chests, the special rooms' encounters and the unique
      monsters.
   3. Charts and Voyages: the Bathysphere and Valerie's "Chart Area"/"Plan Voyage" (`open_deepwater_device[_1x1]`), the
      Chart Locker (inventory 112, DeepwaterLockerLayout; its Ctrl+click C→S 0x0111 is framed, not handled), the 3x3
      Voyage board, border modifiers (row 172 DeepwaterHubRules' 0x2c9 mode 1, rerolls from 3000 Sulphur doubling, at
-     most 5), the hub's collection chest (ruleset 172 op 9 TakeAllLoot; its C→S 0x0113 take is framed, not handled),
+     most 5), the hub's own collection chest (the deck's Loot window and its takes work),
      and the charts' mods, rarity and room.
   4. Economy and crafting: Dead Man's Sulphur, Vesper's Allflame crafting (inventories 105/106,
      DeepwaterCraftingCurrencies' costs and league quest flag gates, 2 to 4 Ghostly Copies), Ducats, Cursed Ducats and
