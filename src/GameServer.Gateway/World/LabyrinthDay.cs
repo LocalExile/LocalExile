@@ -278,8 +278,9 @@ public static class LabyrinthDay
     /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>
     public const string Plaza = "Labyrinth_Airlock";
 
-    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the instance state of
-    /// its door, which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then.</summary>
+    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the flag of its door,
+    /// which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then. The flag is per player
+    /// (ClientState.LabyrinthEntry, read by Game.ClientHasQuestFlag); setting it on the instance does nothing.</summary>
     public const string Entrance = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAreaTransition";
     public static readonly string PlazaDoorOpen = Quests.InstanceFlag("PlazaDoor");
 
