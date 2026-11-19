@@ -46,7 +46,12 @@ public sealed class AtlasModule : IModule
         LoadData();
         ExtraPlayerMessages = conn => AtlasFeature.Restore(conn);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => AtlasFeature.EnsureUnlocked(conn));
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
+        // Once the player is in the area (AreaGenerated may come before the player is sent).
+        GameEvents.AreaTick.Add(module.Manifest.Id, _ =>
+        {
+            bool done = false;
+            return async (conn, _) => { if (done || !conn.PlayerSent) return; done = true; await AtlasFeature.EnsureUnlocked(conn); };
+        });
         GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (conn, args) =>
         {
             int n = await AtlasFeature.EnsureUnlocked(conn);

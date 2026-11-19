@@ -9,7 +9,7 @@ using static Program;
 public static class DoedreSewers
 {
     public const string Boss = "Metadata/Monsters/Doedre/DoedreSewers";
-    const string Area = "2_8_2_2", Objects = "Metadata/Monsters/Doedre/DoedreSewer/";
+    internal const string Area = "2_8_2_2", Objects = "Metadata/Monsters/Doedre/DoedreSewer/";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act8/Doedre/";
     const int Melee = 406, Wand = 6437, Burst = 6440, Warp = 6447, Emerge = 6742, Drain = 6743;
     static readonly int[] Effects = [Melee, Warp, Drain, Wand, Burst, Emerge];

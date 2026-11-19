@@ -22,11 +22,17 @@ public sealed class SocialModule : IModule
         LoadData();
         GameEvents.EnterMessages.Add(module.Manifest.Id, conn => FriendsFeature.Enter(conn));
         // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, _ =>
         {
-            if (conn is not { PlayerSent: true } c || !SocialFeature.Rebound.TryAdd(c, null)) return;
-            await PartyRoster.Rebind(c);
-            await FriendsFeature.AfterEntry(c);
+            bool done = false;
+            return async (c, _) =>
+            {
+                if (done || !c.PlayerSent) return;
+                done = true;
+                if (!SocialFeature.Rebound.TryAdd(c, null)) return;
+                await PartyRoster.Rebind(c);
+                await FriendsFeature.AfterEntry(c);
+            };
         });
         InstanceEvents.TransferInstance.Add(module.Manifest.Id, PartyRoster.SharedInstance);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => FriendsFeature.Leaving(conn));

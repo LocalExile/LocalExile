@@ -93,7 +93,7 @@ public sealed partial class DelveModule
                 DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m with { Pending = null } : null);
             }
         }));
-        GameEvents.Tick.Add(module.Manifest.Id, async (connection, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, start => !start.Layout.Id.StartsWith("Delve", StringComparison.Ordinal) ? null : async (connection, _) =>
         {
             var player = PlayerOf(connection);
             var ready = ConnOf(player);

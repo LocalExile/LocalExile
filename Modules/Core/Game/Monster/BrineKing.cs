@@ -7,6 +7,7 @@ using static Program;
 /// <summary>The campaign Brine King. The map variants have separate encounters.</summary>
 public static class BrineKing
 {
+    internal const string Area = "2_6_15";
     public const string Boss = "Metadata/Monsters/BrineKing/BrineKing";
     const string Wave = "Metadata/Effects/Spells/monsters_effects/act6/Brine_King/tidal_wave/tidal_wave";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act6/Brine_King/";
@@ -144,7 +145,7 @@ public static class BrineKing
     {
         if (Tides.TryGetValue(conn, out var tide) && tide.MaimActive && (conn.PlayerLife == 0 || conn.Clock.Elapsed.TotalSeconds >= tide.MaimUntil))
         { tide.MaimActive = false; tide.MaimUntil = 0; await RemoveTideBuff(conn, tide.MaimBuff); await RefreshPlayerStats(conn); }
-        if (conn.Layout.Id != "2_6_15" || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
+        if (conn.Layout.Id != Area || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         (uint Id, SpawnedMonster Monster)? found;
         lock (conn.Monsters)
             found = conn.Monsters.Where(p => IsBoss(p.Value.Variety)).Select(p => ((uint, SpawnedMonster)?)new(p.Key, p.Value)).FirstOrDefault();

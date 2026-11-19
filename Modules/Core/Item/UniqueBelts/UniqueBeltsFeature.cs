@@ -41,7 +41,7 @@ static class UniqueBeltsFeature
         return rolled.Scale((100.0 + Math.Max(0, increased) + against) / (100 + Math.Max(0, increased)));
     }
 
-    // Every player tick (GameEvents.Tick, 250 ms): Mageblood's flasks and the stolen modifiers of Headhunter and Inspired
+    // Every frame (GameEvents.AreaTick): Mageblood's flasks and the stolen modifiers of Headhunter and Inspired
     // Learning. On the tick rather than a loop of the module's own, so a reload's new module steps them from its first tick
     // and the old one stops.
     internal static async Task StepUniqueBeltEffects(ClientState conn)

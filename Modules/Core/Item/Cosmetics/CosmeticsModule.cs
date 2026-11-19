@@ -17,7 +17,7 @@ public sealed class CosmeticsModule : IModule
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
         GameEvents.LocalGateUsed.Add(module.Manifest.Id, CosmeticsFeature.FollowThroughGate);
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => CosmeticsFeature.StepPetFollow(conn));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => CosmeticsFeature.StepPetFollow(conn)));
         GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var asked = InstanceMicrotransactions.ReadRequest(bytes);
@@ -253,7 +253,7 @@ public static class CosmeticsFeature
         return previous == pet.Walk.Speed ? null : InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]);
     }
 
-    // Pets follow the player, every player tick (GameEvents.Tick): when one is farther than PetFollowRange from the player
+    // Pets follow the player, every frame (GameEvents.AreaTick): when one is farther than PetFollowRange from the player
     // it walks (0x1ab Move, as monsters do) to its spot beside the player, which keeps it near but never on top of the
     // player. On the tick rather than a loop of the module's own, so a reload's new module walks them and the old one stops.
     internal static async Task StepPetFollow(ClientState conn)

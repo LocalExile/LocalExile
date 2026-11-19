@@ -29,7 +29,7 @@ public sealed partial class DelveModule
     {
         GameEvents.MapOpening.Add(module.Manifest.Id, request => request.HandledContent.Add(MapScarabContent.Sulphite));
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => EnsureSulphite(module, PlayerOf(conn)));
-        GameEvents.Tick.Add(module.Manifest.Id, async (connection, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (connection, _) =>
         {
             var p = PlayerOf(connection);
             await EnsureSulphite(module, p);
@@ -59,7 +59,7 @@ public sealed partial class DelveModule
                         && encounter.Enraged.Add(id)) shown.Add((id, conn.NextBuff++));
             foreach (var (id, buff) in shown)
                 await global::Game.SendWorldRecord(p, id, InstanceEntities.AddBuff(id, buff, 2420), "Sulphite Madness");
-        });
+        }));
         GameEvents.ObjectUse.Add(module.Manifest.Id, (conn, use, at) => MineSulphite(module, conn, use.TargetId, at));
         module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, json) =>
         {

@@ -79,6 +79,7 @@ sealed class SmokeCloudEffect : IShrineEffect
             // A connection that has left the area keeps none of it: the cloud went with the area.
             if (conn.LeavingArea)
             {
+                DropZones(conn, conn.PeerId, CloudZones);
                 _cloud = 0;
                 _nextBlind = 0;
                 return;
@@ -141,6 +142,7 @@ sealed class SmokeCloudEffect : IShrineEffect
             }
             _nextBlind = 0;
             _blindedCount = -1;
+            DropZones(conn, conn.PeerId, CloudZones);
         }
         return Task.CompletedTask;
     }

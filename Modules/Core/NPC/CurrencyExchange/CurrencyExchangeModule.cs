@@ -61,7 +61,7 @@ public sealed class CurrencyExchangeModule : IModule
         Handle(Wire.PlaceOrderId, (player, m) => Place(player, Wire.ReadPlaceOrder(m.Span)));
         Handle(Wire.CloseOrderId, (player, m) => Close(player, Wire.ReadU32(m.Span)));
         Handle(Wire.ClaimId, (player, m) => Claim(player, Wire.ReadClaim(m.Span)));
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, seconds) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (conn, seconds) =>
         {
             var player = PlayerOf(conn);
             var timer = _timers.GetOrCreateValue(player);
@@ -74,7 +74,7 @@ public sealed class CurrencyExchangeModule : IModule
             if (!BookOf(player).HasClaims) return;
             await SendOrders(player);
             await Light(player);
-        });
+        }));
     }
 
     void Handle(ushort opcode, Func<IPlayer, ReadOnlyMemory<byte>, Task> run) => GameEvents.Packet(opcode).Add(_module.Manifest.Id, async (conn, bytes) =>

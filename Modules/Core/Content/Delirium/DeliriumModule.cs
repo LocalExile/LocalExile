@@ -85,9 +85,9 @@ public sealed partial class DeliriumModule : IModule
             views.Remove(conn);
             return Task.CompletedTask;
         });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, start => !SimulacrumRules.IsArena(start.Layout.Id) ? null : async (conn, _) =>
         {
-            if (!SimulacrumRules.IsArena(conn.Layout.Id) || !Current(conn)) return;
+            if (!Current(conn)) return;
             if (ViewOf(conn) is not { Native: true }) await Enter(conn);
             if (conn.Paused || conn.PlayerLife == 0
                 || !ReferenceEquals(Clients(conn).Where(c => c.PlayerLife > 0).MinBy(c => c.PeerId), conn)) return;

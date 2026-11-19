@@ -121,9 +121,9 @@ public sealed partial class DelveModule : IModule
                 if (key >= 1 && key <= StatIds.Length && StatIds[key - 1] is { } id
                     && (id == "delve_sulphite_capacity" || sheet.Player.AreaId.StartsWith("Delve", StringComparison.Ordinal))) sheet.Add(id, value);
         });
-        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, start => !start.Layout.Id.StartsWith("Delve", StringComparison.Ordinal) ? null : async (conn, _) =>
         {
-            if (!conn.PlayerSent || conn.LeavingArea || conn.Closed || !conn.Layout.Id.StartsWith("Delve", StringComparison.Ordinal)) return;
+            if (!conn.PlayerSent || conn.LeavingArea || conn.Closed) return;
             var player = PlayerOf(conn);
             var state = _states.GetOrCreateValue(player);
             if (!state.GaugePending) return;

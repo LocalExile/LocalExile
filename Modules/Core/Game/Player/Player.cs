@@ -917,12 +917,15 @@ public static partial class Game
         }
     }
 
-    // The content's own periodic work (GameEvents.Tick: boss fights, Delve, Delirium), every frame of the area while the
-    // player's updates run. With Game_PRESENT_VERIFY=1 the presentations' check (a debug tool) runs every PlayerTickMs.
+    // The content's work for this area (GameEvents.AreaTick: boss fights, Delve, Delirium), every frame while the player's
+    // updates run; no timer when no content has work here. With Game_PRESENT_VERIFY=1 the presentations' check (a debug
+    // tool) runs every PlayerTickMs.
     static void StartContentTick(ClientState conn, PlayerUpdatesState state)
     {
-        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, state),
-            (remote, stream, ciphers, conn) => GameEvents.RunTick(conn, FrameSeconds));
+        var work = GameEvents.AreaTickWork(conn);
+        if (work.Count > 0)
+            EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, state),
+                (remote, stream, ciphers, conn) => GameEvents.RunAreaTick(work, conn, FrameSeconds));
         if (VerifyPresentations)
             EveryAsPlayer(conn, PlayerTickMs, () => PlayerUpdatesCurrent(conn, state), (remote, stream, ciphers, conn) =>
                 SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>

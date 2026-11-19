@@ -138,7 +138,7 @@ public static partial class Game
     public const string DefaultProjectileImpactAo = "Metadata/Effects/Spells/fireball/explode_new2.ao";
     // Secondary KB explosion: kinetic_blast_small, distinct from the unscaled main-impact kinetic_blast_large art.
     public const string KineticBlastExplosionAo = "Metadata/Effects/Spells/cluster_burst/mini.ao";
-    // The cadence of the player's periodic work on the area's timers (Righteous Fire, totems, GameEvents.Tick).
+    // The presentations check's cadence (Game_PRESENT_VERIFY=1, a debug tool).
     public const int PlayerTickMs = 250;
     public static readonly (string Stat, int Value)[] GodStats =
     [

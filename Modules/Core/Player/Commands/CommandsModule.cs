@@ -16,7 +16,7 @@ public sealed class CommandsModule : IModule
         GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) =>
             CommandsFeature.Register(commands, remote, stream, ciphers, conn, played));
         GameEvents.EnterMessages.Add(module.Manifest.Id, conn => { played.Begin(conn); return []; });
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => { played.Step(conn); return Task.CompletedTask; });
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => { played.Step(conn); return Task.CompletedTask; }));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { played.End(conn); return Task.CompletedTask; });
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.CommandId).Add(module.Manifest.Id, async (conn, bytes) =>
         {

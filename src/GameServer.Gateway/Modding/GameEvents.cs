@@ -171,8 +171,16 @@ public static class GameEvents
 
     // ---- The player's connection ---------------------------------------------------------------------------------------
 
-    /// <summary>Every player tick (about 4 a second while the player is in an area and not paused), with the game seconds since the last one.</summary>
-    public static readonly GameEvent<Func<ClientState, double, Task>> Tick = new();
+    /// <summary>The player's frames started in an area (each entry): return the content's work for every frame of this area
+    /// (with the game seconds since the last), or null when it has none there. <see cref="InArea"/> and <see cref="Always"/> build one.</summary>
+    public static readonly GameEvent<Func<ClientState, Func<ClientState, double, Task>?>> AreaTick = new();
+
+    /// <summary>An <see cref="AreaTick"/> whose work runs only in the area <paramref name="areaId"/>.</summary>
+    public static Func<ClientState, Func<ClientState, double, Task>?> InArea(string areaId, Func<ClientState, Task> run) =>
+        conn => conn.Layout.Id == areaId ? (c, _) => run(c) : null;
+
+    /// <summary>An <see cref="AreaTick"/> whose work runs in every area.</summary>
+    public static Func<ClientState, Func<ClientState, double, Task>?> Always(Func<ClientState, double, Task> run) => _ => run;
 
     /// <summary>An area's own world (GameArea) was made, or a module loaded while it runs: add the rules' systems, stores,
     /// events and timers to it, with the module's lifetime as their source (GameArea.Drop removes them when it unloads). The
@@ -247,9 +255,18 @@ public static class GameEvents
                 await commands.Reply($"/{name} failed ({owner}); the error is in the Gateway's log. Usage: {usage}");
         }, arguments));
 
-    public static async Task RunTick(ClientState conn, double seconds)
+    /// <summary>The content's work for the area the player just entered (<see cref="AreaTick"/>); empty when none has any.</summary>
+    public static List<(string Owner, Func<ClientState, double, Task> Run)> AreaTickWork(ClientState conn)
     {
-        foreach (var (owner, run) in Tick.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(Tick), () => run(conn, seconds));
+        List<(string, Func<ClientState, double, Task>)> work = [];
+        foreach (var (owner, start) in AreaTick.Subscribers(conn))
+            if (start(conn) is { } run) work.Add((owner, run));
+        return work;
+    }
+
+    public static async Task RunAreaTick(List<(string Owner, Func<ClientState, double, Task> Run)> work, ClientState conn, double seconds)
+    {
+        foreach (var (owner, run) in work) await GameEventOwners.Guard(owner, nameof(AreaTick), () => run(conn, seconds));
     }
 
     public static async Task RunAreaGenerated(ClientState conn)
