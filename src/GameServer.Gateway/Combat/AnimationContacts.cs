@@ -61,7 +61,7 @@ public sealed class AnimationContacts
 
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
         Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools,
-        Dictionary<string, AnimationClip> ProjectileCasts);
+        Dictionary<(string Stance, int Variation), AnimationClip> ProjectileCasts);
 
     private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo;
     private readonly Lazy<string[]> _itemStances;
@@ -79,12 +79,17 @@ public sealed class AnimationContacts
 
     /// <summary>The ordinary elemental projectile clip for the equipped ItemStances, in main/off-hand order.
     /// An empty hand has stance 0xff. Older data and combinations outside the actor's ACT have no entry.</summary>
-    public AnimationClip? ProjectileCast(string animatedObject, byte main, byte off)
+    public AnimationClip? ProjectileCast(string animatedObject, byte main, byte off) =>
+        ProjectileCastTiming(animatedObject, main, off, 0);
+
+    /// <summary>The contact and movement times shared by the eligible clips for this variation. A pool of alternatives
+    /// has no single rig index. The client picks which animation to display.</summary>
+    public AnimationClip? ProjectileCastTiming(string animatedObject, byte main, byte off, int variation)
     {
         if (!_byAo.Value.TryGetValue(animatedObject, out var actor) || actor.ProjectileCasts.Count == 0) return null;
         string Hand(byte row) => row == byte.MaxValue ? "" : _itemStances.Value[row];
         string stance = main == byte.MaxValue && off == byte.MaxValue ? "Unarmed" : Hand(main) + Hand(off);
-        return actor.ProjectileCasts.TryGetValue(stance, out var clip) ? clip : null;
+        return actor.ProjectileCasts.TryGetValue((stance, variation), out var clip) ? clip : null;
     }
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
@@ -330,6 +335,7 @@ public sealed class AnimationContacts
         var eventsByClip = By("animation_clip_events", "clip");
         var attacksByRig = By("animation_default_attacks", "rig");
         var projectileCastsByRig = By("animation_projectile_casts", "rig");
+        var projectileVariantsByRig = By("animation_projectile_cast_variants", "rig");
         foreach (var rig in rigs)
         {
             string ao = rig.Text("ao")!;
@@ -370,14 +376,22 @@ public sealed class AnimationContacts
                     throw new InvalidDataException($"Invalid default attack animation pool {ao}/{stance.Key}.");
                 pools.Add(stance.Key, entries);
             }
-            var casts = new Dictionary<string, AnimationClip>(StringComparer.Ordinal);
-            foreach (var row in projectileCastsByRig[rig.Index])
+            AnimationClip CastClip(ClientRow row)
             {
                 string stance = row.Text("stance")!, name = row.Text("animation")!;
                 if (!clips.TryGetValue(name, out var clip) || clip.Length <= 0 || clip.Contact < 0
                     || clip.Contact > clip.Length || !clip.CancellationKnown || clip.Cancel is < 0 || clip.Cancel > clip.Length)
                     throw new InvalidDataException($"Invalid projectile cast clip {ao}/{stance}: {name}.");
-                casts.Add(stance, clip);
+                return clip;
+            }
+            var casts = projectileCastsByRig[rig.Index].ToDictionary(row => (row.Text("stance")!, 0), CastClip);
+            foreach (var pool in projectileVariantsByRig[rig.Index].GroupBy(row => (row.Text("stance")!, row.Int("variation"))))
+            {
+                var times = pool.Select(CastClip).Select(c => new AnimationClip(c.Length, c.Contact, null,
+                    CancellationKnown: true, Cancel: c.Cancel)).Distinct().ToArray();
+                if (times.Length != 1)
+                    throw new InvalidDataException($"Projectile variation {ao}/{pool.Key} needs per-candidate timing.");
+                casts.Add(pool.Key, times[0]);
             }
             result[ao] = new ActorAnimations(clips, allClips, pools, casts);
         }

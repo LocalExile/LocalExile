@@ -82,15 +82,14 @@ public static partial class Game
 
     static bool UsesElementalProjectileCast(string? effect) => effect is "Fireball" or "Spark" or "FreezingPulse" or "FrostBolt";
 
-    // The four ordinary elemental actor roles alias SpellProjectile. Rain, barrage and qualified actor variants
-    // use different selection inputs. A skill's cosmetic effect tracks are separate from its actor clip.
+    // The four elemental actor roles alias SpellProjectile. An equipped actor variation selects that role's
+    // candidate pool. Rain and barrage request other roles.
     static AnimationClip? PlayerProjectileCastClip(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
-        if (GolemStat(stats, "projectiles_rain") != 0 || GolemStat(stats, "projectiles_barrage") != 0
-            || GolemStat(stats, "animation_variation_spell_projectile") != 0) return null;
+        if (GolemStat(stats, "projectiles_rain") != 0 || GolemStat(stats, "projectiles_barrage") != 0) return null;
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        return Animations.ProjectileCast(ao, ActiveMainHand(conn)?.Type?.Stance ?? byte.MaxValue,
-            ActiveOffHand(conn)?.Type?.Stance ?? byte.MaxValue);
+        return Animations.ProjectileCastTiming(ao, ActiveMainHand(conn)?.Type?.Stance ?? byte.MaxValue,
+            ActiveOffHand(conn)?.Type?.Stance ?? byte.MaxValue, GolemStat(stats, "animation_variation_spell_projectile"));
     }
 
     static CastAnimationContact? PlayerProjectileContact(ClientState conn, ushort skill, int effect, ushort sequence, double start)

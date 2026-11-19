@@ -158,10 +158,10 @@ def stance_actions(text, roles):
 
 
 def projectile_casts(text, animations):
-    """The unqualified SpellProjectile actor clip for the three stock elemental roles in each stance."""
+    """The ordinary clip and the stat-qualified candidates for the three elemental actor roles in each stance."""
     elements = ("SpellProjectileFire", "SpellProjectileCold", "SpellProjectileLightning")
     contacts_by_name = contacts(animations)
-    result = {}
+    result, variants = {}, []
     for stance, actions in stance_actions(text, {"SpellProjectile", *elements}).items():
         for role in elements:
             alias, effects = actions[role]
@@ -175,12 +175,17 @@ def projectile_casts(text, animations):
             match = re.fullmatch(r"(\w+)(?::variation=(\d+))?", candidate.strip(), re.ASCII)
             if not match or flags:
                 raise ValueError(f"Unsupported projectile animation {stance}: {candidate} {flags}")
-            if int(match[2] or 0) == 0:
-                ordinary.append(match[1])
-        if len(ordinary) != 1 or ordinary[0] not in contacts_by_name:
+            name, variation = match[1], int(match[2] or 0)
+            if name not in contacts_by_name:
+                raise ValueError(f"Missing projectile contact in {stance}: {name}")
+            if variation:
+                variants.append({"stance": stance, "variation": variation, "animation": name})
+            else:
+                ordinary.append(name)
+        if len(ordinary) != 1:
             raise ValueError(f"Expected one unqualified projectile clip with a contact in {stance}: {ordinary}")
         result[stance] = ordinary[0]
-    return result
+    return result, variants
 
 
 def default_attack_pools(text, animations, views):
@@ -266,12 +271,13 @@ def main():
         text = read_text(act)
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
+        ordinary, variants = projectile_casts(text, animations)
         result[ao] = {"amd": amd, "act": act, "animations": contacts(animations), "positions": positions(animations),
                       "cancels": {a["name"]: next((t for e, t, _ in a["events"] if e == "lock_cancelling"), None)
                                   for a in animations if first_contact(a["events"]) is not None},
                       "contacts": every_contact(animations),
                       "indices": {a["name"]: i for i, a in enumerate(animations)},
-                      "clips": named_clips(animations), "projectileCasts": projectile_casts(text, animations),
+                      "clips": named_clips(animations), "projectileCasts": ordinary, "projectileCastVariants": variants,
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao, fetch_missing=fetch_missing))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)

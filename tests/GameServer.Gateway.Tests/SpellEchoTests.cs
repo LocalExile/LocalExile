@@ -28,9 +28,12 @@ public sealed class SpellEchoTests
 
     // Level-one Spell Echo grants one repeat and 40% more cast speed to each linked active gem.
     [Theory]
-    [InlineData("Fireball", "Frostbolt")]
-    [InlineData("Ice Nova", "Ice Nova of Deep Freeze", "Ice Nova of Frostbolts", "Spark", "Freezing Pulse")]
-    public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(params string[] gemNames)
+    [InlineData(6, "Driftwood Wand", false, 697, 900, "Fireball", "Frostbolt")]
+    [InlineData(6, "Gnarled Branch", false, 697, 900, "Ice Nova", "Ice Nova of Deep Freeze", "Ice Nova of Frostbolts", "Spark", "Freezing Pulse")]
+    [InlineData(1, "Gnarled Branch", false, 754, 1066, "Fireball", "Frostbolt", "Spark", "Freezing Pulse")]
+    [InlineData(1, "Gnarled Branch", true, 599, 1066, "Fireball", "Frostbolt", "Spark", "Freezing Pulse")]
+    public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(int classRow, string weaponName,
+        bool staffSkin, int lateFrame, int length, params string[] gemNames)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-spell-echo-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -38,21 +41,26 @@ public sealed class SpellEchoTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = new ClientState(new(1, "spell-echo", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "SpellEcho", ClassRow = 6, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Character = "SpellEcho", ClassRow = classRow, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
         try
         {
-            var weapon = ItemCatalog.Create(Program.Items.Find(gemNames.Length > 2 ? "Gnarled Branch" : "Driftwood Wand")!);
+            if (staffSkin)
+            {
+                var skin = Game.Mtx.ByHash(218786835)!; // Elemental Staff in MtxTypes.
+                CharacterSaves.SetCosmetic(conn.Character!, 1, new(skin.Id, Hash: skin.MtxTypeHash));
+            }
+            var weapon = ItemCatalog.Create(Program.Items.Find(weaponName)!);
             var sockets = gemNames.Append("Spell Echo Support").Select(name =>
             {
                 var gem = Program.Items.FindGem(name)!.Value;
                 return new ItemSocket(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index });
             }).ToArray();
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon with { Sockets = sockets, Links = [(byte)sockets.Length] });
-            if (gemNames.Length == 2)
+            if (weaponName == "Driftwood Wand")
                 Game.ItemsOf(conn).Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Goathide Buckler")!));
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
                 "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
@@ -87,13 +95,14 @@ public sealed class SpellEchoTests
                     if (name is "Fireball" or "Frostbolt" or "Spark" or "Freezing Pulse")
                     {
                         Assert.NotNull(conn.LockstepCastWindow);
-                        // Both the Templar's staff and wand/shield ACT clips lock at 697 of 900 ms.
-                        // The unused spell_projectile_wand rig clip has no lock and would admit Move at its 500 ms contact.
-                        Assert.Equal(castSeconds * (1 + 697d / 900), conn.LockstepCastWindow.Value.LateFrom, 6);
+                        // The Witch's two Elemental Staff candidates both release the late Move at their contact.
+                        Assert.NotNull(conn.LockstepCastWindow.Value.Contact);
+                        Assert.Equal(castSeconds * (1 + (double)lateFrame / length), conn.LockstepCastWindow.Value.LateFrom, 6);
                         conn.LockstepHold.Press((120, 100), 0x2909, 0x401);
                         Assert.Equal(Game.SkillsFor(conn).ActionHash(skill.Effect), conn.LockstepCastWindow.Value.ActionHash);
                         Assert.True(Game.LockstepPlayerFree(conn, 10.01)); // Before the first cast's contact.
                         Assert.False(Game.LockstepPlayerFree(conn, 10 + castSeconds + .01)); // Early in the repeat.
+                        Assert.Equal(staffSkin, Game.LockstepPlayerFree(conn, 10 + castSeconds * 1.65));
                         Assert.True(Game.LockstepPlayerFree(conn, conn.LockstepBusyUntil - .001)); // Late in the final cast.
                         conn.LockstepHold.Clear();
                     }
