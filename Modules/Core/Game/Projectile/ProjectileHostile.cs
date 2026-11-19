@@ -82,7 +82,7 @@ public static partial class Game
         double landing, double straightRange) => new(projectile.Metadata)
     {
         Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
-        SpreadRadians = projectile.SpreadRadians,
+        SpreadRadians = projectile.SpreadRadians, Pierce = projectile.Pierce,
         Range = projectile.Lobbed ? landing : straightRange,
         DirectDamage = !projectile.Lobbed,
         EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", projectile.AreaRadius > 0 ? projectile.AreaRadius : MonsterMortarRadius()) : null,

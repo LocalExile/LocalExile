@@ -34,6 +34,9 @@ static class AtlasBosses
     internal const string SirusThrone = "Metadata/Monsters/AtlasExiles/AtlasExile5Throne";
     internal const string SirusGauntlet = "Metadata/Monsters/AtlasExiles/AtlasExile5Gauntlet";
     internal const string SirusStandalone = "Metadata/Monsters/AtlasExiles/AtlasExile5Standalone";
+    // The Eye of the Storm's arena. The class Sirus carries the same constant, but this class's own Sirus is the
+    // monster's metadata path, so the arena needs its own name here.
+    internal const string SirusArena = "AtlasExilesBoss5";
     internal const string SirusStandaloneMirage = "Metadata/Monsters/AtlasExiles/AtlasExile5StandaloneMirage";
 
     // GrantedEffects rows (MonsterVarieties GrantedEffectsKeys; poedb names the same skills).
@@ -116,10 +119,61 @@ static class AtlasBosses
     // Projectiles.dat rows for the shots no granted effect names (its monster_projectile_variation stat): the Shaper's
     // bullet-hell ring (375 units/s, collision radius 3) and the Elder's doom shot (600, radius 2), as Projectiles.dat
     // lists them. Speed is the row's own figure, the one ProjectileSpeed.CellsPerSecond reads.
+    // Both shots pierce (the skills' own stat sets carry always_pierce): the orbs fly through the player and the nova's
+    // twelve pass on.
     internal static SkillCatalog.MonsterProjectileInfo BulletHellShot { get; } =
-        new("Metadata/Projectiles/ShaperBulletHellProjectile", 375, false, 3) { Count = 12, SpreadRadians = Math.Tau };
+        new("Metadata/Projectiles/ShaperBulletHellProjectile", 375, false, 3) { Count = 12, SpreadRadians = Math.Tau, Pierce = -1 };
     internal static SkillCatalog.MonsterProjectileInfo DoomShot { get; } =
         new("Metadata/Projectiles/ElderProjectileDoom", 600, false, 2);
+    // The accelerating projectiles: the Shaper's three celestial orbs. Projectiles.dat's ShaperProjectile starts at 5
+    // units/s and the skill's own acceleration stat speeds it up; this server flies a projectile at a constant speed,
+    // so the row's starting figure left the orbs standing where they were fired until they expired (live 2026-11-13).
+    // 260 units/s (26 cells/s) keeps the flight longer than one snapshot, which is what makes the object exist at all:
+    // a flight that ends before the next snapshot is never sent, so at 300 units/s the server drew nothing and a cast
+    // showed only the client's own single orb (live 2026-11-14). Slower than this reads as orbs floating, not flying.
+    // The three are fanned, not stacked: with no spread they flew one path on top of each other and read as a single orb
+    // (live 2026-11-14). The ACT pool the pose comes from is the variety's SpellProjectileCold (its spellcast2 clip).
+    internal static SkillCatalog.MonsterProjectileInfo AcceleratingShot { get; } =
+        new("Metadata/Projectiles/ShaperProjectile", 260, false, 4)
+        { Count = 3, SpreadRadians = Math.PI / 5, AnimationKey = "SpellProjectileCold", Pierce = -1 };
+
+    // The Shaper's rig (Art/Models/Monsters/TheShaper/TheShaperBody/rig.amd), the keyframes his own clips carry. The
+    // client tables hold the first contact of a pool's clip only, so the rest of a clip's keyframes come from the rig.
+    // "spellcast2" (the cast of the accelerating projectiles) is 2133 ms long and throws three times: at 433, 966 and
+    // 1533 ms, each from another hand. The native fires one orb per throw; the server's single release (the pool's first
+    // contact) showed one orb and two empty throws (live 2026-11-14).
+    internal const int ShaperProjectileCastMs = 2133;
+    internal static readonly (int Ms, ContactPoint Point)[] ShaperProjectileContacts =
+    [
+        (433, new ContactPoint(-11.9009f, -89.007f, -153.239f)),
+        (966, new ContactPoint(16.165f, -77.2798f, -153.239f)),
+        (1533, new ContactPoint(9.89803f, -101.128f, -153.239f)),
+    ];
+    // The bullet hell's nova: the rig's "bullethell" clip (366 ms) releases it at its contact (332 ms) from the Shaper's
+    // own centre (0 -0 -130); the cast before it is "bullethell_start" (3000 ms, contact 2866).
+    internal const double BulletHellCastSeconds = 0.366;
+    // How many novas the barrage sends after the chant's own one before the shield drops.
+    internal const int BulletHellWaves = 10;
+    internal static readonly MonsterRelease BulletHellRelease =
+        new("bullethell", 332 / 366.0, new ContactPoint(0, 0, -130), false);
+    // The flicker slam: the rig's "teleportslam_appear" (1500 ms) lands its contact at 800 ms, at the Shaper's own
+    // origin (0 -0 -0), so the slam hits where he stands. The skill's own row adds 200 % to its damage
+    // (active_skill_damage_+%_final 200, -50 % attack speed); its radius is not in the data at level 84.
+    internal const double FlickerSlamContactSeconds = 0.8;
+    // The rig's teleportslam_appear is 1500 ms long and its contact is at 800 ms: the client stretches the clip to the
+    // action's time, so the contact is this fraction of it.
+    internal const double FlickerSlamClipSeconds = 1.5;
+    internal const double FlickerSlamRadius = 9;
+    internal const double FlickerSlamDamageFactor = 3.0;
+    // The Celestial Beam is a line from the Shaper to the point he aimed at; the data gives it no width, so this is the
+    // development figure (cells).
+    // The beam's ground is a wide straight band: this is its half-width, so the whole band is twice this. The art the
+    // client draws opens into a mouth about thirty cells across, so a player standing in that light is inside the band
+    // and burns (the data gives the beam no width, so the width is our figure).
+    internal const double BeamWidthCells = 12;
+    // How far the Shaper may beam at a player (cells). The skill's own rows carry no range, so this is a development
+    // figure too: without one the beam reached across the whole area.
+    internal const double BeamRange = 30;
 
     internal static bool IsShaper(MonsterCatalog.Variety? variety) => variety?.Id is Shaper or ShaperUberElder;
     internal static bool IsElder(MonsterCatalog.Variety? variety) => variety?.Id is Elder or ElderUber;
@@ -132,6 +186,14 @@ static class AtlasBosses
     /// <summary>Sirus seated on the throne: the arena's first stage, which casts without walking off the platform.</summary>
     internal static bool IsSirusSeated(MonsterCatalog.Variety? variety) => variety?.Id is SirusThrone;
     internal static bool IsBoss(MonsterCatalog.Variety? variety) => IsShaper(variety) || IsElder(variety) || IsSirus(variety);
+
+    /// <summary>Whether the framework runs a fight for this boss in this area. It does not for Sirus in his own arena:
+    /// the dedicated encounter (<see cref="Sirus"/>) holds his throne, his walking form and his apparition, and a
+    /// framework fight beside it is a second controller on the same actors — it gave the throne, a seated stage with no
+    /// granted effects of its own, a whole rotation (live 2026-11-14: 301 actions from the seated stage alone while the
+    /// encounter also ran). The Gauntlet and the standalone rows are other arenas, and those it keeps.</summary>
+    internal static bool FrameworkDrives(string layoutId, MonsterCatalog.Variety? variety) =>
+        IsBoss(variety) && !(IsSirus(variety) && layoutId == SirusArena);
 
     // The effect whose row the monster's own record uses as its swing: the melee, or Sirus' beam blast (he never swings a
     // weapon). Everything else is played by the controller through ids of its own, so the ordinary swing can only ever be
@@ -155,6 +217,10 @@ static class AtlasBosses
     internal static int[] EffectsFor(MonsterCatalog.Variety variety) =>
         IsSirus(variety) ? SirusEffects : IsElder(variety) ? ElderEffects : ShaperEffects;
 
+    /// <summary>The client's virtual stat key for a skill effect's life (skill_effect_duration, 0x168): the value is the
+    /// duration in milliseconds and the client divides it by 1000 (11-skills.md).</summary>
+    internal const uint VirtualEffectDurationKey = 0x168;
+
     /// <summary>The skill id the client's actor uses for one of the boss's effects.</summary>
     internal static ushort Skill(MonsterCatalog.Variety variety, int effect)
     {
@@ -177,8 +243,39 @@ static class AtlasBosses
         return [.. effects.Select(effect =>
         {
             var use = Attack(conn, variety, level, effect, attack);
+            // The effect's own numbers as well as the swing's: the client reads the skill's duration
+            // (base_skill_effect_duration) from the record, and without it the Celestial Beam's effect dies with the
+            // cast instead of standing for its three seconds (the same finding as the player's Spark: a skill whose
+            // duration the Gateway does not send dies on its first tick, 11-skills.md).
+            // The swing's own numbers win: the effect's stats carry the row's own cast time, and the client stretches
+            // the skill's animation to the record's cast time, so letting them through shortened the Shaper's cast
+            // (1400 ms over the action's 2133 ms) and put the animation out of step with the shot (live 2026-11-14).
+            var own = use.SkillStats();
+            var keys = own.Select(s => s.Item1).ToHashSet();
+            var effectStats = catalog.EffectStats(effect, level);
+            var stats = own.Concat(effectStats.Where(s => !keys.Contains(s.Item1))).ToList();
+            // The record's cast time is the action's own time: the client plays the clip stretched to it, and the
+            // contact it sends back lands on the clip's contact fraction of it. The two numbers are one number.
+            int actionMs = (int)Math.Round(ActionSeconds(conn, variety, effect, catalog) * 1000);
+            foreach (string name in new[] { "base_spell_cast_time_ms", "virtual_base_spell_cast_time_ms",
+                "hundred_times_casts_per_second" })
+            {
+                if (Stats.Key(name) is uint k) stats.RemoveAll(s => s.Item1 == k);
+            }
+            if (Stats.Key("base_spell_cast_time_ms") is uint ck) stats.Add((ck, actionMs));
+            if (Stats.Key("virtual_base_spell_cast_time_ms") is uint vk) stats.Add((vk, actionMs));
+            if (Stats.Key("hundred_times_casts_per_second") is uint hk)
+                stats.Add((hk, (int)Math.Round(100_000.0 / Math.Max(1, actionMs))));
+            // The client's own effect lives the skill's *virtual* duration: it reads skill_effect_duration (0x168) and
+            // does not derive it from base_skill_effect_duration (the Spark died on its first tick and none was drawn
+            // until the Gateway sent it, 11-skills.md). The value is the duration in milliseconds.
+            if (Stats.Key("base_skill_effect_duration") is uint durationKey)
+            {
+                int durationMs = effectStats.Where(s => s.Item1 == durationKey).Select(s => s.Item2).FirstOrDefault();
+                if (durationMs > 0) stats.Add((VirtualEffectDurationKey, durationMs));
+            }
             return catalog.FindByRow(Skill(variety, effect), effect, level,
-                WithBehaviourVariation(conn, effect, use.SkillStats()));
+                WithBehaviourVariation(conn, effect, stats));
         }).OfType<GrantedSkill>()];
     }
 
@@ -230,7 +327,7 @@ static class AtlasBosses
         if (IsSirus(variety)) damage = SirusDamage(effect, min, max);
         else if (damage.MaxTotal <= 0 && effect is not (CelestialBeamEffect or SiphonEffect))
             damage = DamagePacket.Of(DamageType.Physical, min, max);
-        double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
+        double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : ActionSeconds(conn, variety, effect, catalog);
         double reach = melee ? variety.AttackRange : 45;
         if (melee && swing is not null) return swing with { SkillId = Skill(variety, effect), Scripted = true };
         var projectile = ProjectileFor(conn, effect);
@@ -240,6 +337,10 @@ static class AtlasBosses
             Scripted = true,
             Ranged = projectile is not null,
             Projectile = projectile,
+            // The shot leaves at the clip's own contact keyframe (the Shaper's spellcast2 throws at 20 % of its cast),
+            // which is also where the client animates the throw: without this the release was the halfway default and
+            // the orbs left while he was still winding up (live 2026-11-14).
+            ReleaseEffect = projectile is null ? null : effect,
         };
     }
 
@@ -249,8 +350,43 @@ static class AtlasBosses
     internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, int effect) => effect switch
     {
         BulletHellEffect => BulletHellShot,
+        AcceleratingProjectilesEffect => AcceleratingShot,
         DoomProjectileEffect => DoomShot,
         _ => Game.SkillsFor(conn).MonsterProjectile(effect),
+    };
+
+    /// <summary>
+    /// How long one of the boss's skill actions runs (seconds). The client plays the skill's clip stretched to the
+    /// action's time, and the skill record carries the same number as its cast time, so the two must be one value:
+    /// when they differ the client animates a cast the server never meant (live 2026-11-14: the record said 2500 ms
+    /// for the Celestial Beam, so the client charged 2.5 s while the server's ground burned from the first second).
+    /// The beam's own row says 1000 ms and the client plays the rig's 2.5 s beam_start stretched to that; a skill with
+    /// its own clip plays the clip whole.
+    internal static double ActionSeconds(ClientState conn, MonsterCatalog.Variety variety, int effect,
+        SkillCatalog catalog)
+    {
+        if (effect == CelestialBeamEffect) return Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
+        if (ClipFor(conn, variety, effect) is { LengthMs: > 0 } clip) return clip.LengthMs / 1000.0;
+        return Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
+    }
+
+    /// The clip the client plays for one of the boss's skills, from the variety's ACT pool for the skill's animation
+    /// key (client.db monster_contact_clips). Null when the variety has no pool for that key, which is most of them: the
+    /// client then animates the action by itself. The clip matters because the action's attack time cuts it: the
+    /// Shaper's beam clip is 2.5 s (beam_start), so the 1 s cast time its row reports stopped the beam a second in
+    /// (live 2026-11-13).
+    /// </summary>
+    internal static SkillCatalog.MonsterClipContact? ClipFor(ClientState conn, MonsterCatalog.Variety variety, int effect) =>
+        AnimationKey(effect) is { } key ? Game.SkillsFor(conn).MonsterContact(variety.Id, key, 0xffff) : null;
+
+    /// <summary>The ACT animation key a skill plays: the key of the variety's clip pool for it, which the client reads
+    /// from the skill's own action type (SpellAreaOfEffectCold is the beam's, SpellProjectileCold the projectile
+    /// cast's). Null for the skills nobody has looked up a pool for.</summary>
+    static string? AnimationKey(int effect) => effect switch
+    {
+        CelestialBeamEffect => "SpellAreaOfEffectCold",
+        AcceleratingProjectilesEffect => "SpellProjectileCold",
+        _ => null,
     };
 
     /// <summary>A degen skill's damage from its own stat set: the base fire/cold/lightning/physical/chaos
@@ -292,7 +428,12 @@ static class AtlasBosses
         List<(uint Id, SpawnedMonster Monster)> found = [];
         lock (conn.Monsters)
             foreach (var (id, monster) in conn.Monsters)
-                if (IsBoss(monster.Variety)) found.Add((id, monster));
+                // Sirus' arena belongs to the dedicated encounter, so a framework fight there is a second controller on
+                // the same actors: it gave the throne — a seated stage with no granted effects of its own — a whole
+                // rotation (live 2026-11-14: 301 actions from the seated stage while the encounter also ran). The
+                // Gauntlet and the standalone rows are other arenas, so the framework keeps those.
+                if (FrameworkDrives(conn.Layout.Id, monster.Variety))
+                    found.Add((id, monster));
         if (found.Count == 0 && !Fights.TryGetValue(conn.Instance, out _)) return;
         foreach (var (id, monster) in found)
         {

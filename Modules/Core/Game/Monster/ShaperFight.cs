@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 using static Game;
 
@@ -11,6 +12,9 @@ using static Game;
 /// <see cref="AtlasBosses.DamageOverTime"/>), so the numbers move with the fight's level instead of being written here.
 /// The melee keeps the variety's own attack time and reach (1755 ms, 6-12 units); everything else uses the clip's cast
 /// time, which is what keeps the fight paced like the original's.</para>
+/// <para>Each skill is played as the client's own action, so the client animates it and draws its art; the server adds
+/// what only it knows: where the hit lands and how much it takes. The rig's contact keyframes say when and where that
+/// is (Agents/docs/game/shaper.md).</para>
 /// </summary>
 sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : AtlasBossFight(id, boss, conn)
 {
@@ -26,23 +30,40 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     protected override (int X, int Y) Stage(ClientState conn) => stage ??= ArenaCentre(conn, boss);
 
     double nextMelee, nextBeam, nextVolley, nextFlicker, nextBlink, nextChase;
-    // The Celestial Beam: a point on the ground that keeps burning for the clip's three seconds (base_skill_effect_duration
-    // 3000). The player is free to walk out of it, which is the whole mechanic.
+    // The Celestial Beam: the line from the Shaper to the point he aimed at keeps burning for the skill's own three
+    // seconds (base_skill_effect_duration 3000). The player is free to walk out of it, which is the whole mechanic.
     double beamUntil, beamNextTick;
-    (int X, int Y) beamAt;
+    (int X, int Y) beamFrom, beamAt;
     MonsterAttack? beamTick;
-    // A threshold's intermission: the shield, the blink to the middle, then three bullet-hell rings.
+    // A skill whose hit lands later than its cast: the flicker slam's impact, on the clip's contact.
+    readonly List<(double At, (int X, int Y) Where, double Radius, MonsterAttack Attack)> impacts = [];
+    // A threshold's intermission: the shield, the blink to the middle, then three bullet-hell novas.
     bool intermission;
     int waves;
     double waveAt;
 
     protected override async Task Ticks(ClientState conn, double now)
     {
+        foreach (var impact in impacts.Where(i => i.At <= now).ToArray())
+        {
+            impacts.Remove(impact);
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} [Shaper] the slam lands at ({impact.Where.X}, {impact.Where.Y}), radius {impact.Radius}");
+            await Effect(conn, impact.Where, AtlasBosses.FlickerSlamArt, 2.5);
+            foreach (var player in Watchers())
+                if (Distance(player.Walk.Position(now), impact.Where) <= impact.Radius)
+                    await Hit(player, impact.Attack, impact.Where);
+        }
         if (beamTick is null || now >= beamUntil || now < beamNextTick) return;
         beamNextTick = now + 0.5;
-        if (now >= beamUntil) { beamTick = null; return; }
+        Console.WriteLine($"[gateway] {conn.Wire.Remote} [Shaper] the beam burns from ({beamFrom.X}, {beamFrom.Y}) to ({beamAt.X}, {beamAt.Y})");
         foreach (var player in Watchers())
-            if (Distance(player.Walk.Position(now), beamAt) <= 7) await Hit(player, beamTick, beamAt);
+        {
+            var here = player.Walk.Position(now);
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} [Shaper] tick: player at ({here.X}, {here.Y}), " +
+                $"line ({beamFrom.X}, {beamFrom.Y}) -> ({beamAt.X}, {beamAt.Y}), " +
+                $"{BeamOffset(here, beamFrom, beamAt):F1} cells from the line");
+            if (OnBeam(here, beamFrom, beamAt)) await Hit(player, beamTick, beamAt);
+        }
     }
 
     protected override async Task Act(ClientState conn, double now)
@@ -60,7 +81,9 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
             Swing(conn, AtlasBosses.ShaperMeleeEffect);
             return;
         }
-        if (now >= nextBeam)
+        // Only within the beam's reach: the skill has no range stat, and a beam cast at a player who just walked in at
+        // the area's entrance drew a line across the whole map, so everyone standing on it was hit (live 2026-11-14).
+        if (now >= nextBeam && distance <= AtlasBosses.BeamRange)
         {
             nextBeam = now + 15;
             await Beam(conn, player, now);
@@ -75,7 +98,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
         if (now >= nextVolley)
         {
             nextVolley = now + 8;
-            Swing(conn, AtlasBosses.AcceleratingProjectilesEffect);
+            await Volley(conn, player, now);
             return;
         }
         if (distance <= 10 && now >= nextBlink)
@@ -94,33 +117,137 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
         }
     }
 
-    /// <summary>The Celestial Beam: the Shaper casts, and the ground where the player stood burns for three seconds on a
-    /// 0.5 s tick, its damage the skill's own fire/cold/lightning degen over that half second.</summary>
+    /// <summary>The Celestial Beam: the Shaper casts his beam at the player's feet (his own action, so the client plays
+    /// the cast and draws the beam), and the ground between him and that point burns for
+    /// <see cref="BeamBurnSeconds"/>, its damage the skill's own fire/cold/lightning degen over each half second.</summary>
     async Task Beam(ClientState conn, (int X, int Y) at, double now)
     {
         var dot = AtlasBosses.DamageOverTime(conn, AtlasBosses.CelestialBeamEffect, boss.Level);
-        beamAt = conn.Layout.Near((at.X, at.Y));
-        beamUntil = now + 3;
-        beamNextTick = now + 0.6;
-        beamTick = dot.MaxTotal <= 0 ? null : new MonsterAttack(
-            AtlasBosses.Skill(Variety, AtlasBosses.CelestialBeamEffect), 0.5, 0, dot.Scale(0.5))
+        if (dot.MaxTotal <= 0) return;
+        beamFrom = boss.Walk.Position(now);
+        beamAt = at;
+        // The charge is the rig's beam_start (2500 ms, its contact the last frame): the client plays the clip and
+        // creates the beam when the cast ends, and the beam stands for the skill's own three seconds
+        // (base_skill_effect_duration). The burn is those same three seconds.
+        // The ground burns with the effect: the client creates the skill's effect (its orb, then the ray, and the
+        // zone_* ground under it) when the cast starts, and keeps it for the skill's own three seconds. The burn is
+        // that zone, so it starts with the cast and ends with the effect (live 2026-11-14: the damage came while the
+        // orb was up and stopped while the beam was still standing).
+        beamUntil = now + BeamChargeSeconds + BeamBurnSeconds;
+        beamNextTick = now + BeamChargeSeconds;
+        beamTick = new MonsterAttack(AtlasBosses.Skill(Variety, AtlasBosses.CelestialBeamEffect), 0.5, 0, dot.Scale(0.5))
         { Spell = true, Scripted = true };
-        Swing(conn, AtlasBosses.CelestialBeamEffect);
-        await Effect(conn, beamAt, AtlasBosses.CelestialBeamArt, 3.6, 1.6f);
+        // The beam is his for the whole of it: the charge and the three seconds the ground burns. He does not start
+        // another skill while his own beam is still standing (live 2026-11-14: he cast over it at once).
+        lock (conn.Monsters) boss.BusyUntil = Math.Max(boss.BusyUntil, now) + BeamChargeSeconds + BeamBurnSeconds;
+        lock (conn.Monsters) busyUntil = Math.Max(busyUntil, now) + BeamChargeSeconds + BeamBurnSeconds;
+        // The action, not a pose: the client plays the cast (the rig's beam_start) and draws the beam itself. A 0x1b2
+        // pose on its own left the Shaper standing there with nothing showing at all (live 2026-11-14). The release
+        // fraction puts the action's contact on the clip's last frame, where the beam lands.
+        // The action is the skill's own cast time (1000 ms): the client stretches the rig's beam_start (2500 ms) to
+        // it, so the charge is a second and the contact (the clip's last frame) lands at its end. The beam itself is
+        // the skill's effect, which the client creates when the cast lands and keeps for the skill's own three
+        // seconds (base_skill_effect_duration 3000): its rig is a 500 ms orb, then the looping beam_idle_01 that is the
+        // ray. The ground burns for exactly those three seconds.
+        var beam = Attack(conn, AtlasBosses.CelestialBeamEffect) with
+        {
+            Seconds = Game.SkillsFor(conn).CastTimeMs(AtlasBosses.CelestialBeamEffect) / 1000.0,
+            Release = new MonsterRelease("beam_start", 1.0, null, false),
+            NoContact = true,
+        };
+        SwingWith(conn, beam, AtlasBosses.CelestialBeamEffect);
+        // The client draws the beam itself (the skill's own effect, placed and aimed by the client), so the server draws
+        // no second one. The actor's own clip is the rig's beam_start, and the client does not pick it for this skill, so
+        // the server names it: the Shaper raises his arms for the whole charge (live 2026-11-14: he stood still).
+        if (AtlasBosses.ClipFor(conn, Variety, AtlasBosses.CelestialBeamEffect) is { Index: < uint.MaxValue } clip)
+            await All(InstanceProtocol.AnimationUpdate(id, 0, clip.Index, 1f));
+    }
+
+    /// <summary>How long the Shaper charges before the beam lands (the skill's own cast time).</summary>
+    const double BeamChargeSeconds = 1.0;
+
+    /// <summary>How long the beam's ground keeps burning after the beam itself ends (the skill's own
+    /// base_skill_effect_duration).</summary>
+    const double BeamBurnSeconds = 3;
+
+    /// <summary>How far a cell lies from the beam's line (cells), the same measure the hit test uses.</summary>
+    static double BeamOffset((int X, int Y) at, (int X, int Y) from, (int X, int Y) to)
+    {
+        double dx = to.X - from.X, dy = to.Y - from.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        if (length < 0.5) return Distance(at, from);
+        double t = Math.Clamp(((at.X - from.X) * dx + (at.Y - from.Y) * dy) / (length * length), 0, 1);
+        var on = ((int)Math.Round(from.X + dx * t), (int)Math.Round(from.Y + dy * t));
+        return Distance(at, on);
+    }
+
+    /// <summary>Whether a cell lies on the beam: the line from the Shaper to the point he aimed at, as wide as the beam
+    /// is. The data gives the beam no width, so the width is the development figure.</summary>
+    static bool OnBeam((int X, int Y) at, (int X, int Y) from, (int X, int Y) to)
+    {
+        double dx = to.X - from.X, dy = to.Y - from.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        if (length < 0.5) return Distance(at, from) <= AtlasBosses.BeamWidthCells;
+        double t = Math.Clamp(((at.X - from.X) * dx + (at.Y - from.Y) * dy) / (length * length), 0, 1);
+        var on = ((int)Math.Round(from.X + dx * t), (int)Math.Round(from.Y + dy * t));
+        // The beam is a wide straight band, not a line and not a flare (the player checked it against the original): the
+        // whole width of it burns, and walking out of that width is how you live. The data gives the beam no width, so
+        // the width is our figure.
+        return Distance(at, on) <= AtlasBosses.BeamWidthCells;
+    }
+
+    /// <summary>The accelerating projectiles: the Shaper throws three orbs, one per contact of his cast (the rig's
+    /// spellcast2 has three), each from the hand that throws it.</summary>
+    async Task Volley(ClientState conn, (int X, int Y) player, double now)
+    {
+        // The action is the rig's spellcast2 (2133 ms, the clip the client plays whole): the three throws land at the
+        // clip's own contacts, 433, 966 and 1533 ms in.
+        var attack = Attack(conn, AtlasBosses.AcceleratingProjectilesEffect);
+        // The action and its first orb: the pool's own contact (433 ms of the 2133 ms cast) and the point it carries.
+        SwingWith(conn, attack, AtlasBosses.AcceleratingProjectilesEffect);
+        // The other two: the rig's second and third contact (966 and 1533 ms), each from its own hand. The native throws
+        // one orb per contact; the server's single release showed one orb and two empty throws (live 2026-11-14).
+        var (remote, stream, ciphers) = conn.Wire;
+        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        session.Advance();
+        int action;
+        lock (conn.Monsters) action = boss.ActionGeneration;
+        foreach (var (ms, point) in AtlasBosses.ShaperProjectileContacts.Skip(1))
+        {
+            // The contact is a moment of the cast, measured from its start, and the cast starts now.
+            var shot = attack with
+            {
+                Release = new MonsterRelease("spellcast2", ms / (double)AtlasBosses.ShaperProjectileCastMs, point, false),
+            };
+            session.Schedule(session.Runtime.Now + ProjectileRuntime.Time(shot.Release!.Fraction * attack.Seconds),
+                () => MonsterActionCurrent(conn, id, boss, action),
+                () => MonsterProjectileUse(session, id, boss, shot, AtlasBosses.AcceleratingShot, action,
+                    orderedAim: player, sequence: conn.NextActionSequence()));
+        }
     }
 
     /// <summary>The flicker slam: the Shaper vanishes, reappears beside the player and slams the ground (a 9 unit area,
-    /// its physical damage 1.4x the melee's).</summary>
+    /// its damage the monster's own hit with the skill's +200 % final skill damage).</summary>
     async Task FlickerSlam(ClientState conn, (int X, int Y) player, double now)
     {
         var pos = boss.Walk.Position(now);
-        await Effect(conn, pos, AtlasBosses.FlickerSlamDisappearArt, 1.2);
         var to = Landing(conn, player);
         await Teleport(conn, to, now);
-        await Effect(conn, to, AtlasBosses.FlickerSlamAppearArt, 1.2);
         var slam = Attack(conn, AtlasBosses.FlickerSlamEffect);
-        await Effect(conn, boss.Walk.Position(now), AtlasBosses.FlickerSlamArt, 2.5);
-        SwingWith(conn, slam with { Damage = slam.Damage.Scale(1.4) }, AtlasBosses.FlickerSlamEffect, area: true, radius: 9);
+        // The action, so the client plays the slam itself: its vanish, its blink and its landing (the circles on the
+        // ground are the skill's own effect). The server draws none of that beside it, the same lesson as the beam.
+        // The hit lands on the clip's contact, 800 ms in, where the Shaper stands (the rig's teleportslam_appear has
+        // its contact at his own origin). The action's own contact carries no damage: the slam's hit is the area one
+        // below.
+        SwingWith(conn, slam with { Damage = DamagePacket.Empty, NoContact = true }, AtlasBosses.FlickerSlamEffect);
+        // The impact lands where the Shaper lands (the cell he blinked to), not where he stood when he cast: the blink
+        // has not landed yet at that moment, so the hit was sometimes a whole screen away from the player (live
+        // 2026-11-14: the slam hit sometimes and sometimes did not).
+        // The impact is the clip's contact (800 ms of the rig's 1500 ms teleportslam_appear), and the client plays
+        // that clip stretched to the action's own time, so the contact is a fraction of the action, not a fixed moment.
+        double contact = AtlasBosses.FlickerSlamContactSeconds / AtlasBosses.FlickerSlamClipSeconds * slam.Seconds;
+        impacts.Add((now + contact, to, AtlasBosses.FlickerSlamRadius,
+            slam with { Damage = slam.Damage.Scale(AtlasBosses.FlickerSlamDamageFactor) }));
     }
 
     /// <summary>The retreat (6089): a short blink away from a player who got too close, the clip played at both ends.</summary>
@@ -138,7 +265,7 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     // A walkable cell next to the player, the distance the flicker slam's clip covers.
     (int X, int Y) Landing(ClientState conn, (int X, int Y) player)
     {
-        for (int radius = 4; radius <= 10; radius += 2)
+        for (int radius = 2; radius <= 5; radius += 1)
             for (int step = 0; step < 8; step++)
             {
                 double angle = Math.Tau * step / 8;
@@ -157,13 +284,21 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
             waves = 0;
             await Shield(conn, true);
             await Teleport(conn, Stage(conn), now);
-            await Effect(conn, Stage(conn), AtlasBosses.BulletHellCastArt, 2.4, 1.8f);
-            waveAt = now + 1;
-            busyUntil = now + 1;
+            // The chant: the skill's own cast (5000 ms). The client plays the rig's bullethell_start (3000 ms) stretched
+            // to it, with the cast art, and its contact (2866 ms, 0.955 of the clip) releases the nova. The server draws
+            // no second cast art beside it.
+            var chant = Attack(conn, AtlasBosses.BulletHellEffect) with
+            {
+                Seconds = Game.SkillsFor(conn).CastTimeMs(AtlasBosses.BulletHellEffect) / 1000.0,
+                Release = new MonsterRelease("bullethell_start", 2866 / 3000.0, new ContactPoint(0, 0, -130), false),
+            };
+            SwingWith(conn, chant, AtlasBosses.BulletHellEffect);
+            waveAt = now + chant.Seconds * chant.Release!.Fraction;
+            busyUntil = waveAt + 1;
             return;
         }
         if (now < waveAt) return;
-        if (waves == 3)
+        if (waves == AtlasBosses.BulletHellWaves)
         {
             intermission = false;
             await Shield(conn, false);
@@ -173,12 +308,17 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
             return;
         }
         waves++;
-        // A ring of twelve, from the Projectiles.dat row (ShaperBulletHellProjectile): no skill record makes a circle. The
-        // clip's own five seconds would stretch the intermission into three of them, so a wave lasts the 1.6 s it takes
-        // the next one to come (the ring leaves at the clip's contact, half of it).
-        var ring = Attack(conn, AtlasBosses.BulletHellEffect) with { Seconds = 1.6 };
+        // The barrage: the rig's fast bullethell clip (366 ms) releases its nova at its contact (332 ms) from his own
+        // centre, and the skill's own row makes it a nova (projectiles_nova) of eleven more projectiles, each for the
+        // skill's own cold damage. The waves follow one another as fast as the clip can be cast again, which is what
+        // makes it a bullet hell (live 2026-11-14: three waves a second and a half apart were not one).
+        var ring = Attack(conn, AtlasBosses.BulletHellEffect) with
+        {
+            Seconds = AtlasBosses.BulletHellCastSeconds,
+            Release = AtlasBosses.BulletHellRelease,
+        };
         SwingWith(conn, ring, AtlasBosses.BulletHellEffect);
-        waveAt = now + 1.4;
-        busyUntil = now + 1.2;
+        waveAt = now + AtlasBosses.BulletHellCastSeconds;
+        busyUntil = now + AtlasBosses.BulletHellCastSeconds;
     }
 }
