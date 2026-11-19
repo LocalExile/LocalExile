@@ -295,7 +295,7 @@ public static partial class Game
                             * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
                         context.Life, context.Efficiency)
-                        { LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get) };
+                        { LandAt = land + PlacedLandingDelay, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get) };
                     conn.Placed.All.Add(id, placement);
                     if (!ReservationBudgetFits(conn))
                     {
@@ -445,10 +445,15 @@ public static partial class Game
         [.. InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, skill, 0xffff, 0x0408), .. InstanceProtocol.ActionEnded(id)];
 
     /// <summary>How long a thrown trap or mine is in the air. Measured on the official client at 30 frames a second
-    /// (2026-11-19, no throwing speed): a trap takes 0.2 s to land beside the thrower and about 0.43 s at 40 cells, a mine
-    /// 0.13 s at 23 cells and 0.2 s at 45. The cells are estimated from the screen, so the speeds are approximate.</summary>
+    /// (2026-11-19, no throwing speed): a trap lands in 0.15 s at the thrower's feet, 0.25 s at 12 cells, 0.4 s at 29 and
+    /// 0.43 s at 32; a mine in 0.13 s at 25 cells and 0.18 s at 46. The cells are the screen distance at 9.1 pixels a
+    /// cell (a throw of this server's measured the same way), so the fit is approximate.</summary>
     public static double PlacedFlightSeconds((int X, int Y) from, (int X, int Y) to, bool mine) =>
-        mine ? Math.Clamp(Dist(from, to) / 220, .1, .6) : Math.Clamp(Dist(from, to) / 95, .2, 1);
+        mine ? Math.Min(.07 + Dist(from, to) / 400, .6) : Math.Min(.15 + Dist(from, to) / 110, 1);
+
+    /// <summary>The client starts a thrown object's glide a little after the server does, so the landing's Arm is sent this
+    /// much after the flight: sent on time, a mine's arming pulse was drawn part-way along its path (live 2026-11-19).</summary>
+    public const double PlacedLandingDelay = .07;
 
     // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
     // stand on it, and with none in range 20 cells any way (straight away from the player without a random source), so
