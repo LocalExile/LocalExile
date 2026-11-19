@@ -922,7 +922,6 @@ public static partial class Game
         int suppression = Suppression(conn).Chance;
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
-        var ailments = conn.ElementalAilments.Snapshot(last);
         bool moving = conn.Walk.Moving(last);
         (int X, int Y)? goldCheckedAt = null;
         while (PlayerUpdatesCurrent(conn, updates))
@@ -956,13 +955,6 @@ public static partial class Game
             {
                 criticalContext = currentCritical;
                 await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-            }
-            if (conn.ElementalAilments.Snapshot(tickNow) is var nextAilments && nextAilments != ailments)
-            {
-                await SendPlayerAilmentBuffs(remote, stream, ciphers, ailments, nextAilments);
-                ailments = nextAilments;
-                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.ElementalAilments);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             IncomingDamagingAilments.State nextIncoming;

@@ -76,6 +76,7 @@ public static partial class Game
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (conn.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
+            if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             MarkLaterStep(conn, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (conn, stats, _) =>
@@ -231,7 +232,9 @@ public static partial class Game
         Step(PlayerStatStep.TailCritical, (conn, stats, _) =>
         {
             int Get(string name) => GetIn(stats, name);
-            var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var ailments = conn.ElementalAilments.Snapshot(now);
+            if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             ComputeStatSnapshotTail(PlayerTailInputs(conn, stats) with
             {
                 Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],

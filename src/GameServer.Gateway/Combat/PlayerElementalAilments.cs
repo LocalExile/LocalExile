@@ -22,13 +22,16 @@ public sealed class PlayerElementalAilments
     double expiryRate = 1;
     public void SetExpiryRate(double now, double rate)
     {
+        bool retimed;
         lock (effects)
         {
             rate = Math.Max(.25, rate);
+            retimed = rate != expiryRate && effects.Count > 0;
             for (int i = 0; i < effects.Count; i++)
                 effects[i] = effects[i] with { Until = RecipientEffectTime.RetimedDeadline(effects[i].Until, now, expiryRate, rate) };
             expiryRate = rate;
         }
+        if (retimed) Changed?.Invoke();
     }
     double actionFloor, actionCeiling = double.PositiveInfinity, freezeEffect = 1;
     bool chillReversed, unaffectedByChill, unaffectedByFreeze, unaffectedByShock, unaffectedByIgnite;
@@ -39,7 +42,27 @@ public sealed class PlayerElementalAilments
 
     public bool HasEffects { get { lock (effects) return effects.Count > 0; } }
 
-    public void Clear() { lock (effects) { effects.Clear(); carry = 0; } }
+    /// <summary>An ailment was added, removed or retimed (the stats and presentation that show them follow).</summary>
+    public Action? Changed;
+
+    /// <summary>When an ailment next starts or ends after <paramref name="now"/>; null without one.</summary>
+    public double? NextChangeAt(double now)
+    {
+        lock (effects)
+        {
+            double next = double.PositiveInfinity;
+            foreach (var e in effects)
+                next = Math.Min(next, e.From > now ? e.From : e.Until > now ? e.Until : double.PositiveInfinity);
+            return double.IsFinite(next) ? next : null;
+        }
+    }
+
+    public void Clear()
+    {
+        bool had;
+        lock (effects) { had = effects.Count > 0; effects.Clear(); carry = 0; }
+        if (had) Changed?.Invoke();
+    }
     public double Magnitude(Kind kind, double now)
     {
         lock (effects) return effects.Where(e => e.Kind == kind && e.From <= now && now < e.Until)
@@ -85,7 +108,7 @@ public sealed class PlayerElementalAilments
     {
         lock (effects)
         {
-            effects.RemoveAll(e => Immune(e.Kind, get));
+            if (effects.RemoveAll(e => Immune(e.Kind, get)) > 0) Changed?.Invoke();
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
             unaffectedByChill = get("unaffected_by_chill") != 0;
             unaffectedByFreeze = get("unaffected_by_freeze") != 0;
@@ -146,6 +169,7 @@ public sealed class PlayerElementalAilments
         if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
             || RandomRolls.Chance(get(avoid), 100, random)) return;
         effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
+        Changed?.Invoke();
     }
 
     // A chill, freeze or shock reflected back onto the player (a Mirrored monster) with the effect and duration it

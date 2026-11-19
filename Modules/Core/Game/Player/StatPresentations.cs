@@ -9,10 +9,26 @@ public static partial class Game
     static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] StatPresentations =
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
-        SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats,
+        SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
     ];
 
-    sealed class Presenting { public volatile bool Pending; public Task Running = Task.CompletedTask; }
+    sealed class Presenting
+    {
+        public volatile bool Pending;
+        public Task Running = Task.CompletedTask;
+        public (bool Ignite, int Chill, bool Freeze, int Shock) Ailments;
+    }
+
+    // The player's elemental ailment buffs, against the ones the client was shown.
+    static async Task SendElementalAilmentChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        var presenting = PresentingOf.GetOrCreateValue(conn);
+        var next = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+        if (next == presenting.Ailments) return;
+        var before = presenting.Ailments;
+        presenting.Ailments = next;
+        await SendPlayerAilmentBuffs(remote, stream, ciphers, before, next);
+    }
     static readonly RuleTable<ClientState, Presenting> PresentingOf = new();
 
     /// <summary>What a stat presentation shows changed: they run after the next Stats phase.</summary>
