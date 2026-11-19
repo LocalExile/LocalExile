@@ -72,7 +72,11 @@ public static partial class Game
         static float Facing(ProjectileVector d) => d.Length < .001 ? 0 : (float)Math.Atan2(d.X, -d.Y);
         // A server effect does not start its .ao's default_animation: Toxic Rain's shoot-up art (spores_shootup.ao,
         // one clip "animate" that carries its vine trails) drew nothing until the clip was sent (live 2026-11-17).
-        session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: toxic ? 0 : null);
+        // Rain of Arrows' and Blast Rain's are not drawn: expanding_rain_of_arrows_up is one fixed arrow mesh
+        // (rain_of_arrows/arrow_to_rain.ao) that rides a per-class clip of rain_of_arrows_anim/rig.ao on the archer, and
+        // blast_rain/arrow_up.ao has the same per-class clips; made as an effect at the release either one is a still
+        // arrow lying at the archer's feet (live 2026-11-19).
+        if (toxic) session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: 0);
         // shortcut: the client flies the skill's arrow model up itself (toxic_rain_projectile, rain_of_spores/arrow.ao,
         // a fixed mesh); how is not read. Its streak and flash at the archer are stood in for by the falling arrow's
         // art, played once where the shot leaves.
