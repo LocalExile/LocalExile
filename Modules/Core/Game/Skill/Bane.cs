@@ -6,19 +6,29 @@ public static partial class Game
 
     static bool IsBaneLinkedHex(ClientState conn, SupportedGem hex)
     {
-        if (hex.SourceGem is null || hex.Host == 0 || hex.Group < 0 || hex.Supports.Any(s => IsBlasphemySupport(s.Effect.Id)))
-            return false;
-        var catalog = SkillsFor(conn);
-        int requirement = catalog.PlayerLevelReq(hex.Effect, ItemsFor(conn).GemLevel(hex.SourceGem));
+        if (hex.SourceGem is null || hex.Host == 0) return false;
         foreach (var source in PlayerSkillSourcesLocked(conn))
-        {
-            if (!source.Active || source.SourceGem is null || source.Identity.Host != hex.Host || !IsBane(conn, source.Effect)) continue;
-            var bane = SupportedSkill(conn, source.Id);
-            if (bane.Group == hex.Group && bane.RequirementsMet && requirement <= catalog.PlayerLevelReq(bane.Effect, bane.Level))
+            if (source.Active && source.SourceGem is not null && source.Identity.Host == hex.Host && IsBane(conn, source.Effect)
+                && BaneSupportsHex(conn, SupportedSkill(conn, source.Id), hex))
                 return true;
-        }
         return false;
     }
+
+    // Bane's support half (SupportDarkRitual): a linked gem whose types fit its allowed and excluded types (a Hex, not one
+    // made a trap, mine, totem or Blasphemy aura) and whose level requirement is no higher than Bane's.
+    static bool BaneSupportsHex(ClientState conn, SupportedGem bane, SupportedGem hex)
+    {
+        var catalog = SkillsFor(conn);
+        if (bane.Host == 0 || bane.Group < 0 || hex.Host != bane.Host || hex.Group != bane.Group
+            || !bane.RequirementsMet || !hex.RequirementsMet
+            || catalog.PlayerLevelReq(hex.Effect, hex.Level) > catalog.PlayerLevelReq(bane.Effect, bane.Level)
+            || Supports.Of(BaneSupportRow(conn, bane)) is not { } support || Supports.Of(hex.Effect) is not { } target) return false;
+        var types = target.Types.Concat(hex.Supports.SelectMany(s => s.Effect.Added)).ToHashSet();
+        return GemSupports.Compatible(support, types, [], null);
+    }
+
+    static int BaneSupportRow(ClientState conn, SupportedGem bane) => SkillsFor(conn).EffectRow(
+        SkillsFor(conn).EffectId(bane.Effect) == "BaneAltX" ? "SupportDarkRitualAltX" : "SupportDarkRitual");
 
     static async Task CastBane(ClientState conn, ushort skill, SupportedGem gem, (int X, int Y) from, (int X, int Y) to,
         int repeat, double radiusMore, Func<bool> current)
@@ -55,12 +65,12 @@ public static partial class Game
             * more * Math.Max(0, 1 + ((double)Get("dot_multiplier_+") + Get("chaos_dot_multiplier_+")) / 100d);
         int radius = (int)Math.Round(SkillRadius(conn, gem.Stats, spell: true, gem.Effect) * radiusMore);
         var hexes = BaneHexes(conn, gem);
-        int addedEffect = Own("dark_ritual_linked_curse_effect_+%");
-        var catalog = SkillsFor(conn);
-        int support = catalog.EffectRow(catalog.EffectId(gem.Effect) == "BaneAltX" ? "SupportDarkRitualAltX" : "SupportDarkRitual");
-        int curseEffect = Stats.Key("support_bane_curse_effect_+%_final") is uint key
-            ? catalog.EffectStats(support, gem.Level).FirstOrDefault(s => s.Item1 == key).Item2 : 0;
-        double curseMultiplier = Math.Max(0, 1 + curseEffect / 100d);
+        // The support half's stats at Bane's level and quality: its less effect, and its quality's increased curse effect.
+        var support = SkillsFor(conn).EffectStats(BaneSupportRow(conn, gem), gem.Level, gem.Quality)
+            .GroupBy(s => s.Item1).ToDictionary(g => g.Key, g => g.Sum(s => s.Item2));
+        int Support(string name) => GolemStat(support, name);
+        int addedEffect = Get("dark_ritual_linked_curse_effect_+%") + Support("curse_effect_+%");
+        double curseMultiplier = Math.Max(0, 1 + Support("support_bane_curse_effect_+%_final") / 100d);
         foreach (var monster in conn.Monsters.Values)
         {
             if (!monster.Hostile || monster.Dead || monster.Life == 0 || monster.OwnerId is not null
@@ -85,18 +95,16 @@ public static partial class Game
     static List<(ushort Id, SupportedGem Hex, string Effect)> BaneHexes(ClientState conn, SupportedGem bane)
     {
         var result = new List<(ushort, SupportedGem, string)>();
-        int levelCap = SkillsFor(conn).PlayerLevelReq(bane.Effect, bane.Level);
-        if (bane.Host == 0 || bane.Group < 0 || levelCap == 0) return result;
+        if (bane.Host == 0 || bane.Group < 0) return result;
         var catalog = SkillsFor(conn);
         foreach (var source in PlayerSkillSourcesLocked(conn).Where(s => s.Active && s.SourceGem is not null
             && s.Identity.Host == bane.Host).OrderBy(s => s.Identity.Socket))
         {
-            if (catalog.EffectId(source.Effect) is not { } effect || !CurseCatalog.Hex(effect)
-                || catalog.PlayerLevelReq(source.Effect, source.Level) > levelCap) continue;
+            if (catalog.EffectId(source.Effect) is not { } effect || !CurseCatalog.Hex(effect) || result.Any(r => r.Item3 == effect))
+                continue;
             var linked = SupportedSkill(conn, source.Id);
-            if (linked.Group != bane.Group || !linked.RequirementsMet || GolemStat(linked.Stats, "cannot_cast_curses") != 0
-                || linked.Supports.Any(s => IsBlasphemySupport(s.Effect.Id)) || result.Any(r => r.Item3 == effect)) continue;
-            result.Add((source.Id, linked, effect));
+            if (GolemStat(linked.Stats, "cannot_cast_curses") == 0 && BaneSupportsHex(conn, bane, linked))
+                result.Add((source.Id, linked, effect));
         }
         return result;
     }

@@ -49,5 +49,14 @@ public sealed class BaneTests
         Assert.Equal(1.28 * withoutCurse.DamagePerSecond, withCurse.DamagePerSecond, 6);
         Assert.Equal(2 * withoutCurse.Seconds, withCurse.Seconds, 6);
         Assert.Equal(0, withCurse.SpreadMore);
+
+        // Bane's quality raises the effect of the curses it applies (its support half's curse_effect_+%).
+        var branch = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, branch.Id, item => item with
+        {
+            Sockets = [item.Sockets[0] with { Gem = item.Sockets[0].Gem! with { Quality = 20 } }, .. item.Sockets.Skip(1)]
+        });
+        Game.BaneContactLocked(conn, skill.Id, Game.SupportedSkill(conn, skill.Id), (100, 100), 1, 11);
+        Assert.Equal((int)Math.Truncate(unscaled * 1.2 * .75), target.Curses.All.Values.Single().Stats[chaosResistance]);
     }
 }
