@@ -85,10 +85,8 @@ public static class AreaObjects
                 int code = room.Orientation;
                 int Add(string type, string model, float x, float y, float rawAngle, float z, float scale = 1, bool flip = false)
                 {
-                    var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
-                    float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
-                    angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
-                    var o = new PlacedTileObject(type, model, room.X * 23 + cx, room.Y * 23 + cy, angle, z, code, scale, flip);
+                    var (px, py, angle) = Place(room, x, y, rawAngle);
+                    var o = new PlacedTileObject(type, model, px, py, angle, z, code, scale, flip);
                     int at = placed.IndexOf(o);
                     if (at >= 0) return at;
                     placed.Add(o);
@@ -106,6 +104,22 @@ public static class AreaObjects
             }
         return placed;
     }
+
+    /// <summary>A room line's or point's cell and angle in the level, as <see cref="DoodadStage"/>'s room lines place them
+    /// (<c>0x142046fc0</c>): the cell turned by the room's code, the angle mirrored for codes 4–7 plus (code &amp; 3)·π/2.</summary>
+    public static (int X, int Y, float Angle) Place(PlacedRoom room, float x, float y, float rawAngle)
+    {
+        int code = room.Orientation;
+        var (cx, cy) = Orientation.Map(code, (int)x, (int)y, room.Room.Width * 23, room.Room.Height * 23);
+        float angle = code is >= 4 and < 8 ? MathF.PI * 2 - rawAngle : rawAngle;
+        angle = (angle + (code & 3) * (MathF.PI / 2)) % (MathF.PI * 2);
+        return (room.X * 23 + cx, room.Y * 23 + cy, angle);
+    }
+
+    /// <summary>Where the player arrives in a level whose terrain plugin marks a start room (<see cref="GenerationResult.Start"/>):
+    /// that room's <c>default</c> point, placed; null without a start room or point.</summary>
+    public static (int X, int Y, float Angle)? Start(GenerationResult result) =>
+        result.Start is { } room && room.Room.Points.FirstOrDefault(p => p.Name == "default") is { } p ? Place(room, p.X, p.Y, p.Angle) : null;
 
     const string DoodadType = "Metadata/MiscellaneousObjects/Doodad";
 

@@ -12,6 +12,11 @@ public sealed class DeepwaterGeneration
     public const string PluginId = "DeepwaterPlugin";
     /// <summary>The sub-area the plugin adds (the boat, record 1).</summary>
     public const string Hub = "DeepwaterHub";
+    /// <summary>The record of cell 0, whose node <c>Prepare</c> (<c>0x141f32a70</c>) tags <c>default</c> and
+    /// <c>killzone=3</c>: the level's start. Records 2 … N² + 1 are the cells in node order; record 1 is the boat (its
+    /// node also says <c>default</c>). The plugin's other start marks, <c>killzone=3</c> and the Bathysphere
+    /// (Objects/ExtractionObject, <c>landed</c> = 2), belong to the lanterns and the extraction.</summary>
+    public const int StartRecord = 2;
 
     /// <summary>A cell: its DeepwaterRooms row, the orientation byte (cell +0x10, the room node's orientation) and its
     /// (stat id, value) pairs, which generation does not read.</summary>

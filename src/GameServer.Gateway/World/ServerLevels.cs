@@ -52,6 +52,9 @@ public static class ServerLevels
         public IReadOnlyList<PlacedExit> Exits { get; init; } = [];
         /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
         public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
+        /// <summary>Where the player arrives when a terrain plugin marks a start room (<see cref="AreaObjects.Start"/>);
+        /// null for every other area.</summary>
+        public (int X, int Y, float Angle)? Start { get; init; }
     }
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
@@ -376,15 +379,16 @@ public static class ServerLevels
             var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
+            var start = AreaObjects.Start(result);
             Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")}{(area.Stats is { Count: > 0 } s ? $" with {s.Count} area stat(s)" : "")}{(category == LeagueCategory.None ? "" : $" league category {category}")}{(pluginStates is null ? "" : $" with {pluginStates.Count} terrain plugin state(s)")} ({walk.Width}x{walk.Height} cells, " +
-                $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads), tile hash {result.Grid.Hash()}, in {clock.ElapsedMilliseconds} ms");
+                $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads){(start is { } st ? $", start ({st.X}, {st.Y})" : "")}, tile hash {result.Grid.Hash()}, in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             var roomLinks = new List<PlacedLink>();
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
                 AreaObjects.QuestObjects(files, result), walk.Projectile)
             {
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
-                Exits = exits.Exits, Entrances = exits.Entrances,
+                Exits = exits.Exits, Entrances = exits.Entrances, Start = start,
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),

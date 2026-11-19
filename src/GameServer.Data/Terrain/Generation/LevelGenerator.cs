@@ -72,7 +72,12 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
 /// <summary>The generated tile grid and the subgraph records (rectangle, master, placed rooms) the doodad stage
 /// (<see cref="DoodadStage"/>) runs over.</summary>
 public sealed record GenerationResult(TileGrid Grid, LevelRandom Random, TopologyInfo Topology, IReadOnlyList<string> Notes,
-    IReadOnlyList<DoodadRecord> Records);
+    IReadOnlyList<DoodadRecord> Records)
+{
+    /// <summary>The room a terrain plugin marks as the level's start (DeepwaterPlugin: cell 0's); null where no plugin
+    /// marks one (every other area).</summary>
+    public PlacedRoom? Start { get; init; }
+}
 
 /// <summary>The server's port of the client's level generator (<c>0x142054070</c>, Agents/docs/re/011-level-generation.md).
 /// Ported so far: .dgr layouts (one node: towns; several: dungeons, Agents/docs/re/011-level-generation.md §3c2) and
@@ -159,7 +164,11 @@ public static class LevelGenerator
             grid = gen.Generate(topology.Graph, orientation);
             records = gen.Records;
         }
-        return new GenerationResult(grid, rng, topology, notes, records);
+        return new GenerationResult(grid, rng, topology, notes, records)
+        {
+            Start = deepwater is null ? null
+                : records.ElementAtOrDefault(DeepwaterGeneration.StartRecord)?.Rooms.FirstOrDefault(r => r.Descriptions.Contains("default")),
+        };
     }
 
     static List<TopologyInfo> Choices(IReadOnlyList<TopologyInfo> topologies, int variant, string areaId)
