@@ -301,7 +301,9 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                 // A frame missed by a late timer goes out now; each one ends after the loops stepped at its start ran.
                 for (; next <= now; next += frame)
                 {
+                    long t0 = Stopwatch.GetTimestamp();
                     await Settle();
+                    long t1 = Stopwatch.GetTimestamp();
                     BeginBudget();
                     double boundary = next;
                     foreach (var m in Snapshot())
@@ -317,11 +319,20 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                             if (!ended.Contains(m)) ended.Add(m);
                         }
                     }
+                    long t2 = Stopwatch.GetTimestamp();
                     await Input();
+                    long t3 = Stopwatch.GetTimestamp();
                     // The frame's time first: the area's systems and the loops then see the same Now.
                     var due = BeginStep(boundary);
                     await StepArea(boundary);
+                    long t4 = Stopwatch.GetTimestamp();
                     Step(due);
+                    // A frame whose steps took 100 ms or more, by stage: what the client waited for.
+                    if (Stopwatch.GetElapsedTime(t0).TotalMilliseconds >= 100)
+                        Console.WriteLine($"[frames] slow frame {Frame}: settle {Ms(t0, t1):0} ms, frame ends {Ms(t1, t2):0} ms" +
+                            $" (held {held}), input {Ms(t2, t3):0} ms, area {Ms(t3, t4):0} ms (its step {Area?.LastStepMs:0}), loops {Ms(t4, Stopwatch.GetTimestamp()):0} ms" +
+                            $" ({due.Count} due: {string.Join(" ", due.GroupBy(w => w.Role).Select(g => $"{g.Key}x{g.Count()}"))})" +
+                            (Area is { Systems.All.Count: > 0 } slow ? "; slowest systems: " + string.Join(", ", slow.Systems.Slowest(3).Select(s => $"{s.Name} {s.LastMs:0} ms")) : ""));
                 }
                 if (Program.GameLogicOrNull is { } rules)
                     foreach (var m in ended)
@@ -331,6 +342,8 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         catch (Exception ex) { Console.WriteLine($"[frames] area driver failed: {ServerLog.Describe(ex)}"); }
         finally { Stop(); }
     }
+
+    static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
 
     // A member whose connection broke leaves; the others go on.
     async Task<bool> Guard(Member m, Func<Task<bool>> write)
@@ -497,7 +510,9 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         {
             foreach (var (id, joined) in changes)
                 if (joined) area.Entities.Add(id, EntityKind.Player); else area.Entities.Remove(id);
-            area.Step(Frame, time);
+            // The area's own frame count: the driver's keeps counting while paused, and the area's timers must not run
+            // the paused frames' ticks at once on the resume.
+            area.Step(area.Frame + 1, time);
         }
         catch (Exception ex) { Console.WriteLine($"[area] frame {Frame} failed: {ServerLog.Describe(ex)}"); }
         foreach (var m in now)
