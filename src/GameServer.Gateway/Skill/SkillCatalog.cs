@@ -1613,7 +1613,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 damageCoefficients.Add((Coefficient(r.IntOrNull("BaseMultiplier")), Coefficient(r.IntOrNull("DamageEffectiveness"))));
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
-                levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
+                // Transfigured gems can split a base damage stat across two resolved values in the same level row.
+                var resolved = Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues"))
+                    .GroupBy(stat => stat.Item1, stat => stat.Item2);
+                levelStats.Add([.. resolved.Select(group => (group.Key, group.Sum())),
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }

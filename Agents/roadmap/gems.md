@@ -39,7 +39,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   gem (part (a)).
   Part (b): a gem's skill uses its level (from its experience) and quality, transfigured, Trarthan and Vaal gems grant
   their skills, the variant is the SkillGem data's u32, and `/gem` makes any gem ([19](../docs/protocol/19-gems.md)
-  §1, §3); not yet checked with the real client.
+  §1, §3). Level-specific damage adjustments now add to the same stat in transfigured gems. Native verification remains open.
   Part (c), the requirements, is in: the level is `PlayerLevelReq` (Haste 24 at gem level 1 … 70 at 20, as the
   client's tooltips) and the attributes are the client's own formula, fitted from `0x142476710` and checked against
   570 poedb tooltip cells with no mismatch (`trunc((3·level_req + 11)·(percent/100)^0.9·k + 0.5)`, `k` 0.5 for

@@ -143,6 +143,9 @@ Nothing yet.
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
   transfigured and Trarthan gems grant their own skill; Vaal gems grant their Vaal skill and base skill.
+  Repeated damage entries in one gem level add together, including negative adjustments. At level 1 Vortex of
+  Projection has 4591 base cold damage per minute and Essence Drain of Desperation has 4764 base chaos damage per minute.
+  These values are checked against the client tables; their displayed tooltips still need a native check.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
   The variant is sent in the SkillGem data and saved.
