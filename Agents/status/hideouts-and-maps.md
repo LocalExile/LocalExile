@@ -222,27 +222,32 @@ Part of [Status](../Status.md); what to build next in this area is in
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
   See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).
-- **The Sovereign (Allflame leagues):** after Valerie's introduction on the Deepwater Coast, its rowboat leads to The
-  Sovereign, and after that first visit the Deepwater pin and `/boat` do too.
-  The hub is generated, with its waypoint, the boat gates between the deck and below deck, the stash, the guild stash,
-  Valerie and Vesper ([16](../docs/protocol/16-waypoints.md) §4, [17](../docs/protocol/17-npcs.md)).
-  Charts (rarity, affixes, level, room), the Chart Locker, Valerie's chart device and Voyage planner, and the deck's
-  Bathysphere start Chart and Voyage runs whose grid, level and stats are the chart's or the board's, with the Maiden
-  Voyage tracker ([03](../docs/protocol/03-area-and-world.md) §8, [05](../docs/protocol/05-inventories-and-ui.md) §3,
-  [13](../docs/protocol/13-items.md) §2); verified live up to the start of the first Voyage.
+- **The Sovereign (Allflame leagues):** after Valerie's introduction on the Deepwater Coast (`NPCTalk` 3932 sets league
+  flag 1834 `DeepwaterBoatUnlocked`), its rowboat, the Deepwater World-panel pin and `/boat` reach The Sovereign.
+  The hub is generated, with its waypoint, `Boat_AreaTransition_Animate` deck ↔ below-deck stairs (serialized with
+  trailing `StateMachine` so `no_highlight` applies), deck and below-deck stashes and guild stashes, below-deck crafting
+  bench, dynamic Valerie variants (789–794) on `ValeriePlacerOne/Two/Three` and below deck, `CorpseBattery` and
+  `VesperCrafting` (795) ([08](../docs/protocol/08-area-transitions.md) §2, [16](../docs/protocol/16-waypoints.md) §4,
+  [17](../docs/protocol/17-npcs.md)).
+  Charts (rarity, affixes, level, room including Kishara's Rest `#29` at area level ≥ 81), the Chart Locker, Valerie's
+  chart device and Voyage planner, and the deck's Bathysphere start Chart and Voyage runs whose grid, level and stats are
+  the chart's or the board's, with the Maiden Voyage, Spirit Flame and Turning the Tide trackers (Quests 209–211,
+  [03](../docs/protocol/03-area-and-world.md) §8, [05](../docs/protocol/05-inventories-and-ui.md) §3,
+  [12](../docs/protocol/12-quests.md) §5, [13](../docs/protocol/13-items.md) §2).
   Guesses (G in the code): the chart inventories are per character while the tutorial's league flags are per account
   and league; the deck's map owner; the drop, room, implicit and border pools; when charts are consumed.
-  Not applied: the chart stats for objects and conversions; Kishara's Rest; the Active Voyage window (0x72).
+  Not applied: the chart stats for objects and conversions; the Active Voyage window (0x72).
   A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
   of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
   [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
   point; the board's layout and orientation are from the client's code). Their level generation is in the
   [world status](world.md) ("Level generator port").
-  The Chart and Voyage runs (lanterns placed where the client's snap puts them, drowning, the league's packs, Sulphur
-  and its posed corpses, chests, collapse, capsules with a Voyage's entry capsule, the Bathysphere's staged descent,
-  extraction to the deck's CollectionChest, Dredge) are in `Modules/Core/Content/Deepwater`, with its guesses marked G
-  there ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5). Verified live (3.29.3d,
+  The Chart and Voyage runs (lanterns placed where the client's snap puts them, server-side Auto-Lanterns via league flag
+  1841, drowning, the league's packs, Sulphur and its posed corpses, chests, collapse, capsules with a Voyage's entry
+  capsule, the Bathysphere's staged descent, extraction to the deck's CollectionChest, Dredge) are in
+  `Modules/Core/Content/Deepwater`, with its guesses marked G there ([03](../docs/protocol/03-area-and-world.md) §8,
+  [12](../docs/protocol/12-quests.md) §5). Verified live (3.29.3d,
   2026-11-19): a Chart's six lanterns, its collapse and ride up, a Voyage's Bathysphere called from a capsule and its
   three-stage descent, the haul on the deck and in the inventory on The Sovereign after a relog, the corpses without a
   GEAL error. Picked-up Dredge items carry the client's contraband item flag (header flags 0x0006,
@@ -258,11 +263,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Vesper's Allflame Crafting (`0x7b` kind `0x69`, C→S `0x010f`, ruleset 172 op 2), all 11 crafting Ducats,
   Intangibility and the four `GhostflameCraftingOutput` display-case vats with hover mod-diff and relog persistence
   work ([03](../docs/protocol/03-area-and-world.md) §8, [05](../docs/protocol/05-inventories-and-ui.md) §3).
-  Cursed Ducats (inventories 115/116, C→S `0x0115`, area stats on Charts and Voyages, five non-Velka drops and
-  Valerie's reclaimable "TAKE ALL" offer via C→S `0x008b`) and Messages in a Bottle (`0x0058` → `Cursor1` + `0x7b` kind
-  `0x6d`) work ([05](../docs/protocol/05-inventories-and-ui.md) §3).
+  Cursed Ducats (inventories 115/116, C→S `0x0115`, area stats on Charts and Voyages, all six drops including Velka's
+  `Ducat of Tsoatha's Gift` and Valerie's reclaimable "TAKE ALL" offer via C→S `0x008b`) and Messages in a Bottle
+  (`0x0058` → `Cursor1` + `0x7b` kind `0x6d`) work ([05](../docs/protocol/05-inventories-and-ui.md) §3).
   Verified live 2026-11-19: Chaos and Changeling's Ducat crafts, vat crack/claim and relog reconstruction, Cursed
   Ducat socketing and reclaim, and Message in a Bottle reveal.
+  Ship upgrades (`DeepwaterUpgrades` rows 0–4: `+1` lantern, Sulphur scaling, extra scattered objects, final-lantern
+  Adrenaline, all five upgrade pieces with Vesper turn-ins `#3920–3924` unlocking copy-cap tiers and
+  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with `FlameBarrier1` and
+  `AllFlameLanternDeepwater`), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
+  Cressie and Velka, guaranteed unique + 8% Coursing Current Support + first-kill quest drops, and
+  `VelkaDescensionObject` opening Velka Bloodline `Descendancy#15`) are implemented (awaiting live verification).
   Deferred crafting orbs: Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs.
 - **Allflame encounters in ordinary areas:** an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot
   Plunder rooms the level generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that

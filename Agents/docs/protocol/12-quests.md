@@ -197,10 +197,11 @@ each object once, where the client has it.
   - `DeepwaterBathysphereDrop` (row 155, 0x2387, ctor `0x141640fd0`): `u32 stages, u32 stage` on a descending
     `ExtractionObject` (`landed` 0); the height is (1 − stage/(stages − 1)) · 1500, and stage ≥ stages plays `land_01`
     and ends the task (`0x141641310`).
-- **League quest flags in QuestStates** (H): `__col13` lists league quest flags a state needs and `__col14` those it
-  needs missing. Allflame's Maiden Voyage (Quest 209) uses them (1821 first Chart, 1822 four charted, 1823 first Voyage,
-  1881-1883 the failed-first-chart path); the Gateway's `QuestStates` mirror ignores them, and the client builds its
-  tracker itself.
+- **League quest flags and areas in QuestStates** (H): `__col13` lists league quest flags a state needs, `__col14` those
+  it needs missing, and `Area` restricts a state to listed `WorldAreas` rows (empty matches anywhere). Allflame's quests
+  (209–211) use these columns (1821 first Chart, 1822 four charted, 1823 first Voyage, 1859 Vesper awakened, 1888 Vesper
+  revived, 1881–1883 failed-first-chart path); `QuestStates.State.Matches` evaluates them when league flags or an area row
+  are supplied.
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'

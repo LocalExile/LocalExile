@@ -85,10 +85,13 @@ Kingsmarch's Dannig, Faustus and Isla and the Monastery's Ailith (`ChayulaFarmer
 are left out until they are placed live.
 Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`).
 
-The Allflame NPCs (`Deepwater` module): Valerie's "Ready for Adventure?" (NPCTalk 3932) needs QuestFlags 3551
-DeepwaterNPCSeen and is hidden by 3552, which it sets. hub.arm's Valerie lines (x 84-97) lie off the walkable deck; the
-server-only `ValeriePlacer*` markers are where the real server moved her, and which marker each stage used is unknown
-(the Gateway uses ValeriePlacerOne).
+The Allflame NPCs (`Deepwater` module): NPCs 789–795 opt into `NPCTalk` league-flag filtering and auto-conversations via
+`GameEvents.NpcUsesLeagueFlags` (`__col15` set, `__col16` required, `__col18` refused; `__col17` sets one league flag in
+`2..1910` and uses `1` as a manual-only sentinel that prevents auto-open). Valerie's Coast "Ready for Adventure?"
+(NPCTalk 3932) needs QuestFlags 3551 `DeepwaterNPCSeen` and sets `DeepwaterNPCIntroductionSeen` (3552) plus league flag
+1834 `DeepwaterBoatUnlocked`. `hub.arm`'s Valerie lines (x 84–97) lie off the walkable deck; `DeepwaterProgression`
+places the active deck variant on `ValeriePlacerOne/Two/Three` or beside `CorpseBattery`, and below-deck Valerie
+(`#791`/`#792`) with `VesperCrafting` (`#795`) until league flag 1859 awakens Vesper.
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off

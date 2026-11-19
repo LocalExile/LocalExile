@@ -51,6 +51,7 @@ Stats `0x1435e7f88`, ObjectMagicProperties `0x1435b3740` (slot 17 → slot 20 `0
 | ObjectMagicProperties | 4 | **base magic properties first** (`0x142208700`, called with the reader still in `rdx`: u16 flags, rarity = low 3 bits, u8 `+0x7a`, sections behind flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's own u8 flags (bit1 → u16 flavour text key, bit2 → string) |
 | MinimapIcon | `00` | u8 flags (bit1 hidden/shown, bit0 → u16 icon override, bit3 → variant) |
 | InteractionAction | `00` | u8 flags (bit2 → u8 [+ u16 action]) |
+| StateMachine *(optional)* | `00 00` | only when the object's `.ot` appends `StateMachine` after `InteractionAction` (e.g. `Boat_AreaTransition_Animate`, which sets `no_highlight = true` and has 0 shared states and 0 timers); keeping the native type avoids the plain `AreaTransition` fallback's hover highlight |
 | tasks | `00` | |
 
 The Coast exit: `00 00 | 80010000 D9000000 00000000 0000 0000 | 00 | 00 02 D27A 00 | 00 00000000 00000000 00 | 0000 00 00 | 00 | 00 | 00`.
