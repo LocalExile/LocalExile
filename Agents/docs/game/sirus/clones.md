@@ -6,14 +6,13 @@ The body stands on one of the directions of a circle of radius 35 around the pla
 That clip holds **6 `clone_beam_blast` events** (4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s, every event carries a model coordinate),
 and the **12 clones** on the circle fire elemental beams at the player one after another.
 
-The client action class `EmptyActionSpell2` (ActionType 811) **only plays the animation, it draws no beam** (observed: `vtnear` finds no drawing method anywhere in its vtable range);
+The client action class `EmptyActionSpell2` (ActionType 811) **only plays the animation, it draws no beam** (observed: no drawing method anywhere in its vtable range);
 the 6 `clone_beam_blast` have **no client art at all** (the `.act` binds no effect, the `.ot` listens for nothing) ⇒ both the clones and the beams must be drawn by the server.
 
-> **Correction 1**: the old text says "the damage skills are 7019–7031, twelve effects". In fact **the twelve elemental beams are 7019–7030**
-> (`AtlasExileOrionSpammableBeam{Physical,Cold,Fire,Lightning}{1,2,3}`), and **7031 is a 13th one, `AtlasExileOrionCloneBeam`**
-> (a separate effect, SkillID 359, StatSet1 7036). The server using the fixed name 7031 is not wrong, but "the official picks 7019–7031 at random" has to read "7019–7030 at random".
-> **Correction 2**: the old text guessed "the clones may use clip 12, `clone_beam_01`" — `clone_beam_01` / `clone_beam_end_01`
-> **exist in no `.ao` at all** (they are only bound in `atlasexile5.act` / `atlasexile5influencewild.act` ⇒ a dead binding, the client cannot play them).
+**The twelve elemental beams are 7019–7030** (`AtlasExileOrionSpammableBeam{Physical,Cold,Fire,Lightning}{1,2,3}`), and
+**7031 is a 13th one, `AtlasExileOrionCloneBeam`** (a separate effect, SkillID 359, StatSet1 7036). `clone_beam_01` /
+`clone_beam_end_01` **exist in no `.ao` at all** (they are only bound in `atlasexile5.act` / `atlasexile5influencewild.act` ⇒ a
+dead binding, the client cannot play them).
 
 ---
 
@@ -41,19 +40,19 @@ the 6 `clone_beam_blast` have **no client art at all** (the `.act` binds no effe
 
 | Item | Value |
 |---|---|
-| Class | `EmptyActionSpell2` (ActionType 811, `HASH16` **7582 = 0x1D9E**; the old note says 0x1F5B, **wrong**) |
+| Class | `EmptyActionSpell2` (ActionType 811, `HASH16` **7582 = 0x1D9E**, not 0x1F5B) |
 | Family | `EmptyActionSpell`(732, 18594), `…3`(812, 7583), `…4`(813, 7576), `…5`(814, 7577) — **one shared class and one shared vtable `off_1434BBFC8`** |
-| Where the type number comes from | the ctor `sub_1419C6500` **does not hardcode the type number**, it hashes at runtime: it joins `"EmptyActionSpell"` with a number into a string (`sub_1404D0650` → `sub_140148EC0(v20, 0, "EmptyActionSpell", 16)`), then runs `for (i = len; i; --i) v6 = *(char*)v11 ^ (16777619 * v6);` → `sub_1419CF930(a1, (unsigned short)(v6 ^ HIWORD(v6)), a2, a3)`, that is **an FNV-1 variant (basis 0, multiply 16777619, fold to 16 bits)** |
+| Where the type number comes from | the ctor `sub_1419C6500` **does not hardcode the type number**, it hashes at runtime: it builds the name `"EmptyActionSpell"` plus a number (`sub_1404D0650`, `sub_140148EC0`), hashes it with **an FNV-1 variant (basis 0, multiply 16777619, then the high and low 16 bits XORed together)**, and passes the result to the base ctor `sub_1419CF930` |
 
 ### State machine
 
-**None**. This class has no state machine of its own and no drawing method of its own (observed: `vtnear 0x1434BBFC8 0x1419A000 0x1419E000` returns **0**).
+**None**. This class has no state machine of its own and no drawing method of its own (observed: no function in `0x1419A000`–`0x1419E000` is referenced from the vtable `0x1434BBFC8`).
 
 ### Serialisation (what the client receives)
 
-- Slots 86 / 87 `sub_1419CF9B0` / `sub_1419CFA20`: **they read and write a single byte, `*(a1+472)`** (the same 1-byte payload as MoveDaemon).
+- Slots 86 / 87 `sub_1419CF9B0` / `sub_1419CFA20`: **they read and write a single byte at `+472`** (the same 1-byte payload as MoveDaemon).
 - What the server sends is the **action plus the animation slot**; the client sends 1 byte back.
-- Slot 31 starts `sub_1419CFAB0`: it appends the suffix `"_start"` to the string in `*(a1+816)`, calls `sub_1419CFCF0(a1+792, str)` to **play the animation by name**, then goes to the base class `sub_1419E9840`. ⇒ it plays a clip **assembled by name**.
+- Slot 31 starts `sub_1419CFAB0`: it appends the suffix `"_start"` to the name string at `+816` and has `sub_1419CFCF0` (on the `+792` member) **play the animation by name**, then goes to the base class `sub_1419E9840`. ⇒ it plays a clip **assembled by name**.
 
 ### Hits and damage
 
@@ -69,25 +68,18 @@ Only three things (observed):
 
 What is **not** there: the display bodies of the 12 clones, the 6 beams, the art of the 6 `clone_beam_blast` (the `.act` binds no effect, the `.ot` does not listen for those events) — all of it has to come from the server.
 
-### What the server should send (key points)
-
-The animation + the `identify` event on the body (the client flashes it by itself) + the 12 clones + the 6 beams and the 6 damage resolutions. The beams themselves must be drawn by the server (see §What the server should send at the end).
-
-### Still open
-
-1. **Which clip the client actually plays**: slot 31 builds `*(a1+816) + "_start"`; and the `Animation` slot 35 of 8100 binds `SpellAreaOfEffectChaos` → `trap_beam_01`. The source of `*(a1+816)` is not confirmed (if it is the binding name, the result would be `trap_beam_01_start`, and no such clip exists in the `.ao`) ⇒ **whether the client plays `trap_beam_01` or `clone_beam_start_01` is still open**.
-2. **The official model of the 12 clones**: both `atlasexile5_beamclone.ao` (13 clips, `default_animation trap_beam_01`, Character rig) and `atlasexile5influence.ao` (Character rig, carries those 6 `clone_beam_blast`) look like the official clone, but **no MonsterVarieties row references them** (`AtlasExile5Influence.act/.ao` and `atlasexile5_beamclone.ao` neither do) ⇒ whether the clones are "a clip of the body's `.ao`" or an independent model is still open.
-3. **Who spawns the 12 clones**: `AtlasExilesOrionCreateClones` (10147) has no count or radius parameter (CastTime 2000, Animation 35); the count 12 and the radius of 35 cells are estimates.
-4. **What `clone_trap_beam.ao` is for**: it is the client effect object that looks most like "a beam between two bones" (the `beam_length` bone group + the stretching particle + the TripleBeam3 sound + the screen shake 13/0.4 s), but **nothing in the whole orion tree references it** in a `.ot`/`.ao` ⇒ still open.
-5. **The divergence angles**: in the official screenshots three huge beams diverge from different directions and cross close to the player; the data holds no angle parameter.
-
----
-
 ## What the server should send
 
 1. **Action**: send an `AnimationUpdate` for 8100 on the body (slot 35 → `trap_beam_01`), and fire `identify` at 3.742 s (the client flashes `flash_beam.ao` and attaches `Trap_Beam_Signal.epk` by itself).
 2. **Clones**: 12 visible bodies. The official model `atlasexile5_beamclone.ao` (13 clips, `default_animation trap_beam_01`) is the first choice — but it has **no MonsterVarieties reference**, so how to spawn it has to be settled first; for now an effect object plus the 7th clip of the body's `.ao` is the fallback.
 3. **Beams**: the client action class cannot draw them (`EmptyActionSpell2` has no drawing method), so the beams **must be drawn by the server**: `ServerBeamEffect` / `MiscBeams` rows, or a daemon entity. The model coordinates of the 6 `clone_beam_blast` (z = −223.047 … −211.552, that is 2.1–2.2 cells ahead, chest height) should be the **start/end points of the beams**, not the body's position.
 4. **Elements**: the official picks at random among 7019–7030 (the twelve elemental beams); the code now uses the fixed 7031 (`AtlasExileOrionCloneBeam`) — the name is not wrong, but the element/colour variety is missing.
-5. **Damage**: 6 resolutions (4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s), one beam each; `CloneHit` only affects the historical branch of `BeamBombBeam` (line 240).
-6. **Not implemented**: the voice line of `dialogue` @2.0 (now 5688), the client's flash event for `identify`, the divergence angles (all 6 beams currently pass through the same point on the player).
+5. **Damage**: 6 resolutions (4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s), one beam each.
+
+## Still open
+
+1. **Which clip the client actually plays**: slot 31 builds the name at `+816` + `"_start"`; and the `Animation` slot 35 of 8100 binds `SpellAreaOfEffectChaos` → `trap_beam_01`. The source of the name at `+816` is not confirmed (if it is the binding name, the result would be `trap_beam_01_start`, and no such clip exists in the `.ao`) ⇒ **whether the client plays `trap_beam_01` or `clone_beam_start_01` is still open**.
+2. **The official model of the 12 clones**: both `atlasexile5_beamclone.ao` (13 clips, `default_animation trap_beam_01`, Character rig) and `atlasexile5influence.ao` (Character rig, carries those 6 `clone_beam_blast`) look like the official clone, but **no MonsterVarieties row references them** (`AtlasExile5Influence.act/.ao` and `atlasexile5_beamclone.ao` neither do) ⇒ whether the clones are "a clip of the body's `.ao`" or an independent model is still open.
+3. **Who spawns the 12 clones**: `AtlasExilesOrionCreateClones` (10147) has no count or radius parameter (CastTime 2000, Animation 35); the count 12 and the radius of 35 cells are estimates.
+4. **What `clone_trap_beam.ao` is for**: it is the client effect object that looks most like "a beam between two bones" (the `beam_length` bone group + the stretching particle + the TripleBeam3 sound + the screen shake 13/0.4 s), but **nothing in the whole orion tree references it** in a `.ot`/`.ao` ⇒ still open.
+5. **The divergence angles**: in the official screenshots three huge beams diverge from different directions and cross close to the player; the data holds no angle parameter.

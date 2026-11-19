@@ -10,8 +10,8 @@ The two pages beside this folder are the summary:
 - [../sirus-client.md](../sirus-client.md) — the code side: the client classes behind the `Orion*` action types.
 
 This folder goes one skill at a time: one page per skill, each with the class card, the state machine, the
-serialisation, the hit test and what the server should send. Everything here is English. The evidence markers are
-the repository's:
+serialisation, the hit test and what the server should send. The evidence markers are the
+repository's:
 
 - **observed** — read straight out of the client's code or data, or seen in a live client.
 - **inferred** — follows from the context, without direct evidence.

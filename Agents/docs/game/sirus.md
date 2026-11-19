@@ -9,10 +9,7 @@ fight and is the reference for `Modules/Core/Game/Monster/Sirus*.cs`.
 Everything below is read from the 3.29.3c client: the tables through `data/client.db`, the metadata through the archive.
 The commands are under [Sources](#sources).
 
-**Per-skill reference (2026-11-17).** The ten documents in [game/sirus/](sirus/README.md) are the authoritative
-account of each ability: the client's action class, its slots, its serialized fields, what it draws and what the server
-must send. The skill-level sections below predate that reverse engineering; where they disagree, the per-skill document
-wins (the corrections are marked "revised 2026-11-17").
+The pages in [sirus/](sirus/README.md) hold each ability's client class and what the server must send.
 
 ## The arena
 
@@ -370,11 +367,11 @@ guess. Milliseconds.
 | `death_01` | **6500** | — | the death sequence: the fight's 6.5 s is the client's |
 | `flinch_large_01` / `idle_01` | 1000 / 3000 | — | |
 
-**The durations the fight already uses are the client's own** (672 ms, 6.5 s, 8 s, 2 s, 4 s, 1.5 s) — someone read this
-rig. Its `contact` keys are not the whole clock: the same blocks carry `StandardEventType` events, and those hold the
+**The durations the fight already uses are the client's own** (672 ms, 6.5 s, 8 s, 2 s, 4 s, 1.5 s). The
+rig's `contact` keys are not the whole clock: the same blocks carry `StandardEventType` events, and those hold the
 corridor's eight hit times, the three (or six) beam-blast times and the maze's creation time — the section below. What
 the client does **not** state is how often the clone circle strikes: its clip has five contacts and the fight keeps one
-hit on the first of them, where it used to land at 4.7 s, after the 1.5 s clip had ended.
+hit on the first of them.
 
 The effect objects carry almost no damage events of their own: `ao_animation_events` on
 `Metadata/Effects/Spells/monsters_effects/AtlasExiles/Orion/` finds `nuke_beam_blast.ao` = `blast_damage`/
@@ -454,9 +451,8 @@ $G "Tools/re/out/sirus/art" extract "^metadata/monsters/atlasexiles/atlasexile5"
 
 ### The clip has to be played by the server
 
-A cast alone does not make the client play a clip. The client builds the action class - the `OrionBeamSweep`
-constructor's vtable slot 31 runs and the instance's vtable pointer is the class's own - but the clip's animation events
-never arrive, so the class's `state` (the dword at `+0x318`) stays 0 and nothing is drawn.
+A cast alone does not make the client play a clip: the client builds the action class, but the clip's animation
+events never arrive and nothing is drawn.
 
 The server has to ask for the clip explicitly, and it has to do it **as a world record for that object**: broadcast
 (`All`) carries no object id, so the client receives the animation update and cannot route it to anyone - it is dropped
@@ -474,33 +470,24 @@ The index is the clip's position in the monster's `ClientAnimationController` li
 (`atlasexile5.ao`): 10 `final_beam_01`, 11 `final_beam_02`, 12 `final_beam_03`, 13 `final_beam_barrage_01`,
 20 `final_meteor_maze_start_01`, 28 `trap_beam_01`.
 
-With the clip played, the whole chain runs: the client builds the class, its event handler (vtable slot 40) receives the
-clip's events, and slot 153 - the only writer of `state` - executes `mov dword ptr [rcx+318h],1`. That is where the
-client's own beam is decided to appear.
+Which clip the body plays depends on the stance it is in: `atlasexile5.act` binds `SpellProjectile` to `beam_01` in
+stance 1 and to `final_beam_01` in `stance2`, and the clips are indices 1 and 10 of `atlasexile5.ao`; `SpellProjectileFire`
+is `beam_03` (3) and `final_beam_03` (12).
 
-### The beams are drawn by the server
+What `OrionBeamSweep` does with those events, and why it still draws nothing:
+[sirus/apparition-laser.md](sirus/apparition-laser.md).
 
-**Revised 2026-11-17 (reverse engineering).** The clip does not draw the beam - but the official server does not place it
-with `ServerBeamEffect` either. Of the art this fight needs, only `fusion_beam.ao` (row 227), `fusioned_nuke_beam.ao`
-(228), `orb_beam.ao` (240) and `Kirac_beam.ao` (241) have a `MiscBeams` row at all; **`spam_beam.ao`, the "DIE" barrage's
-`triple_beam_01/02/03.ao` and the corridor's `corridor_slash_01.ao` have none**, so they cannot be sent as a stretched
-beam. They are effect objects - placed by the server, or built by the client's own action class.
+### The beams
 
-Three ways the client can put a beam on screen, in full in [game/sirus/README.md](sirus/README.md):
+- Which beam art has a `MiscBeams` row (`spam_beam.ao` and `triple_beam_0N.ao` have none):
+  [sirus/body-beam.md](sirus/body-beam.md); the corridor's `corridor_slash_01.ao`: [sirus/corridor.md](sirus/corridor.md).
+- The ways a beam reaches the screen (the action class's own `Effect`, an `EffectObject`, a `ServerBeamEffect`):
+  [sirus/README.md](sirus/README.md).
 
-- **the action class builds it itself** - `GeometrySpell` (the body's spell) creates a 584 B `Metadata/Effects/Effect`
-  whose art comes from the action's own data (`sub_14228BED0(&out, 0x7A39632A, &ctx)`);
-- **the server places the official `.ao`** as an effect object (`EffectObject`: parent + bone, e.g. `R_Weapon`);
-- **the server stretches a mesh** (`ServerBeamEffect`) - the only way to get a beam that follows a moving bone.
+Two things a stretched beam (`ServerBeamEffect`) needs:
 
-Two things the stretch itself still needs, both learned live:
-
-- **A beam needs a bone, or it is drawn inside the ground.** `Metadata/Effects/ServerBeamEffect` carries each end as a
-  world position **plus an object id**, and the near end's *height* comes only from the object and bone named there: the
-  flag byte after the `MiscBeams` row is `0x97` without a bone and `0xD7` with one, then a length-prefixed ASCII bone
-  name. A beam sent without one is anchored on the caster's floor cell and drawn inside the terrain - the packets go out,
-  the screen stays empty, which is exactly what "no beam on screen" was (live 2026-11-16/17). `IzaroGargoyles` has always
-  used it (`Jnt_jaw`), and it is the only reason its beam leaves the mouth.
+- **A bone, or it is drawn inside the ground** (the `0x97` / `0xD7` flag: [sirus/README.md](sirus/README.md)).
+  `IzaroGargoyles` has always used one (`Jnt_jaw`), and it is the only reason its beam leaves the mouth.
 - **A beam's length runs along its own rotation.** An object's long axis lies along the rotation it is given, so the line
   through `from` and `to` uses `atan2(dy, dx)` itself, not that angle plus a quarter turn. Placed round a ring the
   rotation is `angle + pi/2` only because there the length *is* the tangent.
@@ -515,145 +502,61 @@ arena like a slab); 239 `AtlasExileOrionBeamBombChargeBeam` → `fusion_beam.ao`
 The ground marks the fight wants - `destruction_assets/crater_small_01.ao`, `crater_big_01.ao`, `scorch_01..04.ao` - are a
 `FixedMesh` (`destructionLow/Large.fmt`) plus a single `Append` render pass, with no `AnimationController` and no
 `Animations` block. Created as an effect object they are invisible: standing them beside the player at scale 4 and 8 left
-the floor unchanged (live 2026-11-17). The animated arts next to them (`meteors/impact_small|medium|large.ao`, a
+the floor unchanged in the live client. The animated arts next to them (`meteors/impact_small|medium|large.ao`, a
 `SkinMesh` with `default_animation`) do draw. So a lasting scorch cannot be made out of those decals, and the star rain
 needs none - the client's own `MeteorImpact` draws its landing.
 
-The client cannot do it either: its `OrionBeamSweep` class resolves the two arm tips on the bones `L_Weapon`,
-`shoulder_l`, `l_arm` and `arm_r`; the apparition's rig carries `L_Weapon`, `R_Weapon` and the wrist bounds but not the
-three arm bones, and the class never leaves state 0 in any case (the event tag it waits for is in no shipped clip).
-
-Which clip the body plays depends on the stance it is in: `atlasexile5.act` binds `SpellProjectile` to `beam_01` in
-stance 1 and to `final_beam_01` in `stance2`, and the clips are indices 1 and 10 of `atlasexile5.ao`; `SpellProjectileFire`
-is `beam_03` (3) and `final_beam_03` (12).
-
-### The body and the apparition are different in kind
-
-The body is `AtlasExile5` (36 skills) and the apparition is `AtlasExile5Apparition` (20). Their action types differ, and
-so does what the client can draw for them:
-
-- **The body** (`7008`/`7012` `AtlasExileOrionSpammableBeamBlast`) is a `geometry_spell` (ActionType 807) - a plain action,
-  not an Orion class. Its beam is a **spell projectile**: the beam itself is an object the *server* has to spawn, the same
-  way every PoE projectile is. The framework already knows how: `AtlasBosses.ProjectileFor(conn, effect)` resolves the
-  effect's `monster_projectile_variation` to a `Projectiles.dat` row and `ProjectileProfile`/`session.Schedule` spawn it.
-  A cast that only sends `ActionStarted` and computes the damage itself leaves nothing for the client to render.
-- **The apparition** (`10941` `AtlasOrionBeamSweep`) is an Orion class (ActionType 1034) and the client does build it -
-  the class's vtable slot 31 runs and its instance's vtable pointer is the class's own. Its clip is
-  `double_beam_hands_01`, and the client anchors the two beams on the bones **`L_Weapon`**, `shoulder_l`, `l_arm`,
-  `arm_r`; the apparition's rig has `L_Weapon` and `R_Weapon` but none of the three arm bones.
-
 ### The abilities, paired
 
-**Revised 2026-11-17.** Each ability now has its own document in [game/sirus/](sirus/README.md), which records the
-client's action class, its slots, its serialized fields and what it draws. The table below is the map; the "art" column
-is corrected against the reverse engineering.
+The client classes behind the `Orion*` action types are in [sirus-client.md](sirus-client.md); each ability's class,
+what it draws and what the server must send are on its own page:
 
-The client has **three** Orion action classes (`ActionTypes` 1034-1036): `OrionBeamSweep` (HASH16 19042 = 0x4A62),
-`OrionMeteor` (28504 = 0x6F58) and `OrionCorridorBlast` (40973 = 0xA00D); the maze, the beam bomb and the storm are
-classes of their own (`OrionCircleMazeBlast` 1037, `OrionBeamBomb` 1039, `GeometryTrigger` 959, `GeometrySpell` 807).
-
-| ability | effect | who casts | what the client draws | the server's part | doc |
-|---|---|---|---|---|---|
-| Star rain | 10145 / 10945 | the apparition / the body | **nothing** for 10145 (its `GeometryTrigger` row has no ground marker); one `Meteor_Rain.ao` per AS-1570 action, crater included | one 0x1ab per meteor; per-target damage at `contact` @1.92 s | [meteor](sirus/meteor.md) |
-| Two-hand laser | 10941 | the apparition | **nothing** - the two `BeamTargetDaemon` anchors are invisible (`InvisibleFire.ao` has an empty skin and no particles) | the two beams and the daemon entities | [apparition-laser](sirus/apparition-laser.md) |
-| Body beam | 7008 / 7012 | the body | its own effect (`GeometrySpell` builds a 584 B `Effect`), or the server's `spam_beam.ao` on `R_Weapon` | one cast, one hit | [body-beam](sirus/body-beam.md) |
-| Multi beam | 8098 / 8099 | the body | the charge trail and the blast points; the three beams are `triple_beam_01/02/03.ao` effect objects | three effect objects per contact | [body-barrage](sirus/body-barrage.md) |
-| Maze | 10949-10953 | the body | the rings `meteor_100/150/200.ao`, one every 0.2 s | the cast and the damage | [maze](sirus/maze.md) |
-| Corridor | 10948 | the body | `corridor_slash_01.ao` per beam | eight effect objects; one damage circle per fireball | [corridor](sirus/corridor.md) |
-| Die Beam | 10147 / 8100 | the body | `clone_trap_beam.ao` on the body | the clones' beams | [clones](sirus/clones.md) |
-| Beam bomb | 10973 | the body | the `OrionBeamBomb` entity's own `.ao` | the entity, the position table, the rotation (10°/s) | [beam-bomb](sirus/beam-bomb.md) |
-| Storm | 6833-6837 | the storm entity | `OrionDeathZone.ao` - the monster's own art | the entity and its twelve skills | [storm](sirus/storm.md) |
-
-**The two arms are the server's, because the client's sweep is never armed.** `OrionBeamSweep` only resolves its two
-arm tips while its own state is 1, and the only thing that writes that state is a shared event handler woken by an
-animation event - so the class is built and then sits idle (the slots and their behaviour are in
-[apparition-laser.md](sirus/apparition-laser.md)). The server draws the arms instead: one beam per hand, starting on
-that hand's own bone (`L_Weapon`/`R_Weapon` - the clip's `daemon1` at model -559.03 and `daemon2` at +559.0 in x, i.e. 2.8
-cells either side of the axis and 1.6 in front) and ending on the clip's `blast` point 7.54 cells ahead, alive from
-`contact` (0.910 s) to `blast` (3.431 s). The start follows the bone, so the sweep the clip performs turns both beams as
-the arms move; placed as a static mesh instead it drew two loose slabs in front of him with nothing joining the hands to
-the target.
-
-**A beam's length runs along its own rotation.** Every beam in this fight is a stretched mesh placed by the server,
-and `blocking_02.ao` showed the convention: an object's long axis lies along the rotation it is given, so the line
-through `from` and `to` uses `atan2(dy, dx)` itself, not that angle plus a quarter turn. Placed round a ring the rotation
-is `angle + pi/2` only because there the length *is* the tangent.
-
-**The corridor's beams are the server's (revised 2026-11-17).** `OrionCorridorBlast` (ActionType 1036) *is* instantiated by
-a 10948 cast - it picks its own directions (slot 31 sweeps 2π in 10° steps and keeps the ones within 60 cells; slot 40
-reads the `beam_left`/`beam_right` stats) - but **it creates no visible art**. The official beam is `corridor_slash_01.ao`
-(`MiscAnimated` row 3692 `AtlasExileOrionCorridorNuke`), an effect object the server places; `corridor_nuke.ao` is the
-fight's own ball, but its mesh is stretched between two bones by a `beam_length` group, so a plain effect object at a point
-draws nothing. The corridor therefore marches eight of those down the middle, one per contact.
+| ability | effect | page |
+|---|---|---|
+| Star rain | 10942 / 10145 / 10945 | [meteor](sirus/meteor.md) |
+| Two-hand laser | 10941 | [apparition-laser](sirus/apparition-laser.md) |
+| Body beam | 7008 / 7012 | [body-beam](sirus/body-beam.md) |
+| Multi beam | 8098 / 8099 | [body-barrage](sirus/body-barrage.md) |
+| Maze | 10949-10953 | [maze](sirus/maze.md) |
+| Corridor | 10948 | [corridor](sirus/corridor.md) |
+| Die Beam | 10147 / 8100 | [clones](sirus/clones.md) |
+| Beam bomb | 10973 | [beam-bomb](sirus/beam-bomb.md) |
+| Storm | 6833-6837 | [storm](sirus/storm.md) |
 
 **The maze's rings are not a circle.** `meteor_{100,150,200}.ao` are meteors that fly and emit boxes as they go
 (`boxEmit.pet` is an `AxisAlignedBoxEmitter` with a stretch curve, on the `aux_box_01..03` bones - nine boxes for the 150
 and 200 variants). The original wall is therefore a moving zigzag, and the collision the server adds has to land on those
 boxes rather than on a clean arc.
 
-**The maze wall object.** The wall is two objects doing two jobs, because no single one does both.
+**The maze wall object.**
 
-- **Collision:** `OrionBlockingWall2` (`InstanceEntities.OrionWallObject`, the fight's own maze wall type), one every
-  1.6 cells, rotated to face the centre. Its TriggerableBlockage is read by the client itself: the client closes the
-  cells the model's footprint stands on (0x141d8ad70), so the player is stopped by his own pathfinder and the server
-  never has to put him back. `Tutorial_Blocker_1` at scale 0.01 - what this fight used before 2026-11-16 - blocks
-  **nothing**: the footprint shrinks with the scale, so a 0.01 wall closes 0.02 of a cell and the player walks through
-  the ring (live: "the wall is fake, it does not hold the player"). The object's own `blocking_02.ao` stays on its
-  default `wait` clip, which draws nothing, so the collision object is invisible and the picture is the ring below.
-- **When it goes:** the wall carries the StateMachine state `detonate` (component 7), raised at the collapse the moment
-  the centre meteor lands, and the objects are removed 0.6 s later. The official fight does the same, and the phase
-  after the maze started 1.2 s after the hit in a live run.
+- **Collision:** `OrionBlockingWall2`'s TriggerableBlockage is read by the client itself: the client closes the cells
+  the model's footprint stands on (0x141d8ad70), so the player is stopped by his own pathfinder. The footprint shrinks
+  with the scale: `Tutorial_Blocker_1` at scale 0.01 closes 0.02 of a cell and blocks **nothing**. The object's own
+  `blocking_02.ao` stays on its default `wait` clip, which draws nothing. The wall carries the StateMachine state
+  `detonate` (component 7).
 - **The picture:** `Orion/blocking_02.ao` - the fight's own maze wall, a ring of broken rock with its lava in the `crack`
-  bone group's particle - as a plain effect object, one every 2.6 cells, rotated to face the centre, at scale 1.5.
-  **It has to be started on clip 2.** The `.ao`'s `default_animation` is `wait`, which carries no particle events at all,
-  so an effect object of this art that is never given a clip draws nothing; clip 2 is `loop`, and that is the one that
-  puts the wall on the screen (live 2026-11-16: `/sirus_art wall 2 1 12 24` in town drew a closed ring, and the same
-  art at scale 1 sat too low to read against the arena's own black ground).
-
-**Two things the resource layer settles that the code used to get wrong:**
-
-- **The star rain is the apparition's cast, not the body's - but it is 10942, not 10145 (revised 2026-11-17).** One
-  official meteor is one action of effect 10942 (`AtlasOrionMeteor`, ActiveSkill 1570 `orion_meteor`): the client class
-  `OrionMeteor` builds exactly one `Meteor_Rain.ao` (its `MiscAnimated` hash 2133148678 = row 3622
-  `AtlasExileOrionMeteorRain`), so a shower is **N such actions**, one per meteor. 10942 sits in the apparition's list
-  (skill id 0x400B), so the rain is cast by the apparition. Effect 10145 (`AtlasExilesOrionMeteorRectangle`) is a
-  `geometry_trigger` instead, and that path draws nothing here: its `Data/GeometryTrigger.dat` rows for this fight have no
-  ground marker, and the stat it looks the row up by (6433) does not appear in the file at all - which is why casting 10145
-  produced an empty arena.
-- **The maze rings are the server's for now, and the client draws nothing for them yet.** `meteor_{100,150,200}.ao` are
-  meteors that fly and emit boxes as they go (`boxEmit.pet` on the `aux_box_01..03` bones), which is why the original wall
-  reads as a zigzag rather than a ring: they belong to `OrionCircleMazeBlast`, which the cast *does* now instantiate
-  (effect 10949 -> ActiveSkill 1572 -> ActionType 1037). But the client only builds a ring when that action's own
-  serialized state arrives with flag = 1 and the ring centre, and a 0x1ab cast carries no such state - so the client has no
-  centre and no ring. The server draws its own ring with `blocking_02.ao` and lands the collision on the same circle until
-  it can send that state.
-
-**What the client will not do for Sirus:** draw the two-hand laser. `OrionBeamSweep` resolves two arm tips - the hands at
-model `(+/-559.03, -160.46, 0)` (5.59 cells apart, 1.60 in front of the caster) and the blast at `(0, -753.94, 0)`, 7.54
-cells straight ahead of the apparition, which is where the beams close, not at the player - but the class creates no art of
-its own, so resolving the tips draws nothing on screen. The tips are only solved while the action's state is 1, and that
-state is written by one slot (153, `0x141D1AF10`) reached from the shared event handler `0x1419E9D30` when an animation
-event carries the tag `0x9b8d` - the same event id the meteor and beam-bomb actions key on (39821, this fight's "contact"
-event). The server therefore draws the two arms itself, at the clip's own coordinates: the tag is in the clip, but the
-drawing is not.
+  bone group's particle. **It has to be started on clip 2.** The `.ao`'s `default_animation` is `wait`, which carries
+  no particle events at all, so an effect object of this art that is never given a clip draws nothing; clip 2 is
+  `loop`, and that is the one that puts the wall on the screen. At scale 1 it sits too low to read against the arena's
+  own black ground.
 
 ### The arena ring and the throne are objects the server has to spawn
 
 `orionarenamarker.ot` is `server_only` and its only component is `Animated` on `Orion_Arena.ao`: nothing appears unless the
 server spawns it. The art is the boundary band — `Orion/Arena/orion_arena.pet` is an infinite point emitter of the
 `arenaedge.fmt` mesh at `scale 1214.29`, hung on the `line` bone group, so it runs round the edge of the arena at the
-arena's own scale rather than round the player. Our server draws it on the arena centre from the moment he descends and
-drops it when he ascends; it is a mark of where the arena ends, so it is read from near the edge, not from the middle.
+arena's own scale rather than round the player: it marks where the arena ends, so it is read from near the edge, not
+from the middle.
 
 The intermission is the same kind of pairing. `AtlasExile5Throne` (row 8377) is metadata of its own with
 `on_construction_complete = { globals.the_throne = this; }`, and the body's `Emerge` / `Emerge2` / `ChangeToStance2`
 all `MoveToObject(the_throne, …)` — so a server that never spawns it leaves those clips with nowhere to move to. Spawning
 it is not enough either: `throne = 1` on the **body** only makes the *throne* play `Throne_Appear.epk`, while the seated
 model is the **throne's own** `human = 1`, which hangs `AtlasExile5OnThrone.ao` + `Throne_FX.epk` on `throne_jntBnd`. Set
-only the body's states and the whole intermission is an empty arena (that was this controller's bug until 2026-11-16).
-Ours spawns a fresh throne on the arena centre at the ascent, gives it `human = 1`, takes it off again on the descent
-before `throne_deactivate_01`'s `disintegrate_throne` (0.14 s) dissolves the seat, and retires the actor once that clip
-has played.
+only the body's states and the whole intermission is an empty arena. Ours spawns a fresh throne on the arena centre at the ascent, gives
+it `human = 1`, takes it off again on the descent before `throne_deactivate_01`'s `disintegrate_throne` (0.14 s)
+dissolves the seat, and retires the actor once that clip has played.
 
 ## What is open
 
@@ -675,9 +578,6 @@ has played.
 - **`Sirus.Combat` plays `ChangeToStance1Immediate`** for rounds 1-2 and `ChangeToStance2Immediate` for round 3. Those
   action types exist (rows 580/581) and `Basic` resolves them, but the act binds only `ChangeToStance2`: the animated
   swap to the final stance has a clip (`final_throne_deactivate_01`), the immediate one deliberately has none.
-- **Clip lengths are not in the `.ao`.** The contacts above are; the durations need the rig,
-  `Art/Models/MONSTERS/AtlasExiles/TheOrion/Character/rig.amd` (named by `AtlasExile5.ao`'s `AnimationController`), which
-  is not part of this extraction.
 - The `.ao` also carries the `view_of` remaps that make one clip serve two skills: `beam_01/02 → beam_uber_01/02`,
   `beam_03 → beam_uber_03`, `trap_beam_01 → trap_beam_uber_01`, `clone_beam_start_01 → clone_beam_start_uber_01`,
   `final_beam_barrage_01 → standalone_beam_barrage_01` (excluding the `StandardEvent` events), so the Uber variants play
@@ -703,15 +603,14 @@ carries the same numbers):
 | `teleport_01`, `final_teleport_01` | `contact` 250 |
 
 - **The corridor's eight contacts are the client's own.** `Sirus.Combat`'s 1.173 / 1.825 / 2.485 / 3.156 / 3.818 / 4.497
-  / 5.167 / 5.812 are `beam_right`/`beam_left` to the millisecond, in both barrages. An earlier note in this file said
-  the fight invented them; it did not — `scripts/re/ot_components.py`'s `all_contacts` reads `contact` keys only. The
+  / 5.167 / 5.812 are `beam_right`/`beam_left` to the millisecond, in both barrages (`scripts/re/ot_components.py`'s `all_contacts` reads `contact` keys only, so it does not list
+  them). The
   7500 the fight holds the corridor for is `GrantedEffects` 10948's `CastTime`, so the animation (`finish` 6536) ends
   0.96 s before the cast does, and both numbers are the client's.
-- **The final stance doubles each blast and moves the second half.** The fight had 1098 / 1241 / 1370 for the final
-  stance's medium and large pair — `beam_03`'s times — where `final_beam_03` puts them at 1125 / 1264 / 1389. Changed.
+- **The final stance doubles each blast and moves the second half.** `final_beam_03` puts the medium and large pair at
+  1125 / 1264 / 1389, not at `beam_03`'s 1098 / 1370.
 - **672 ms is not scaled by the cast time.** `beam_01` and `final_beam_01` both land the contact at 672, so 7012's
-  1350 ms cast does not pull it in; the fight multiplied by `cast / 1.5` and landed the final stance's blast at 605 ms.
-  Changed to the flat 672.
+  1350 ms cast does not pull it in (`cast / 1.5` would put it at 605 ms).
 - **The quad beams' six blasts** are at 4141-4722 ms, 0.4-1.0 s after `identify` 3742. The fight starts the arms at the
   skill's 3000 ms cast and damages continuously until `base_skill_effect_duration` 13000 ms: a different model, not a
   different number, so it is recorded and not changed.
@@ -741,9 +640,6 @@ and left as a decision instead of being folded into this pass.
   `ActiveSkills`, `ActionTypes`, `Animation`, `GrantedEffectStatSets(PerLevel)`, `Stats`, `Mods`, `Tags`;
 - metadata: `Client/Content.ggpk`, mirrored in `data/game-files.zip` (`.ot`/`.ao`) plus the archive for the `.act`
   files, which the pack does not carry; read with `iconv -f UTF-16LE -t UTF-8`;
-- the working copies and the three scripts used for the tables are in `Tools/re/out/orion/` and `Tools/re/out/sirus/`
-  (`effects.py` resolves the stats the way `GolemCatalog.Scaling` / `SkillCatalog.EffectStats` do, `mdtable.py` prints
-  the two tables above, `ao_clips.py` prints the `.ao` clip events);
 - the archive paths, for re-extraction:
 
   ```bash
