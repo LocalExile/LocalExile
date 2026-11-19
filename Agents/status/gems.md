@@ -116,6 +116,7 @@ Nothing yet.
   Ice Nova of Deep Freeze also repeats its caster-centred ring on the server.
   Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
   Greater Spell Echo scales repeated area and projectile hits, including Dark Bargain's damage and blast radius.
+  Storm Call sends each lightning impact at the radius of its strike.
   Focused Channelling scales channelled area hits by elapsed whole seconds.
   Meat Shield reduces damage taken by supported minions, and Elemental Army scales their elemental damage paths.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and

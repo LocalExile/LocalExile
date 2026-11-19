@@ -1863,6 +1863,7 @@ The 0x197 updates are dropped while the player is blocked, so an interruption lo
 **Storm Call** (`StormCall.cs`, `StormCallMarkers.cs`): each landing (the aim, a Spell Cascade area, a Spell Echo
 repeat) sets a marker that strikes its area when the skill duration ends, and that strike also calls down every other
 marker out; quality's chance strikes a new marker on cast. Marker and impact are server art from the worn skin.
+The idle marker keeps its asset size and the lightning impact scales to the hit radius at detonation.
 
 **Multi-strike** (`SkillMultiStrike.cs`, `GemAttackStrikeGap`): a gem attack whose StatSet carries
 `base_skill_number_of_additional_hits` repeats its whole sweep once per extra strike (Double Strike: 1). Each strike

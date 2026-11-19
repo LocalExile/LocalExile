@@ -23,7 +23,7 @@ public static partial class Game
             Art.Animated("storm_call_impact", variation) ?? Art.Animated("storm_call_impact", 0), variation);
     }
 
-    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, bool FinalSpellRepeat);
+    internal sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, bool FinalSpellRepeat);
 
     public static Task PlaceStormCall(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
@@ -51,7 +51,6 @@ public static partial class Game
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
-        int radius = SkillRadius(conn, own, spell: true, gem.Effect);
         var (loop, _, variation) = StormCallArt(conn, gem.Gem);
         StormCallMarkers.Marker marker;
         bool paid = false;
@@ -65,7 +64,7 @@ public static partial class Game
         }
         if (paid) await Send(remote, stream, ciphers, [], null, atGate: sacrifice.LifePacket);
         Console.WriteLine($"[gateway] {remote} storm call marker 0x{marker.Object:x} at ({at.X}, {at.Y}), repeat {repeat}, "
-            + $"strikes in {duration:0.00}s, radius {radius}; skin variation {variation}: art {loop ?? "none"}");
+            + $"strikes in {duration:0.00}s; skin variation {variation}: art {loop ?? "none"}");
         if (loop is not null)
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(marker.Object,
@@ -113,7 +112,7 @@ public static partial class Game
 
     // One marker's lightning: the impact art there and the skill's area hit around it, with the cast's critical roll and
     // repeat (Spell Echo's final-repeat damage). A dead player or a gem no longer socketed strikes nothing.
-    static async Task StormCallStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task StormCallStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         StormCallMarkers.Marker marker, bool removeMarker)
     {
         if (removeMarker) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(marker.Object), null);
@@ -123,7 +122,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} storm call marker 0x{marker.Object:x} strikes nothing (gem gone or player dead)");
             return;
         }
-        int radius = SkillRadius(conn, SupportedSkill(conn, marker.Skill).Stats, spell: true, gem.Effect);
+        int radius = SkillRadius(conn, SupportedSkill(conn, marker.Skill).Stats, spell: true, gem.Effect, marker.Repeat);
         var (_, impact, _) = StormCallArt(conn, gem.Gem);
         if (impact is not null)
         {
@@ -141,7 +140,8 @@ public static partial class Game
             });
         }
         await AreaSkillHitForUse(null, remote, stream, ciphers, conn, marker.Skill, gem, marker.At, marker.At, immediate: true,
-            criticalRoll: use.Critical, repeat: marker.Repeat, finalSpellRepeat: use.FinalSpellRepeat, sacrifice: use.Sacrifice, damageMore: use.DamageMore,
+            criticalRoll: use.Critical, repeat: marker.Repeat, radiusOverride: radius, finalSpellRepeat: use.FinalSpellRepeat,
+            sacrifice: use.Sacrifice, damageMore: use.DamageMore,
             triggeredCurrent: () => !conn.Closed && !conn.LeavingArea && conn.ProjectileEpoch == marker.Epoch && conn.PlayerLife > 0);
     }
 }

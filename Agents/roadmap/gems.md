@@ -74,7 +74,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   remaining totem payloads (Artillery/Focused Ballista, beams, channels and pulses; monsters do not attack totems;
   [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
   native data and live behaviour.
-  Greater and Awakened Spell Echo still need native checks.
+  Greater and Awakened Spell Echo still need native checks, including Storm Call's impact size on successive repeats.
   Barrage still needs sequential release, cancellation and per-projectile hit admission beyond its attack-time penalty.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
