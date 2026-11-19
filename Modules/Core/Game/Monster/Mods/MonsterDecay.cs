@@ -82,10 +82,7 @@ public static partial class Game
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(conn.Pools, Get), typedIncreasedPct: Get("chaos_damage_taken_+%"),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        bool bypass = Get("chaos_damage_does_not_bypass_energy_shield") == 0 && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
-                && (ulong)conn.PlayerLife * 100 > (ulong)conn.PlayerMaxLife * (uint)LowLifeThresholdPct(player))
-            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0 && (ulong)conn.PlayerMana * 2 > conn.Pools.Mana);
+        bool bypass = ChaosDamageBypassesEnergyShield(conn, player);
         return IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage, bypass ? 100 : 0, now, ref conn.ChaosDotBypassCarry);
     }
 }

@@ -2,6 +2,17 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    public static bool ChaosDamageBypassesEnergyShield(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        return Get("chaos_damage_does_not_bypass_energy_shield") == 0
+            && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
+            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
+                && (ulong)conn.PlayerLife * 100 > (ulong)conn.PlayerMaxLife * (uint)LowLifeThresholdPct(stats))
+            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0
+                && (ulong)conn.PlayerMana * 2 > conn.Pools.Mana);
+    }
+
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
     public static int DamagePlayerHitTyped(ClientState conn, int physical, int other, int chaos, double at,

@@ -14,6 +14,7 @@ public sealed class EssenceCorruptionTests
     [Fact]
     public void Corruption_uses_real_essence_groups_tier_caps_and_Stability_outcomes()
     {
+        ChaosBypassEffects();
         LowLifeEffects();
         DecayEffects();
         foreach (var (suffix, element) in new[] { ("Fire", DamageType.Fire), ("Cold", DamageType.Cold), ("Lightning", DamageType.Lightning) })
@@ -228,6 +229,31 @@ public sealed class EssenceCorruptionTests
         Assert.Equal(36, monster.Walk.Speed, 8);
         Assert.Equal(200, Hit().MinTotal, 8);
         Assert.Equal(1, Game.MonsterSwingSeconds(conn, monster, 0), 8);
+    }
+
+    static void ChaosBypassEffects()
+    {
+        var conn = CombatClient();
+        Dictionary<uint, int> Stats(params (string Name, int Value)[] values) =>
+            values.ToDictionary(v => Program.Stats.Key(v.Name)!.Value, v => v.Value);
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, Stats()));
+        foreach (string flag in new[] { "chaos_damage_does_not_bypass_energy_shield", "virtual_chaos_damage_does_not_bypass_energy_shield" })
+            Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, Stats((flag, 1))));
+        var life = Stats(("chaos_damage_does_not_bypass_energy_shield_while_not_low_life", 1));
+        conn.PlayerLife = conn.PlayerMaxLife / 2 + 1;
+        Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        conn.PlayerLife--;
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        life[Program.Stats.Key("low_life_threshold_%_override")!.Value] = 55;
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        conn.PlayerLife = conn.PlayerMaxLife * 55 / 100 + 1;
+        Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        var mana = Stats(("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana", 1));
+        conn.PlayerMana = conn.Pools.Mana / 2 + 1;
+        Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, mana));
+        conn.PlayerMana--;
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, mana));
+        conn.Closed = true;
     }
 
     static void DecayEffects()
