@@ -1790,7 +1790,10 @@ The four stock gems leave `GrantedEffects.Animation` empty. Their ordinary clien
 row 24 for Fireball (`0x1413e1c01`), 26 for Spark (`0x141248071`), and 25 for both cold spells
 (`0x141247151`). In the absence of a rain, barrage or granted-effect override, `0x14193e130` keeps that row.
 Each elemental role aliases `SpellProjectile` in the seven base character ACTs. The stance supplies the clip.
-For example, a Ranger with a wand uses `spell_projectile_unarmed`. Attached effects have separate tracks.
+For example, a Ranger with a wand uses `spell_projectile_unarmed`. These ACT roles also name 25 distinct
+locked effect clips. Across their authored timelines there are four `contact` events and one `endtrl`.
+The Auspicious effect uses the first 1000 ms of `animate` through the `animate_01` view, which has no event.
+None names the target-refresh event. Effect eligibility, nested effects and runtime event delivery remain open.
 
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
