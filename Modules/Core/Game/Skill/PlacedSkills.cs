@@ -447,9 +447,10 @@ public static partial class Game
     /// <summary>How long a thrown trap or mine is in the air. Measured on the official client at 30 frames a second
     /// (2026-11-19, no throwing speed): a trap lands in 0.15 s at the thrower's feet, 0.25 s at 12 cells, 0.4 s at 29 and
     /// 0.43 s at 32; a mine in 0.13 s at 25 cells and 0.18 s at 46. The cells are the screen distance at 9.1 pixels a
-    /// cell (a throw of this server's measured the same way), so the fit is approximate.</summary>
+    /// cell (a throw of this server's measured the same way), so the fit is approximate. A trap's is never longer than
+    /// its rig's "throw" clip (trap_02/trap_trigger/rig.amd: 466 ms), which the longest measured throws came to.</summary>
     public static double PlacedFlightSeconds((int X, int Y) from, (int X, int Y) to, bool mine) =>
-        mine ? Math.Min(.07 + Dist(from, to) / 400, .6) : Math.Min(.15 + Dist(from, to) / 110, 1);
+        mine ? Math.Min(.07 + Dist(from, to) / 400, .6) : Math.Min(.15 + Dist(from, to) / 110, .466);
 
     /// <summary>The client starts a thrown object's glide a little after the server does, so the landing's Arm is sent this
     /// much after the flight: sent on time, a mine's arming pulse was drawn part-way along its path (live 2026-11-19).</summary>
