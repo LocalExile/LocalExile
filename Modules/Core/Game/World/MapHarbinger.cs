@@ -217,7 +217,7 @@ public static class MapHarbinger
                         var cells = MapStrongboxes.Positions(conn.Layout, conn.Seed ^ Salt, total);
                         for (int i = 0; i < cells.Count; i++)
                         {
-                            bool isKing = i >= normalCount || (bossChance > 0 && random.Next(100) < bossChance);
+                            bool isKing = i < guaranteedKing || (bossChance > 0 && random.Next(100) < bossChance);
                             HarbingerKind kind;
                             string variety;
                             if (isKing && Monsters.Find(KingVariety) is { Supported: true })
@@ -390,27 +390,45 @@ public static class MapHarbinger
             if (h.State is not (HarbingerState.Waiting or HarbingerState.Active)) continue;
 
             // Prune missing/dead minion and obelisk references.
+            List<uint>? prunedMinions = null, prunedObelisks = null;
+            bool bodyAlive;
             lock (conn.Monsters)
             {
-                if (h.Monster == 0 || !conn.Monsters.TryGetValue(h.Monster, out var body) || body.Dead)
-                    continue;
-                for (int i = h.Minions.Count - 1; i >= 0; i--)
+                bodyAlive = h.Monster != 0 && conn.Monsters.TryGetValue(h.Monster, out var body) && !body.Dead;
+                if (bodyAlive)
                 {
-                    uint mid = h.Minions[i];
-                    if (!conn.Monsters.TryGetValue(mid, out var mm) || mm.Dead || mm.Life == 0)
+                    for (int i = h.Minions.Count - 1; i >= 0; i--)
                     {
-                        h.Minions.RemoveAt(i);
-                        changed = true;
+                        uint mid = h.Minions[i];
+                        if (!conn.Monsters.TryGetValue(mid, out var mm) || mm.Dead || mm.Life == 0)
+                        {
+                            h.Minions.RemoveAt(i);
+                            (prunedMinions ??= []).Add(mid);
+                            changed = true;
+                        }
+                    }
+                    for (int i = h.Obelisks.Count - 1; i >= 0; i--)
+                    {
+                        uint oid = h.Obelisks[i];
+                        if (!conn.Monsters.TryGetValue(oid, out var om) || om.Dead || om.Life == 0)
+                        {
+                            h.Obelisks.RemoveAt(i);
+                            (prunedObelisks ??= []).Add(oid);
+                            changed = true;
+                        }
                     }
                 }
-                for (int i = h.Obelisks.Count - 1; i >= 0; i--)
+            }
+            if (!bodyAlive) continue;
+            if (prunedMinions is not null || prunedObelisks is not null)
+            {
+                lock (area.TrackingLock)
                 {
-                    uint oid = h.Obelisks[i];
-                    if (!conn.Monsters.TryGetValue(oid, out var om) || om.Dead || om.Life == 0)
-                    {
-                        h.Obelisks.RemoveAt(i);
-                        changed = true;
-                    }
+                    if (prunedMinions is not null)
+                        foreach (uint mid in prunedMinions) area.MinionToHarbinger.Remove(mid);
+                    if (prunedObelisks is not null)
+                        foreach (uint oid in prunedObelisks) area.ObeliskToHarbinger.Remove(oid);
+                    area.HasTracked = area.MinionToHarbinger.Count > 0 || area.ObeliskToHarbinger.Count > 0;
                 }
             }
 
@@ -727,6 +745,8 @@ public static class MapHarbinger
         foreach (uint obelisk in obelisks) await Remove(conn, obelisk, "parent harbinger defeated");
 
         await SpawnEffect(conn, area, at, DefeatBurstAo, DefeatEffectSeconds);
+        // LeagueAvatar has no corpse/fall animation on LifeUpdate(0), so remove the defeated avatar cleanly.
+        if (h.Monster != 0) await Remove(conn, h.Monster, "harbinger defeated");
         var w = conn.Wire;
         await SendRemainingMonsters(w.Remote, w.Stream, w.Ciphers, conn);
 

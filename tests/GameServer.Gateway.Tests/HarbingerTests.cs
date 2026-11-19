@@ -209,6 +209,7 @@ public sealed class HarbingerTests
             Assert.Equal(MapHarbinger.HarbingerState.Defeated, defeated.State);
             Assert.Equal(0u, defeated.Life);
             Assert.Empty(defeated.Obelisks);
+            Assert.False(owner.Conn.Monsters.ContainsKey(normal.Monster));
             var harbingerDrops = instance.Ground.All().Skip(groundBeforeDefeat).ToArray();
             Assert.True(harbingerDrops.Length >= 4 && harbingerDrops.Length % 2 == 0,
                 $"Expected even (>=4) Warhoards-duplicated Harbinger shard stacks, got {harbingerDrops.Length}");
