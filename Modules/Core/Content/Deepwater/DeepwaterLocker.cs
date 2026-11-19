@@ -258,12 +258,16 @@ internal static class DeepwaterLocker
         return (int)Math.Clamp(total, 0, int.MaxValue);
     }
 
+    /// <summary>Thrown inside <see cref="Saves.Atomically"/> when a partial multi-step mutation must roll back.</summary>
+    internal sealed class AbortTransactionException : Exception;
+
     /// <summary>The inventory and stash changes recorded by <see cref="TryPaySulphurInTransaction"/>, ready to send to the client.</summary>
     internal readonly record struct SulphurPayment(List<(byte Row, PlayerInventories.Payment Paid)> Rows, AccountStash? Stash, AccountStash.Payment? StashPaid);
 
     /// <summary>Deducts <paramref name="amount"/> Sulphur inside an active <see cref="Saves.Atomically"/> transaction in
     /// priority order: Chart Locker (112), main inventory (0), expanded inventory (84), then personal stash (G: order).
-    /// Returns false (nothing taken) when the player holds less.</summary>
+    /// Returns false (nothing taken) before any mutation; throws <see cref="AbortTransactionException"/> if a later
+    /// deduction fails after an earlier row was mutated so SQLite and in-memory state roll back cleanly.</summary>
     internal static bool TryPaySulphurInTransaction(ClientState conn, int amount, out SulphurPayment payment)
     {
         var rows = new List<(byte Row, PlayerInventories.Payment Paid)>();
@@ -286,17 +290,47 @@ internal static class DeepwaterLocker
             return false;
         }
         int remaining = amount;
+        bool mutated = false;
         int fromLocker = Math.Min(inLocker, remaining);
-        if (fromLocker > 0 && items.Pay(LockerRow, SulphurHash, fromLocker) is { } a) { rows.Add((LockerRow, a)); remaining -= fromLocker; }
+        if (fromLocker > 0)
+        {
+            if (items.Pay(LockerRow, SulphurHash, fromLocker) is not { } a) { payment = new(rows, null, null); return false; }
+            rows.Add((LockerRow, a));
+            remaining -= fromLocker;
+            mutated = true;
+        }
         int fromMain = Math.Min(inMain, remaining);
-        if (fromMain > 0 && items.Pay(PlayerInventories.MainInventory, SulphurHash, fromMain) is { } b) { rows.Add((PlayerInventories.MainInventory, b)); remaining -= fromMain; }
+        if (fromMain > 0)
+        {
+            if (items.Pay(PlayerInventories.MainInventory, SulphurHash, fromMain) is not { } b)
+            {
+                if (mutated) throw new AbortTransactionException();
+                payment = new(rows, null, null);
+                return false;
+            }
+            rows.Add((PlayerInventories.MainInventory, b));
+            remaining -= fromMain;
+            mutated = true;
+        }
         int fromExpanded = Math.Min(inExpanded, remaining);
-        if (fromExpanded > 0 && items.Pay(PlayerInventories.ExpandedInventory, SulphurHash, fromExpanded) is { } c) { rows.Add((PlayerInventories.ExpandedInventory, c)); remaining -= fromExpanded; }
+        if (fromExpanded > 0)
+        {
+            if (items.Pay(PlayerInventories.ExpandedInventory, SulphurHash, fromExpanded) is not { } c)
+            {
+                if (mutated) throw new AbortTransactionException();
+                payment = new(rows, null, null);
+                return false;
+            }
+            rows.Add((PlayerInventories.ExpandedInventory, c));
+            remaining -= fromExpanded;
+            mutated = true;
+        }
         if (remaining > 0)
         {
             stashPaid = stash.Pay(SulphurHash, remaining);
             if (stashPaid is null)
             {
+                if (mutated) throw new AbortTransactionException();
                 payment = new(rows, null, null);
                 return false;
             }
@@ -328,7 +362,8 @@ internal static class DeepwaterLocker
     {
         SulphurPayment payment = default;
         bool paid = false;
-        Saves.Atomically(() => paid = TryPaySulphurInTransaction(conn, amount, out payment));
+        try { Saves.Atomically(() => paid = TryPaySulphurInTransaction(conn, amount, out payment)); }
+        catch (AbortTransactionException) { paid = false; }
         if (paid) await SendSulphurPayment(conn, payment);
         return paid;
     }

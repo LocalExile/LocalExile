@@ -20,7 +20,7 @@ public static class DeepwaterCrafting
     /// <summary>NPCs row 795 <c>Metadata/NPC/League/Deepwater/VesperCrafting</c>.</summary>
     public const int VesperNpc = 795;
     /// <summary>QuestFlags 3578: disables targeting Vesper while unclaimed Ghostly Copies sit in the vats (H).</summary>
-    public const string CraftInProgress = "HasDeepwaterCraftInProgress";
+    public const string CraftInProgress = DeepwaterConstants.CraftInProgress;
     /// <summary>The 4 display-case vats below deck in <c>hub_interior.arm</c> (HeistRewardDisplay, required_open_attempts = 2).</summary>
     public const string VatType = "Metadata/Terrain/Leagues/Deepwater/Objects/GhostflameCraftingOutput";
     /// <summary>Sentinel value in <c>DeepwaterCraftingCurrencies.__col5</c> meaning no league quest flag is required (H).</summary>
@@ -440,40 +440,58 @@ public static class DeepwaterCrafting
                     break;
                 }
                 rolled = ItemRolls.ClearForesee(rolled);
-                if (row.IntangMax > 0)
+                if (targetInvItem is { Item: var src })
                 {
-                    // G: Intangibility increase rolled independently per Ghostly Copy.
-                    int add = random.Next(row.IntangMin, Math.Max(row.IntangMin, row.IntangMax) + 1);
-                    rolled = rolled with { Intangibility = (byte)Math.Min(100, (targetInvItem?.Item.Intangibility ?? 0) + add) };
+                    // G: Intangibility increase rolled independently per Ghostly Copy; preserve prior Intangibility and
+                    // MemoryStrands unconditionally so currencies that build a new Item (e.g. Ancient Orb) cannot wipe them.
+                    int add = row.IntangMax > 0 ? random.Next(row.IntangMin, Math.Max(row.IntangMin, row.IntangMax) + 1) : 0;
+                    byte intang = (byte)Math.Min(100, src.Intangibility + add);
+                    if (rolled.Intangibility != intang || rolled.MemoryStrands != src.MemoryStrands)
+                        rolled = rolled with { Intangibility = intang, MemoryStrands = src.MemoryStrands };
                 }
                 copies.Add(rolled);
             }
             if (copies.Count == 0) return;
         }
 
-        // Atomic commit: validate presence, pay Sulphur, consume currency, remove target, store outputs in 106.
+        // Atomic commit: consume currency, remove target, pay Sulphur, store outputs in 106; throw to roll back on any failure.
         DeepwaterLocker.SulphurPayment sulphurPayment = default;
         PlayerInventories.Consumption? consumed = null;
         InventoryItem? removedTarget = null;
         var placedOutputs = new List<InventoryItem>(copies.Count);
         bool committed = false;
 
-        Saves.Atomically(() =>
+        try
         {
-            if (items.Items(OutputRow).Count > 0) return;
-            if (!items.Items(currencyRow).Any(i => i.Id == currencyItemId)) return;
-            if (!isChangeling && !items.Items(InputRow).Any(i => i.Id == targetInvItem!.Id)) return;
-            if (!DeepwaterLocker.TryPaySulphurInTransaction(conn, cost, out sulphurPayment)) return;
-            consumed = items.ConsumeOne(currencyRow, currencyItemId);
-            if (consumed is null) return;
-            if (!isChangeling) removedTarget = items.Remove(InputRow, targetInvItem!.Id);
-            for (int i = 0; i < copies.Count; i++)
+            Saves.Atomically(() =>
             {
-                var placed = items.Put(OutputRow, new InventoryItem(items.NewItemId(), (byte)(i * 2), 0, copies[i]));
-                placedOutputs.Add(placed);
-            }
-            committed = true;
-        });
+                if (items.Items(OutputRow).Count > 0) return;
+                if (!items.Items(currencyRow).Any(i => i.Id == currencyItemId)) return;
+                if (!isChangeling && !items.Items(InputRow).Any(i => i.Id == targetInvItem!.Id)) return;
+                consumed = items.ConsumeOne(currencyRow, currencyItemId);
+                if (consumed is null) throw new DeepwaterLocker.AbortTransactionException();
+                if (!isChangeling)
+                {
+                    removedTarget = items.Remove(InputRow, targetInvItem!.Id);
+                    if (removedTarget is null) throw new DeepwaterLocker.AbortTransactionException();
+                }
+                if (!DeepwaterLocker.TryPaySulphurInTransaction(conn, cost, out sulphurPayment))
+                    throw new DeepwaterLocker.AbortTransactionException();
+                for (int i = 0; i < copies.Count; i++)
+                {
+                    var placed = items.Put(OutputRow, new InventoryItem(items.NewItemId(), (byte)(i * 2), 0, copies[i]));
+                    placedOutputs.Add(placed);
+                }
+                committed = true;
+            });
+        }
+        catch (DeepwaterLocker.AbortTransactionException)
+        {
+            committed = false;
+            consumed = null;
+            removedTarget = null;
+            placedOutputs.Clear();
+        }
 
         if (!committed || consumed is null)
         {
@@ -616,6 +634,7 @@ public static class DeepwaterCrafting
         ItemInfluence influence, Random random)
     {
         if (target.Rarity != ItemRarity.Rare || target.Influences != ItemInfluence.None || target.Synthesised
+            || target.FracturedCount > 0 || rolls.HasEldritchImplicit(target)
             || target.Components.Contains("Flask") || !rolls.Modifiable(target))
             return null;
         var withInfluence = rolls.TagsWith(targetType, influence);
