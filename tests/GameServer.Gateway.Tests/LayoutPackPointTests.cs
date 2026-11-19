@@ -89,6 +89,8 @@ public sealed class LayoutPackPointTests
         Assert.DoesNotContain("chaos-beasts6", lair.Keys);
         var olmec = catalog.For("MapWorldsBoneCryptUnique")!.DirectPacks;
         Assert.Contains("legends-bosspack1", olmec.Keys);
-        Assert.DoesNotContain("legends-bosspack3", olmec.Keys);
+        Assert.Contains("legends-bosspack3", olmec.Keys);
+        // The zero-range Dominus pack names three map bosses. This ordinary room path does not stage their fight.
+        Assert.DoesNotContain("pantheon-dominusbosses", catalog.For("MapTier12_2Unique")!.DirectPacks.Keys);
     }
 }

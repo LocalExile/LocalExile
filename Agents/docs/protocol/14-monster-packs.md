@@ -10,8 +10,17 @@ unique boss **Fire Fury** and her guards at the cannibal camp, next to its campf
 | Client table (client.db) | What it gives |
 |---|---|
 | `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight`, `Flag` |
+| `MonsterPackEntries` | each `MonsterVarietiesKey` for a `MonsterPacksKey`. `Weight` gives a draw weight when `Flag` is set and a fixed member count when clear. |
 | `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+
+The 3.29.3c pack-size tooltip (`0x1424d7240`, `ClientStrings.ItemPopupPackSize`) scales `MinCount` down to the
+nearest whole number and `MaxCount` up. It then adds `MonsterPacks.__col1` to both. This equals the sum of the
+unflagged entry counts in all 3,168 rows. The separate boss count contributes to the lower bound at 100% chance
+and to the upper bound. At default size, `Act8-ThugTorch` has two to four Cruel Arsonists, one Spiteful Smuggler
+and one Twisted Firestarter. Positive variable ranges also occur on rows with only unflagged entries. The Gateway
+keeps its existing variety draw for those variable slots. It places fixed members first among ordinary members, so a
+local member cap or the first rare slot can favour them. The original server's variety and rarity choices are unknown.
+The tooltip describes one pack. Scattered centre density is a separate local rule.
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
@@ -145,8 +154,8 @@ So:
    A generated room's spawn list (section 0) can also name a complete `MonsterPacks.Id`. Kaom's Stronghold names
    `kaomwarriorpack`. The Lair's shared waterfall room names five beast packs, of which its `Maps.MonsterPacksKeys`
    lists four. A pack assigned through `WorldAreasKeys` may have zero area weight. Successful room packs count
-   against ordinary density. Direct placement handles positive counts with weighted members. In the game tables
-   `MonsterPacks.__col1` equals the sum of `Weight` over its unflagged entries. Their placement remains unverified.
+   against ordinary density. Direct placement handles positive variable ranges, including the Bone Warden in
+   Olmec's third guard pack. Zero-range rows can describe encounter bosses and still need their placement verified.
    The survey of 3 265 generated layouts (795 areas, two seeds each) found rarity points in 1 498 layouts.
    Of the 2 126 points, 1 663 were `magic`, 450 `rare` and 13 `normal`, with 99% on walkable cells.
    The area's remaining ordinary packs use the scattered budget
@@ -154,9 +163,8 @@ So:
    (`AreaPopulation.PlacedRoom`).
    **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
    its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:
-   a shrine whose `Shrines.MonsterPacks` names packs (the eight apparition shrines, one of 2–9 monsters a pack, in
-   area-agnostic rows) stands one of those packs; a basic shrine names none and stands one of the area's own scattered
-   packs, at that pack's own `MinCount`–`MaxCount`. The client's shrine rooms carry no monster points of their own
+   a shrine whose `Shrines.MonsterPacks` names packs takes one of those rows. A basic shrine draws an area pack.
+   Both use the row's variable members and fixed roster. The client's shrine rooms carry no monster points of their own
    (`metadata/shrines/*.arm`: the statue and decals only), nothing in the data scales a guard count by area level, Act,
    map tier or difficulty, and the Atlas passives that make a map shrine's guard pack magic
    (`map_shrines_have_guaranteed_magic_pack`) and add a chance of a second (`map_shrines_additional_pack_chance_%`) are

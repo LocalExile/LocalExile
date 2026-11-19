@@ -232,8 +232,8 @@ public sealed partial class DelveModule
                         PackCatalog.Pack? pack = encounter.Pack.Length > 0 ? Packs.Find(encounter.Pack) : null;
                         if (encounter.Pack.Length == 0 && questPacks.Length > 0) pack = questPacks[Random.Shared.Next(questPacks.Length)];
                         if (pack is not null)
-                            for (int i = 0, count = (int)Math.Min(100, Math.Ceiling(Random.Shared.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1) * DelveMine.PackMultiplier(trip.Depth))); i < count; i++)
-                                if (valid() && Monsters.Find(pack.PickVariety(Random.Shared).ToString()) is { Supported: true } variety)
+                            foreach (int row in pack.RollMembers(Random.Shared, DelveMine.PackMultiplier(trip.Depth)).Take(100))
+                                if (valid() && Monsters.Find(row.ToString()) is { Supported: true } variety)
                                 {
                                     var spawn = conn.Layout.Near((encounter.X, encounter.Y));
                                     uint monster = await SpawnMonster(remote, stream, ciphers, conn, variety, level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, spawn.X, spawn.Y);

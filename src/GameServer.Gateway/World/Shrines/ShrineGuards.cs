@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// (<c>WorldAreasKeys</c> [0], MinLevel 0, MaxLevel 100 — the shrine, not a world area, spawns them). The fifteen basic
 /// shrine rows name none, and their rooms carry no monster points of their own
 /// (<c>metadata/shrines/*.arm</c>: the statue and decals only), so a basic shrine is guarded by one of the area's own
-/// packs at the pack's own MinCount–MaxCount: the wiki's "often surrounded by a pack of monsters guarding it", the
+/// packs at the pack's own count: the wiki's "often surrounded by a pack of monsters guarding it", the
 /// 1.0.0d note that shrine packs are not spawned too close to an entrance or waypoint, and the Atlas passives that make
 /// a map shrine's guard pack magic (<c>map_shrines_have_guaranteed_magic_pack</c>) or add a chance of a second
 /// (<c>map_shrines_additional_pack_chance_%</c>) all say the guard is an ordinary pack, one per shrine, normal by
@@ -20,7 +20,7 @@ using GameServer.Core.Protocol.Instance;
 public static class ShrineGuards
 {
     /// <summary>A shrine type's guard rule: whether it has guards at all, whether the pack is one of the area's
-    /// (<see cref="AreaPool"/>), the packs the data names (empty when <see cref="AreaPool"/>), the count range they give,
+    /// (<see cref="AreaPool"/>), the packs the data names (empty when <see cref="AreaPool"/>), their unscaled variable count range,
     /// a fixed count when one applies, and the rarity.</summary>
     public sealed record Rule(bool Required, bool AreaPool, IReadOnlyList<ShrineCatalog.GuardPack> Packs,
         int Min, int Max, int? Fixed, MonsterRarity Rarity);

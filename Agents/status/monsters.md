@@ -169,7 +169,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Weighted area packs on generated layouts use the centre's ground type.
   Generated rooms can name an assigned ordinary pack, including the warriors in Kaom's Stronghold.
-  Official boundary sampling, unflagged members and in-client placement await verification.
+  Pack size scales the variable roll. Fixed members and bosses are added separately, including the Foreman on the Quay.
+  Official ground boundaries, variable choices on fixed-only rows and desktop placement await verification.
   [14](../docs/protocol/14-monster-packs.md)
 
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.

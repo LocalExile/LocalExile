@@ -37,7 +37,7 @@ public static class MapScarabBosses
         foreach (var at in shrines.Distinct())
         {
             var boss = Bosses[random.Next(Bosses.Count)];
-            var pack = new PackCatalog.Pack(-1, PackId, 1, 1, 0, 0, [], [(boss.Row, 1)], new Dictionary<int, int>());
+            var pack = new PackCatalog.Pack(-1, PackId, 0, 0, 100, 1, [boss.Row], [], new Dictionary<int, int>());
             var guards = AreaPopulation.AtPacks([(pack, at.X + ShrinePlacement.ObjectSize + 4, at.Y, MonsterRarity.Unique)],
                 (x, y) => conn.Layout.WalkableFor(x, y, Math.Clamp(boss.ObjectSize - 1, 0, 4)),
                 row => row == boss.Row, random.Next(), occupied: existing.Concat(result).Select(s => (s.X, s.Y)).Append(at));

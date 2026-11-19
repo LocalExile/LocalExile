@@ -27,12 +27,12 @@ sealed class GuardedPacksEffect : IShrineEffect
             int buffed = 0;
             foreach (var pack in shrine.Definition.GuardPacks)
             {
-                int count = Random.Shared.Next(Math.Max(1, pack.MinCount), Math.Max(pack.MinCount, pack.MaxCount) + 1);
+                var members = Packs.Find(pack.Id)!.RollMembers(Random.Shared).ToArray();
                 int made = 0;
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < members.Length; i++)
                 {
-                    if (Roll(pack.Monsters) is not { Supported: true } variety) break;
-                    var (x, y) = Around(shrine.At.X, shrine.At.Y, i, count);
+                    if (Monsters.Find(members[i].ToString()) is not { Supported: true } variety) continue;
+                    var (x, y) = Around(shrine.At.X, shrine.At.Y, i, members.Length);
                     uint guard = await SpawnMonster(remote, stream, ciphers, conn, variety, level,
                         MonsterRarity.Normal, x, y, alone: false, log: false);
                     if (guard == 0) break;
@@ -76,17 +76,6 @@ sealed class GuardedPacksEffect : IShrineEffect
         await Program.Send(remote, stream, ciphers, InstanceEntities.AddBuff(guard, instance, buff.BuffRow, guard),
             $"0x01c1 guard 0x{guard:x} has shrine buff {buff.Template} (BuffDefinitions row {buff.BuffRow})");
         return true;
-    }
-
-    /// <summary>One of a pack's varieties: its MonsterPackEntries rows by their weight.</summary>
-    static MonsterCatalog.Variety? Roll(IReadOnlyList<(ushort Variety, int Weight)> monsters)
-    {
-        int total = monsters.Sum(m => Math.Max(0, m.Weight));
-        if (monsters.Count == 0 || total <= 0) return null;
-        int roll = Random.Shared.Next(total);
-        foreach (var (variety, weight) in monsters)
-            if ((roll -= Math.Max(0, weight)) < 0) return Monsters.Find(variety.ToString());
-        return Monsters.Find(monsters[^1].Variety.ToString());
     }
 
     /// <summary>Where guard <paramref name="index"/> of a pack stands: evenly around the shrine, on a ring just outside

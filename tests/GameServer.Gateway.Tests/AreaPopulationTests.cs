@@ -9,7 +9,7 @@ public class AreaPopulationTests
     static PackCatalog.AreaPacks Area() => new("test", 1, [(Pack, 100)], new Dictionary<string, PackCatalog.Pack>(), []);
 
     [Fact]
-    public void Weighted_pack_centres_use_eligible_grounds_and_keep_their_budget()
+    public void Pack_centres_respect_ground_and_member_counts_follow_the_entry_roles()
     {
         var wet = Pack with { Id = "wet", MinCount = 1, MaxCount = 1, Grounds = ["Wet"] };
         var dry = wet with { Id = "dry", Grounds = ["Dry"] };
@@ -43,6 +43,63 @@ public class AreaPopulationTests
         Assert.Equal(Plan(mixed, Ground), Plan(marker, Ground));
         // A capture without grounds and a field allowing both rows make the same seeded weighted draws.
         Assert.Equal(Plan(area, null), Plan(mixed, (_, _) => "Wet"));
+        CheckPackMembers();
+    }
+
+    static void CheckPackMembers()
+    {
+        var catalog = new PackCatalog();
+        var thugs = catalog.Find("Act8-ThugTorch")!;
+        int smuggler = thugs.Entries.Single(e => e.Weight == 1).Variety;
+        int arsonist = thugs.Entries.Single(e => e.Weight == 100).Variety;
+        int firestarter = Assert.Single(thugs.BossVarieties);
+        foreach (double size in new[] { 0.0, 0.5, 1.0, 1.25, 2.0 })
+        {
+            var observed = new HashSet<int>();
+            for (int seed = 0; seed < 64; seed++)
+            {
+                var group = AreaPopulation.AtPacks([(thugs, 100, 100, MonsterRarity.Normal)],
+                    (_, _) => true, _ => true, seed, size);
+                Assert.Single(group, m => m.Variety == smuggler);
+                Assert.Single(group, m => m.Variety == firestarter);
+                observed.Add(group.Count(m => m.Variety == arsonist));
+            }
+            int min = (int)Math.Floor(2 * size), max = (int)Math.Ceiling(4 * size);
+            Assert.Equal(Enumerable.Range(min, max - min + 1), observed.Order());
+        }
+        var trio = catalog.Find("pantheon-dominusbosses")!;
+        Assert.Equal(trio.Entries.Select(e => e.Variety), trio.RollMembers(new Random(3), 2));
+        var empty = catalog.Find("DoedreUniqueMapSpawner1")!;
+        Assert.Empty(AreaPopulation.AtPacks([(empty, 100, 100, MonsterRarity.Normal)], (_, _) => true, _ => true, 11));
+        var statues = catalog.Find("1_1_11_2-merveilstatues")!;
+        var statuesPlaced = statues.RollMembers(new Random(11)).ToArray();
+        Assert.Equal(3, statuesPlaced.Length);
+        Assert.All(statues.Entries, e => Assert.Contains(e.Variety, statuesPlaced));
+        var excluded = AreaPopulation.AtPacks([(thugs, 100, 100, MonsterRarity.Normal)],
+            (_, _) => true, v => v != smuggler, 7);
+        Assert.DoesNotContain(excluded, m => m.Variety == smuggler);
+        Assert.Single(excluded, m => m.Variety == firestarter);
+        var weta = catalog.Find("delve-azurite-weta-pack")!;
+        int unstable = weta.Entries.Single(e => e.Weight == 2).Variety;
+        var deep = weta.RollMembers(new Random(8), 100).Take(100).ToArray();
+        Assert.Equal(100, deep.Length);
+        Assert.Equal(2, deep.Count(v => v == unstable));
+
+        var mapped = Area() with { Density = 0, DirectPacks = new Dictionary<string, PackCatalog.Pack> { [thugs.Id] = thugs } };
+        var point = new AreaPopulation.RoomPoint(thugs.Id, 110, 110);
+        var scaledRoom = AreaPopulation.Plan(mapped, 250, 250, (_, _) => true, (15, 15), [], [], 7,
+            _ => true, [], scale: new(Size: 3), roomPacks: [point]);
+        var roomGroup = scaledRoom.Where(m => m.Pack == thugs.Id).ToList();
+        Assert.Single(roomGroup, m => m.Variety == smuggler);
+        Assert.InRange(roomGroup.Count(m => m.Variety == arsonist), 6, 12);
+        foreach (var (scale, min, max) in new[] { (default(AreaPopulation.PackScale), 2, 4), (new AreaPopulation.PackScale(Size: 0), 0, 0) })
+        {
+            var group = AreaPopulation.Plan(mapped, 250, 250, (_, _) => true, (15, 15), [], [], 7,
+                _ => true, [], scale: scale, roomPacks: [point]).Where(m => m.Pack == thugs.Id).ToList();
+            Assert.Single(group, m => m.Variety == smuggler);
+            Assert.Single(group, m => m.Variety == firestarter);
+            Assert.InRange(group.Count(m => m.Variety == arsonist), min, max);
+        }
     }
 
     [GameFilesFact]

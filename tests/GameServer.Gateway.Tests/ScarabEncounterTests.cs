@@ -262,6 +262,16 @@ public sealed class ScarabEncounterTests
                 Assert.Contains("Standalone", Game.Monsters.Find(s.Variety.ToString())!.Id);
             });
             Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
+            var previousSettings = SystemSettings.Default.Values;
+            try
+            {
+                foreach (double size in new[] { 0.0, 0.5, 2.0 })
+                {
+                    SystemSettings.Default.Replace(new Dictionary<string, double>(previousSettings) { ["monster_pack_size_multiplier"] = size });
+                    Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
+                }
+            }
+            finally { SystemSettings.Default.Replace(previousSettings); }
             var guardPlan = terrorGuards[0];
             var guardVariety = Game.Monsters.Find(guardPlan.Variety.ToString())!;
             uint bossId = await Game.SpawnMonster(terrors.Conn.Wire.Remote, terrors.Conn.Wire.Stream, terrors.Conn.Wire.Ciphers,
