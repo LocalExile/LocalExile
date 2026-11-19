@@ -170,8 +170,6 @@ public partial class Program
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
-                // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
-                if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: terrainData,

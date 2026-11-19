@@ -115,6 +115,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
+- Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
+  (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
+  spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
+  Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
+  (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  `Game.MapModsOf`.
+  Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
+
+- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with wave summoning and permyriad life loss
+  on wave kills, King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
+  (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and composed Atlas/Idol map stats.
+  Not yet: the Harbingers', helpers' and obelisks' own skills (they stand still), The Beachhead unique map portal
+  encounter and Harbinger unique piece assembly.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map

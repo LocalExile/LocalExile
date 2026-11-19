@@ -34,6 +34,8 @@ public static class CharacterSaves
         bool Vestigial = false,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] HeistBlueprintState? HeistBlueprint = null)
     {
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedItem? SkinTransferSource { get; init; }
+
         // Keep the public constructor/deconstructor ABI for already installed mods.
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public byte MemoryStrands { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public byte Intangibility { get; init; }
@@ -611,7 +613,7 @@ public static class CharacterSaves
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
-        { MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
+        { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
             RelicStyle = i.RelicStyle, Chart = i.Chart };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
@@ -631,6 +633,8 @@ public static class CharacterSaves
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
             OriginalItem = s.OriginalItem is null ? null : FromSaved(s.OriginalItem, catalog),
+            SkinTransferSource = s.SkinTransferSource is not { } source ? null : source.SkinTransferSource is null
+                ? FromSaved(source, catalog) : throw new InvalidDataException("Nested skin transfers are not supported"),
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,

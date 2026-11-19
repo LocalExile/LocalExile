@@ -144,6 +144,8 @@ public static class InstanceProtocol
         InstanceWaypoints.DescendancyChosenId => InstanceWaypoints.DescendancyChosenLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
         InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
+        InstanceSkinTransfers.BindId => InstanceSkinTransfers.BindLength,
+        InstanceSkinTransfers.ReclaimId => InstanceSkinTransfers.ReclaimLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
         InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
         InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,

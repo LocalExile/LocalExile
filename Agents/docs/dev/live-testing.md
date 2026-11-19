@@ -37,6 +37,12 @@ dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.pa
 Also point the GGPK gateway list at the local login server (`GameServer.Patch gateway --login 127.0.0.1:20493`; the
 original is backed up to `data/gateway_list.original.txt`), and register an account with `GameServer.DevClient`.
 
+`live.ps1` checks that the patched copy's signing and static login keys match this checkout's
+`data/login-keys.json` before launching it. A mismatch can leave Auth logging only the key exchange, with no encrypted
+login from the client. `GameServer.Auth verify-patch Client/Game.patched.exe` checks this without changing either file.
+Stop clients using that copy, keep the existing keys, and explicitly repeat `patch` above to repair it.
+Do not regenerate server keys or run the official launcher to fix a mismatched local copy.
+
 ## A run
 
 ```powershell
