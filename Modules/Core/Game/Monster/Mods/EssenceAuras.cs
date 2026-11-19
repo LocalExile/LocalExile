@@ -132,10 +132,9 @@ public static partial class Game
                 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
             if (EssenceAuraAt(conn, state, m.Walk.Position(now), now) is not { } source)
             { state.MinionCarry.Remove(g.Id); continue; }
-            var resistance = MonsterHitResistance(m, DamageType.Chaos, default);
             double raw = m.MaxLife * source.Aura.ChaosLifePerMinute / 6000d;
-            double amount = DamageModel.Mitigate(raw, resistance.Value, resistance.Maximum)
-                * m.Effects.DamageTaken(false) * seconds + state.MinionCarry.GetValueOrDefault(g.Id);
+            double amount = raw * MonsterDotTaken(m, DamageType.Chaos, now)
+                * seconds + state.MinionCarry.GetValueOrDefault(g.Id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount));
             state.MinionCarry[g.Id] = amount - damage;
             bool bypass = m.Effects["chaos_damage_does_not_bypass_energy_shield"] == 0

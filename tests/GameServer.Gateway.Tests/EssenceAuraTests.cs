@@ -83,9 +83,16 @@ public sealed class EssenceAuraTests
             Game.TickEssenceAurasLocked(conn, 11);
             Assert.Equal(9600u, minion.Life);
             Assert.Equal(1000u, g.ShieldPool.Current);
-            second.Dead = true;
+            Assert.NotEmpty(minion.Ailments.Inflict(DamagePacket.Of(DamageType.Lightning, 10000, 10000), true,
+                minion.MaxLife, 11, _ => 0, _ => 0, new Random(505)));
+            double taken = Game.MonsterDotTaken(minion, DamageType.Chaos, 12);
+            Assert.True(taken > 1);
             Game.TickEssenceAurasLocked(conn, 12);
-            Assert.Equal(9600u, minion.Life);
+            uint remaining = 9600u - (uint)Math.Floor(400 * taken);
+            Assert.Equal(remaining, minion.Life);
+            second.Dead = true;
+            Game.TickEssenceAurasLocked(conn, 13);
+            Assert.Equal(remaining, minion.Life);
             second.Dead = false;
             conn.Monsters.Remove(43);
             Assert.Equal(0, Step(12, 13)); // removed identities cannot keep dealing damage
