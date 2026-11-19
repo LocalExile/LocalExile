@@ -20,10 +20,15 @@ static partial class QuestobjectsRules
 
     // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): two points once per tier, then 0x7b kind 0x0a.
     // It opens the class selector for an unascended character (C→S 0x39, ChooseAscendancyClass), else the passive tree.
+    // Only once Izaro's last trial is won in this instance (the chamber is the last arena's own area).
     internal static async Task UseAscendancyFont(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (LabyrinthDay.DifficultyOf(conn.Layout.Id) is not int tier) return;
-        if (tier == 2 && !conn.Instance.HasState(IzaroFights.Beaten)) return;
+        if (!conn.Instance.HasState(IzaroFights.Beaten))
+        {
+            Console.WriteLine($"[gateway] {remote} the font: Izaro is not beaten in this instance");
+            return;
+        }
         try
         {
             int earned = await AwardAscendancyPoints(remote, stream, ciphers, conn, [global::AscendancyRules.AwardKeys[tier - 1]]);

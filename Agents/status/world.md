@@ -260,7 +260,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (0x7b kind 0x0a; the choice, C→S 0x39, is saved and reloads the same instance at the font), and its portal goes back to town.
   Checked live 2026-11-03: the class chosen there stays after a relog.
   Cruel (C→S 0x212 = 2) requires level 40, Normal completion and the three Act 6–7 trials. The door and destination
-  are per player, and the run keeps the selected day. Defeating Izaro in the last arena unlocks its two points at the font.
+  are per player, and the run keeps the selected day. In both, defeating Izaro in the last arena unlocks the font and its two points.
   Checked live 2026-11-19: the three plaques, all three fights, the return portal and the points after a relog.
   Izaro's three Aspirant's Trials: the corridor's gate opens when used (his prefight line), he rises on the elevator
   with the day's weapon as the player comes into the arena (the mechanic's line) and the arena's doors shut; his life
