@@ -87,8 +87,11 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
             switch (c)
             {
                 case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    // A placement without a fixed height (AreaObjects' NaN) has none: a NaN height hides the object
+                    // (live 2026-11-19: The Sovereign's ChartLocker was neither drawn nor targetable).
+                    bool fixedHeight = Height is float h && !float.IsNaN(h);
+                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(fixedHeight ? 0x04 : 0)).U8(0x02);
+                    if (fixedHeight && Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
                     w.U8(0).U8(1);
                     break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
