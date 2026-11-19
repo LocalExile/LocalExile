@@ -61,8 +61,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   - Sanctum (4): the floors (`SanctumCellar`, `SanctumCrypt`, `SanctumNave`, `SanctumVaults`); the client rebuilds
     the floor graph from the rooms the server sends.
   - Deepwater (2): generated on the server (status); left: run the gate on their seed-1 traces (the default grid; not
-    possible on the host that ported them) and compare the walk grids of a capture with a module grid (`levelgen walk`
-    reads the trace's `pluginStates`).
+    possible on the host that ported them).
 - The daily Labyrinth layout is step 1 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
@@ -123,7 +122,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
   1. Encounter levels: the grid and ruleset 171 are sent and the level is generated (status, "The Sovereign"); left:
-     the gate and the walk grids of the "Deepwater (2)" item of
+     the gate of the "Deepwater (2)" item of
      [server-side level generation](#server-side-level-generation), and the chart's own room, rotation, level, cell
      stats and border mods once charts exist (step 3).
   2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
