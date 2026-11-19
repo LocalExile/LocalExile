@@ -291,8 +291,7 @@ public class SacrificeSupportTests
         Assert.Equal(1, session.WarpCount);
 
         // Start Fireball on the monster half a windup before the already-paid warp lands on its old cell.
-        double cast = Game.CastMs(conn, fire.Effect, fire.Id)!.Value / 1000d;
-        double windup = cast * Game.Animations.SpellRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
+        const double cast = .75 / 1.4, windup = cast * 599 / 1066; // Witch, bow, level-one Spell Echo.
         session.AdvanceTo(session.LastWarpTime - ProjectileRuntime.Time(windup / 2));
         conn.Clock.Start();
         double start = Game.ProjectileWorldTime(conn);
@@ -321,6 +320,7 @@ public class SacrificeSupportTests
         await FireballAtTheCastersCell(echo: false, moveToAim: false);
         await FireballAtTheCastersCell(echo: true, moveToAim: false);
         await FireballAtTheCastersCell(echo: true, moveToAim: true);
+        await FireballKeepsItsBowContactAcrossDispatch();
         using var fixture = new Fixture();
         var conn = fixture.Conn;
         conn.Clock.Reset();
@@ -349,9 +349,44 @@ public class SacrificeSupportTests
         Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, replacement, Game.ProjectileWorldTime(conn)));
     }
 
+    static async Task FireballKeepsItsBowContactAcrossDispatch()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle(0, "Fireball", "Spell Echo Support");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        var items = Game.ItemsOf(conn);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Sockets = [], Links = [] });
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Plate Vest")!) with
+        { Sockets = bow.Item.Sockets, Links = bow.Item.Links });
+        items.Add(PlayerInventories.Weapon2, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        conn.Monsters.Clear();
+        conn.Clock.Start();
+        session.AdvanceTo(ProjectileRuntime.Time(10));
+        var gem = Game.GemSkillEffects(conn).Single(g => g.Name == "Fireball");
+        conn.LockstepClient = true;
+        conn.LockstepSequence = 7;
+        conn.LockstepSkill.Press((240, 100), null, gem.Id, 0x401, repeats: true);
+        Game.HoldLockstepSkill(conn, 0x8007, 10, 10);
+        items.SwapWeaponSets();
+        Assert.Equal("Driftwood Wand", Game.ActiveMainHand(conn)?.Type?.Name);
+        session.AdvanceTo(ProjectileRuntime.Time(10.05));
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, gem.Id,
+            (100, 100), (240, 100), sequence: 0x8007, actionToken: conn.ActionCount));
+        const double duration = .75 / 1.4;
+        foreach (double start in new[] { 10, 10 + duration })
+        {
+            long contact = ProjectileRuntime.Time(start + duration * 533 / 1000);
+            session.AdvanceTo(contact - 1);
+            Assert.DoesNotContain(session.Runtime.Projectiles, p => p.CreatedAt >= ProjectileRuntime.Time(start));
+            session.AdvanceTo(contact);
+            Assert.Single(session.Runtime.Projectiles, p => p.CreatedAt == contact);
+        }
+    }
+
     static async Task FireballAtTheCastersCell(bool echo, bool moveToAim)
     {
-        using var battle = new ArrowRainAndMirageTests.Battle(echo ? ["Fireball", "Spell Echo Support"] : ["Fireball"]);
+        using var battle = new ArrowRainAndMirageTests.Battle(0, echo ? ["Fireball", "Spell Echo Support"] : ["Fireball"]);
         var conn = battle.Conn;
         var session = battle.Session;
         conn.Monsters.Clear();
@@ -360,8 +395,8 @@ public class SacrificeSupportTests
         conn.PlayerMana = 300;
         var gem = Game.GemSkillEffects(conn).Single(g => g.Name == "Fireball");
         double start = Game.ProjectileWorldTime(conn);
-        double cast = Game.CastMs(conn, gem.Effect, gem.Id)!.Value / 1000d;
-        double windup = cast * Game.Animations.SpellRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
+        double cast = echo ? .75 / 1.4 : .75;
+        double windup = cast * 533 / 1000; // Marauder's bow contact. His wand contacts at 366 of 766 ms.
         Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, gem.Id,
             (100, 100), (100, 100), sequence: 43, actionToken: conn.ActionCount));
 

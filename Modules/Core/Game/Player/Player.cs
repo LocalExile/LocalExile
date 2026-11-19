@@ -517,6 +517,10 @@ public static partial class Game
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
     }
 
+    // The action and its animation use the fractional duration, before the new-action frame limit.
+    static double? SpellActionSeconds(ClientState conn, int effect, ushort skillId) =>
+        SpellTimingFor(conn, effect, skillId)?.DurationSeconds / PlayerActionFactor(conn);
+
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
     // Null refuses an invalid/unrepresentable cast rather than turning it into an immediate hit.
     public static int? CastMs(ClientState conn, int effect, ushort skillId = 0)

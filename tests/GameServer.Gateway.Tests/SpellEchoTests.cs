@@ -38,7 +38,7 @@ public sealed class SpellEchoTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = new ClientState(new(1, "spell-echo", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "SpellEcho", PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            Character = "SpellEcho", ClassRow = 6, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
@@ -52,6 +52,8 @@ public sealed class SpellEchoTests
                 return new ItemSocket(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index });
             }).ToArray();
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon with { Sockets = sockets, Links = [(byte)sockets.Length] });
+            if (gemNames.Length == 2)
+                Game.ItemsOf(conn).Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Goathide Buckler")!));
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
                 "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
             conn.LockstepClient = true;
@@ -85,6 +87,9 @@ public sealed class SpellEchoTests
                     if (name is "Fireball" or "Frostbolt" or "Spark" or "Freezing Pulse")
                     {
                         Assert.NotNull(conn.LockstepCastWindow);
+                        // Both the Templar's staff and wand/shield ACT clips lock at 697 of 900 ms.
+                        // The unused spell_projectile_wand rig clip has no lock and would admit Move at its 500 ms contact.
+                        Assert.Equal(castSeconds * (1 + 697d / 900), conn.LockstepCastWindow.Value.LateFrom, 6);
                         conn.LockstepHold.Press((120, 100), 0x2909, 0x401);
                         Assert.Equal(Game.SkillsFor(conn).ActionHash(skill.Effect), conn.LockstepCastWindow.Value.ActionHash);
                         Assert.True(Game.LockstepPlayerFree(conn, 10.01)); // Before the first cast's contact.

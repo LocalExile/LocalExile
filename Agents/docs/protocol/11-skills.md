@@ -1789,8 +1789,12 @@ ACT pools have only `contact` (`0x9b8d`) and, where present, `lock_cancelling` (
 The four stock gems leave `GrantedEffects.Animation` empty. Their ordinary client starts pass Animation.dat
 row 24 for Fireball (`0x1413e1c01`), 26 for Spark (`0x141248071`), and 25 for both cold spells
 (`0x141247151`). In the absence of a rain, barrage or granted-effect override, `0x14193e130` keeps that row.
-Each elemental role aliases `SpellProjectile` in the seven base character ACTs. The stance supplies the clip.
-For example, a Ranger with a wand uses `spell_projectile_unarmed`. These ACT roles also name 25 distinct
+Each elemental role aliases `SpellProjectile` in the seven base character ACTs. Each stance declares or inherits
+one unqualified clip. The Marauder's bow contacts at 533 of 1000 ms and his wand at 366 of 766 ms. A Ranger
+with a wand uses `spell_projectile_unarmed`. The Templar's wand and wand/shield roles lock at 697 of 900 ms,
+even though the rig also has a `spell_projectile_wand` clip without a lock. The Witch's staff adds two
+`variation=1` candidates. The three elemental rows have no `Animation.Stat`; the aliased base row 20
+names `animation_variation_spell_projectile`. These ACT roles also name 25 distinct
 locked effect clips. Across their authored timelines there are four `contact` events and one `endtrl`.
 The Auspicious effect uses the first 1000 ms of `animate` through the `animate_01` view, which has no event.
 None names the target-refresh event. Effect eligibility, nested effects and runtime event delivery remain open.

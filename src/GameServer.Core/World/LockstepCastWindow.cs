@@ -1,9 +1,15 @@
 namespace GameServer.Core.World;
 
+/// <summary>The accepted action's clock and clip contact, retained across dispatch of a paid skill.</summary>
+public readonly record struct CastAnimationContact(ushort Skill, int Effect, ushort Sequence, double Start,
+    double Duration, double Fraction, int Repeats);
+
 /// <summary>A spell's cancellation windows, independent of when a held spell may repeat.</summary>
 public readonly record struct LockstepCastWindow(double Start, double Duration, double? EarlyUntil, double LateFrom,
     ushort? ActionHash = null)
 {
+    public CastAnimationContact? Contact { get; init; }
+
     // Different spell actions can replace a cast only in its early window (0x141e941a0).
     public bool AllowsSkill(double at, ushort? nextAction) => ActionHash is ushort current && nextAction is ushort next
         && current != next && at >= Start && EarlyUntil is double early && at - Start <= early;

@@ -22,6 +22,7 @@ public sealed class AreaSpellTimingTests
     public async Task An_area_spell_lands_at_its_aoe_clip_contact()
     {
         var contacts = AnimationContactsTables.From(Json);
+        Assert.Null(contacts.ProjectileCast("Metadata/Characters/Int/Int.ao", 2, 10)); // Older data has no ACT stance table.
         Assert.Equal(266.0 / 766, contacts.SpellAreaRelease("Metadata/Characters/Int/Int.ao"), 6);
         Assert.Equal(366.0 / 833, contacts.SpellAreaRelease("Metadata/Characters/StrInt/StrInt.ao"), 6);
         // No area clip: the projectile release; no such rig: the default.

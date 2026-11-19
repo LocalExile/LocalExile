@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using CastAnimationContact = GameServer.Core.World.CastAnimationContact;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 using Progression = GameServer.Core.World.Progression;
 using DamageModel = GameServer.Core.World.DamageModel;
@@ -1250,6 +1251,7 @@ public static partial class Game
                 if (!TryDashLanding(conn, gem.Effect, to, out dashFrom, out dashTo)) return false;
         }
         var projectileAim = to;
+        CastAnimationContact? projectileContact = null;
         SkillCriticalRoll? criticalRoll = vaalUse?.CriticalRoll;
         if (gem.Name is not null && !vaalCast)
         {
@@ -1280,7 +1282,9 @@ public static partial class Game
                     if (placedAdmission is null && UsesPlayerProjectileAim(conn, gem.Effect) && GolemStat(paymentGem.Stats, "is_totem") == 0)
                     {
                         swingAt ??= Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-                        projectileAim = StartPlayerProjectileAim(conn, gem.Effect, paymentGem.Stats, from, to, targetId, sequence, swingAt.Value);
+                        projectileContact = PlayerProjectileContact(conn, skillId, gem.Effect, sequence, swingAt.Value);
+                        projectileAim = StartPlayerProjectileAim(conn, gem.Effect, paymentGem.Stats, from, to, targetId, sequence,
+                            swingAt.Value, projectileContact?.Repeats);
                     }
                     criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                     // Reserve the whole paid use before cost publication can yield to another held input.
@@ -1405,7 +1409,7 @@ public static partial class Game
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
-            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, projectileAim, recoveryGeneration, targetId, sequence: sequence,
+            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, projectileAim, recoveryGeneration, projectileContact, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap);
         return true;
@@ -1756,10 +1760,17 @@ public static partial class Game
     public static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null)
+        int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null) =>
+        LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, null, targetId,
+            sequence, actionToken, cooldownUse, criticalRoll, channelGeneration, swingAt, leap);
+
+    static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, CastAnimationContact? projectileContact,
+        uint targetId, ushort sequence, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll,
+        int? channelGeneration, double? swingAt, LeapSlam.Use? leap)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        if (gem.Name is null) return Task.CompletedTask;
+        if (gem.Name is null || projectileContact is { } accepted && accepted.Effect != gem.Effect) return Task.CompletedTask;
         // Overheat Support: "consume all Fortification on use" - once for the use, before its hit or any projectile it
         // releases, so every ailment this use inflicts gets the more damage the consumed stacks paid for.
         var overheatStats = SupportedSkill(conn, skillId).Stats;
@@ -1809,7 +1820,7 @@ public static partial class Game
         if (UsesProjectileRuntime(gem.Effect) && !IsVolcanicFissure(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, targetId, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt, cryExerted, seals, reoccurrenceMore);
+                sequence, swingAt, cryExerted, seals, reoccurrenceMore, projectileContact);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;

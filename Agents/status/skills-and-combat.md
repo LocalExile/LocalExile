@@ -72,9 +72,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   A caster-centred repeat uses the player's retained facing after walking, default attacks and aimed casts.
   When directed at the caster's cell, manual Fireball, Spark, Freezing Pulse and Frostbolt resolve a seeded
   aim before turning. If a delayed warp lands on the saved aim during windup, ordinary contact picks a new
-  point and Spell Echo uses it. All four accept a lockstep Move in the early or late cast window. With Echo,
-  the windows belong to the first and final casts. Native presentation, stance timing, target-refresh events
-  and triggered casts remain open.
+  point and Spell Echo uses it. Their ordinary releases and lockstep Move windows use the equipped stance's
+  actor clip. With Echo, the windows belong to the first and final casts. Native presentation, qualified
+  animation variants, target-refresh events and triggered casts remain open.
 - Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle

@@ -88,7 +88,7 @@ public static class GameDataFiles
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 9, "class rig animation indices, spell cancellation events, every contact frame and all named event times, with lengths even for clips without a contact keyframe"),
+        ("animation-contacts", 10, "class rig animation indices, spell cancellation events, contact frames, named event times, clip lengths and each stance's ordinary projectile cast"),
         ("monster-contacts", 6, "monster clip contact frames, variety AO slow spans, ACT budgets and explicit clock metadata availability"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
@@ -120,7 +120,7 @@ public static class GameDataFiles
     {
         "tables" => "WorldAreas",
         "vendor-stock" => "vendor_shops",
-        "animation-contacts" => "animation_rigs",
+        "animation-contacts" => "animation_projectile_casts",
         _ => entry.Replace('-', '_'),
     });
 

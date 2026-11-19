@@ -90,11 +90,13 @@ public class ArrowRainAndMirageTests
             await done.Task;
         }
 
-        public Battle(params string[] gems)
+        public Battle(params string[] gems) : this(SkillCatalog.WitchRow, gems) { }
+
+        public Battle(int classRow, params string[] gems)
         {
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-            Conn = SpellTotemExecutionTests.Connection("Rain" + Guid.NewGuid().ToString("N"));
+            Conn = SpellTotemExecutionTests.Connection("Rain" + Guid.NewGuid().ToString("N"), classRow: classRow);
             Conn.Clock.Stop();
             Conn.Walk.Teleport(100, 100, 0);
             Conn.PlayerStats[Program.Stats.Key("global_always_hit")!.Value] = 1;

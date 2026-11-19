@@ -126,10 +126,11 @@ def animation_contacts(doc):
     cancels[name] = the lock_cancelling time (a null cancel is still listed: cancel_listed), contacts[name] = every
     contact frame [ms, point], indices[name] = the clip's index in the rig; and the default attack's stance pools.
     clips[name] adds every clip's length, even without a contact, and its named events as ordered ms lists."""
-    rigs, clips, frames, events, attacks = [], [], [], [], []
+    rigs, clips, frames, events, attacks, casts = [], [], [], [], [], []
     for r, (ao, value) in enumerate(doc.items()):
         rigs.append({"ao": ao, "amd": value.get("amd"), "act": value.get("act")})
-        known = set(value) - {"amd", "act", "animations", "positions", "cancels", "contacts", "indices", "clips", "defaultAttack"}
+        known = set(value) - {"amd", "act", "animations", "positions", "cancels", "contacts", "indices", "clips",
+                              "defaultAttack", "projectileCasts"}
         if known:
             raise ValueError(f"animation-contacts {ao}: unknown keys {sorted(known)}")
         names = list(dict.fromkeys([*value.get("animations", {}), *value.get("positions", {}), *value.get("cancels", {}),
@@ -150,8 +151,10 @@ def animation_contacts(doc):
                        for event, times in (full or {}).get("events", {}).items() for i, ms in enumerate(times)]
         for stance, entries in value.get("defaultAttack", {}).items():
             attacks += [{"rig": r, "stance": stance, "ord": i, **flat(a)} for i, a in enumerate(entries)]
+        casts += [{"rig": r, "stance": stance, "animation": name} for stance, name in value.get("projectileCasts", {}).items()]
     return {"animation_rigs": rigs, "animation_clips": clips, "animation_clip_contacts": frames,
-            "animation_clip_events": events, "animation_default_attacks": attacks}
+            "animation_clip_events": events, "animation_default_attacks": attacks,
+            **({"animation_projectile_casts": casts} if casts else {})}
 
 
 def projectile_clips(doc):

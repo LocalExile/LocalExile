@@ -80,6 +80,36 @@ public static partial class Game
     static bool UsesPlayerProjectileAim(ClientState conn, int effect) =>
         SkillsFor(conn).ActionHash(effect) is 0xaa4e or 0x7859 or 0x4923 or FrostboltAction;
 
+    static bool UsesElementalProjectileCast(string? effect) => effect is "Fireball" or "Spark" or "FreezingPulse" or "FrostBolt";
+
+    // The four ordinary elemental actor roles alias SpellProjectile. Rain, barrage and qualified actor variants
+    // use different selection inputs. A skill's cosmetic effect tracks are separate from its actor clip.
+    static AnimationClip? PlayerProjectileCastClip(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (GolemStat(stats, "projectiles_rain") != 0 || GolemStat(stats, "projectiles_barrage") != 0
+            || GolemStat(stats, "animation_variation_spell_projectile") != 0) return null;
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        return Animations.ProjectileCast(ao, ActiveMainHand(conn)?.Type?.Stance ?? byte.MaxValue,
+            ActiveOffHand(conn)?.Type?.Stance ?? byte.MaxValue);
+    }
+
+    static CastAnimationContact? PlayerProjectileContact(ClientState conn, ushort skill, int effect, ushort sequence, double start)
+    {
+        if (!UsesElementalProjectileCast(SkillsFor(conn).EffectId(effect))) return null;
+        lock (conn.Monsters)
+        {
+            // Lockstep dispatches the request after releasing the frame lock. A weapon swap may already be queued.
+            if (conn.LockstepClient && sequence == (0x8000 | conn.LockstepSequence)
+                && conn.LockstepCastWindow?.Contact is { } held && held.Sequence == sequence && held.Skill == skill && held.Effect == effect)
+                return held;
+            var clip = PlayerProjectileCastClip(conn, SupportedStats(conn, skill));
+            double? seconds = clip.HasValue ? SpellActionSeconds(conn, effect, skill) : CastMs(conn, effect, skill) / 1000d;
+            return seconds is double duration ? new(skill, effect, sequence, start, duration,
+                clip?.ContactFraction ?? Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject),
+                SpellRepeats(conn, skill, effect)) : null;
+        }
+    }
+
     static (int X, int Y) StartPlayerProjectileAim(ClientState conn, int effect, IReadOnlyDictionary<uint, int> own,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, ushort sequence, double now, int? repeatsLeft = null)
     {
@@ -111,16 +141,18 @@ public static partial class Game
     static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         uint targetId, (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket,
-        SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted, int seals, double reoccurrenceMore)
+        SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted, int seals, double reoccurrenceMore,
+        CastAnimationContact? contact = null)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
-        int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
-        if (cast is null) return Task.CompletedTask;
+        contact ??= PlayerProjectileContact(conn, skillId, gem.Effect, sequence, swingAt ?? conn.Clock.Elapsed.TotalSeconds);
+        double? seconds = attack ? 0 : contact?.Duration ?? CastMs(conn, gem.Effect, skillId) / 1000d;
+        if (seconds is not double cast) return Task.CompletedTask;
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
-        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double acceptedAt = contact?.Start ?? swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
@@ -129,7 +161,7 @@ public static partial class Game
             : null;
         double delay = thrown is { } swing ? swing
             : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId, sequence), false))
-            : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
+            : cast * (contact?.Fraction ?? Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
         int epoch = conn.ProjectileEpoch;
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         // Paid attacks survive Move unless their recipe opts into cancellable windup (e.g. release-time costs).
@@ -187,7 +219,7 @@ public static partial class Game
             }
             return Task.CompletedTask;
         }
-        int repeats = attack ? 0 : SpellRepeats(conn, skillId, gem.Effect);
+        int repeats = attack ? 0 : contact?.Repeats ?? SpellRepeats(conn, skillId, gem.Effect);
         bool playerAim = UsesPlayerProjectileAim(conn, gem.Effect);
         lock (conn.Monsters)
         {
@@ -198,7 +230,7 @@ public static partial class Game
                 int left = repeats - ordinal;
                 double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
                 double castOffset = ordinal + Math.Min(release, seals) * .1;
-                double start = acceptedAt + castOffset * cast.Value / 1000d;
+                double start = acceptedAt + castOffset * cast;
                 if (playerAim && ordinal > 0)
                 {
                     // Spell Echo restarts the action with its stored target. Unleash only rewinds the animation.
