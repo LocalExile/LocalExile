@@ -302,7 +302,9 @@ public static class AreaTransitionCatalog
 
     /// <summary>The Aspirants' Plaza's way into the Labyrinth: the entrance tile's LabyrinthAreaTransition (behind the door
     /// the plaza's device opens). Its graph node calls it "labyrinthentrance3disabled", with no WorldAreas connection.
-    /// The module sets the destination on the player's layout when they choose a difficulty.</summary>
+    /// The module sets the destination on the player's layout when they choose a difficulty. Until then it is the plaza
+    /// itself, never a room: a player leaving the first room would else arrive next to it (AreaLayout.Arrival), behind
+    /// the shut door (the way in stands seven cells behind it) and hidden; they arrive at the plaza's spawn.</summary>
     static IEnumerable<AreaTransitionObject> LabyrinthEntrances(ushort plaza, ServerLevels.Level level, List<string> notes)
     {
         const string type = LabyrinthDay.Entrance;

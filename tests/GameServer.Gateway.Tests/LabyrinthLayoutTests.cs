@@ -70,6 +70,10 @@ public sealed class LabyrinthLayoutTests
             Assert.Equal(new LabyrinthNodeKey(day, layout.Layout.Nodes[0].Row, tier), LabyrinthDay.NodeFor(area, transfer.Seed));
             Assert.NotNull(LabyrinthDay.Enter(character, area, transfer.Seed));
             Assert.Null(LabyrinthDay.Enter(character, plaza.Id, 0));
+            // Back out of the first room: at the plaza's spawn, not behind the door that is shut again.
+            var real = AreaLayouts.For(AreaTransitionCatalog.HashOf(LabyrinthDay.Plaza)!.Value, 1);
+            Assert.Contains(real.AreaTransitions, t => t.Transition.SourceType == LabyrinthDay.Entrance);
+            Assert.Equal((real.SpawnX, real.SpawnY), real.Arrival(entry.Destination));
         }
     }
 
