@@ -23,7 +23,7 @@ sys.path = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _here]
 
 import idapro
 
-DB = os.environ.get("IDA_DB", r"F:\LxClient\Game.patched.exe.i64")
+DB = os.environ.get("IDA_DB", os.path.join("Client", "Game.patched.exe.i64"))
 
 _open = idapro.open_database(DB, False, "")
 if _open != 0:
