@@ -276,7 +276,8 @@ placement algorithms remain unknown.
   `MonsterMapDifficulty`. Their level sets the factors (×6.75 life and ×1.07 damage at 75, ×20.73 and ×1.15 at 83).
   Both tables name Stats rows 2500 and 2501, the hidden life and damage stats already sent for the map tier. The
   boss's percentage adds to each tier value. All 152 boss entries across the 110 layouts in the 3.29.3c atlas
-  selector lack a dedicated health bar. Rolled boss modifiers also affect the ordinary AI's secondary skills.
+  selector lack a dedicated health bar. Boss damage and speed affixes also affect the ordinary AI's secondary skills.
+  The separate boss area-of-effect roll on the life affix still needs its skill-area calculation.
 - The official pack sampler at mixed-ground boundaries and the priority of ground restrictions for explicitly named
   encounters are unknown. Captured walk maps carry no ground names for the weighted draw.
 - Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within

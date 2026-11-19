@@ -41,7 +41,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   1 / 0..50 / 51..255 text thresholds were verified with native `/raw` messages.
   Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §2.
-- Unique bosses listed for their map receive the map and boss difficulty increases and the map's boss modifiers.
+- Unique bosses listed for their map receive the difficulty tables' life and damage, plus boss life, damage and speed affixes.
   Strand's two bosses have no dedicated health bar. Re-entry restores the saved current life up to the recalculated
   maximum and applies the map and party bonuses once.
   Code: `MonsterCatalog.MapBossDifficulty`, `SpawnMonster`, `BossKits`.
