@@ -1220,101 +1220,37 @@ public static partial class Game
         }
     }
 
-    // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
-    // are inside.
-    // Righteous Fire burns the enemies around the player every frame while it runs (the burn carries its fractions).
-    static void StartRighteousFireBurn(ClientState conn, RighteousFireState rf) =>
-        EveryFrameAsPlayer(conn, () => ReferenceEquals(conn.RighteousFire, rf), (remote, stream, ciphers, conn) =>
-            conn.PlayerLife == 0 || InGracePeriod(conn) ? Task.CompletedTask
-                : BurnAround(remote, stream, ciphers, conn, rf, FrameSeconds));
-
-    public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
+    // Righteous Fire's burn: a damage aura (DamageAuras.cs) around the player, its fire damage a share of the player's
+    // maximum life and energy shield per minute, with its aura buff on the hostile monsters inside.
+    static void StartRighteousFireBurn(ClientState conn, RighteousFireState rf) => StartDamageAura(conn, new DamageAura
     {
-        if (!CurrentGameWork) return;
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
-        var entered = new List<(uint Id, SpawnedMonster M, ushort Buff)>();
-        var left = new List<(uint Id, ushort Buff)>();
-        using (ProjectileMutation(conn))
+        Name = "Righteous Fire",
+        Radius = () => rf.Radius,
+        BuffRow = RighteousFireAuraBuffRow,
+        Skill = rf.Skill,
+        Visual = rf.AuraVisual,
+        Marks = rf.Auras,
+        Running = () => RighteousFireCurrentLocked(conn, rf),
+        Valid = () =>
         {
-            if (!CurrentGameWork) return;
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
-            {
-                if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
-                    QueueRighteousFireCleanupLocked(conn, stale, "stale Righteous Fire consumer retired");
-                return;
-            }
-            double now = ProjectileWorldTime(conn);
-            double perSecond;
-            Dictionary<uint, int> playerStats;
-            using (new PlayerStatScope(conn, fresh: true))
-            {
-                perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
-                    + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
-                playerStats = CharacterPlayerStats(conn);
-                if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
-                    perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
-                perSecond *= ChargeDamageMore(playerStats);
-            }
-            var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
-                .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));
-            var here = conn.Walk.Position(now);
-            foreach (var (id, m) in conn.Monsters)
-            {
-                bool inside = !m.Dead && m.Life > 0 && m.Hostile && Dist(here, m.Walk.Position(now)) <= rf.Radius + m.StopRange;
-                if (!inside)
-                {
-                    if (rf.Auras.Remove(id, out ushort gone)) left.Add((id, gone));
-                    continue;
-                }
-                if (!rf.Auras.ContainsKey(id))
-                {
-                    rf.Auras[id] = conn.NextBuff;
-                    entered.Add((id, m, conn.NextBuff++));
-                }
-                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now);   // its fire resistance, its shock
-                m.Burn = carry;
-                if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
-                m.Aggro = m.Life > 0;
-                if (m.Life == 0)
-                {
-                    m.Dead = true;
-                    CollectVaalSoulAtDeathLocked(conn, m);
-                    ShockOnKillLocked(conn, m, playerStats, now);
-                    if (rf.Auras.Remove(id, out ushort b)) left.Add((id, b));
-                    TriggerElementalRelicLocked(conn, m, hit: false, killed: true);   // a burn is no hit
-                }
-                hits.Add((id, m, m.Life, damage));
-                if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
-            }
-        }
-        foreach (var (id, m, buff) in entered)
+            if (RighteousFireSourceCurrentLocked(conn, rf)) return true;
+            if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
+                QueueRighteousFireCleanupLocked(conn, stale, "stale Righteous Fire consumer retired");
+            return false;
+        },
+        Active = () => conn.PlayerLife > 0 && !InGracePeriod(conn),
+        Damage = seconds =>
         {
-            byte[] add = InstanceEntities.AddBuff(id, buff, RighteousFireAuraBuffRow, PlayerId,
-                rf.Skill, visual: rf.AuraVisual);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, add, null, atGate: () =>
-            {
-                lock (conn.Monsters)
-                    return RighteousFireCurrentLocked(conn, rf)
-                        && conn.Monsters.GetValueOrDefault(id) is { } current
-                        && ReferenceEquals(current, m)
-                        && !current.Dead && current.Life > 0
-                        && rf.Auras.TryGetValue(id, out ushort currentBuff)
-                        && currentBuff == buff
-                        ? add : null;
-            });
-        }
-        foreach (var (id, buff) in left)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
-        foreach (var (id, m, life, damage) in hits)
-        {
-            if (life == 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
-                life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by Righteous Fire" : null);
-            if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
-        }
-    }
+            using var scope = new PlayerStatScope(conn, fresh: true);
+            double perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
+                + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
+            var stats = CharacterPlayerStats(conn);
+            if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
+                perSecond *= Math.Max(0, 1 + stats.GetValueOrDefault(moreDot) / 100.0);
+            perSecond *= ChargeDamageMore(stats);
+            return (new SkillDamageContext(SkillHitKind.Spell, stats).OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds)), stats);
+        },
+    });
 
     // The quest flags the permanent Kitava resistance penalty mirrors (ResistancePenalty): the Act 5 pair and the
     // Act 10 pair. A change to any of them rebuilds the pools (SetQuestFlags), because the overcapped-resistance

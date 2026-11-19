@@ -16,6 +16,7 @@ public sealed class GameArea(ulong seed)
     public readonly AreaSystems Systems = new();
     public readonly AreaCommands Commands = new();
     public readonly AreaOutput Output = new();
+    public readonly AreaZones Zones = new();
     public AreaTimers Timers => timers ??= new(Entities);
     AreaTimers? timers;
 
@@ -87,6 +88,7 @@ public sealed class GameArea(ulong seed)
         Events.Drop(source);
         Commands.Drop(source);
         Timers.Drop(source);
+        Zones.Drop(source);
         foreach (var (key, value) in stores.ToArray())
             if (ReferenceEquals(value.Source, source))
             {

@@ -29,19 +29,21 @@ public static class AreaSetup
         Game.StartMonsterAi(area, conn, source);
         Game.StartStats(area, conn, source);
         // The area's walkers, once a frame for everyone (AreaMovement); whoever needs them current between frames steps
-        // them to its time first, and this pass then has nothing left to do.
+        // them to its time first, and this pass then has nothing left to do. The zones' membership follows.
         var frames = conn.Frames;
         var monsters = conn.Monsters;
         var cells = new Game.WalkerCells();
         area.Systems.Add("movement", AreaPhase.Movement, a =>
         {
             var players = frames.Players();
-            if (players.Length == 0 || !Game.AreaSteps(players[0])) return;
+            if (players.Length == 0) return;
             bool moved;
             lock (monsters)
             {
-                Game.StepAreaWalkers(players[0], a.Time);
+                if (Game.AreaSteps(players[0])) Game.StepAreaWalkers(players[0], a.Time);
                 moved = cells.Moved(players, a.Time);
+                // Who is inside each zone (auras, grounds, burning radii) follows the walkers' moves.
+                a.Zones.Update(cells.Positions, moved);
             }
             if (moved) foreach (var p in players) Game.PresentNearby(p);
         }, source: source);

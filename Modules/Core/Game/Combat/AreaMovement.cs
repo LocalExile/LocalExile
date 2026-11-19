@@ -32,18 +32,21 @@ public static partial class Game
     /// that came or went) is what the nearby presentations follow. Under the Monsters lock.</summary>
     public sealed class WalkerCells
     {
-        Dictionary<uint, (int X, int Y)> last = [], next = [];
+        Dictionary<EntityId, (int X, int Y)> last = [], next = [];
+
+        /// <summary>Where each living walker stood after the last movement step.</summary>
+        public IReadOnlyDictionary<EntityId, (int X, int Y)> Positions => last;
 
         public bool Moved(ClientState[] players, double now)
         {
             bool moved = false;
             void See(uint id, (int X, int Y) at)
             {
-                next[id] = at;
-                if (!last.TryGetValue(id, out var was) || was != at) moved = true;
+                next[new(id)] = at;
+                if (!last.TryGetValue(new(id), out var was) || was != at) moved = true;
             }
             foreach (var (id, m) in players[0].Monsters)
-                if (!m.Dead) See(id, m.Walk.Position(now));
+                if (!m.Dead && m.Life > 0) See(id, m.Walk.Position(now));
             foreach (var p in players)
                 if (p.PlayerSent) See(p.PeerId, p.Walk.Position(now));
             moved |= next.Count != last.Count;
