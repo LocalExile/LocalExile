@@ -1016,14 +1016,10 @@ public static partial class Game
                 if (conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
                     || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
-                await SendAntiquarian(remote, stream, ciphers, conn);
-                await SendKillOnslaught(remote, stream, ciphers, conn);
+                await VerifyStatPresentations(remote, stream, ciphers, conn);
                 await SendSpreadPoisonRegeneration(remote, stream, ciphers, conn);
-                await SendSoulEater(remote, stream, ciphers, conn);
-                await SendVaalAuraExpiry(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await SendTotems(remote, stream, ciphers, conn);
-                await SendRecentEnemyHits(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 await SendLifetap(remote, stream, ciphers, conn);
                 lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);

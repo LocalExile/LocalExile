@@ -97,16 +97,26 @@ public static partial class Game
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
     // Random.Shared, so a projectile commit's own draws stay in order.
+    // Onslaught from kills and hits lasts until its deadline (on the connection clock); the reading step runs again then.
+    static bool KillOnslaughtActiveLocked(ClientState conn)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds, until = KillOnslaughtOf(conn).Until;
+        if (conn.PlayerLife == 0 || now >= until) return false;
+        StatsChangeIn(until - now);
+        return true;
+    }
+
     public static bool OnslaughtOnKill(ClientState conn)
     {
         lock (conn.Monsters)
-            return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared);
+            return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared)
+                && Marked(conn, PlayerStatStep.Onslaught);
     }
 
     // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
     public static bool OnslaughtOnHitLocked(ClientState conn, double now)
     {
-        lock (conn.Monsters) return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Hit(now);
+        lock (conn.Monsters) return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Hit(now) && Marked(conn, PlayerStatStep.Onslaught);
     }
 
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,

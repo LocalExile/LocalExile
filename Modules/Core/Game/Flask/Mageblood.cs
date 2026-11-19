@@ -103,7 +103,7 @@ public static partial class Game
         lock (conn.Monsters)
             return conn.UtilityFlaskEffects.ShowsOnslaught
                 || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null)
-                || KillOnslaughtOf(conn).Applied
+                || KillOnslaughtActiveLocked(conn)
                 || CatOnslaughtActiveLocked(conn);
     }
 

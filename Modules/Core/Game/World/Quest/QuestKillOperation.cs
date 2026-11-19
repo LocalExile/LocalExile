@@ -88,6 +88,12 @@ public static partial class Game
         (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null,
         IReadOnlyList<WorldObject>? creates = null)
     {
+        if (PresentVerifyTag.Value is { } presentTag)
+        {
+            var tagged = atGate;
+            atGate = admission => tagged(admission) is not { } records ? null : records.Records.Count == 0 ? records
+                : Logged(records, () => Console.WriteLine($"[present-verify] {conn.Wire.Remote} {presentTag} sent unmarked: (records)"));
+        }
         if (Mirroring.Value)
         {
             var project = atGate;
@@ -142,9 +148,16 @@ public static partial class Game
 
     // Outside this bounded transaction, use the ordinary guarded cipher gate. Inside, evaluate projections
     // under the mutation lock and retain bytes. None of these awaits can yield to a retired Game callback.
+    static T Logged<T>(T value, Action log) { log(); return value; }
+
     static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes,
         string? log, Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
+        if (PresentVerifyTag.Value is not null)
+        {
+            if (atGate is null && bytes.Length > 0) Console.WriteLine($"[present-verify] {remote} {PresentVerifyTag.Value} sent unmarked: {log}");
+            atGate = Tagged(atGate, remote, log);
+        }
         if (QuestKillCommitOutput is not { } output)
             return Program.Send(remote, stream, ciphers, bytes, log, still, atGate, sync);
         if (!ReferenceEquals(output.Connection.Wire.Ciphers, ciphers))

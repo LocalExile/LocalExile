@@ -282,6 +282,7 @@ public static partial class Game
             Array.Clear(frame.StepRuns);
             frame.Steps = frame.Builds = frame.Published = 0;
         }
+        RunStatPresentations(conn);
         PlayerStatChange? why;
         lock (frame)
         {
@@ -316,7 +317,8 @@ public static partial class Game
         // themselves (StatsChangeIn, StatsChangeAt).
         void On(PlayerStatStep[] steps, Action<Action> wire) => wire(() => { foreach (var s in steps) MarkPlayerStats(conn, s); });
         On([PlayerStatStep.Rage], a => conn.Rage.Changed = a);
-        On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => conn.SoulEater.Changed = a);
+        // A soul eaten at the cap changes no stat, but its beam is shown.
+        On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => conn.SoulEater.Changed = () => { a(); PresentStats(conn); });
         On([PlayerStatStep.SpiritLeadership], a => conn.SpiritChieftains.Changed = a);
         On([PlayerStatStep.Ward], a => conn.Ward.Changed = a);
         On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => conn.Antiquarian.Changed = a);
@@ -342,6 +344,9 @@ public static partial class Game
     /// <summary>The player's stats as a 0x1b3 after a change, off an area's frames (empty when the frame publishes them).</summary>
     public static byte[] PlayerStatsOffFrames(ClientState conn) =>
         StatsPublishedByFrame(conn) ? [] : PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+
+    /// <summary>Marks <paramref name="step"/> and is true: for a condition that started an effect the step reads.</summary>
+    internal static bool Marked(ClientState conn, PlayerStatStep step) { MarkPlayerStats(conn, step); return true; }
 
     public static void MarkPlayerStats(ClientState conn, PlayerStatStep step)
     {
