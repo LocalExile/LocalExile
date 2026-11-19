@@ -94,6 +94,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
   A run whose device instance is gone (a hideout's instance expires six minutes after its last player leaves) moves to
   the instance the character enters, so its portals left stand at the new device (2026-11-18).
+  A click on a portal back into a hideout or town whose instance expired enters a new one of that area, by its
+  device, instead of a transfer that was refused (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
