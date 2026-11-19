@@ -96,6 +96,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the instance the character enters, so its portals left stand at the new device (2026-11-18).
   A click on a portal back into a hideout or town whose instance expired enters a new one of that area, by its
   device, instead of a transfer that was refused (2026-11-18).
+  "Resurrect at Checkpoint" from a map whose hideout instance is gone enters a new instance of it by its device, not
+  a refused transfer that left the dead character in the map (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
@@ -197,7 +199,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Niko and Kirac in the hideout (verified live, 2026-10-21):** Niko to Nessa's right, Kirac to her left.
   Faustus uses his native hideout NPC alongside them in every template, with the existing dialogue and saved editor placement.
   Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);
-  Purchase Items sells maps.
+  Purchase Items sells maps. Kirac marks a conversation heard when chosen (NPCTalk column 15 league flags), which opens his next ones.
   Niko's Delve options need quest flag ThisIsMyHideout (sent in hideouts and the Mine Encampment) and league quest
   flag 68 DelveEncounterComplete (every character): NPCTalk columns 15-18 are league quest flag ids.
   See [21](../docs/protocol/21-hideouts.md).

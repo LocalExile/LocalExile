@@ -110,7 +110,8 @@ public static partial class Game
             }
             // The fade (Script2 FadeToBlack) is the client's; the move follows after the script's delay.
             if (delay > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 5)));
-            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, false, AtSpawn: true),
+            bool useShoreEntrance = conn.Layout.Id == KitavaActTen.Docks && area == KitavaActTen.Epilogue;
+            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, false, AtSpawn: !useShoreEntrance),
                 $"{npc.Npc.Name}: {talk.Option} (AreaTransitionTo {area}, {index})");
         }
         return true;

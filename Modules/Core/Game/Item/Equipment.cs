@@ -17,8 +17,9 @@ public static partial class Game
     {
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
-        foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
-            if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
+        foreach (var (row, equipped) in EquipmentForStats(conn))
+            if (row is PlayerInventories.BodyArmour or PlayerInventories.Helmet or PlayerInventories.Gloves or PlayerInventories.Boots or PlayerInventories.Offhand1
+                && !IsInactive(conn, equipped.Id)
                 && catalog.ByHash(equipped.Item.TypeHash) is { } type && catalog.Defences(type) is { } defences)
             {
                 var (a, e, s) = ItemDefences.Calculate(equipped.Item, defences, catalog.Mods);
