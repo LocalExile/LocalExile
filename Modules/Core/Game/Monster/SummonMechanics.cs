@@ -12,6 +12,8 @@ public static partial class Game
                 if (value == 0 || Stats.Key(name) is not uint key) return;
                 result ??= new(sources); result[key] = result.GetValueOrDefault(key) + value;
             }
+            foreach (double until in new[] { conn.Summons.HolyRegenerationUntil, conn.Summons.FeedingFrenzyUntil })
+                if (AreaTime(conn) < until) StatsChangeAt(until, () => AreaTime(conn));
             if (AreaTime(conn) < conn.Summons.HolyRegenerationUntil) Add("base_life_regeneration_rate_per_minute", conn.Summons.HolyRegenerationPerMinute);
             if (AreaTime(conn) < conn.Summons.FeedingFrenzyUntil && conn.PlayerLife > 0)
             {

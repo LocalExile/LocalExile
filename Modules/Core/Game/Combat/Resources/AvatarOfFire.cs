@@ -70,7 +70,9 @@ public static partial class Game
         double now = ResourceEffectsTime(conn);
         if (hosts.Length > 0) ResourceEffectsOf(conn); // Bind/retire the previous owner before installing this interval.
         state.Reconcile(CombatLifetime, conn.ProjectileEpoch, hosts, now);
-        bool avatar = alive && (Get(AvatarKeystone) > 0 || state.Read(now).Active);
+        var phase = state.Read(now);
+        if (alive && hosts.Length > 0 && phase.Until > now) StatsChangeAt(phase.Until, () => ResourceEffectsTime(conn));
+        bool avatar = alive && (Get(AvatarKeystone) > 0 || phase.Active);
         return new(flags)
         {
             ["_while_you_have_avatar_of_fire"] = avatar,

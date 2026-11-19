@@ -9,6 +9,7 @@ public static partial class Game
     static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] StatPresentations =
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
+        SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats,
     ];
 
     sealed class Presenting { public volatile bool Pending; public Task Running = Task.CompletedTask; }

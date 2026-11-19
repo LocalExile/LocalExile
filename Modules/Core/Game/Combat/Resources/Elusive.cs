@@ -104,7 +104,17 @@ public static partial class Game
     static (int Movement, int Avoid) ElusivePanelState(ClientState conn)
     {
         if (!Elusives.TryGetValue(conn, out var state)) return default;
-        double effect = state.Effect(ResourceEffectsTime(conn));
+        double now = ResourceEffectsTime(conn), effect = state.Effect(now);
+        if (effect > 0 && state.Rate > 0)
+        {
+            // The effect rises, then falls, linearly: the next whole point of movement speed (30% at full effect), or
+            // the end, whichever is first.
+            int movement = (int)Math.Floor(30 * effect / 100 + 1e-9);
+            double age = state.Age(now), seconds = age < state.RisingSeconds
+                ? Math.Min(state.RisingSeconds - age, ((movement + 1) * 100 / 30.0 - effect) / state.Rate)
+                : Math.Min((effect - movement * 100 / 30.0) / state.Rate, (effect - state.Minimum) / state.Rate);
+            StatsChangeAt(now + Math.Max(seconds, 0) + 1e-6, () => ResourceEffectsTime(conn));
+        }
         return ((int)Math.Clamp(Math.Floor(30 * effect / 100 + 1e-9), 0, int.MaxValue),
             (int)Math.Clamp(Math.Floor(15 * effect / 100 + 1e-9), 0, int.MaxValue));
     }

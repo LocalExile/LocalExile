@@ -56,7 +56,9 @@ public static partial class Game
         state.GainMilliseconds = raw is null ? 0 : GolemStat(raw, HerEmbraceGain);
         state.Degeneration = raw is null ? 0 : GolemStat(raw, HerEmbraceDegen);
         state.Settle(now);
-        return new(flags) { ["_while_in_her_embrace"] = alive && state.Hosts.Length > 0 && now < state.Until };
+        bool embraced = alive && state.Hosts.Length > 0 && now < state.Until;
+        if (embraced) StatsChangeAt(state.Until, () => ResourceEffectsTime(conn));
+        return new(flags) { ["_while_in_her_embrace"] = embraced };
     }
 
     public static void HerEmbraceOnIgniteLocked(ClientState conn, double now)

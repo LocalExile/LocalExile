@@ -940,17 +940,9 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendUnhinged(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendAvatarOfFire(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendHerEmbrace(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncPhasing(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendElusive(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendConditionalItemStats(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
             {

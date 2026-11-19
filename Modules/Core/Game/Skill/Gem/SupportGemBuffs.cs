@@ -121,6 +121,7 @@ public static partial class Game
         {
             stats = WithTriggeredGuard(conn, stats);
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
+            StatsChangeIn(conn.SupportGems.ArcaneSurgeUntil - conn.Clock.Elapsed.TotalSeconds);
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
             void Add(string name, long value)
             {
