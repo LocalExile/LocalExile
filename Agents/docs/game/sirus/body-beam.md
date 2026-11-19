@@ -270,28 +270,6 @@ target entity list" (the `+792` subobject) — the action's own target cell (0x1
 does the server have to send a separate action state? Until that is clear, do not remove the server's layer; put the
 two side by side and compare frames first.
 
-## The server implementation at the time of writing (2026-11-17)
-
-This describes the branch of 2026-11-17, which is **not** in this repository; the repository's own code is the
-reference for what ships today.
-
-`Modules/Core/Game/Monster/Sirus.Combat.cs`:
-
-- Casting (`kind == 0`, `:301-315`):
-  ```csharp
-  int effect = Round == 3 ? 7012 : 7008;
-  await Cast(c, id, effect, aim, now);
-  hits.Add(new(now + .672 * Attack(c, body!.Variety!, body.Level, effect).Seconds / 1.5,
-      body.ActionGeneration, ++group, effect, from, Extend(from, aim, 150), 3, Beam: true));
-  ready = now + Attack(c, body.Variety!, body.Level, effect).Seconds + .3;
-  ```
-  `.672` is the `contact` second of `beam_01`; `Seconds / 1.5` scales it by the actual cast time (`CastTime` 1500
-  ms). It casts only once and does not play the second `beam_02` — that is the shape from before the return to the
-  red line (before 2026-11-15).
-- Drawing (`Beam()`, `:204-215`): 7008/7012 take the early-return branch and place one
-  `Metadata/Effects/Spells/monsters_effects/AtlasExiles/Orion/spam_beam.ao` (the final `spam_beam_final.ao`) at
-  `hit.From`, rotated by `atan2(aim−from) + π/2`, living 0.6 s. It **follows no bone at all**.
-
 ## What the server should send (conclusion)
 
 > **Added on 2026-11-17**: the client's action classes pick the art by **`MiscAnimated`'s HASH32** (the mechanism is
@@ -320,15 +298,6 @@ reference for what ships today.
 4. **Length**: the official length is driven by the bone group `beam_length` from the skill data; placing a bare
    Effect only gets the model's default length. To match the official length, dig further into how `sub_141E59F80`
    writes the attribute into the Effect's bone group (**still open**).
-
-## What the player saw, in order
-
-| Time | Feedback |
-|---|---|
-| 2026-11-16 22:2x | Baseline problem: the start point is on the ground in front of the body, no muzzle ring, too many of them |
-| m00566 | The big laser (row 228) "is not the ordinary attack's beam" |
-| m00755 / m00756 | Row 228 + `R_Weapon` polluted the look of the ordinary attack: "please change the ordinary attack back" |
-| m00843 | After going back to `spam_beam.ao`: "it looks right now" |
 
 ## In the live client (2026-11-17 16:40–17:05, two rounds)
 

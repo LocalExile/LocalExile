@@ -9,7 +9,7 @@ fight and is the reference for `Modules/Core/Game/Monster/Sirus*.cs`.
 Everything below is read from the 3.29.3c client: the tables through `data/client.db`, the metadata through the archive.
 The commands are under [Sources](#sources).
 
-**Per-skill reference (2026-11-17).** The ten documents in [game/sirus/](game/sirus/README.md) are the authoritative
+**Per-skill reference (2026-11-17).** The ten documents in [game/sirus/](sirus/README.md) are the authoritative
 account of each ability: the client's action class, its slots, its serialized fields, what it draws and what the server
 must send. The skill-level sections below predate that reverse engineering; where they disagree, the per-skill document
 wins (the corrections are marked "revised 2026-11-17").
@@ -428,19 +428,6 @@ The guides add two things the wiki does not state: **phase 4 restores him to 75 
 the meteor maze arrive in phase 2** (the empowered Die Beam's four tracking beams and the twelve-illusion circle belong
 to phase 4).
 
-Where `Sirus*.cs` stands: the thresholds, the 75 % restore, the ring count (`min(3, Round + 1)`), the twelve clones,
-the four spinning arms and "stand under him to end the intermission" all match the guide. Two deviations were fixed
-after reading it — the corridor no longer fires in phase 1, and the intermission now puts him on the arena marker
-instead of wherever he was standing. Two numbers the client does state are used as well: the storms' own constant
-`action_speed_-%` 25 is applied while the player stands inside one, and `RingPoint`'s clamp follows the ring the storms
-sit on (their sites are 107-304 cells from the marker, in a 575x575-cell room) instead of the old 110.
-The intermission storm does chase: `StormState` keeps the variety's own `MovementSpeed` (12 cells/s for the mobile
-`Creeping Fire`), steps toward the nearest present player every 0.2 s clamped to that speed, takes only steps the room
-accepts (`WalkableFor`), and falls back to its registered angle when nobody is there — so the storm the intermission
-spawns under him walks to the player, and the phase ends only when the player comes back under him (48 cells).
-**Not modelled:** the safe zone and its "leaving it spawns a storm" rule, the empowered Die Beam's four
-tracking beams (the fight plays its own contact fan) and the Uber variant's differences.
-
 ## The pairing: what the client draws and what the server sends
 
 Every ability is two things that have to agree: the **resource side** (the clip the `.act` binds, its events, the `.ao`
@@ -499,7 +486,7 @@ with `ServerBeamEffect` either. Of the art this fight needs, only `fusion_beam.a
 `triple_beam_01/02/03.ao` and the corridor's `corridor_slash_01.ao` have none**, so they cannot be sent as a stretched
 beam. They are effect objects - placed by the server, or built by the client's own action class.
 
-Three ways the client can put a beam on screen, in full in [game/sirus/README.md](game/sirus/README.md):
+Three ways the client can put a beam on screen, in full in [game/sirus/README.md](sirus/README.md):
 
 - **the action class builds it itself** - `GeometrySpell` (the body's spell) creates a 584 B `Metadata/Effects/Effect`
   whose art comes from the action's own data (`sub_14228BED0(&out, 0x7A39632A, &ctx)`);
@@ -557,7 +544,7 @@ so does what the client can draw for them:
 
 ### The abilities, paired
 
-**Revised 2026-11-17.** Each ability now has its own document in [game/sirus/](game/sirus/README.md), which records the
+**Revised 2026-11-17.** Each ability now has its own document in [game/sirus/](sirus/README.md), which records the
 client's action class, its slots, its serialized fields and what it draws. The table below is the map; the "art" column
 is corrected against the reverse engineering.
 
@@ -567,20 +554,20 @@ classes of their own (`OrionCircleMazeBlast` 1037, `OrionBeamBomb` 1039, `Geomet
 
 | ability | effect | who casts | what the client draws | the server's part | doc |
 |---|---|---|---|---|---|
-| Star rain | 10145 / 10945 | the apparition / the body | **nothing** for 10145 (its `GeometryTrigger` row has no ground marker); one `Meteor_Rain.ao` per AS-1570 action, crater included | one 0x1ab per meteor; per-target damage at `contact` @1.92 s | [meteor](game/sirus/meteor.md) |
-| Two-hand laser | 10941 | the apparition | **nothing** - the two `BeamTargetDaemon` anchors are invisible (`InvisibleFire.ao` has an empty skin and no particles) | the two beams and the daemon entities | [apparition-laser](game/sirus/apparition-laser.md) |
-| Body beam | 7008 / 7012 | the body | its own effect (`GeometrySpell` builds a 584 B `Effect`), or the server's `spam_beam.ao` on `R_Weapon` | one cast, one hit | [body-beam](game/sirus/body-beam.md) |
-| Multi beam | 8098 / 8099 | the body | the charge trail and the blast points; the three beams are `triple_beam_01/02/03.ao` effect objects | three effect objects per contact | [body-barrage](game/sirus/body-barrage.md) |
-| Maze | 10949-10953 | the body | the rings `meteor_100/150/200.ao`, one every 0.2 s | the cast and the damage | [maze](game/sirus/maze.md) |
-| Corridor | 10948 | the body | `corridor_slash_01.ao` per beam | eight effect objects; one damage circle per fireball | [corridor](game/sirus/corridor.md) |
-| Die Beam | 10147 / 8100 | the body | `clone_trap_beam.ao` on the body | the clones' beams | [clones](game/sirus/clones.md) |
-| Beam bomb | 10973 | the body | the `OrionBeamBomb` entity's own `.ao` | the entity, the position table, the rotation (10°/s) | [beam-bomb](game/sirus/beam-bomb.md) |
-| Storm | 6833-6837 | the storm entity | `OrionDeathZone.ao` - the monster's own art | the entity and its twelve skills | [storm](game/sirus/storm.md) |
+| Star rain | 10145 / 10945 | the apparition / the body | **nothing** for 10145 (its `GeometryTrigger` row has no ground marker); one `Meteor_Rain.ao` per AS-1570 action, crater included | one 0x1ab per meteor; per-target damage at `contact` @1.92 s | [meteor](sirus/meteor.md) |
+| Two-hand laser | 10941 | the apparition | **nothing** - the two `BeamTargetDaemon` anchors are invisible (`InvisibleFire.ao` has an empty skin and no particles) | the two beams and the daemon entities | [apparition-laser](sirus/apparition-laser.md) |
+| Body beam | 7008 / 7012 | the body | its own effect (`GeometrySpell` builds a 584 B `Effect`), or the server's `spam_beam.ao` on `R_Weapon` | one cast, one hit | [body-beam](sirus/body-beam.md) |
+| Multi beam | 8098 / 8099 | the body | the charge trail and the blast points; the three beams are `triple_beam_01/02/03.ao` effect objects | three effect objects per contact | [body-barrage](sirus/body-barrage.md) |
+| Maze | 10949-10953 | the body | the rings `meteor_100/150/200.ao`, one every 0.2 s | the cast and the damage | [maze](sirus/maze.md) |
+| Corridor | 10948 | the body | `corridor_slash_01.ao` per beam | eight effect objects; one damage circle per fireball | [corridor](sirus/corridor.md) |
+| Die Beam | 10147 / 8100 | the body | `clone_trap_beam.ao` on the body | the clones' beams | [clones](sirus/clones.md) |
+| Beam bomb | 10973 | the body | the `OrionBeamBomb` entity's own `.ao` | the entity, the position table, the rotation (10°/s) | [beam-bomb](sirus/beam-bomb.md) |
+| Storm | 6833-6837 | the storm entity | `OrionDeathZone.ao` - the monster's own art | the entity and its twelve skills | [storm](sirus/storm.md) |
 
 **The two arms are the server's, because the client's sweep is never armed.** `OrionBeamSweep` only resolves its two
 arm tips while its own state is 1, and the only thing that writes that state is a shared event handler woken by an
 animation event - so the class is built and then sits idle (the slots and their behaviour are in
-[apparition-laser.md](game/sirus/apparition-laser.md)). The server draws the arms instead: one beam per hand, starting on
+[apparition-laser.md](sirus/apparition-laser.md)). The server draws the arms instead: one beam per hand, starting on
 that hand's own bone (`L_Weapon`/`R_Weapon` - the clip's `daemon1` at model -559.03 and `daemon2` at +559.0 in x, i.e. 2.8
 cells either side of the axis and 1.6 in front) and ending on the clip's `blast` point 7.54 cells ahead, alive from
 `contact` (0.910 s) to `blast` (3.431 s). The start follows the bone, so the sweep the clip performs turns both beams as

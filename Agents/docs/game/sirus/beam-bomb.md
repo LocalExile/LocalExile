@@ -26,29 +26,6 @@ Searching the whole client data set for `beambomb` only hits the rows listed abo
 - **The client**: the cast animation (3 s wind-up, `clone_beam_start_01`) plus 4 arm/hand trails (`cloneBeam.trl`, normal form). The hooks for 10973 in the `.ot` **do exist**: `on_clone_beam_start_01 → Call( start_clone_teleport )`, `on_event_teleport_for_clone_beam_start_01 → Call( do_clone_teleport )`, `on_end_clone_beam_start_01 → Call( finish_clone_teleport )`, and there is also `preload_buff_visual = "orion_beam_bomb_slow"`.
 - **The server**: **the four rotating beams themselves** (the action class does not draw them, the `+880` handle is only released, never created), the angular velocity, the hit tests, and the `orion_beam_bomb_slow` stacks (buff 1525). The ultimate form (10974) has no trails in the client clip ⇒ the server has more to add.
 
-## The server implementation at the time of writing (2026-11-17)
-
-This section describes the branch of 2026-11-17, which is not in this repository: the repository's own code is the reference for what ships today.
-
-`Modules/Core/Game/Monster/Sirus.Combat.cs`
-
-- The cast (`QuadBeam`, `:531-541`):
-  ```csharp
-  await Voice(5663); var at = Position(now); await Cast(c, id, 10973, at, now);
-  double start = now + Attack(c, body!.Variety!, body.Level, 10973).Seconds;
-  double until = start + Stat(c, 10973, body.Level, "base_skill_effect_duration") / 1000d;
-  quads.Add(new(at, start, until, Random.Shared.NextDouble() * Math.Tau));
-  ```
-- The four arms (main loop `:911-937`): angular velocity **0.32 rad/s**, arm length **80 cells**, art `Art + "clone_trap_beam.ao"`, rotated by `a + π/2`; hit `KitavaActTen.LineDistance(...) < 3`; stack buff 1525 (8 stacks at most). `:1011` `BeamBombBeam = BeamRow("AtlasExileOrionBeamBombBeam", 240)`; `:326` `kind == 4 → QuadBeam`. The start position is the body's current position (`Position(now)`), not the centre of the arena.
-- ⚠️ The comment at `:536-538` — "OrionBeamBomb (10973) draws its own core and its own four arms (AtlasExileOrionBeamBombBeam = orb_beam.ao) and keeps them for the skill's duration" — **conflicts with the decompilation**: the action class draws nothing at all, and `orb_beam.ao` is the beam art of `MiscBeams` row 240, meant for the **server to stretch**.
-
-## What the player saw
-
-| Time | What the player saw |
-|---|---|
-| m00790 | In the multiple-choice question first picked "four-way beam" (kind 4), then corrected it to "the multi-part beam after the Die cast" (kind 1) |
-| m00836 | "the basic attack became a cross of lasers" — in fact the environment variable `SIRUS_ONLY_KIND=4` pinned the whole loop to this skill; it was not a code change |
-
 ## Still open (product level)
 
 1. **The angular velocity has to change**: the client has **10°/s = 0.17453 rad/s** (36 s per revolution); the current 0.32 rad/s (19.6 s per revolution) has no basis.

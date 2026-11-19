@@ -117,10 +117,8 @@ the skill behave like it does on the official server.
 
 ## Scope
 
-The pages were written while the module was being changed, so their **The server implementation at the time of
-writing (2026-11-17)** sections describe a working branch that is not in this repository: the repository's own code
-is the reference for what ships today. The client findings, the tables, the class cards and the hit shapes are the
-durable part, and they are what the rest of this folder is for.
+The client findings, the tables, the class cards and the hit shapes are what this folder is for; the repository's
+own code is the reference for what the server does today.
 
 ## Still open
 

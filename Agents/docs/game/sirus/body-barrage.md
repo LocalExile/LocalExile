@@ -102,33 +102,6 @@ Key points:
    switching to alternating `R_Weapon`/`L_Weapon`, the live frame `logs/shots/k4/frame-0189` really does show red and white
    beams coming out of both hands.
 
-## The server implementation at the time of writing (2026-11-17)
-
-This section describes a working branch of 2026-11-17 that is not in this repository; the repository's own code is the
-reference for what ships today.
-
-`Modules/Core/Game/Monster/Sirus.Combat.cs`:
-
-- Trigger (`kind == 1`, `:316-323`):
-  ```csharp
-  var at = RingPoint(c, aim, 30 + Random.Shared.Next(20), now);
-  await Cast(c, id, 6809, at, now); await Teleport(c, id, at, now);
-  deferred.Add(new(now + .5, body.ActionGeneration, c, at, aim));
-  ```
-- Delayed part (`:826-843`):
-  ```csharp
-  await Cast(c, id, Round == 3 ? 8099 : 8098, cast.Aim, now);
-  var poseBarrage = Round == 3 ? 12 : 3;      // beam_03 / final_beam_03, the indices in the .ao animation table
-  foreach (var p in Present.ToArray())
-      await SendWorldRecord(p, id, () => InstanceProtocol.AnimationUpdate(id, 0, (uint)poseBarrage, 1));
-  double[] contacts = Round == 3 ? [.841, .991, 1.125, 1.264, 1.389, 1.516] : [.841, 1.098, 1.370];
-  hits.Add(new(now + contacts[i], body.ActionGeneration, ++group, 7019 + (i % 4) * 3, cast.From, Extend(cast.From, cast.Aim, 180), 4,
-      Beam: true, Track: cast.Target, Bone: i % 2 == 0 ? "R_Weapon" : "L_Weapon"));
-  ```
-- Drawing (`Beam()`, `:228`): `ushort row = FireBeam.Value;` (row 37, `firebeam_beam.ao`, 2.9 cells wide), the near end is
-  placed by the bone, the far end = the player's position (`Track`).
-- Impact burst (`:879`): `if (hit.Effect is >= 7019 and <= 7031) await Fx(c, draw, Art + "hit_fx_beam.ao", now + .5, clip: null);`
-
 ## Three things with a similar name that are **not** this skill (important)
 
 | name | what it really belongs to (observed) |
@@ -139,16 +112,6 @@ reference for what ships today.
 
 In other words: in the beginning the 8 hand beams were taken for "this skill" on the strength of the name alone;
 `beam_barrage_01` belongs to the corridor. The real multi-beam barrage is the three stages of `beam_03` (six in the final).
-
-## What the player saw, in order
-
-| time | what the player said |
-|---|---|
-| m00631 | the goal is defined: lean back, both hands together in front, multi-stage laser |
-| m00730 | "The pose is right, but no beam comes out. It flashed several times, so it should be multi-stage." |
-| m00850 | picked B in the multiple choice = "the multi-stage beams after chanting Die." |
-| m02016 / m02031 | "Can this be fixed at all" / "This laser is wrong too" — still on row 227 then, still full screen |
-| m02045 | "Stop guessing, open IDA and reverse the implementation of every beam skill in detail" |
 
 ## Still open
 

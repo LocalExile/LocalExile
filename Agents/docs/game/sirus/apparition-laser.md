@@ -60,7 +60,7 @@ in front; `blast` is 7.54 cells straight ahead.
 | class name / type number | `MoveDaemon` / **0x8B8E (35726)** |
 | factory | `sub_1412B3F90` → thunk **`sub_1412D6A80`** (410 B, three branches 876/332/858) |
 | allocation / ctor | **808** bytes; `sub_1419E9B10(v9, 0x8B8Eu, a1, a2)` |
-| main vtable | **`off_14356DC78`**; type name string `Utility::TypeIDImpl::PrettyName<class Loaders::MoveDaemon>` @ `0x14356f5c0` |
+| main vtable | **`off_14356DC78`**; type name string `Utility::TypeIDImpl::PrettyName<class Loaders::MoveDaemon>` @ `0x14356f61f` |
 | dat table | `Data/MoveDaemon.dat` (19 characters) → cache `sub_141CC1550` → `sub_141CC15F0` → row selection `sub_142257C90(v10+792, id, &row)`, `id = (**ctx)(ctx, 6433)` |
 | dat row handle | stored at `+792` (**not** the vtable) |
 
@@ -225,41 +225,6 @@ that means "full screen").
   (the writer of +656 is unresolved).
 - The data comes from the **geometry channel**: the format of `sub_14196E530` (read) / `sub_14196E1D0` (write) is
   u32×4 → u32 +240 → list@216 → u8 count → per entry **u32 entity id + u8 flag**; stat 6433 → the Id of the GeometryAttack row.
-
-## The server implementation at the time of writing (2026-11-17), and what the play showed
-
-This section describes a working branch of 2026-11-17 that is not in this repository; the repository's own code is the
-reference for what ships today. The implementation it describes is the apparition (`kind == 0`) in
-`Modules/Core/Game/Monster/Sirus.Combat.cs`.
-
-```csharp
-await Cast(c, apparition, 10941, aim, now); await Voice(5665);
-hits.Add(new(now + .910, beamGen, ++group, 10941, from, Extend(from, aim, 160), 10, Beam: true, ApparitionHit: true, Ghost: true));
-for (int hand = -1; hand <= 1; hand += 2)                       // the two ServerBeamEffect beams
-{
-    int hx = from.X + (int)Math.Round(fx * 1.6 + px * 2.8 * hand);
-    int hy = from.Y + (int)Math.Round(fy * 1.6 + py * 2.8 * hand);
-    hits.Add(new(now + .910, beamGen, ++group, 10941, (hx, hy), (ex, ey), 0, Beam: true,
-        ApparitionHit: true, Bone: hand < 0 ? "L_Weapon" : "R_Weapon", Life: 3.431 - .910 + .07, Visual: true));
-}
-hits.Add(new(now + 3.431, beamGen, ++group, 10941, from, (ex, ey), 16, ApparitionHit: true));
-```
-
-- Art row: `Beam()` uses `FireBeam` for every `hit.ApparitionHit` (row 37, 2.9 cells wide); `BeamReach = 20` (`:1014`).
-- The start point is hung on `L_Weapon` / `R_Weapon` — **the apparition rig really does have those two bones** (see the table
-  above, observed).
-- The start position uses the server's ±2.8 cells / 1.6 cells in front, which **does not match the clip constants
-  ±5.59 cells / 1.6 cells**.
-
-| time | what was done | what the player said |
-|---|---|---|
-| 2026-11-16 | two static `fusion_beam.ao` sheets on the shoulders | the start point is wrong, two floating slabs |
-| 2026-11-17 10:17 | two `ServerBeamEffect`, the far end = the player | m01493 "Is the problem with the apparition beam so obvious that you cannot see it? It is full screen" |
-| 2026-11-17 11:0x | the far end changed back to the clip's own 7.54-cell burst point | still full screen (`logs/shots/app3`) |
-| 2026-11-17 11:2x | row 37 + at least 20 cells | m02016 "Can this be fixed at all", m02031 "This laser is wrong too" |
-| 2026-11-17 12:4x | stopped swapping the art, went to IDA to reverse engineer (what m02045 asked for) | this document |
-
----
 
 ## What the server should send
 

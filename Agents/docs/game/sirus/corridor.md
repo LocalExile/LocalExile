@@ -30,39 +30,6 @@ That clip carries three things at once: `create_corridor` @**0.461 s**, the hand
   The `create_corridor` event itself builds nothing — **the class is instantiated, but it only changes state, it makes no art** (see "the corridor's real structure" below).
 - **Server**: the walls on both sides (collision + the picture), and the fireball in the middle that rolls from the body towards the player.
 
-## The server implementation at the time of writing (2026-11-17)
-
-This section describes the branch of 2026-11-17, which is not in this repository; the repository's own code is the reference for what ships today. The code below is `Corridor()` (`Modules/Core/Game/Monster/Sirus.Combat.cs:494-529`).
-
-```csharp
-special = 1; specialUntil = ready = now + 7.5;
-var at = RingPoint(c, aim, 42, now);                 // the body teleports 42 cells out around the player
-await Teleport(c, id, at, now); await Cast(c, id, 10948, aim, now); await Voice(5678);
-corridorEnd = Extend(at, aim, 100);
-for (int d = 8; d < 100; d += 6)                     // one wall segment every 6 cells, one on each side
-    foreach (int side in new[] { -1, 1 }) {
-        await Wall(c, wall, angle, specialUntil);     // Tutorial_Blocker: real collision
-        await Fx(c, wall, Art + "blocking_02.ao", specialUntil, clip: 2, rotation: angle, scale: 1.5f);
-    }
-double[] contacts = [1.173, 1.825, 2.485, 3.156, 3.818, 4.497, 5.167, 5.812];
-for (int i = 0; i < contacts.Length; i++)            // 8 fireballs roll along the centre line
-    timedFx.Add((now + contacts[i] - .75, Art + "nuke_beam_blast.ao", ball.Item1, ball.Item2, now + contacts[i] + .3, angle));
-foreach (double contact in contacts)
-    hits.Add(new(now + contact, body.ActionGeneration, ++group, 10948, at, corridorEnd, 7));
-```
-
-- The centre line of the corridor is `at → Extend(at, aim, 100)`; the walls on both sides are offset **±11 cells** (the perpendicular distance along the angle).
-- The positions of the 8 fireballs are interpolated along the centre line by `(i+1)/8`, **each one lands exactly on one of the 8 `beam_right/beam_left` moments**,
-  art `nuke_beam_blast.ao` (`nuke_blast.pet` + 0.06 s of cracks and debris).
-- Damage: 8 × `Hit(10948)`, `from = at`, `to = corridorEnd`, a line check of radius **7**.
-
-## Player feedback
-
-| Time | Feedback |
-|---|---|
-| 2026-11-16 | "the walls of the corridor and the red ball are already there" — the walls and the fireball were judged usable |
-| To do | the hit model is "the whole line from the body to the end of the corridor" (one check 100 cells long), not an area that follows the fireball |
-
 ## Still open
 
 1. **The hit semantics are wrong**: now all 8 `Hit` calls use the same `at → corridorEnd` line with radius 7 ⇒ a player standing in the corridor is hit 8 times;

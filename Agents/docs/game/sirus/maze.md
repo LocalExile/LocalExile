@@ -54,43 +54,6 @@ client's own implementation is simply **not running**.
 - **The server**: the rings' **collision/walls**, the gap, the exit, the damage settlement, the player's movement — the
   spatial queries the client does only drive the presentation, they do not settle damage (inferred).
 
-## The server implementation at the time of writing (2026-11-17)
-
-This section describes the branch of 2026-11-17, which is not in this repository; the repository's own code is the
-reference for what ships today.
-
-`Maze()` (`Modules/Core/Game/Monster/Sirus.Combat.cs:349-467`)
-
-1. **The centre is the player, not Sirus** (`:375` `mazeCentre = c.Walk.Position(now)`): the official fight puts the player
-   inside the rings; with Sirus at the centre his 44-cell body stands in the first ring and hides the walls completely
-   (measured 2026-11-15).
-2. The cast: `await Cast(c, id, rings == 1 ? 10949 : rings == 2 ? 10950 : 10951, mazeCentre, now)` (`:379`),
-   `rings = Math.Min(3, Round + 1)`. **This step only plays the animation, it does not create Action 42185.**
-3. The clock: `StartClip = 1.5`, `Contact = 2.006`, `clipAt = now + 1.5`, `collapseAt = clipAt + 2.006`; the walls stand
-   until `collapseAt` (they are taken down when the meteor lands, `wallUntil = collapseAt`).
-4. The player is teleported to the centre `(mazeCentre.X + 3, mazeCentre.Y + 3)` (`:388-390`).
-5. Per ring: `radius = 12 + ring * 8`, `gap = .7 + ring * 2.15`,
-   `wallStep = τ / max(8, round(τ*radius/2.6))`, `openHalf = max(.36, 7.0/radius) + wallStep`.
-   - Collision: `await Wall(c, at, a + π/2, wallUntil)` with `Tutorial_Blocker` (`TriggerableBlockage`, the client closes the
-     cells itself), one every **1.6 cells**.
-   - The picture: `Art + "blocking_02.ao"`, `clip: 2` (`loop`; the default `wait` has no particle events ⇒ a plain effect
-     object draws nothing), `scale: 1.5`, one every **2.6 cells**; the gap is skipped with **the same** `openHalf` (the
-     picture and the collision must agree, otherwise the player sees a hole and still walks into a wall).
-   - The exit: `ExitHere.ao`.
-6. The warnings: `6 + rings * 4` `maze_meteor_incoming.ao`, radius `10 + rand(rings*15 + 8)`, burning until `collapseAt`.
-7. The one in the centre: `timedFx.Add((collapseAt - 1.92, Art + "destruction_assets/meteors/meteor_rain.ao", …))`
-   — `meteor_rain.ao`'s `contact` is at 1.92 s, so it is placed 1.92 s early and the landing lines up with
-   `hits.Add(... 10949/10950/10951, mazeCentre, mazeCentre, 17 + (rings-1)*15)`.
-   `meteor_maze_01` is **deliberately not played**: it does not build the maze, but it carries a meteor of its own, so the
-   player would see the centre hit twice (measured 2026-11-16).
-
-## What the player saw, in order
-
-| Date | What the player said |
-|---|---|
-| 2026-11-15 | "the maze has no exit, it is a closed ring" → a bug: the picture's gap was one cell wider than the collision's gap |
-| 2026-11-16 | "standing on the ExitHere ring, I cannot get out" → the exit changed from 0.32 rad to 7 cells of clearance plus one cell of wall |
-
 ## Client implementation (decompiled)
 
 ### The action class: `OrionCircleMazeBlast`

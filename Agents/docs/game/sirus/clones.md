@@ -83,33 +83,6 @@ The animation + the `identify` event on the body (the client flashes it by itsel
 
 ---
 
-## The server implementation at the time of writing (2026-11-17), and what the play showed
-
-This section describes the branch of 2026-11-17, which is not in this repository; the repository's own code is the reference for what ships today. The code below is `Clones()` in `Modules/Core/Game/Monster/Sirus.Combat.cs`.
-
-```csharp
-special = 3; specialUntil = ready = now + 5.33; var aim = c.Walk.Position(now);
-int real = Random.Shared.Next(12);                       // the body stands on one of the directions of the circle
-await Teleport(c, id, at, now);
-await Cast(c, id, 8100, aim, now); await Voice(5688);
-for (int i = 0; i < 12; i++) { … await Fx(c, clone, Root + "AtlasExile5.ao", specialUntil, clip: 7, rotation: …); }
-double[] blasts = [4.141, 4.282, 4.388, 4.500, 4.597, 4.722];
-hits.Add(new(now + blasts[i], body!.ActionGeneration, ++group, 7031, from, Extend(from, aim, 180), 6,
-    Beam: true, Track: c, CloneHit: shooters.Count > 0));
-```
-
-- The clones are 12 equal parts of a circle of radius 35 cells, positions that cannot be walked are skipped (`c.Layout.WalkableFor`); the shooters rotate in a random order (`shooters`), so the 6 beams come from different clones.
-- The display body of a clone = **the 7th clip of the body's `AtlasExile5.ao`** (observed: the 7th animation entry in the `.ao` is `clone_beam_start_01`; whether the client's clip index matches the order in the file is not verified).
-- How the beams are drawn: `Beam()` uses `FireBeam` (line 37); a hit with `Beam: true` → `KitavaActTen.LineDistance(...) <= 6` (`Damage()`, `:951`).
-- The model coordinates of `clone_beam_blast` (2.1–2.2 cells ahead, chest height) are **not used yet**; the beam starts at the body's position.
-
-| Time | Feedback |
-|---|---|
-| 2026-11-16 | the early version was 6 parallel purple-blue beams (`logs/shots/user-report/beams-parallel.jpg`), and it was called out that "the Die Beam should be three diverging elemental beams" |
-| 2026-11-17 | no separate feedback about the clones since then |
-
----
-
 ## What the server should send
 
 1. **Action**: send an `AnimationUpdate` for 8100 on the body (slot 35 → `trap_beam_01`), and fire `identify` at 3.742 s (the client flashes `flash_beam.ao` and attaches `Trap_Beam_Signal.epk` by itself).

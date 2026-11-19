@@ -229,46 +229,6 @@ entries + the list of 16-byte geometry entries.
 8. **The official landing point distribution, how many per wave and the spacing** — there is no data for that, it can only
    be compared in the live client.
 
-## The server implementation at the time of writing (2026-11-17), a read-only record
-
-This section describes the branch of 2026-11-17, which is not in this repository; the repository's own code is the
-reference for what ships today.
-
-`MeteorArena()` (`Modules/Core/Game/Monster/Sirus.Combat.cs:546-578`):
-
-```csharp
-ready = now + 2.17 + 3.2;              // 10957's CastTime 2170 ms + a 3.2 s gap
-await Voice(5664);                      // "Rain of stars!"
-if (apparition != 0) {
-    await Cast(c, apparition, 10145, aim, now);       // AS 1449 => the client draws nothing
-    foreach (var p in Present.ToArray())
-        await SendWorldRecord(p, apparition, () => InstanceProtocol.AnimationUpdate(apparition, 0, 5, 1));
-    for (int i = 0; i < 6; i++) {                     // 6 of them, radius 6+rand*40 cells
-        double a = Random.Shared.NextDouble() * Math.Tau, r = 6 + Random.Shared.NextDouble() * 40;
-        var at = (aim.X + (int)(Math.Cos(a) * r), aim.Y + (int)(Math.Sin(a) * r));
-        hits.Add(new(now + 1.5 + i * .32, gen, ++group, 10942, at, at, 12));
-    }
-} else { await Cast(c, id, 10942, aim, now); hits.Add(new(now + 1.92, gen, ++group, 10942, aim, aim, 12)); }
-```
-
-- When the apparition is not there it falls back to the body and casts 10942: 10942 is not in the skill table ⇒ the
-  client cannot resolve an action from this 0x1ab (**inferred**).
-- In the hit loop (`:845+`) `hit.Effect is 10942 or 10945` **draws no server effect at all** (it waits for the client),
-  and the client cannot draw it today ⇒ the star rain **has damage but no picture**.
-- In another place (`:720-734`, the body's meteor) the server places `meteor_rain.ao` **by itself**:
-  `timedFx.Add((contact - 1.92, Art + "destruction_assets/meteors/meteor_rain.ao", at.X, at.Y, contact + .2, 0))`
-  — one meteor = one `meteor_rain.ao`, starting 1.92 s before the hit, so that the clip's own contact lands on the hit
-  point.
-  The comment at the same place also records one live observation: casting 10942 puts a **big blue shell** over the
-  landing point, which the official fight does not have (`:720-723`) — the `impact` bone group of `Meteor_Rain.ao` is
-  exactly that warning shell (`meteor_incoming.pet`), but it also carries the falling head and the landing dust
-  ⇒ whether the client's meteor only draws the shell, or we only see the shell, is **still open**.
-
-## What the player saw, in order
-
-2026-11-17 "the meteor and the meteor crater are fixed" (confirmed in the phase hand-over); the "crater" comes from the
-animation that the server's own `meteor_rain.ao` carries, it is not a decal.
-
 ## To do (live verification)
 
 1. **Verify in the live client that 0x1ab → `+304`**: send an action with AS 1570 and see whether the client's

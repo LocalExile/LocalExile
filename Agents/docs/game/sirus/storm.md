@@ -52,17 +52,6 @@ The aura's damage per minute (one figure per element, see the storms section of 
 - **The client does not draw**: ① the `create_deathzone` event (searching the whole of the body's `atlasexile5.ot` for `deathzone` gives only two `preload_buff` lines, **there is no client handler**); ② the buff itself (`AddBuffToTarget` creates nothing).
 - **The server has to do**: spawn the storm entity (with the official stats), publish its 12 effects, send the 8-level shockwave actions on time, and compute the aura's damage and slow.
 
-## The server implementation at the time of writing (2026-11-17)
-
-This section describes the branch of 2026-11-17, which is not in this repository: the repository's own code is the reference for what ships today.
-
-- The variant names are at `Sirus.Native.cs:12-13`, the effect directory prefix at `:14`; `Effects(v)` only knows the body and the clone (`Sirus.Native.cs:33`) ⇒ **the storm has not published a single skill** (`SkillsFor` `:46-48` returns null); the skill number convention is `SkillBase = 0x4000` (`:35`), the number = `0x4000` + the index into `GrantedEffectsKeys`.
-- Spawning: `Sirus.cs:274` (stage 5→6) `uint storm = await Actor(c, Storm, Position(now)); RegisterStorm(storm, c.Monsters[storm], now);`; the opening props `Sirus.cs:181-184`.
-- The phase change `Sirus.cs:306-341` `Ascend()`: the body/clone teleports to `scene.Centre` → spawns the throne → the body gets `("throne",1),("norendering",1)` → `Basic(c, id, "Emerge2", now, 10)` → **`:337-338` `stormAt = now; stormArt = await Fx(c, scene.Centre, Art + "deathzone.ao", now + 13, clip: null, scale: 2f);` (a detour)** → voice `5681 + min(2, Round)` → `stage = 5; deadline = now + 8`.
-- The wrap-up `Sirus.cs:278-305` `Descend()`: removes `stormArt` (`:283-287`), `ClearNearbyStorms(c, Position(now), 70)` (`:304`).
-- Damage `Sirus.Damage.cs:62-74` `Dot()` reads `base_*_damage_to_deal_per_minute / 60`; `:81-82` uses 6833 for 38 cells (minion 10981) and 6834 for 13 cells (minion 10982); `:106-110` applies `action_speed_-% 25` inside the circle.
-- Shockwaves `Sirus.Combat.cs:782-789`: for a moving storm, once every 0.2 s after `Born + 3` (**no action is sent**).
-
 ## Client implementation (decompiled)
 
 ### The action class `AddBuffToTarget` (the aura 1116 uses it)
@@ -137,13 +126,6 @@ See the "## Still open" section at the end of the page; the most important line 
 3. **The shockwaves**: one `geometry_spell` action per level, drawn by the client itself (a geometry action builds its own Effect). The radius grows step by step, 0, 50, … 350, following `active_skill_area_of_effect_radius_+%_final`; the interval between the levels is not in the data, so our 0.2 s (`Sirus.Combat.cs:782-789`) is a guess ⇒ it has to be checked in the live client.
 4. **The aura**: the official route is "the monster casts 1116 → the server puts the `atlas_orion_death_zone` buff on the player"; right now we have a **pure server-side DoT** (`Sirus.Damage.cs:81-82`) + `action_speed_-% 25` (`:106-110`), and the player has none of the official circle's texture. To get the official look back the player has to get the buff (the visuals then run through the client's buff effect).
 5. **Drop the detour**: replace the `Fx(... "deathzone.ao", scale: 2f)` at `Sirus.cs:337-338` with points 1–4 above. The detour has three hard faults: the effect version `deathzone.ao` **has no sound** (only the monster version has `DeathCloud.loop.ogg` / `EarthCrumble.loop.ogg` / `DeathCloudStart.once.ogg`); it has none of the entity's 5 particle bindings; it does not go away with the entity and is not cleared by distance through `ClearNearbyStorms` (`Sirus.cs:304`). `Fx` can stay during the transition, but the commit message has to say that it is a temporary measure.
-
-## What the player saw, in order
-
-| Time | What the player saw |
-|---|---|
-| 2026-11-16 | Handover document: "the phase-change storm and the growing central collapse circle are both still not done" |
-| 2026-11-17 | m01489 "carry on with the phase-change storm" — not fixed yet |
 
 ## Still open
 
