@@ -1456,6 +1456,13 @@ public static partial class Game
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse,
                 guardStart: guardStart))
         {
+            // A guard's cooldown is server-owned and held at full while its buff runs. Publish that held rate-0 entry
+            // before the instant action: the client skips its press prediction (startCooldown) when a zero-rate entry
+            // already exists, so the bar's ring does not sweep before the freeze (issue #1127). The instant action's
+            // native use refresh then briefly restores the recovery rate, which StartTriggeredGuard's held entry behind
+            // it freezes again; the remaining time stays full throughout, so neither flicker moves the ring.
+            if (guard && GuardCooldownPreEntry(conn, skillId, gem.Effect) is { Length: > 0 } preEntry)
+                await Send(remote, stream, ciphers, preEntry, "0x02bc guard cooldown held before its instant action");
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
                 atGate: () =>
