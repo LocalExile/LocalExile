@@ -139,6 +139,9 @@ The following are explicit LocalExile policies:
 Creation publishes full 0x40 budgets alongside current skills.
 Real `SendSkills` reconciles sources before awaiting and again at the send gate.
 Kill publication also reads the current state at the send gate, so queued removal/death/transfer cannot resurrect souls.
+A kill only credits the budgets the equipment and skill seams reconciled (`RefreshVaalSouls` there, not per corpse),
+and a presentation is sent only when a budget or a capacity changed (a per-connection revision); rebuilding the sources
+and the player's stats after every kill cost 2-3 ms per corpse in a pack (measured 2026-11-18).
 Holding death notifications cannot reclassify prevention, range or source eligibility from the lethal event.
 Vaal gem and accepted-support requirements use one immutable current-equipment snapshot.
 Attribute gear, host activation, socket places and link groups are resolved from that same inventory read.

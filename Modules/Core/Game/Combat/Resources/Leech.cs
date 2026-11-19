@@ -61,8 +61,8 @@ public static partial class Game
         int? Replacement(string name) => Stats.Key(name) is uint key && replacements.TryGetValue(key, out int value) ? value : null;
         lock (conn.Monsters)
         {
-            int claws = (ActiveMainHand(conn)?.Type?.Class == "Claw" ? 1 : 0)
-                + (ActiveOffHand(conn)?.Type?.Class == "Claw" ? 1 : 0);
+            int claws = (WeaponIdentity.CountsAs(ActiveMainHand(conn), ItemsFor(conn).Mods, "Claw") ? 1 : 0)
+                + (WeaponIdentity.CountsAs(ActiveOffHand(conn), ItemsFor(conn).Mods, "Claw") ? 1 : 0);
             LeechOf(conn).Configure(ProjectileWorldTime(conn),
                 LeechLimits.Resolve(get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield, Replacement, onLowLife),
                 get, Replacement, claws);
@@ -85,11 +85,11 @@ public static partial class Game
     }
 
     public static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
-        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<string, int>? local = null)
+        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<string, int>? local = null, bool melee = false)
     {
         int Get(string name) => Stats.Key(name) is uint key
             ? (int)Math.Clamp((long)player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue) : 0;
-        return LeechSources.From(Get, attack, name => local?.GetValueOrDefault(name) ?? 0);
+        return LeechSources.From(Get, attack, name => local?.GetValueOrDefault(name) ?? 0) with { Melee = melee };
     }
 
     // Invoke only inside an accepted direct-hit transaction, after evasion/block and before impale reflection.
@@ -118,14 +118,15 @@ public static partial class Game
         }
         double now = ProjectileWorldTime(conn);
         var instant = session.Hit(now, amounts, conn.PlayerLife >= LifeCap(conn),
-            conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum, sources.Attack);
+            conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum, sources.Attack, sources.Melee);
         var gain = sources.GainOnHit;
         uint life = conn.PlayerLife, mana = conn.PlayerMana;
         // Instant portions and the gain per enemy hit resolve in this hit transaction, so a later enemy hit sees the
         // recovered resource. Keep sub-point recovery between hits, and discard overflow at a full pool. Petrified
         // Blood caps the actual recovery like regeneration/Recoup; the leech instance itself remains until full Life.
+        // Vaal Pact blocks the life gain on hit (it is not leech); the leeched instant life still recovers.
         conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, life,
-            instant.Life + (session.RecoversLife ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
+            instant.Life + (session.RecoversLife && !session.LifeGainOnHitBlocked ? gain.Life : 0), ref session.LifeInstantCarry, minimum: 1);
         conn.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(conn), instant.Mana + gain.Mana,
             ref session.ManaInstantCarry);
         conn.EnergyShield.Gain(instant.EnergyShield + (session.RecoversEnergyShield ? gain.EnergyShield : 0));

@@ -156,6 +156,15 @@ yet confirmed on screen).
   0xbf and the tree's 0x33 are sent back. `/add_refund_points <n>` remains a dev shortcut. Expansion nodes are still
   refused.
 - `/passives` lists the ordinary passive and refund points; `/reset_passives` refunds ordinary nodes (free).
+- **Keystone indication (3.29.3c client tables).** Most keystones have no `BuffDefinitions` row (Resolute Technique,
+  Precise Technique, Pain Attunement, Magebane, Unwavering Stance, Arrow Dancing, Vaal Pact, Lethe Shade, Perfect
+  Agony): nothing to show. Elemental Overload's diamond below a skill's icon is the Invisible `elemental_overload` buff
+  (row 606, no buff-bar icon) bound to that skill (AddBuff bit3, `activeSkill`): the server sends it on the skill's
+  critical strike and removes it in the player tick when the eight-second window ends, as the client does not expire
+  it. The damage rides on the non-public `keystone_elemental_overload_damage_+%_final`;
+  `elemental_overload_rotation_active` is the unique's "every 16 seconds" variant. The window is per skill, as the 3.29
+  tree text says ("Skills that have dealt a Critical Strike in the past 8 seconds"); PoB's global flag is a calculator
+  limitation.
 
 ### Passive tree jewel sockets
 

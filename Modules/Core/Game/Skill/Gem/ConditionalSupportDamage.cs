@@ -4,13 +4,14 @@ using GameServer.Core.World;
 // Hits and Ailments against Chilled Enemies", Behead "against Enemies on Low Life" (half its maximum Life or less, PoB
 // LowPoolThreshold), Damage on Full Life "Supported Attack Skills deal more Damage while on Full Life", Vile Toxins
 // "5% more Damage with Hits for each Poison on the Enemy, up to a maximum of 8 Poisons", Bloodlust "more Melee Physical
-// Damage against Bleeding Enemies" and Power Charge on Critical "more Damage per Power Charge". GemSupportDamage builds
+// Damage against Bleeding Enemies", Power Charge on Critical "more Damage per Power Charge" and Endurance Charge on Melee
+// Stun "more Damage per Endurance Charge". GemSupportDamage builds
 // the skill's hit without them, once per cast; these scale each target's roll.
 public static partial class Game
 {
     public static double ConditionalSupportMore(IReadOnlyDictionary<uint, int>? skill, bool attack, bool chilled,
         bool lowLife, bool fullLife, bool lifetap, int poisonStacks = 0, bool bleeding = false, int powerCharges = 0,
-        bool arcaneSurge = false, int recentIgnites = 0)
+        bool arcaneSurge = false, int recentIgnites = 0, int enduranceCharges = 0)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
         double more = 1;
@@ -26,6 +27,9 @@ public static partial class Game
         if (counted > 0) more *= Math.Max(0, 1 + Get("support_debilitate_hit_damage_+%_final_per_poison_stack") * counted / 100.0);
         if (powerCharges > 0)
             more *= Math.Max(0, 1 + Get("support_power_charge_on_crit_damage_+%_final_per_power_charge") * powerCharges / 100.0);
+        // Endurance Charge on Melee Stun: "Supported Skills deal (4)% more Damage per Endurance Charge".
+        if (enduranceCharges > 0)
+            more *= Math.Max(0, 1 + Get("endurance_charge_on_melee_stun_damage_+%_final_per_endurance_charge") * enduranceCharges / 100.0);
         // Controlled Blaze: "(3)% less Damage per Enemy Ignited Recently", floored by the support's minimum.
         int recentPer = Get("support_recent_ignites_damage_per_recent_ignite_+%_final");
         if (recentPer != 0)
@@ -49,7 +53,8 @@ public static partial class Game
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
             Lifetap.ActiveAt(conn, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
-            ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now));
+            ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now),
+            ChargesOf(conn).Effective(ChargeType.Endurance));
         var packet = more == 1 ? rolled : rolled.Scale(more);
         // Immolate: added Fire Damage against Burning Enemies (the stat description's own wording).
         if (target.Ignites.Burning)

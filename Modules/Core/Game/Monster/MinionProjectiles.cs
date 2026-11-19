@@ -102,10 +102,11 @@ public static partial class Game
         }
         var to = target.Walk.Position(now);
         int fromX = (int)Math.Round(contact.Position.X), fromY = (int)Math.Round(contact.Position.Y);
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(shot.MinionId, 0xffff, contact.Target.Id,
-                flags: 0x4601, kind: 0x02, u34: 450, angle: HitAngle(to.X - fromX, to.Y - fromY)),
+        // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
+        conn.Minions.OutputQueue.Add(new(MinionActionHit(shot.MinionId, contact.Target.Id, accepted.HitCode,
+                HitAngle(to.X - fromX, to.Y - fromY)),
             $"0x01af minion 0x{shot.MinionId:x} projectile hit on monster 0x{contact.Target.Id:x}",
-            contact.Target.Id, target));
+            contact.Target.Id, target, WorldId: shot.MinionId));
         CommitMinionHitLocked(conn, contact.Target.Id, target, hit, accepted.Damage, now,
             $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})");
         session.Enqueue(() => PublishMinionOutcomesFor(session.remote, session.stream, session.ciphers, conn,

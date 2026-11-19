@@ -2,8 +2,7 @@ public static partial class Game
 {
     const string PhysicalVsIgnited = "physical_damage_+%_vs_ignited_enemies";
     public const string DamageVsLowLifePerFrenzy = "damage_+%_vs_enemies_on_low_life_per_frenzy_charge";
-    public static bool EnemyOnLowLife(SpawnedMonster target) => target.Hostile && !target.Dead && target.Life > 0
-        && (ulong)target.Life * 2 <= target.MaxLife;
+    public static bool EnemyOnLowLife(SpawnedMonster target) => target.Hostile && MonsterOnLowLife(target);
 
     const string FireVsBleeding = "fire_damage_+%_vs_bleeding_enemies";
 

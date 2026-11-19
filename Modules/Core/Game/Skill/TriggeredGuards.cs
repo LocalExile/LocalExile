@@ -17,8 +17,8 @@ public static partial class Game
         public ProjectileSession? Session;
     }
     static readonly RuleTable<ClientState, TriggeredGuard> TriggeredGuards = new();
-    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
-        is "QuickGuard" or "ImmortalCall" or "MoltenShell";
+    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect));
+    static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell";
 
     static TriggeredGuard? CurrentTriggeredGuard(ClientState conn, double now)
     {
@@ -36,6 +36,11 @@ public static partial class Game
     {
         guard.Until = 0;
         guard.ReadyAt = now + guard.RecoverySeconds;
+        // The blackout is over: the bar entry becomes the skill's own cooldown and counts down from here.
+        if (guard.Gem is { } ended)
+            lock (conn.Monsters)
+                SingleUseState(conn, ended.Effect, guard.Skill)?.Resume(now,
+                    SkillsFor(conn).CooldownMs(ended.Effect, ended.Level));
         if (guard.Session is not { } session) return;
         ushort buff = guard.Buff; guard.Buff = 0;
         if (buff != 0) session.Packet(InstanceEntities.RemoveBuff(PlayerId, buff));
@@ -72,7 +77,48 @@ public static partial class Game
         }
         guard.Armour = 0;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
+        // Built now and marked sent, so the stats send's own cooldown refresh does not publish the entry a second time:
+        // every repeat restarts the bar's cooldown animation on this client (live 2026-11-18).
+        byte[]? counted = guard.Gem is { } counting ? GuardCooldownEntry(conn, guard.Skill, counting.Effect) : null;
         session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "guard ended"));
+        // A triggered guard has no instant action entry of its own, so the resumed entry is published here as well.
+        if (counted is { Length: > 0 })
+            session.Enqueue(() => Send(session.remote, session.stream, session.ciphers, counted,
+                "0x02bc guard cooldown counts after its buff"));
+    }
+
+    /// <summary>The client's stored-use entry for a guard skill as the bar shows it now: the skill's own cooldown at a
+    /// zero recovery rate while the buff runs (the official bar's frozen entry, measured 3.00 / 3.00 / rate 0, which
+    /// this client takes when it did not predict the entry itself), then the same cooldown at the character's recovery
+    /// rate. One publisher, so a stats or skill refresh repeats the same numbers.</summary>
+    public static byte[]? GuardCooldownEntry(ClientState conn, ushort skill, int effect)
+    {
+        lock (conn.Monsters)
+        {
+            if (SingleUseState(conn, effect, skill) is not { } state) return null;
+            state.Refresh(conn.Clock.Elapsed.TotalSeconds, state.Rate);
+            if (!state.Held && state.FullyRecovered) return null;
+            float total = state.TotalBaseMilliseconds / 1000f;
+            float remaining = state.Held ? total : (float)(state.RemainingBaseMilliseconds / 1000);
+            var entry = InstanceEntities.PlayerSingleUseCooldowns(PlayerId,
+                [new SingleUseCooldownUpdate(skill, remaining, total, state.Held ? 0f : (float)state.Rate, state.SpentUses)],
+                canDetonateMines: CanDetonateMines(conn));
+            state.NativeRefreshed();
+            return entry;
+        }
+    }
+
+    /// <summary>A guard's held rate-0 entry built from the skill's own base cooldown, published before its instant
+    /// action so the client skips the press prediction it would otherwise start from a use (issue #1127). It mutates no
+    /// server state: the use's acknowledgement and <see cref="StartTriggeredGuard"/>'s <see cref="SingleUseCooldownState.Hold"/>
+    /// behind the instant action own the state, so a refused action cannot leave a held cooldown stuck.</summary>
+    public static byte[]? GuardCooldownPreEntry(ClientState conn, ushort skill, int effect)
+    {
+        int ms = SkillsFor(conn).CooldownMs(effect, SupportedSkill(conn, skill).Level);
+        if (ms <= 0) return null;
+        float total = ms / 1000f;
+        return InstanceEntities.PlayerSingleUseCooldowns(PlayerId,
+            [new SingleUseCooldownUpdate(skill, total, total, 0f, 1)], canDetonateMines: CanDetonateMines(conn));
     }
 
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
@@ -81,7 +127,8 @@ public static partial class Game
             name => player(name) + (name == SkillDurationModifiers.IncreasedDuration ? player("guard_skill_effect_duration_+%") : 0),
             own);
 
-    // Called immediately after the trigger's successful payment, under the connection lock.
+    // Called immediately after the use's successful payment, under the connection lock: a guard skill cast from the
+    // skill bar arrives here as well as a triggered one (Cast When Damage Taken).
     public static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
     {
         var gem = SupportedSkill(conn, skill);
@@ -108,7 +155,12 @@ public static partial class Game
             if (!RandomRolls.Chance(Get("immortal_call_%_chance_to_not_consume_endurance_charges"), 100, Random.Shared))
                 charges.State.Lose(ChargeType.Endurance, removable, charges.Limits(ChargeType.Endurance));
             guard.Remaining = removable;
-            duration *= Math.Max(0, 1 + removable * Get("buff_effect_duration_+%_per_removable_endurance_charge_limited_to_5") / 100d);
+            // The gem's 20% and the helmet enchantment's "increased Immortal Call duration per Endurance Charge
+            // removed" are increased duration, added to the other increases (PoB SkillStatMap: Duration INC).
+            int perChargeDuration = Get("buff_effect_duration_+%_per_removable_endurance_charge_limited_to_5")
+                + Get("immortal_call_buff_effect_duration_+%_per_removable_endurance_charge");
+            duration = GuardDuration(Own("base_skill_effect_duration"), name => GolemStat(player, name),
+                name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? removable * perChargeDuration : 0));
             guard.Physical = Math.Max(0, 1 + Own("mortal_call_physical_damage_taken_+%_final") / 100d)
                 * Math.Max(0, 1 + removable * Own("mortal_call_physical_damage_taken_per_endurance_charge_consumed_final_permyriad") / 10000d);
             guard.Elemental = Math.Max(0, 1 + Own("mortal_call_elemental_damage_taken_+%_final") / 100d)
@@ -131,6 +183,16 @@ public static partial class Game
         guard.Buff = conn.NextBuff++;
         session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "guard started"));
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
+        // The bar entry goes last, after the stats send: a 0x53 rebuild re-creates the slot and resets its entry to the
+        // skill's own recovery rate (measured 2026-11-18, a freeze sent before it was lost), so the held entry must be
+        // the last cooldown message even if that send rebuilds the bar. Held, the bar shows the skill's own cooldown at a zero
+        // recovery rate, as the official client shows a cooldown that does not recover during an effect; it resumes at
+        // the character's rate when the buff ends (EndTriggeredGuard), which is when TriggerGuardReady accepts a new one.
+        lock (conn.Monsters) SingleUseState(conn, gem.Effect, skill)?.Hold(SkillsFor(conn).CooldownMs(gem.Effect, gem.Level));
+        // Built now and marked sent, so later refreshes do not publish it again: every repeat replays the bar animation.
+        var held = GuardCooldownEntry(conn, skill, gem.Effect) ?? [];
+        session.Enqueue(() => Send(session.remote, session.stream, session.ciphers, held,
+            $"0x02bc guard cooldown: held for {duration:0.###} s"));
     }
 
     public static byte[] TriggeredGuardPresentation(ClientState conn, double now)

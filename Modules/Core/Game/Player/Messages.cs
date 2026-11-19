@@ -31,8 +31,15 @@ public static partial class Game
     static extern IntPtr GetCurrentThread();
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     static extern bool GetThreadTimes(IntPtr thread, out long creation, out long exit, out long kernel, out long user);
+    // Linux: clock_gettime(CLOCK_THREAD_CPUTIME_ID = 3). Elsewhere the probe reports 0 rather than throwing.
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "clock_gettime")]
+    static extern int ClockGetTime(int clock, out Timespec time);
+    struct Timespec { public long Seconds, Nanoseconds; }
     static long ThreadCpuMilliseconds() =>
-        GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
+        OperatingSystem.IsWindows()
+            ? GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0
+            : OperatingSystem.IsLinux() && ClockGetTime(3, out var time) == 0 ? time.Seconds * 1000 + time.Nanoseconds / 1_000_000
+            : 0;
 
     public static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
@@ -145,7 +152,7 @@ public static partial class Game
                 string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
                 if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
                 {
-                    double duration = WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn));
+                    double duration = DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn));
                     if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
                     int projectileEpoch;
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
@@ -225,7 +232,7 @@ public static partial class Game
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
                 bool leapSkill = attack && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
-                if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
+                if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds, use.Slot))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -321,7 +328,7 @@ public static partial class Game
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
                             conn.NextAttackAt = AttackTiming.After(at, conn.NextAttackAt,
-                                Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
+                                Math.Max(TickSeconds, DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
                     }
                 }
                 Mark("begin");
@@ -610,6 +617,10 @@ public static partial class Game
             }
             else if (id == InstanceItems.InventoryRequestId)
                 Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceSkinTransfers.BindId)
+                await NativeSkinTransfer(remote, stream, ciphers, conn, InstanceSkinTransfers.ReadBind(bytes));
+            else if (id == InstanceSkinTransfers.ReclaimId)
+                await NativeReclaimSkin(remote, stream, ciphers, conn, InstanceSkinTransfers.ReadReclaim(bytes));
             else if (id == InstanceItems.PickUpItemId)
                 await PickUpItem(remote, stream, ciphers, conn, InstanceItems.ReadPickUpItem(bytes));
             else if (id == InstanceProtocol.ExitToCharacterSelectId)

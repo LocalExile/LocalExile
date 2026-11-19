@@ -277,20 +277,7 @@ public static partial class Game
             if (!left) await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags);
         }
         // A boss that forms once these are all dead (Quests.FormsRule: The Depraved Trinity), at its own boss point.
-        foreach (var rule in QuestsOf(conn).FormsAfter(area, variety.Id))
-        {
-            bool left, formed;
-            (int X, int Y) where;
-            lock (conn.Monsters)
-            {
-                left = conn.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
-                formed = conn.Monsters.Values.Any(o => o.Variety?.Id == rule.Next);
-                where = conn.LaterFormPoints.GetValueOrDefault(rule.Next, at);
-            }
-            if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
-            Console.WriteLine($"[gateway] {remote} {m.Label} died, the last of {rule.Varieties.Length}: {boss.Name} forms at ({where.X}, {where.Y})");
-            await SpawnMonster(remote, stream, ciphers, conn, boss, m.Level, MonsterRarity.Unique, where.X, where.Y);
-        }
+        await FormQuestBosses(remote, stream, ciphers, conn, m, variety.Id, at);
         // Device-recipe phases (Maven's Nucleus, Sirus after the throne, Atziri): not quest flags, same spawn path.
         if (area != Sirus.Area && MapBossFights.Current.FormsAfter(area, variety.Id, id =>
             {
@@ -938,5 +925,28 @@ public static partial class Game
         await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
         var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
         if (own.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, own);
+        if (m.Variety is { } variety)
+            await FormQuestBosses(remote, stream, ciphers, conn, m, variety.Id, m.Walk.Position(ProjectileWorldTime(conn)));
+    }
+
+    // A FormsRule can follow either a death or a quest threshold, using the point fitted for the new variety.
+    static async Task FormQuestBosses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        SpawnedMonster source, string variety, (int X, int Y) at)
+    {
+        foreach (var rule in QuestsOf(conn).FormsAfter(conn.Layout.Id, variety))
+        {
+            bool left, formed;
+            (int X, int Y) where;
+            lock (conn.Monsters)
+            {
+                left = conn.Monsters.Values.Any(o => o.Variety is { } v && rule.Varieties.Contains(v.Id) && !o.Dead && o.Life > 0);
+                formed = conn.Monsters.Values.Any(o => o.Variety?.Id == rule.Next);
+                where = conn.LaterFormPoints.GetValueOrDefault(rule.Next, at);
+            }
+            if (left || formed || Monsters.Find(rule.Next) is not { Supported: true } boss || boss.Id != rule.Next) continue;
+            Console.WriteLine($"[gateway] {remote} {source.Label} leaves: {boss.Name} forms at ({where.X}, {where.Y})");
+            await SpawnMonster(remote, stream, ciphers, conn, boss, source.Level, MonsterRarity.Unique, where.X, where.Y,
+                lifePercent: rule.InitialLifePercent);
+        }
     }
 }

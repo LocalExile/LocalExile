@@ -29,12 +29,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency (36 core orbs from world.db, the 12 beyond the original 24 with estimated weights), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: currency (34 enabled core orbs from world.db of 36 rows, the 12 beyond the original 24 with estimated weights; Engineer's and Harbinger's Orbs disabled as no longer usable in the client), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
 
-- Unique-flask mechanics; Oriath explosion parity, Sap, Brittle and Replica Rumi's Petrified remain open.
+- Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
+  sources exclude socket/skill hosts; 3.29.3c picker binding and protocol reclaim pass, with the shift-click gesture
+  and 3.29.3d picker untested. Docs: [23](../docs/protocol/23-microtransactions.md).
+
+- Unique-flask mechanics; Oriath explosion parity and Replica Rumi's Petrified remain open.
   Docs: [13](../docs/protocol/13-items.md) §8a.
 
 - NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
@@ -55,8 +59,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
 - Yriel and Beacon creation variants use world-data modifier bundles; their gameplay remains partial.
-- Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire, Kalandra's Touch and abyss jewels; most uniques'
-  own mechanics are missing.
+- Unique items, Mageblood, Headhunter and Replica Headhunter, Bino's Kitchen Knife, The Squire, abyss jewels,
+  Paradoxica's double damage (main hand only), Yoke of Suffering's damage taken per ailment type its wearer inflicted
+  (no scorch, brittle or sap) and Forbidden Shako's random supports; most uniques' own mechanics are missing.
   Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
   Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
   Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.

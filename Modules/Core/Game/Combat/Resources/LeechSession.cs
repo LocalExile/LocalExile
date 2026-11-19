@@ -11,9 +11,15 @@ public sealed class LeechSession
     bool convertLifeToEnergyShield;
     public bool ConvertsLifeToEnergyShield => convertLifeToEnergyShield;
     double lifeInstant, manaInstant, shieldInstant, convertedLifeInstant;
+    // Vaal Pact: "Life Leech from Melee Damage is Instant" — the life instant fraction a melee hit uses instead.
+    double meleeLifeInstant;
     bool recoverLife = true, recoverEnergyShield = true;
     public bool RecoversLife => recoverLife;
     public bool RecoversEnergyShield => recoverEnergyShield;
+    // Vaal Pact's "Cannot Recover Life other than from Leech": life gain on hit is not leech, so the keystone blocks it
+    // while leech itself keeps recovering. Regeneration and the other non-leech sources are gated where they commit.
+    bool vaalPact;
+    public bool LifeGainOnHitBlocked => vaalPact;
     public bool InstantLifeChanged, InstantManaChanged;
     public double LifeInstantCarry, ManaInstantCarry;
     // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
@@ -32,12 +38,17 @@ public sealed class LeechSession
         keepAttackEnergyShield = get("energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield") != 0;
         recoverLife = get("cannot_recover_life") == 0;
         recoverEnergyShield = get("cannot_recover_energy_shield") == 0;
+        vaalPact = get("keystone_vaal_pact") != 0;
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
         double commonInstant = (double)get("leech_%_is_instant")
             + (equippedClaws > 0 ? get("leech_%_is_instant_while_wielding_claw") : 0);
         lifeInstant = Math.Clamp(replacement("virtual_life_leech_%_is_instant")
             ?? commonInstant + get("life_leech_%_is_instant")
                 + (double)equippedClaws * get("life_leech_%_is_instant_per_equipped_claw"), 0, 100);
+        // Vaal Pact: "Life Leech from Melee Damage is Instant". A melee hit's life leech is fully instant; a non-melee
+        // hit keeps the ordinary fraction. Ghost Reaver's life-to-ES conversion keeps its own (no interaction).
+        meleeLifeInstant = get("keystone_vaal_pact") != 0 || get("melee_damage_life_leech_is_instant") != 0
+            ? 100 : lifeInstant;
         manaInstant = Math.Clamp(replacement("virtual_mana_leech_%_is_instant") ?? commonInstant, 0, 100);
         shieldInstant = Math.Clamp(replacement("virtual_energy_shield_leech_%_is_instant") ?? commonInstant, 0, 100);
         // GGG 3.22.1d explicitly preserves Life-instant sources through Ghost Reaver. Keep that source scope:
@@ -61,7 +72,7 @@ public sealed class LeechSession
 
     public (double Life, double Mana, double EnergyShield) Hit(double now,
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
-        bool attack = false)
+        bool attack = false, bool melee = false)
     {
         if (limits is null) return default;
         ClearFull(now, lifeFull, manaFull, shieldFull);
@@ -77,7 +88,8 @@ public sealed class LeechSession
         bool keepShield = keepEnergyShield || attack && keepAttackEnergyShield;
         double convertedShield = convertLifeToEnergyShield && !limits.Resources[0].CannotLeech
             ? Grant(2, amounts.Life, shieldFull, keepShield, convertedLifeInstant, recoverEnergyShield) : 0;
-        return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife, lifeInstant, recoverLife),
+        return (convertLifeToEnergyShield ? 0 : Grant(0, amounts.Life, lifeFull, keepLife,
+                melee ? meleeLifeInstant : lifeInstant, recoverLife),
             Grant(1, amounts.Mana, manaFull, false, manaInstant, true),
             convertedShield + Grant(2, amounts.EnergyShield, shieldFull, keepShield, shieldInstant, recoverEnergyShield));
     }

@@ -7,6 +7,7 @@ public static class ShrineMapAdmission
 {
     public static void Check(MapOpening request)
     {
+        request.HandledContent.Add(MapScarabContent.StandardShrines);
         if (request.Opening?.Mods.Get("map_num_extra_apparition_shrines") is not > 0) return;
         request.Opening = null;
         request.Reason = "Apparition Shrines are not supported yet. Remove the Domination Scarab of Apparitions; your map and scarab have not been consumed.";

@@ -44,6 +44,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
+        module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
@@ -51,7 +52,57 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
+        GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => MapStrongboxes.Tick(conn));
+        GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabBosses.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapEssences.Enter);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemOn);
+        GameEvents.Tick.Add(module.Manifest.Id, MapEssences.Tick);
+        GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapTorment.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapTorment.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapTorment.Tick);
+        GameEvents.Drops.Add(module.Manifest.Id, MapTorment.Drops);
+        GameEvents.Kill.Add(module.Manifest.Id, MapTorment.Kill);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapHarbinger.Tick);
+        GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapBeyond.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapBeyond.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapBeyond.Tick);
+        GameEvents.Kill.Add(module.Manifest.Id, MapBeyond.Kill);
+        GameEvents.Drops.Add(module.Manifest.Id, MapBeyond.Drops);
+        GameEvents.Experience.Add(module.Manifest.Id, MapBeyond.Experience);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapBeyond.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
+        GameEvents.IncomingDamage.Add(module.Manifest.Id, MapBeyond.IncomingDamage);
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat, MapBeyond.LifeStat], [], [MapTorment.TaperStat]));
+        // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
+        // (MonsterAlternateAilments).
+        module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
+        module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(Rules.AlternateAilmentFlaskFlags));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
@@ -100,6 +151,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Game.VaalImmortalCallTick(conn));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Game.LeavingVaalImmortalCall(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
@@ -188,6 +241,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.PaidChannel = null;
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
         conn.IncomingAilments.Clear();
+        Rules.ClearPlayerDecay(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
@@ -215,6 +269,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ReleaseCharacter(conn);
         Rules.ForgetVitalsAdmission(conn);
+        Rules.ForgetSourceValues(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(conn);
     }

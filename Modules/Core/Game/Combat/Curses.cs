@@ -38,14 +38,16 @@ public static partial class Game
     static int CurseLimit(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string n) => GolemStat(player, n);
-        return Get("has_curse_limit_equal_to_maximum_power_charges") != 0 ? Get("max_power_charges")
+        // Anathema: the maximum Power Charges (Character.ot's 3 with the mods), not the raw +N stat.
+        return Get("has_curse_limit_equal_to_maximum_power_charges") != 0 ? ChargeMaxima.Of(ChargeType.Power, Get)
             : Math.Max(0, 1 + Get("number_of_additional_curses_allowed"));
     }
 
     public static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
-        var own = (captured ?? SupportedSkill(conn, skill)).Stats; var player = sources ?? CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(player, n) + GolemStat(own, n);
+        var gem = captured ?? SupportedSkill(conn, skill);
+        var area = SkillAreaStats(conn, gem.Stats, gem.Effect, sources ?? CharacterPlayerStats(conn));
+        int Get(string n) => GolemStat(area, n);
         // Hexes retain their own base radius when Blasphemy converts them to auras.
         return SkillArea.Radius(22,
             n => Get(n) + (n == SkillArea.BaseIncreased ? Get("curse_area_of_effect_+%") : 0), spell: true);
@@ -53,6 +55,10 @@ public static partial class Game
 
     public static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
+        => ApplyCurseLocked(conn, monster, skill, now, aura, captured, sources, 0, 1);
+
+    static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
+        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
     {
         var gem = captured ?? SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect) ?? "";
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || ExternalTemporalChains(conn, effect)
@@ -66,9 +72,10 @@ public static partial class Game
         double factor = Math.Max(0, 1 + (Get("curse_effect_+%") + Get(definition.Mark ? "mark_effect_+%" : "hex_effect_+%")
             + (definition.Mark ? Get("mark_skills_curse_effect_+%") : 0)
             + Get(ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant()) + "_curse_effect_+%")
-            + monster.Mods.Effects["curse_effect_on_self_+%"]) / 100.0)
+            + monster.Mods.Effects["curse_effect_on_self_+%"] + addedEffect) / 100.0)
             * Math.Max(0, 1 + Own("support_blasphemy_curse_effect_+%_final") / 100.0)
-            * Math.Max(0, 1 + Own("support_hextouch_curse_effect_+%_final") / 100.0);
+            * Math.Max(0, 1 + Own("support_hextouch_curse_effect_+%_final") / 100.0)
+            * effectMultiplier;
         var stats = gem.Stats.Where(p => CurseRecipientStats.Contains(Stats.Name(p.Key) ?? ""))
             .ToDictionary(p => Stats.Name(p.Key)!, p => (int)Math.Truncate(p.Value * factor));
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"),
@@ -189,6 +196,7 @@ public static partial class Game
                 {
                     SettleBleeding(m, now);
                     m.Ignites.SetExpiryRate(now, rate); m.Poisons.SetExpiryRate(now, rate); m.Ailments.SetExpiryRate(now, rate);
+                    m.RuleAilments.SetExpiryRate(now, rate);
                     m.SpiderWebs.SetExpiryRate(now, rate);
                     m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                     m.Ruptures.SetExpiryRate(now, rate);

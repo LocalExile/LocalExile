@@ -334,6 +334,15 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   Acceptance persists item removal and payment together; a refused sale leaves the offer open. NPC reward previews
   are generated UI items, not paid inventory, and are never granted on cancellation. Player-to-player trade is not
   implemented by this NPC sale path. Live visibility verification pending.
+- **Gambling** (`Modules/Core/NPC/Vendors/Gambling.cs`): "Gamble for Items" is an ordinary BuyItems row with no script
+  (Bestel, Silk, Maramoa, Tasuni, Vilenta, Faustus). These NPCs' ShopSet is `Village_Gamble`, whose `NPCShop` row has
+  column 1 = 10: the window kind 0x8c carries. With 10 the client plays `SettlersLeague_BlackMarketOpen`
+  (`0x140740840`) and otherwise shows the ordinary buy window; item and placement messages are the shop's (0x88, 0x8a).
+  The shown items are the client's 55 `HiddenItem` rows `…Gamble` ("Random One Hand Sword" … "Random Conqueror Idol",
+  BaseItemTypes 5187–5241), drawn with the mystery art; a purchase must answer with another item, which need not have the
+  shown item's size. Prices are poewiki's 3.29 formulas; item level, rarity, unique chance, sockets and affix tiers follow
+  its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
+  Faustus in the hideout). Not done: the alt price floor (the account's highest character in the league).
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
 
 ## 6. Dev commands

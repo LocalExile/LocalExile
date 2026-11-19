@@ -1020,21 +1020,18 @@ public static partial class Game
     // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory.
     public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
-        await Send(remote, stream, ciphers, [], $"gold 0x{id:x} {how} (+{ground.Item.StackSize})", atGate: () =>
+        GroundPickup? pickup;
+        lock (conn.Monsters)
         {
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
-                    || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return null;
-                if (how == "auto-looted" && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (ground.GridX, ground.GridY))
-                    > SystemSettings.Default.GoldAutoLootRadius) return null;
-                var (by, shared) = conn.Instance.Ground.Origin(id);
-                if (!shared && !ReferenceEquals(by, conn)) return null;
-                if (TakeGroundStack(conn, id, ground) is not { } pickup) return null;
-                conn.SeenGround.Remove(id);
-                return [.. InstanceProtocol.RemoveObject(id), .. pickup.Update];
-            }
-        });
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
+                || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return;
+            if (how == "auto-looted" && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (ground.GridX, ground.GridY))
+                > SystemSettings.Default.GoldAutoLootRadius) return;
+            pickup = TakeGroundStack(conn, id, ground);
+            if (pickup is not null) conn.SeenGround.Remove(id);
+        }
+        // Lockstep consumes removals in world records. Use the same delivery as a pet or stack pickup.
+        if (pickup is not null) await SendPickup(remote, stream, ciphers, conn, id, pickup);
     }
 
     public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
@@ -1503,6 +1500,7 @@ public static partial class Game
                 var targetItem = items.Items(row).FirstOrDefault(i => i.Id == a.ItemId);
                 if (targetItem is null) why = "no such item";
                 else if (LevelTooLow(conn, row, held) is { } low) why = low;
+                else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
                 else if (PassiveJewelRefusal(conn, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
                 else if (ClusterRemovalRefusal(conn, targetItem) is { } clusterRefusal) why = clusterRefusal;
                 else if (AllocationBypassRemovalRefusal(conn, targetItem) is { } bypassRefusal) why = bypassRefusal;
@@ -1520,6 +1518,7 @@ public static partial class Game
             }
         }
         else if (LevelTooLow(conn, row, held) is { } low) why = low;
+        else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
             expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
@@ -1581,6 +1580,7 @@ public static partial class Game
                 {
                     placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                     if (LevelTooLow(conn, row, placement) is { } low) why = low;
+                    else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
                     else
                     {
                         var sourcesBefore = PlayerSkillSourcesLocked(conn);
@@ -1602,6 +1602,7 @@ public static partial class Game
                 placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                 var leaving = items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y);
                 if (LevelTooLow(conn, row, placement) is { } low) why = low;
+                else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
                 else if (leaving is not null && ClusterRemovalRefusal(conn, leaving) is { } clusterRefusal)
                     why = clusterRefusal;
                 else if (leaving is not null && AllocationBypassRemovalRefusal(conn, leaving) is { } bypassRefusal)
@@ -1624,6 +1625,7 @@ public static partial class Game
         {
             placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
             if (LevelTooLow(conn, row, placement) is { } low) why = low;
+            else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
                 expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));

@@ -285,6 +285,21 @@ ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/�
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
 
+**The device's instance.** A hideout's instance is gone six minutes after its last player leaves
+(`InstanceRegistry.Lifetime`), and the device and the portals standing at it go with it. Coming back into a new
+instance of the same area, the character's open run moves to it (the old instance is no longer in Auth's list): the
+portals left come up at the new device, and the map's portal back leads there rather than to an instance that is gone
+(live 2026-11-18: a disconnect inside the Simulacrum after the hideout had stood empty for six minutes came back to a
+device with no portals, while the map's own instance was still alive).
+A click on a portal back (the map's own, or a Portal Scroll's) asks Auth's instance list first: while the instance the
+portal was opened from is live the player enters it at the device, and a town's or a hideout's instance that is gone is
+made again and entered at the same cell by its device (seed 1), while a map's own instance is never made again.
+Before this the transfer to the gone instance was refused and the click did nothing (live 2026-11-18, the same
+Simulacrum run).
+The death screen's "Resurrect at Checkpoint" in a map asks that list too, for the area the map device stood in: an
+instance that is gone is made again and entered by its device, instead of a refused transfer that left the dead
+character in the map (live 2026-11-18, the same run).
+
 **Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway
@@ -295,6 +310,18 @@ restart), so the portals left stand at the device again when the player comes ba
 in 0x008f `Game_MAP_PORTAL_LIST_MS` (100) after its create; on entering the hideout the first waits
 `Game_MAP_PORTAL_ENTRY_MS` (1500). With a list delay of 0 each portal is drawn only by the next one's list, so the last
 never is (live). The open map keeps the places left (0–5 on the ring), so the portal taken is the one missing later.
+
+**Opening or idle.** The 0x008f handler keeps every listed entry in a world table keyed by the portal object, and stores
+it even when that object does not exist yet. It calls Portal slot +0xb8 with a 4th argument "opened" (`0x14218c9e0`,
+the call at `0x14218cc4c`) when the message's bit 0 is set, or the entry is new in that table, or its area, variation,
+model or owner changed. With "opened" the Portal component plays its `townportalopen` clip (the Portal block key read
+by `0x14161bd10` into +0x18), otherwise `townportal`, the idle loop (+0x38), unless that clip already plays. The
+Transitionable state 1 we send (MultiplexPortal's `create_untransitioned`: `townportalclose` at its end) draws
+nothing before the list. So a portal's first list always plays its opening, and a portal that already stands when the
+player arrives is listed once **before** its create: the later lists find the same entry and leave it idle. On entry the
+hideout's portals come up together this way (no gap); the portal back in a map, the portal back in a town and a
+reopened town portal are listed the same way (`Game.ListStandingPortal`). An Activate and a Portal Scroll still open
+theirs.
 
 **In the map.** Every area a map opens (`MapDevice.IsMapArea`) gets a portal back next to the arrival point, listed in
 0x008f with device 0 (the handler then skips the device's events but still sets the portal's area): it leads to the

@@ -304,6 +304,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
         return Create(chosen, random) is { } created ? created with
         {
             ItemLevel = item.ItemLevel, Quality = item.Quality, Sockets = item.Sockets, Links = item.Links, Identified = item.Identified,
+            SkinTransferSource = item.SkinTransferSource,
         } : null;
     }
 

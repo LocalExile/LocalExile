@@ -301,7 +301,13 @@ public readonly record struct AoPick(string Model, float Angle, float Scale, boo
 /// <summary>A subgraph record as the doodad stage reads it (generator +0x30 → +0x10, 0x98 bytes): its rectangle in tiles
 /// (+0x40 … +0x4c), master (+0x50) and the rooms placed in it (+0x58, 0x38 bytes each, in placing order).</summary>
 public sealed record DoodadRecord(int X, int Y, int W, int H, Dictionary<string, string> Master, string MasterPath,
-    IReadOnlyList<PlacedRoom> Rooms);
+    IReadOnlyList<PlacedRoom> Rooms)
+{
+    /// <summary>The ExtraTerrainFeatures row whose world area (+0x51) added this record as a sub-area, and that WorldAreas
+    /// row; null and -1 for any other record.</summary>
+    public string? FeatureRow { get; init; }
+    public int FeatureWorldArea { get; init; } = -1;
+}
 
 /// <summary>The doodad stage (<c>0x142048e20</c>, "Generating doodads..."), the parts ported so far: first the doodads
 /// of every record's rooms (<c>0x142046fc0</c>), then per record the random doodads of its master's .ddt (<c>Next</c>

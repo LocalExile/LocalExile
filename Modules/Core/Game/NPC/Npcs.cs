@@ -24,7 +24,8 @@ public static partial class Game
     public static async Task SpawnTownNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var notes = new List<string>();
-        var placements = HideoutFurniture(conn)?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
+        var furniture = HideoutFurniture(conn);
+        var placements = furniture?.Npcs ?? NpcCatalog.In(conn.Layout.Hash, conn.Seed, notes);
         if (conn.Layout.Id == "1_4_town")
             placements = [.. placements, new("Metadata/NPC/League/Delve/DelveMiner", 352, 618, 280 * MathF.PI / 180)];
         foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
@@ -38,9 +39,18 @@ public static partial class Game
             // A town NPC a quest stages (DiallaTown / DiallaTownWithered …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
             if (quests.ManagesNpc(conn.Layout.Id, p.Id)) continue;
             if (Npcs.Value.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {remote} npc {p.Id}: unknown or unsupported components"); continue; }
-            if (!p.FromRoom && conn.Layout.Walkable is { } w && !w(p.X, p.Y)) Console.WriteLine($"[gateway] {remote} npc {npc.Name}: ({p.X}, {p.Y}) is not walkable");
-            await SpawnNpc(remote, stream, ciphers, conn, npc, p.X, p.Y, p.Rotation);
+            var at = furniture is null ? TownNpcCell(conn.Layout, p) : (p.X, p.Y);
+            if (at != (p.X, p.Y))
+                Console.WriteLine($"[gateway] {remote} npc {npc.Name}: blocked cell ({p.X}, {p.Y}), placed at {at}");
+            await SpawnNpc(remote, stream, ciphers, conn, npc, at.Item1, at.Item2, p.Rotation);
         }
+    }
+
+    // Keep the client's room placements, which can intentionally stand on an unwalkable platform.
+    public static (int X, int Y) TownNpcCell(AreaLayout layout, NpcCatalog.Placement placement)
+    {
+        var at = (placement.X, placement.Y);
+        return !placement.FromRoom && layout.Walkable?.Invoke(at.X, at.Y) == false ? layout.Near(at) : at;
     }
 
     // A click on an NPC (C→S 0x24 on its object): the client walks to it first; follow it and answer once the player is there.

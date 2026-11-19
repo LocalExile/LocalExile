@@ -134,8 +134,11 @@ row (`0x141f2f390`: by id; the Vaal side area flag, the discoverable hideout and
 into the pool in roll order (`0x141d8e4d0`: count copies at the end of +0x48, the row's `.tdt` / `.tst` tiles into the
 pool's own tile store +0x90, then the linked row +0x49 as many times). The Shrine row is capped by the shrine count
 +0x148: with the Shrine rows already waiting or injected (`0x141d8e370`) at most that many go in, and with none the
-linked row is not added either. Row layout (0x66 bytes): id +0, rooms +8 (.arm), tiles +0x18, a bool +0x28, a string list
-+0x29, room orientations +0x39 (8 = any), linked row +0x49 (8 bytes), WorldAreas +0x51, oversize flag +0x61 (rooms
+linked row is not added either. Row layout (0x66 bytes): id +0, rooms +8 (.arm), tiles +0x18, a bool +0x28, the
+injected room's descriptions +0x29 (VaalSideArea `sidearea`, LabyrinthTrial `maptrial`, ProphecyCrystalBoss
+`telepad5` `teleport6` …; `link` on HarvestEncounter, BetrayalLaboratory, SynthesisEncounter, the Sanctum rows and
+BrequelSkyHiveEncounter: the room pairs with the `link` node of the sub-area its world area adds, a gate each way within
+the area, which the server makes up as `teleport9xx` / `telepad9xx` in `AreaExits.Links`), room orientations +0x39 (8 = any), linked row +0x49 (8 bytes), WorldAreas +0x51, oversize flag +0x61 (rooms
 for telepad injectors, `0x142108750`), an i32 +0x62. Before the records (`0x142050560`), with rows in the pool,
 +0x140 = `0x1420527f0` of the top graph: the sum of its subgraphs' masters' +0x152 (taken to be ExtraFeatureWeight,
 default 0: no trace drew the roll below; its "graph" nodes recurse, `0x142052d70`, a FileGroups group standing for the group's
@@ -146,7 +149,11 @@ after its Vaal side area pick, so a VaalSideArea row added there is shared too) 
 (that pick again, rows or not: ZanaGauntlet's and the Shaper's Realm's gauntlet records draw `Next(6)` after their own
 `Next(7)`) and then its share (`0x141d8f230`, +0x144): all rows when +0x140 is 0, else rows × weight / +0x140 plus one when
 `Next(+0x140)` falls below the remainder, and +0x140 drops by the weight. The layout's mission rooms take the rows
-(§3c2 "Mission rooms"); `0x141d8e950` removes a row (and counts the share down).
+(§3c2 "Mission rooms"); `0x141d8e950` removes a row (and counts the share down). In a `.tgr` subgraph
+(`0x1420460e0`) the share is spread after the preparation and only the area unique rooms take rows (`0x14211bc90`,
+parent record 0 only, the share as given; the special nodes take none; the shrines `0x14211c5c0` go by +0x148 for any
+record); after the layout a VaalSideArea row that graph added leaves uncounted, and +0xa is cleared when that row is
+among the placed rooms (+0x60).
 
 ## 3c. Fixed layouts: one room (`LevelGenerator.cs`, `DungeonTiler`)
 

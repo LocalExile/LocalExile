@@ -292,6 +292,9 @@ public static class StatConditions
         plain = plain switch
         {
             "evasion_+%" => "evasion_rating_+%",
+            // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
+            // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.
+            "defences_+%" => "global_defences_+%",
             "evasion_rating_plus" => "base_evasion_rating",
             "evasion_rating_+" => "base_evasion_rating",
             "armour_+%" => "physical_damage_reduction_rating_+%",
@@ -393,6 +396,20 @@ public static class StatConditions
 
     public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists, in Subject subject) =>
         FoldAllFromPlain(statId, exists, PlainOf(statId, subject));
+
+    /// <summary>What a stat that counts (<see cref="Counts"/>) adds, for items and passives alike (issue #504): when its
+    /// condition holds it takes its recent amount and moves onto its plain names (<paramref name="targets"/>, with the
+    /// returned value); otherwise <paramref name="targets"/> is null and the id keeps <paramref name="value"/>.</summary>
+    public static int Counted(string statId, int value, State state, in Subject subject, Func<string, bool>? exists,
+        out IReadOnlyList<string>? targets)
+    {
+        targets = null;
+        if (state is not State.Holds) return value;
+        value = ApplyRecentAmount(statId, value, subject);
+        if (exists is null || FoldAll(statId, exists, subject) is not { Count: > 0 } folded) return value;
+        targets = folded;
+        return ValueForFold(statId, value);
+    }
 
     static IReadOnlyList<string> FoldAllFromPlain(string statId, Func<string, bool> exists, string? plainName)
     {

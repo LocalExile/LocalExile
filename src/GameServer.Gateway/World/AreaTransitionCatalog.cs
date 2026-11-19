@@ -296,23 +296,23 @@ public static class AreaTransitionCatalog
         // of today's Labyrinth they are created, marked LayoutDisabled, and shown by the fight (IzaroFights.Beaten).
         var placed = FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
             openDisabled: labyrinth is not null);
-        if (area.Id == LabyrinthDay.Plaza) placed.AddRange(LabyrinthEntrances(level, notes));
+        if (area.Id == LabyrinthDay.Plaza) placed.AddRange(LabyrinthEntrances(area.Hash16, level, notes));
         return placed;
     }
 
     /// <summary>The Aspirants' Plaza's way into the Labyrinth: the entrance tile's LabyrinthAreaTransition (behind the door
-    /// the plaza's device opens), to the first room of today's Normal Labyrinth. Its graph node calls it
-    /// "labyrinthentrance3disabled", no WorldAreas connection: the room depends on the day.</summary>
-    static IEnumerable<AreaTransitionObject> LabyrinthEntrances(ServerLevels.Level level, List<string> notes)
+    /// the plaza's device opens). Its graph node calls it "labyrinthentrance3disabled", with no WorldAreas connection.
+    /// The module sets the destination on the player's layout when they choose a difficulty. Until then it is the plaza
+    /// itself, never a room: a player leaving the first room would else arrive next to it (AreaLayout.Arrival), behind
+    /// the shut door (the way in stands seven cells behind it) and hidden; they arrive at the plaza's spawn.</summary>
+    static IEnumerable<AreaTransitionObject> LabyrinthEntrances(ushort plaza, ServerLevels.Level level, List<string> notes)
     {
         const string type = LabyrinthDay.Entrance;
-        string? first = LabyrinthDay.For(LabyrinthDay.Seed, 1).Areas[0];
-        if (first is null || HashOf(first) is not ushort hash) yield break;
         foreach (var o in level.Exits.Select(e => e.Object).Where(o => o.Type == type).DistinctBy(o => (o.X, o.Y)))
         {
             string what = $"{o.Model.Split('/')[^1]} at ({o.X}, {o.Y})";
-            notes.Add($"{what} → {first}: the way into today's Labyrinth");
-            yield return new AreaTransitionObject(o.X, o.Y, hash, o.Model, Rotation: o.Rotation, Height: float.IsNaN(o.Z) ? null : o.Z,
+            notes.Add($"{what}: the way into the Labyrinth chosen at the plaza");
+            yield return new AreaTransitionObject(o.X, o.Y, plaza, o.Model, Rotation: o.Rotation, Height: float.IsNaN(o.Z) ? null : o.Z,
                 Type: Resolve(o.Type, what, notes)) { SourceType = o.Type };
         }
     }
@@ -375,9 +375,11 @@ public static class AreaTransitionCatalog
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
-                    placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
+                    // A map-side gate into an ExtraTerrainFeatures sub-area names that sub-area's world area (the Sacred
+                    // Grove's HarvestLeague), so the client labels it with that area's name; the gate stays within the area.
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, SubAreaHash(e.FeatureWorldArea) ?? areaHash, o.Model, Rotation: o.Rotation, Height: height,
                         Type: Resolve(o.Type, what, notes))
-                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled });
+                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled, Feature = e.Feature });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:
@@ -398,6 +400,11 @@ public static class AreaTransitionCatalog
         }
         return placed;
     }
+
+    // The HASH16 of a WorldAreas row, or null for -1 or an unknown row.
+    static ushort? SubAreaHash(int row) => row < 0 ? null
+        : ClientTables.TableOrEmpty("WorldAreas").FirstOrDefault(r => r.Index == row) is { } area && area.Int("HASH16") is var h and > 0
+            ? (ushort)h : null;
 
     /// <summary>The ClientStrings HASH32 of a gate's label key (the ClientStrings client table), null for "%areaname%",
     /// an unknown key or without the table.</summary>

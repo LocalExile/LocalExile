@@ -35,6 +35,21 @@ public sealed class MapMods
 
     public int Get(string id) => Stats.GetValueOrDefault(id);
 
+    /// <summary>Replaces one fragment contribution while preserving every other map source.</summary>
+    public MapMods WithFragmentStat(string id, int value)
+    {
+        var fragments = Fragments.ToDictionary();
+        var stats = Stats.ToDictionary();
+        stats[id] = checked(stats.GetValueOrDefault(id) - fragments.GetValueOrDefault(id) + value);
+        fragments[id] = value;
+        return new(stats, Quality)
+        {
+            ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
+            FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
+            MapRarity = MapRarity, Corrupted = Corrupted,
+        };
+    }
+
     public int Quantity => Get("map_item_drop_quantity_+%") + Get("map_implicit_item_drop_quantity_+%")
         + Get("map_unscaled_item_drop_quantity_+%");
 

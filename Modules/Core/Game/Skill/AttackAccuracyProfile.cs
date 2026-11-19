@@ -13,7 +13,9 @@ public readonly record struct AttackAccuracyProfile(int Rating, int MoreVsUnique
         bool Flag(string name) => catalog.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
         return new(pools.Accuracy, pools.AccuracyMoreVsUniquePct, pools.AccuracyMoreInCloseRangePct,
-            Flag("global_always_hit") || (local?.GetValueOrDefault("local_always_hit") ?? 0) != 0);
+            // Resolute Technique: "Your hits can't be Evaded".
+            Flag("global_always_hit") || (local?.GetValueOrDefault("local_always_hit") ?? 0) != 0
+            || Flag("resolute_technique"));
     }
 
     public int Chance(int evasion, bool unique, bool close) => CannotBeEvaded ? 100

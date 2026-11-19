@@ -20,9 +20,12 @@ public sealed class PortalsModule : IModule
             await SpawnHideoutDoodads(remote, stream, ciphers, conn);
             await SpawnMapReturnPortal(remote, stream, ciphers, conn);
             await SpawnTownPortals(remote, stream, ciphers, conn);
+            // A hideout's instance is gone six minutes after its last player leaves, and its device with it: a run whose
+            // portals stood there follows the character into the instance they enter now, so the portals come up below.
+            await PortalsRules.FollowDeviceToThisInstance(remote, conn);
             // Everyone in this exact device instance sees and spends the same run's portals.
             if (MapDevice.AtEntrance(conn.Layout.Hash, conn.InstanceNumber) is { PortalsLeft: > 0 } open)
-                await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
+                await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs, standing: true);
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, requestedAt) =>
         {

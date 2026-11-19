@@ -174,6 +174,7 @@ public sealed record MonsterMovement
 
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public uint ObjectId { get; set; }
     public MadnessExplosion? MadnessExplosion;
     public readonly SpiderWebState SpiderWebs = new();
 
@@ -279,6 +280,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterPoisons Poisons = new();
     // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
     public readonly MonsterContagion Contagion = new();
+    public MonsterContagion? Bane;
     // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), under the Monsters lock.
     public readonly MonsterEssenceDrain EssenceDrain = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
@@ -288,6 +290,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
+    // The ailments of kinds the rules define (RuleAilments); kept on the corpse.
+    public readonly RuleAilments RuleAilments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
     public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
@@ -356,6 +360,44 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
     public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
     public (int All, int Elemental, int Physical) TakenFromPlayer;
+    // Values and timed marks each player keeps on it, by (the player's PeerId, a key the rules name): a party shares its
+    // monsters, so each source sets and clears only its own entries and never another participant's. Guarded by the
+    // Monsters lock.
+    readonly Dictionary<(uint Source, string Stat), int> sourceValues = [];
+    readonly Dictionary<(uint Source, string Key), double> sourceMarks = [];
+    /// <summary>Whether any source keeps a value on it.</summary>
+    public bool HasSourceValues => sourceValues.Count > 0;
+    /// <summary>Every source's value of <paramref name="stat"/> on it.</summary>
+    public IEnumerable<(uint Source, int Value)> SourceValues(string stat)
+    {
+        foreach (var ((source, key), value) in sourceValues) if (key == stat) yield return (source, value);
+    }
+    /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
+    public void SetSourceValue(uint source, string stat, int value)
+    {
+        if (value == 0) { if (sourceValues.Count > 0) sourceValues.Remove((source, stat)); }
+        else sourceValues[(source, stat)] = value;
+    }
+    /// <summary>Marks <paramref name="key"/> as <paramref name="source"/>'s until <paramref name="until"/> (the later
+    /// of this and an earlier mark).</summary>
+    public void MarkSource(uint source, string key, double until)
+    {
+        if (until > sourceMarks.GetValueOrDefault((source, key), double.NegativeInfinity)) sourceMarks[(source, key)] = until;
+    }
+    /// <summary>Whether <paramref name="source"/>'s mark of <paramref name="key"/> runs at <paramref name="now"/>.</summary>
+    public bool SourceMarked(uint source, string key, double now) =>
+        sourceMarks.TryGetValue((source, key), out double until) && until > now;
+    /// <summary>Every source's mark of <paramref name="key"/> on it, expired ones included.</summary>
+    public IEnumerable<(uint Source, double Until)> SourceMarks(string key)
+    {
+        foreach (var ((source, k), until) in sourceMarks) if (k == key) yield return (source, until);
+    }
+    /// <summary>Removes every value and mark <paramref name="source"/> keeps on it (the source left the instance).</summary>
+    public void ForgetSource(uint source)
+    {
+        foreach (var key in sourceValues.Keys.Where(k => k.Source == source).ToList()) sourceValues.Remove(key);
+        foreach (var key in sourceMarks.Keys.Where(k => k.Source == source).ToList()) sourceMarks.Remove(key);
+    }
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;
@@ -487,6 +529,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
     public string? RingArt { get; init; }
     /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
     public int SpellDamageMore { get; set; }
+    /// <summary>The retained skill's two conditional support values and its pending changes in added damage factor.</summary>
+    public (int Lifetap, int PerInspiration) ConditionalSupportMore { get; set; }
+    public List<(double At, double Extra)>? SupportDamageChanges { get; set; }
     public int EnergyShieldBurnPctPerMinute { get; init; }
     public int EnergyShieldDamagePctPerMinute { get; init; }
     /// <summary>The exact physical gem source that activated this fire, or null for legacy state.</summary>
@@ -573,6 +618,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
     public readonly RecentEvents RecentEvents = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The player's ailments of kinds the rules define (RuleAilments), cleared with the elemental ones.
+    public readonly RuleAilments RuleAilments = new();
     // Incoming bleeding and poison from monster contacts, reflected outgoing ailments and traps. This
     // is the sole state/damage owner and is advanced by the player recovery writer.
     public readonly IncomingDamagingAilments IncomingAilments = new();
@@ -621,6 +668,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
                 RecentEnemyHits.Clear();
                 RecentEvents.Clear();
                 ElementalAilments.Clear();
+                RuleAilments.Clear();
                 IncomingAilments.Clear();
                 PresentedIncomingAilments = null;
                 PresentedIncomingAilmentEpoch = IncomingHitEpoch;
@@ -996,8 +1044,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public PassiveBuffAuras.BlindState BlindAura { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
-    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances
-    /// (MonsterElementalAilments.Instance) and never hands out 0.</summary>
+    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the fixed instances
+    /// (<see cref="FixedBuffInstances"/>) and never hands out 0.</summary>
     /// The instance's (InstanceWorld.NextBuff): one player's buff on a monster never shares an instance with another's, so a
     /// client's removal of its own never takes off one another client put there.
     public ushort NextBuff
@@ -1005,11 +1053,21 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         get => Instance is { } i ? i.World.NextBuff : nextBuff;
         set
         {
-            ushort v = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
+            ushort v = value is 0 or >= FixedBuffInstances ? (ushort)1 : value;
             if (Instance is { } i) i.World.NextBuff = v; else nextBuff = v;
         }
     }
     ushort nextBuff = 1;
+    /// <summary>The Elemental Overload indicator buff's instance (0: none sent yet). One instance, bound to the skill
+    /// that last crit; the client draws the diamond under that skill's icon and expires the buff after its window.</summary>
+    public ushort ElementalOverloadBuff;
+
+    /// <summary>When the Elemental Overload indicator's window ends (last crit + 8 s); the player tick removes the buff
+    /// then, as the client does not expire this invisible buff itself.</summary>
+    public double ElementalOverloadBuffUntil;
+    /// <summary>The lowest of the buff instances NextBuff never hands out: the rules keep these for buffs that always
+    /// use the same instance on their object (MonsterElementalAilments.Instance is the top three).</summary>
+    public const ushort FixedBuffInstances = ushort.MaxValue - 7;
     public uint PlayerMaxLife => Pools.Life;
     /// <summary>The shared Life reservation owner's latest usable cap. Full maximum Life is unchanged.</summary>
     public int PlayerLifeCap { get; set; } = int.MaxValue;
@@ -1158,6 +1216,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // (Game.TransitionShown).
     public HashSet<uint> ShownTransitions = [];
     public HashSet<uint> ScriptShownTransitions = [];
+    public LabyrinthDay.Entry? LabyrinthEntry;
     public int? NpcRewardOffer;
     public Dictionary<uint, Item> NpcRewardItems = [];
     // NPCs created on this connection by object id (town NPCs, /npc).

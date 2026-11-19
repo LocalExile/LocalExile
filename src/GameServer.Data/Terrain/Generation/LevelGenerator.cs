@@ -153,7 +153,7 @@ public static class LevelGenerator
     /// area's), <c>Next(count)</c>, then <c>Next(840)</c> → <c>0x1429a6db0</c> with the picked topology's orientation
     /// mask. The node filter <c>0x14203cce0</c> (league= nodes) is left to <see cref="TileGraphGenerator.Prepare"/>,
     /// which stops on them.</summary>
-    static List<(string Graph, int Orientation)> SubAreas(TerrainCache files, AreaInfo area, string graphPath, bool hideout, int variant,
+    static List<SubArea> SubAreas(TerrainCache files, AreaInfo area, string graphPath, bool hideout, int variant,
         ExtraRoomPool pool, LevelRandom rng, List<string> notes, bool delve = false)
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
@@ -171,14 +171,14 @@ public static class LevelGenerator
                 }
                 else ids.Add(id);
             }
-        var result = new List<(string, int)>();
-        void Add(string id, IReadOnlyList<TopologyInfo>? topologies)
+        var result = new List<SubArea>();
+        void Add(string id, IReadOnlyList<TopologyInfo>? topologies, ExtraFeatureRow? row = null)
         {
             var choices = Choices(topologies ?? throw new InvalidOperationException($"Unknown sub world area: {id}"), variant, id);
             var topology = choices[(int)rng.Next((uint)choices.Count)];
             int orientation = LevelRandom.OrientationFromMask(LevelRandom.OrientationMask(topology.Orientations), rng.Next(840u));
             notes.Add($"sub-area {id}: {topology.Graph}, orientation {orientation}");
-            result.Add((topology.Graph, orientation));
+            result.Add(new SubArea(topology.Graph, orientation, row?.Name, row?.WorldArea ?? -1));
         }
         foreach (var id in ids) Add(id, area.SubArea?.Invoke(id));
         // 0x14204dd90, then: each row in the extra room pool that names a world area (+0x51) adds it the same way
@@ -189,7 +189,7 @@ public static class LevelGenerator
         {
             if (row.WorldArea < 0) continue;
             if (row.Rooms.Count > 1) throw new NotSupportedException($"{row.Name}: a sub-area feature row with several rooms (0x14204da40) is not ported");
-            Add($"{row.Name}'s world area #{row.WorldArea}", area.SubAreaRow?.Invoke(row.WorldArea));
+            Add($"{row.Name}'s world area #{row.WorldArea}", area.SubAreaRow?.Invoke(row.WorldArea), row);
         }
         return result;
     }
@@ -198,6 +198,10 @@ public static class LevelGenerator
 /// <summary>A dungeon graph (.dgr) subgraph: <c>0x142043150</c> → rooms placed (<c>0x14210a1d0</c>, one node here,
 /// several in <see cref="DungeonLayout"/>), tilised (<c>0x1420f9d80</c>: <c>0x1420f5c10</c> per room, the shared
 /// border slots, the fill, <c>0x14202bc90</c> seams), then the outer ground (<c>0x1420243d0</c>).</summary>
+/// <summary>A sub-area's subgraph (graph, orientation); <paramref name="Feature"/> and <paramref name="WorldArea"/> name
+/// the ExtraTerrainFeatures row and WorldAreas row that added it (null, -1 for a "subarea=" node's).</summary>
+sealed record SubArea(string Graph, int Orientation, string? Feature = null, int WorldArea = -1);
+
 sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> notes, ExtraRoomPool pool)
 {
     public DelveGeneration? Delve { get; init; }
@@ -216,8 +220,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// <summary>The area's TSI override (WorldAreas +0x192), the primary record's master in place of its graph's.</summary>
     public string? Master { get; init; }
 
-    /// <summary>The sub-areas' subgraphs (graph, orientation), placed beside the primary (<c>0x14204e6a0</c>).</summary>
-    public List<(string Graph, int Orientation)> Secondaries { get; init; } = [];
+    /// <summary>The sub-areas' subgraphs, placed beside the primary (<c>0x14204e6a0</c>).</summary>
+    public List<SubArea> Secondaries { get; init; } = [];
 
     TileGrid _grid = null!;
     TileStore _store = null!;
@@ -391,15 +395,22 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             TileStore store;
             if (r.Path.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase))
             {
-                // 0x1420460e0: a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows. The tile
-                // graph's special nodes do not take them (not ported).
-                if (r.Parent <= 0) pool.Spread(FeatureWeight(r.Path, records, false), rng);
-                if (pool.Share != 0) throw new NotSupportedException($"{r.Path}: extra feature rooms in a tile graph subgraph are not ported");
+                // 0x1420460e0: a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows after the
+                // graph preparation (its walk of 0x1420527f0, then 0x141d8f230), and its area unique rooms place them
+                // (0x14211bc90); the shrines (0x14211c5c0) go in for any record. The special nodes take no rows.
                 // The rolled Vaal side area goes to the first graph with side area nodes (2_9_4's oasis_foothills_4.tgr).
-                var gen = new TileGraphGenerator(files, rng, notes, VaalSideArea)
-                    { Hideout = Hideout, Labyrinth = Labyrinth, Master = r.Parent < 0 ? Master : null, Town = Town, PreparePool = pool };
+                bool vaal = VaalSideArea;
+                var gen = new TileGraphGenerator(files, rng, notes, vaal)
+                {
+                    Hideout = Hideout, Labyrinth = Labyrinth, Master = r.Parent < 0 ? Master : null, Town = Town, Pool = pool,
+                    ParentIsFirst = r.Parent <= 0, ShareWeight = () => FeatureWeight(r.Path, records, false),
+                };
                 var (_, _, tgFills) = gen.Subgraph(r.Path, r.Orientation, grid, vx, vy, primary: i == 0);
                 if (gen.SideAreaKept) VaalSideArea = false;
+                // After the layout: a VaalSideArea row this graph added (no entrance kept, +0xa set) leaves the pool
+                // uncounted (0x141d8e950), and +0xa is cleared once that row is among the pool's placed rooms (+0x60).
+                else if (vaal) pool.Remove(ExtraTerrainFeatures.VaalSideArea, false);
+                if (pool.PlacedRows.Any(p => p.Name == ExtraTerrainFeatures.VaalSideArea)) VaalSideArea = false;
                 var tgStore = store = gen.Store;
                 roomsOf.Add(gen.Rooms);
                 outers.Add(() => OuterTileGraph(r, grid, tgStore, tgFills));
@@ -438,7 +449,12 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
                     int k = records.FindLastIndex(r => x >= r.X && x < r.X + r.W && y >= r.Y && y < r.Y + r.H);
                     grid.ScaleHeight(x, y, storeys[Math.Max(k, 0)]);
                 }
-        Records = [.. records.Select((r, i) => new DoodadRecord(r.X, r.Y, r.W, r.H, r.Master, r.MasterPath, roomsOf[i]))];
+        // The secondaries are records 1 … Secondaries.Count; one an ExtraTerrainFeatures row added keeps the row.
+        Records = [.. records.Select((r, i) => new DoodadRecord(r.X, r.Y, r.W, r.H, r.Master, r.MasterPath, roomsOf[i])
+        {
+            FeatureRow = i >= 1 && i <= Secondaries.Count ? Secondaries[i - 1].Feature : null,
+            FeatureWorldArea = i >= 1 && i <= Secondaries.Count ? Secondaries[i - 1].WorldArea : -1,
+        })];
         return grid;
     }
 
@@ -555,7 +571,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             if (p.Room?.Def is { } def)
             {
                 var (w, h) = Orientation.Size(p.Orientation, def.Width, def.Height);
-                placed.Add(new PlacedRoom(def, _ox + step * p.X, _oy + step * p.Y, w, h, p.Descriptions, p.Orientation));
+                var room = new PlacedRoom(def, _ox + step * p.X, _oy + step * p.Y, w, h, p.Descriptions, p.Orientation);
+                placed.Add(p.Feature is { } f && f.Rooms.Contains(def.Path, StringComparer.OrdinalIgnoreCase) ? Featured(room, f) : room);
             }
         var overlayRooms = FillRecords(master, masterPath, placed, r.Parent <= 0);
         Wiggle();
@@ -735,7 +752,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
                 {
                     // 0x1420f5c10: a mission tile without a tile takes an injected room of its size (0x141d8eae0).
                     var injected = pool.Take(w, h, rng) ?? throw new NotSupportedException($"{room.Path}: a mission tile without an injected room is not ported");
-                    TiliseInjected(injected.Room.Def!, injected.Orientation, x, y, height);
+                    TiliseInjected(injected.Room.Def!, injected.Orientation, x, y, height, injected.Row);
                     continue;
                 }
                 if (list.Count == 0) throw new InvalidOperationException($"{room.Path}: no tile for slot ({col}, {row}) at ({x}, {y}) {key.Rotate(code)} tag '{slot.Tag}'");
@@ -770,10 +787,10 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// first tries a fill tile of the master's FillTiles for its ground, as a fill room's (<see cref="Fill.FillSlot"/>).
     /// Ground checks (map +0x10) are off while the slots are tiled. Nested mission tiles and the pool's own tiles
     /// (+0x90) are not ported.</summary>
-    void TiliseInjected(RoomDef room, int o, int x, int y, int height)
+    void TiliseInjected(RoomDef room, int o, int x, int y, int height, ExtraFeatureRow feature)
     {
         var (w, h) = Orientation.Size(o, room.Width, room.Height);
-        _injectedRooms.Add(new PlacedRoom(room, x, y, w, h, [], o));
+        _injectedRooms.Add(Featured(new PlacedRoom(room, x, y, w, h, [], o), feature));
         for (int v = 0; v < h; v++)
             for (int u = 0; u < w; u++)
             {
@@ -1217,6 +1234,11 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     // Extra feature rooms tilised into mission tiles (0x1420f5c10): their objects are placed (1_3_15's Blight
     // encounter spore yellowOrange2.ao); where the client puts them in the room list is not known (they make no draws).
     readonly List<PlacedRoom> _injectedRooms = [];
+
+    /// <summary>A room placed for an extra room pool row: the row's id and descriptions (+0x29) go with it, apart from
+    /// the node's descriptions, which the layout reads (AreaExits pairs the "link" rooms).</summary>
+    internal static PlacedRoom Featured(PlacedRoom room, ExtraFeatureRow? row) =>
+        row is null ? room : room with { Feature = row.Name, FeatureDescriptions = row.Descriptions };
     // Tiler +0xb0: view cells of wiggling room slots (0x1420f5c10) and tiles the listener saw (0x1420f7b30), a set
     // sorted by x · 0x10000 + y (0x142054ea0).
     readonly SortedDictionary<int, (int X, int Y)> _wiggleCells = [];
@@ -1714,8 +1736,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
                 for (int u = 0; u <= w; u++)
                     if (Loose(_grid.Corner(x + u, y + v).Ground) && Loose(ground)) _grid.SetGround(x + u, y + v, ground);
             notes.Add($"unique room {Path.GetFileName(room.Path)} ({row.Name}) o{o} at ({x}, {y})");
-            fill.PlaceRoom(room, x - vx, y - vy, o, height, ground, true);
-            pool.RoomPlaced(x, y, w, h);
+            fill.PlaceRoom(room, x - vx, y - vy, o, height, ground, true, row);
+            pool.RoomPlaced(x, y, w, h, row);
             pool.Remove(row, true);
             placed.Add((x, y, x + w, y + h));
             return true;

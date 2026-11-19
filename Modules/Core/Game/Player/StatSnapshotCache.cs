@@ -199,6 +199,7 @@ public static partial class Game
         bool OnLowLife(IReadOnlyDictionary<uint, int> player) => CriticalOnLowLife(inputs.PlayerLife, inputs.PlayerMaxLife, player);
         int AttackMultiplier(IReadOnlyDictionary<uint, int> player) =>
             AttackCriticalMultiplier(pools, Profile().Unarmed, MeleeAttack(), spell: false, player);
+        int mainAccuracy = PlayerAccuracyModifiers.Unselected(pools, Get(PlayerAccuracyModifiers.BootsMore), inputs.BlindLess);
 
         if (stage == StatSnapshotStage.Panels)
         {
@@ -220,7 +221,7 @@ public static partial class Game
                     ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(pools.EnergyShield, Get) + inputs.LifeRegenerationToEnergyShield)),
                     ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(pools.EnergyShield, Get))),
                     ("energy_shield_recharge_active", 0) })
-                .Concat(ChargePanelStats.Compute(Get)))
+                .Concat(ChargeMaxima.Compute(Get)))
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             // Special maxima mirror completed standard maxima, including explicit final replacements.
             foreach (var (stat, value) in ChargePanelStats.MirroredMaximums(Get))
@@ -248,6 +249,15 @@ public static partial class Game
                 stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
             if (Stats.Key("off_hand_weapon_type") is uint offType)
                 stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
+            foreach (var (name, local) in new[] { (WeaponIdentity.MainAllOneHandMelee, mainLocal),
+                (WeaponIdentity.OffAllOneHandMelee, offLocal) })
+                if (Stats.Key(name) is uint identity && !devSet.Contains(identity))
+                    stats[identity] = WeaponIdentity.AllOneHandMelee(local) ? 1 : 0;
+            // Dual Wielding Mastery's generic increase applies to hits and damage over time, once per fresh snapshot.
+            if (Get("damage_+%_while_wielding_two_different_weapon_types") is int differentDamage and not 0
+                && WeaponIdentity.WieldingDifferentTypes(Get) && Stats.Key("damage_+%") is uint differentDamageKey
+                && !devSet.Contains(differentDamageKey))
+                stats[differentDamageKey] = Get("damage_+%") + differentDamage;
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
             if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
@@ -267,16 +277,22 @@ public static partial class Game
             // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
             if (Stats.Key("skill_uses_main_hand") is uint usesMainHand && !devSet.Contains(usesMainHand)) stats[usesMainHand] = 1;
             var attackConversion = DamageStats.Conversion(stats, Stats, attack: true);
-            var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion);
+            var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion, new(mainAccuracy));
             foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
             var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
-            var ailmentRows = AilmentPanelStats.Compute(ailmentContext, SupportedAttackDamage.Raw(WeaponFor(), Get), attackConversion, Get);
+            var ailmentRows = AilmentPanelStats.Compute(ailmentContext,
+                SupportedAttackDamage.Raw(WeaponFor(), Get, new(mainAccuracy)), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
+            {
+                long localDifference = (long)offLocal.GetValueOrDefault("local_accuracy_rating") - mainLocal.GetValueOrDefault("local_accuracy_rating");
+                int offAccuracy = PlayerAccuracyModifiers.Selected(pools, Profile(), _ => 0,
+                    Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
-                    SupportedAttackDamage.Raw(offWeapon, Get), attackConversion, Get));
+                    SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), attackConversion, Get));
+            }
             foreach (var (stat, value) in ailmentRows)
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             return stats;
@@ -297,7 +313,7 @@ public static partial class Game
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
             stats[multiplier] = AttackMultiplier(stats);
-        var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = TimedBlind.Apply(pools.Accuracy, inputs.BlindLess) };
+        var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = mainAccuracy };
         foreach (var (name, evasion) in new[]
         {
             ("main_hand_chance_to_hit_%", Monsters.BaseEvasion(pools.Level) ?? 0),

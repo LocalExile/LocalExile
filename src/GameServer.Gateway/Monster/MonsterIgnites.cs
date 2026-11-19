@@ -19,7 +19,13 @@ public sealed class MonsterIgnites
     /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
         double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
-        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false)
+        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false,
+        // Elemental Overload: "Ailments never count as being from Critical Strikes" — a critical strike rolls the hit's
+        // chance and deals the non-critical damage, as a non-critical hit does.
+        bool NeverFromCrit = false,
+        // Perfect Agony: "Non-Critical Strikes cannot inflict Ailments". With Elemental Overload (NeverFromCrit) every
+        // hit counts as non-critical for ailments, so the two together stop hits applying ailments at all.
+        bool OnlyFromCrit = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -48,7 +54,9 @@ public sealed class MonsterIgnites
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0);
+                FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0,
+                NeverFromCrit: get("keystone_elemental_overload") != 0,
+                OnlyFromCrit: get("keystone_ailment_crit") != 0);
         }
     }
 
@@ -109,6 +117,9 @@ public sealed class MonsterIgnites
         expiryRate = rate;
     }
     public double RemainingBase(double now) => Math.Max(0, Until - now) * expiryRate;
+
+    /// <summary>Discards uncommitted damage without removing or extending the timed instances.</summary>
+    public void DiscardDamageCarry() { carry = 0; accrued = 0; }
 
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     public ushort? Buff;
@@ -182,6 +193,8 @@ public sealed class MonsterIgnites
         int damageTakenPct, out double perSecond)
     {
         perSecond = 0;
+        if (settings.NeverFromCrit) critical = false;
+        if (settings.OnlyFromCrit && !critical) return false;
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);

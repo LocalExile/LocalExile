@@ -328,6 +328,10 @@ monster at its base × (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Co
 cells/s, a normal one every 0.125–0.133 s; the server walks it at the same speed), `actor_scale_+%` and
 `life_regeneration_rate_per_minute_%`.
 
+**A change while it lives.** S→C 0x2bc to component 2 with the same ObjectMagicProperties data as the create (and its
+trailing `u8`) redraws a living monster's name plate: a monster a Tormented Spirit touched showed "Rogue's Touch" under
+its name (live 2026-11-18). Its stats still come only from the server (0x1b3).
+
 **Effects** (`MonsterModEffects`, summed per stat over all its mods):
 
 | Stats | Effect |
@@ -410,3 +414,19 @@ as for any area (Beach: Glace). 21-hideouts.md §5.
 
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
 the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.
+
+## Essence monolith
+
+`Metadata/MiscellaneousObjects/Monolith` reads Positioned, Animated, MinimapIcon, InteractionAction,
+Transitionable, Monolith, StateMachine and BaseEvents, in that order.
+The Monolith reader `0x1415df360` takes little-endian `u8`, MonsterVarieties `HASH16`, `u8` count,
+then count × Essences `HASH32`, then `u32` (component +0x104; meaning unverified, currently sent as zero).
+The first byte is stored at component +0xf0; the essence references occupy +0xc8/+0xd0.
+The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
+Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
+Transition 4 removes collision and hides its marker; use component indices 4 and 6 for transition and shared-state updates.
+Essence-list changes recreate the same object id; the verified `0x74` currency target is also used for monoliths.
+Vaal Orbs replaced Remnants in 3.27; the legacy `CurrencyCorruptMonolith` table row is not a current gameplay input.
+The historical `deal_chaos_damage_per_second_for_10_seconds_on_hit` id has an **8-second** duration in the pinned
+client's `stat_descriptions` block. Its Decay icon is BuffDefinitions row 766 (`IsRecovery=false`, `__col44=false`):
+no inline values or `u82`, despite its granted per-minute chaos-damage stat.

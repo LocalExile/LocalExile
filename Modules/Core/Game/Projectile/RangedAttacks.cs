@@ -56,7 +56,7 @@ public static partial class Game
         string projectileId, ushort sequence, bool clientClock = false)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? Skills.ClassFor(conn.ClassRow).AnimatedObject;
-        var profile = WeaponProfileFor(conn, activeSet: true);
+        var profile = AnimationWeaponProfileFor(conn);
         if (Animations.TryDefaultAttackClip(ao, profile, sequence, attackSeconds, out var selected))
         {
             double delay = Math.Max(0, clientClock ? selected.ReleaseSeconds(attackSeconds) : selected.ContactSeconds(attackSeconds));

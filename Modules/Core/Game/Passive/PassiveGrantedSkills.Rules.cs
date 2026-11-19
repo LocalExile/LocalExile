@@ -237,7 +237,7 @@ public static partial class Game
             if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
                 || !conn.Passives.Contains(skill.Node) && !conn.MainAscendancy.Allocated.Contains(skill.Node)) return;
         var own = SkillsFor(conn).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
-        var area = MergeSkillStats(AreaPlayerStats(conn), own);
+        var area = SkillAreaStats(conn, own, skill.Effect);
         int radius = SkillArea.Radius(PassiveGrantedSkills.FootstepExplosionRadius,
             name => Stats.Key(name) is uint k ? area.GetValueOrDefault(k) : 0, spell: true);
         string? art = Art.Animated(PassiveGrantedSkills.ExplosionArtVariation, 0);
@@ -276,6 +276,8 @@ public static partial class Game
             int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
             int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
             var merged = MergeSkillStats(player, own);
+            // Elemental Overload's per-skill window for this granted spell (see WithElementalOverload).
+            AddElementalOverload(conn, skill.EffectId, merged);
             int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
             var plan = SkillHitPlan.ForSkill(SkillsFor(conn), skill.Effect, skill.Level);
             if (!plan.CanHit) return;
@@ -356,6 +358,8 @@ public static partial class Game
 
                 if (applied is not { } landed) continue;
                 conn.RecentEvents.RecordCriticalOutcome(hitAt, critical);
+                if (critical && HasElementalOverload(player))
+                    conn.RecentEvents.RecordSkillCrit(skill.EffectId, conn.Clock.Elapsed.TotalSeconds, true);
                 if (critical)
                 {
                     CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);

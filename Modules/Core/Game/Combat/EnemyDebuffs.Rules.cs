@@ -31,6 +31,22 @@ public static partial class Game
         return taunted;
     }
 
+    /// <summary>This player's Yoke of Suffering value on a monster, as their enemy-debuff step sets it (0 while they do
+    /// not wear it, are dead or the monster is not a living enemy): only their own entry changes. Under the Monsters lock.</summary>
+    public static void KeepPerAilmentTypeTakenLocked(ClientState conn, SpawnedMonster m, int value) =>
+        m.SetSourceValue(conn.PeerId, PerAilmentTypeTaken, value);
+
+    /// <summary>A leaving player's per-source values come off the instance's monsters (SpawnedMonster.ForgetSource);
+    /// the other participants' stay.</summary>
+    public static void ForgetSourceValues(ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            foreach (var m in conn.Monsters.Values) m.ForgetSource(conn.PeerId);
+            foreach (var m in conn.DormantMonsters.Values) m.ForgetSource(conn.PeerId);
+        }
+    }
+
     // The player tick (RunPlayerTick, 250 ms, not while paused) steps the player's debuffs on monsters.
     public static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
@@ -74,6 +90,8 @@ public static partial class Game
                     auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
+                // Yoke of Suffering: each wearer keeps their own value on a shared monster (PerAilmentTypeTaken).
+                int perAilmentType = StatOf(player, PerAilmentTypeTaken);
                 var here = conn.Walk.Position(now);
                 uint? elementalKey = Stats.Key("elemental_damage_taken_+%");
                 // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp
@@ -211,6 +229,7 @@ public static partial class Game
                     // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
                     int consecrated = living ? conn.FlaskGrounds.ConsecratedEnemyDamageTaken(m.Walk.Position(now)) : 0;
                     m.TakenFromPlayer = ((taunted ? config.TauntedDamageTakenPct : 0) + consecrated, elemental, physical);
+                    KeepPerAilmentTypeTakenLocked(conn, m, living ? perAilmentType : 0);
                 }
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;

@@ -106,11 +106,22 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
   feeds `azmeri_primalist_wisps_found_+%` into that system.
 
+### Vaal Vessels
+
+- **Known:** strongboxes are done ([status](../status/world.md), "Strongboxes"). Vaal Vessels are strongboxes too
+  (`VaalTempleChest`, `VaalEmpoweredChest`, `OrnateVaalBox*`): innately corrupted and rare, guarded by a Vaal side-area
+  boss, and the Exquisite ones of Valdo's maps roll the Vaalsmithed prefixes, daemons that cast a Vaal skill
+  (`ChestDaemonVaal*`: Spark, Flameblast, Firestorm, Caustic Arrow, Blade Vortex, Thrown Weapon, Volcanic Fissure).
+- **Start:** the Exquisite Vaal Vessels of Valdo's map mod as `MapStrongboxes` boxes; then each Vaal daemon, as the
+  strongbox spell daemons are (`StrongboxDaemonSpells.cs`).
+- **Done when:** Valdo's Exquisite Vaal Vessels spawn and their Vaalsmithed prefixes act.
+
 ### The Labyrinth
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
   supported ones ([re/011](../docs/re/011-level-generation.md), "Labyrinth pass").
-  The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
+  The day's layout is sent with each room in it. Normal and Cruel are playable from the plaza
+  ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
   The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
@@ -141,7 +152,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      her Guardians' mortars, which the server throws (her `SummonSpecificMonstersFromMortars` action would pick its
      own landing spots, where the server places the guardians).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
-  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  3. The Merciless Labyrinth (its select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,
