@@ -28,7 +28,7 @@ public static partial class Game
             if (conn.VaalPreventionUntil > now && Stats.Key("has_soul_gain_prevention") is uint key)
             {
                 stats[key] = 1;
-                StatsChangeIn(conn.VaalPreventionUntil - now);
+                StatsChangeAt(conn.VaalPreventionUntil, () => VaalResourceTime(conn));
             }
         }
     }

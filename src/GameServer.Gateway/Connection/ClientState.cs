@@ -713,7 +713,7 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 /// <summary>An input of the player's stats the framework holds; its change is handed to the game (ClientState.StatsChanged).
 /// Pools, Items and Passives are read through the stat graph (StatGraph.ReadInput), so their change runs again only the
 /// steps that read them.</summary>
-public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives }
+public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects }
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
@@ -777,7 +777,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public bool LeavingArea;
     // Auth accepted the destination; PendingTransfer is already consumed before this handoff.
     public bool TransferAccepted;
-    public readonly RecentEnemyHits RecentEnemyHits = new();
+    public RecentEnemyHits RecentEnemyHits => recentEnemyHits ??= new() { Changed = () => MarkStatsDirty(StatInput.RecentEnemyHits) };
+    RecentEnemyHits? recentEnemyHits;
     // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
     public RecentEvents RecentEvents => recentEvents ??= new() { Changed = () => MarkStatsDirty(StatInput.RecentEvents) };
     RecentEvents? recentEvents;
@@ -1185,7 +1186,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// <summary>The hands' part of the player model last sent (Program.HandsKey): null until the area's first model.</summary>
     public string? ModelHands;
     /// <summary>The flasks recovering life and mana (C→S 0x70), applied by the player tick.</summary>
-    public Flasks.Effects FlaskEffects { get; } = new();
+    public Flasks.Effects FlaskEffects => flaskEffects ??= new() { AnyChanged = () => MarkStatsDirty(StatInput.FlaskEffects) };
+    Flasks.Effects? flaskEffects;
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
     public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
     /// <summary>Life, mana and hybrid flasks' "during effect" mods while their recovery runs.</summary>

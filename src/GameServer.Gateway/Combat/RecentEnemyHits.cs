@@ -14,11 +14,19 @@ public sealed class RecentEnemyHits
         return contacts.Count;
     }
 
-    public void Record(double now) { Count(now); contacts.Enqueue(now); }
+    /// <summary>A contact was recorded or the contacts cleared (the stats that count them follow).</summary>
+    public Action? Changed;
+
+    public void Record(double now) { Count(now); contacts.Enqueue(now); Changed?.Invoke(); }
 
     /// <summary>Seconds until the count next drops (the oldest contact leaves the window); null when none is counted.</summary>
     public double? NextChangeIn(double now) => Count(now) > 0 && contacts.TryPeek(out double at) ? at + RecentlySeconds - now : null;
-    public void Clear() => contacts.Clear();
+    public void Clear()
+    {
+        if (contacts.Count == 0) return;
+        contacts.Clear();
+        Changed?.Invoke();
+    }
 
     // The 30% cap applies to the per-hit contribution, before adding the independent generic chance.
     public static int Chance(int count, int perHit, int generic) =>

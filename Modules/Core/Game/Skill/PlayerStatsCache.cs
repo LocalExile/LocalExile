@@ -37,7 +37,8 @@ public static partial class Game
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
         // The steps whose timed effect changes by itself, and when (connection clock): StatsChangeIn.
-        public readonly Dictionary<PlayerStatStep, double> Timed = [];
+        // Now: the clock the time is on (StatsChangeAt); null for the connection's.
+        public readonly Dictionary<PlayerStatStep, (double At, Func<double>? Now)> Timed = [];
         // The conditions of life, mana and moving the steps read, as last marked; when moving next changes by itself.
         public long Conditions = -1;
         public double MovingCheckAt = double.PositiveInfinity;
@@ -71,7 +72,16 @@ public static partial class Game
         if (runningFrame is not { } frame) return;
         double at = frame.Clock + Math.Max(0, seconds);
         lock (frame.Timed)
-            if (!frame.Timed.TryGetValue(runningStep, out double was) || at < was) frame.Timed[runningStep] = at;
+            if (!frame.Timed.TryGetValue(runningStep, out var was) || was.Now is not null || at < was.At)
+                frame.Timed[runningStep] = (at, null);
+    }
+
+    /// <summary>As <see cref="StatsChangeIn"/>, for an effect timed on another clock than the connection's (the
+    /// projectile runtime's): the step runs again once <paramref name="now"/> reaches <paramref name="at"/>.</summary>
+    public static void StatsChangeAt(double at, Func<double> now)
+    {
+        if (runningFrame is not { } frame) return;
+        lock (frame.Timed) frame.Timed[runningStep] = (at, now);
     }
     static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
 
@@ -122,7 +132,7 @@ public static partial class Game
     // conditions, the conditional pools, recovery and leech, the tail's low life and recharge rows).
     static readonly PlayerStatStep[] ConditionReaders =
     [
-        PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.Recovery,
+        PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.VaalPrevention, PlayerStatStep.Recovery,
         PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
     ];
 
@@ -140,6 +150,12 @@ public static partial class Game
                 break;
             case StatInput.VaalPrevention:
                 graph.MarkRule((int)PlayerStatStep.VaalPrevention);
+                break;
+            case StatInput.RecentEnemyHits:
+                graph.MarkRule((int)PlayerStatStep.RecentHits);
+                break;
+            case StatInput.FlaskEffects:
+                foreach (var step in PlayerStatChangeReaders[(int)PlayerStatChange.Flasks]) graph.MarkRule((int)step);
                 break;
             case StatInput.RecentEvents:
                 graph.MarkRule((int)PlayerStatStep.Sources);
@@ -196,8 +212,8 @@ public static partial class Game
             frame.Area = conn.Frames.Area;
         }
         lock (frame.Timed)
-            foreach (var (step, at) in frame.Timed.ToList())
-                if (clock >= at) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
+            foreach (var (step, (at, now)) in frame.Timed.ToList())
+                if ((now?.Invoke() ?? clock) >= at) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
         if (clock >= frame.MovingCheckAt) PlayerStatInputChanged(conn, StatInput.Walk);
         var items = ItemsOfUnread(conn);
         if (!ReferenceEquals(items, frame.Items) || items.Changes != frame.ItemChanges)
@@ -263,10 +279,10 @@ public static partial class Game
         var kept = graph.Values;
         var fresh = CharacterPlayerStatsSnapshot(conn, out _, out _);
         var wrong = fresh.Keys.Union(kept.Keys).Where(k => fresh.GetValueOrDefault(k) != kept.GetValueOrDefault(k))
-            .Select(k => Stats.Name(k)).Order().ToArray();
+            .Select(k => $"{Stats.Name(k)} {kept.GetValueOrDefault(k)}->{fresh.GetValueOrDefault(k)}").Order().ToArray();
         if (wrong.Length == 0) return;
         string names = string.Join(" ", wrong.Take(12));
-        int seen = FrameStatsMisses.AddOrUpdate(names, 1, (_, n) => n + 1);
+        int seen = FrameStatsMisses.AddOrUpdate(string.Join(" ", wrong.Take(12).Select(w => w[..w.IndexOf(' ')])), 1, (_, n) => n + 1);
         if (seen is 1 or 10 or 100 or 1000)
             Console.WriteLine($"[stats-verify] {conn.Wire.Remote} {wrong.Length} stat(s) changed unmarked (x{seen}): {names}");
     }
