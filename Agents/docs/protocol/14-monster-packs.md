@@ -10,7 +10,7 @@ unique boss **Fire Fury** and her guards at the cannibal camp, next to its campf
 | Client table (client.db) | What it gives |
 |---|---|
 | `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
+| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight`, `Flag` |
 | `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
@@ -31,8 +31,8 @@ room point that specifies only rarity, the Gateway draws from unrestricted rows 
 with their original weights. An empty pool leaves the site free. The sample uses the nearest vertex of the final
 tile grid, as the client's random doodads do. Members can cross that boundary within their usual radius.
 The Twilight Strand's Drowned use a separate row with an empty list. Untainted Paradise spells the `Knoll` ground
-`knoll` in two pack rows. The Pantheon soldier pack has only `-` and its room names the pack directly. It keeps its
-existing weighted placement pending support for those room points.
+`knoll` in two pack rows. The Pantheon soldier pack has only `-`. Its area weight and its room points both apply
+locally. Their official priority is unknown.
 
 **Not recovered:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
 decides those. Ours (`AreaPopulation`): one scattered pack per 9 000 walkable cells (`CellsPerPack`; The Coast: 44
@@ -142,9 +142,15 @@ So:
    `rare`. A pack point is one of the area's scattered packs of that rarity. Every placed room of a generated layout
    places its own (`ServerLevels.Level.PackRooms`, read from the generated rooms, not from `room-points.json`); a
    captured layout only its Trial of Ascendancy's ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters").
-   The points are few: 2 126 in 1 498 of 3 265 generated layouts (795 areas, two seeds each): 1 663 `magic`, 450 `rare`
-   and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
-   or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
+   A generated room's spawn list (section 0) can also name a complete `MonsterPacks.Id`. Kaom's Stronghold names
+   `kaomwarriorpack`. The Lair's shared waterfall room names five beast packs, of which its `Maps.MonsterPacksKeys`
+   lists four. A pack assigned through `WorldAreasKeys` may have zero area weight. Successful room packs count
+   against ordinary density. Direct placement handles positive counts with weighted members. In the game tables
+   `MonsterPacks.__col1` equals the sum of `Weight` over its unflagged entries. Their placement remains unverified.
+   The survey of 3 265 generated layouts (795 areas, two seeds each) found rarity points in 1 498 layouts.
+   Of the 2 126 points, 1 663 were `magic`, 450 `rare` and 13 `normal`, with 99% on walkable cells.
+   The area's remaining ordinary packs use the scattered budget
+   (§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
    **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
    its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:

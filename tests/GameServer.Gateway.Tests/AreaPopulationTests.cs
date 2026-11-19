@@ -104,10 +104,16 @@ public class AreaPopulationTests
 
         // Room packs may exceed the ordinary density budget, but cannot consume explicit extra map packs.
         bool Field(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
-        AreaPopulation.RoomPoint[] rooms = [new("normal", 100, 100), new("normal", 200, 100),
+        var authored = Pack with { Id = "room-guards", Row = 2 };
+        var roomArea = Area() with { Density = 0, DirectPacks = new Dictionary<string, PackCatalog.Pack> { [authored.Id] = authored } };
+        AreaPopulation.RoomPoint[] rooms = [new(authored.Id, 100, 100), new("normal", 200, 100),
             new("normal", 300, 100), new("normal", 400, 100)];
-        var extras = AreaPopulation.Plan(Area() with { Density = 0 }, 600, 600, Field, (50, 50), [], [],
+        var extras = AreaPopulation.Plan(roomArea, 600, 600, Field, (50, 50), [], [],
             23, _ => true, [], scale: new(ExtraNormal: 3), roomPacks: rooms);
-        Assert.True(extras.Count > rooms.Length * Pack.MaxCount, "The three extra packs were absorbed by the room budget.");
+        Assert.Equal(authored.MaxCount, extras.Count(s => s.Pack == authored.Id));
+        Assert.Equal((rooms.Length + 3) * Pack.MaxCount, extras.Count);
+        var ordinary = AreaPopulation.Plan(roomArea with { Density = 0.1 }, 600, 600, Field, (50, 50), [], [],
+            23, _ => true, [], roomPacks: rooms);
+        Assert.Equal(rooms.Length * Pack.MaxCount, ordinary.Count);
     }
 }

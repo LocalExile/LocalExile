@@ -167,8 +167,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.
   Native appearance references resolve; rendered model parity remains unverified.
 
-- Weighted area packs on generated layouts use the centre's ground type. Gateway checks cover the Coast's wet and dry
-  ground and mixed-tile boundaries. Official boundary sampling and real-client placement remain unverified. [14](../docs/protocol/14-monster-packs.md)
+- Weighted area packs on generated layouts use the centre's ground type.
+  Generated rooms can name an assigned ordinary pack, including the warriors in Kaom's Stronghold.
+  Official boundary sampling, unflagged members and in-client placement await verification.
+  [14](../docs/protocol/14-monster-packs.md)
 
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).

@@ -541,7 +541,10 @@ public static partial class Game
         // The packs need the walk map; until it exists nothing is placed, so nothing is kept either.
         if (layout.Walkable is not { } walkable) return;
         conn.MonstersPlaced = true;
-        if (Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
+        if (Packs.For(layout.Id) is not { } area) return;
+        var directPoints = layout.Level is { } levelWithRooms && area.DirectPacks.Count > 0
+            ? AreaPopulation.DirectPackPoints(levelWithRooms.Records, area) : [];
+        if (area.Scattered.Count == 0 && area.Bosses.Count == 0 && directPoints.Count == 0) return;
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the
         // separate maze layout the fight does not build yet.
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
@@ -608,7 +611,8 @@ public static partial class Game
         }
         var layoutPacks = (layout.Level?.PackRooms ?? [])
             .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase)))
-            .SelectMany(r => r.Points).Where(p => !InFeatureArea(p.X, p.Y));
+            .SelectMany(r => r.Points).Concat(directPoints).Where(p => !InFeatureArea(p.X, p.Y));
+        var trialPacks = trialRooms.SelectMany(r => r.Points).Where(p => AreaPopulation.PackPoint(p.Name) is not null);
         var trapClear = new HashSet<(int X, int Y)>();
         // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
         var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
@@ -646,7 +650,7 @@ public static partial class Game
         var spawns = AreaPopulation.Plan(area with { GroundAt = layout.Level?.GroundAt }, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
+            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialPacks, .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
