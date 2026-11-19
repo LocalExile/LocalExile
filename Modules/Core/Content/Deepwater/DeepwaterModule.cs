@@ -10,9 +10,10 @@ namespace GameServer.Modules.Deepwater;
 /// (the World panel pin, /boat, the rowboat on The Coast), the hub's ruleset and its quest table (DeepwaterQuests), and the
 /// encounter areas' grid (DeepwaterGrid), ruleset and run (DeepwaterRun: the lanterns and their light, the monsters, the
 /// Sulphur nodes, chests and interactables of DeepwaterLoot, the collapse, and the capsules and Bathysphere of
-/// DeepwaterExtraction), charts as items (DeepwaterCharts), and The Sovereign's deck (DeepwaterHub: the Chart Locker, the chart
-/// device and the Voyage planner) where a chart or a board starts a run (DeepwaterStart). Allflame crafting is not built yet
-/// (Agents/roadmap/world.md).</summary>
+/// DeepwaterExtraction), charts as items (DeepwaterCharts), The Sovereign's deck (DeepwaterHub: the Chart Locker, the chart
+/// device and the Voyage planner) where a chart or a board starts a run (DeepwaterStart), Vesper's Allflame crafting and
+/// Ducats (DeepwaterCrafting, DeepwaterDucats), Cursed Ducats (DeepwaterCursedDucats), and Messages in a Bottle
+/// (DeepwaterBottles).</summary>
 public sealed partial class DeepwaterModule : IModule
 {
     /// <summary>The Sovereign (<c>WorldAreas</c> DeepwaterHub, area type 53).</summary>
@@ -84,9 +85,11 @@ public sealed partial class DeepwaterModule : IModule
     {
         string id = module.Manifest.Id;
         module.Lifetime.Own(Quests.Register(id, [new DeepwaterQuests()]));
-        // The league monsters' more life (DeepwaterLifeScalingPerLevel), as Harvest's grove monsters.
-        module.Lifetime.Own(MonsterModEffects.HandOverMore([DeepwaterMonsters.LevelMoreLife], []));
+        // The league monsters' more life (DeepwaterLifeScalingPerLevel) and Cursed Ducat toughness more life, as Harvest's grove monsters.
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([DeepwaterMonsters.LevelMoreLife, DeepwaterCursedDucats.CursedMoreLife], []));
         LoadHub(module);
+        // Right-clicking a Message in a Bottle (BaseItemTypes#5437) opens BottledItemRevealWindow (0x7b kind 0x6d).
+        GameEvents.ItemUse.Add(id, (conn, row, item, type) => DeepwaterBottles.Use(module, conn, row, item, type));
         // Every area of the league is played in its category and carries map_deepwater_league (what the client's and the
         // server's extra terrain feature roll for Deepwater encounters read).
         InstanceEvents.LeagueCategory.Add(id, _ => Category.Value);
@@ -211,11 +214,15 @@ public sealed partial class DeepwaterModule : IModule
             RunState(conn, json);
             DeepwaterEncounters.State(conn, json);
         });
-        // The league's monsters' map-related drops and the Golden Lantern stacks in a run; a Brinerot Plunder guard's Ducat;
-        // Sailor's Lantern's duplicated gold.
+        // The league's monsters' map-related drops, Cursed Ducat IIQ/IIR and unlocks, special-room Ducats and the Golden Lantern
+        // stacks in a run; a Brinerot Plunder guard's Ducat; Sailor's Lantern's duplicated gold.
         GameEvents.Drops.Add(id, roll =>
         {
-            if (RunOf(roll.Conn) is { } run) DeepwaterLoot.Drops(roll, run);
+            if (RunOf(roll.Conn) is { } run)
+            {
+                DeepwaterLoot.Drops(roll, run);
+                DeepwaterCursedDucats.Drops(module, roll);
+            }
             DeepwaterEncounters.Drops(roll);
             DeepwaterBuffs.Drops(module, roll);
         });

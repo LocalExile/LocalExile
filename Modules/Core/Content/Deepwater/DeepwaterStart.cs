@@ -131,15 +131,18 @@ public sealed partial class DeepwaterModule
         var cell = new DeepwaterBoardRules.Cell(active.Item.Chart!.Value, active.Item.Mods);
         DeepwaterBoardRules.Cell?[] cells = [cell];
         var mods = catalog.Mods;
+        var global = DeepwaterBoardRules.GlobalStats(mods, cells);
+        int cursed = DeepwaterCursedDucats.InjectPlanStats(conn, global);
         var plan = new DeepwaterPlan
         {
             Voyage = false, Owner = player.Character, Size = 1, Cells = cells,
             Level = Math.Clamp((int)cell.Chart.AreaLevel, 1, 100),
             CellStats = [DeepwaterBoardRules.CellStats(mods, cells, 1, 0, [])],
-            Global = DeepwaterBoardRules.GlobalStats(mods, cells),
+            Global = global,
             ChartItem = active.Id,
         };
-        module.Log($"{what}: item {active.Id} ({catalog.ByHash(active.Item.TypeHash)?.Name}, room {cell.Chart.Room}, rotation {cell.Chart.Rotation}) at level {plan.Level}");
+        module.Log($"{what}: item {active.Id} ({catalog.ByHash(active.Item.TypeHash)?.Name}, room {cell.Chart.Room}, rotation {cell.Chart.Rotation}) at level {plan.Level}"
+            + (cursed > 0 ? $", {cursed} Cursed Ducats" : ""));
         // The tracker's "enter the Bathysphere" (QuestFlags 3568, G: set by the accepted Descend).
         var (remote, stream, ciphers) = conn.Wire;
         await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart]);
@@ -189,15 +192,17 @@ public sealed partial class DeepwaterModule
         if (!asked && await AskFirst(module, conn, state, () => StartVoyage(module, conn, args, asked: true))) return;
         var mods = catalog.Mods;
         var border = n == 3 ? DeepwaterPlanner.Current(conn).Border : [];
+        var global = DeepwaterBoardRules.GlobalStats(mods, cells);
+        int cursed = DeepwaterCursedDucats.InjectPlanStats(conn, global);
         var plan = new DeepwaterPlan
         {
             Voyage = true, Owner = player.Character, Size = n, Cells = cells, Border = border,
             Level = DeepwaterBoardRules.Level(cells),
             CellStats = [.. Enumerable.Range(0, cells.Length).Select(i => DeepwaterBoardRules.CellStats(mods, cells, n, i, border))],
-            Global = DeepwaterBoardRules.GlobalStats(mods, cells),
+            Global = global,
             Picked = picked,
         };
-        module.Log($"{what}: {n}×{n} at level {plan.Level}, {border.Count} border mods");
+        module.Log($"{what}: {n}×{n} at level {plan.Level}, {border.Count} border mods" + (cursed > 0 ? $", {cursed} Cursed Ducats" : ""));
         await Arm(module, conn, state, plan, ItemRarity.Normal);
     }
 

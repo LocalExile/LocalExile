@@ -73,6 +73,8 @@ internal static class DeepwaterConstants
     public const string StoredItems = "DeepwaterStoredItemsInExtractionChest";
     /// <summary>QuestFlags 3572: a Voyage's called Bathysphere is coming (the quest tracker's "hold the line").</summary>
     public const string VoyageDefend = "DeepwaterVoyageDefendUntilExtraction";
+    /// <summary>QuestFlags 3578: Vesper has unclaimed Ghostly Copies in inventory 106 (disables targeting VesperCrafting).</summary>
+    public const string CraftInProgress = "HasDeepwaterCraftInProgress";
     /// <summary>QuestFlags 3579.</summary>
     public const string FirstLanternPlaced = "FirstLanternPlaced";
     /// <summary>QuestFlags 3625: the player is on the encounter's own deck.</summary>

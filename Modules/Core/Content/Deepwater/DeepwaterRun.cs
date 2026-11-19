@@ -82,6 +82,13 @@ internal sealed class DeepwaterRun
     public MonsterModSet?[]? CellMods { get; init; }
     public double[]? CellQuantity { get; init; }
     public double[]? CellRarity { get; init; }
+    /// <summary>Precomputed Cursed Ducat IIQ/IIR drop multipliers and run-wide monster mods (level scaling + Cursed Ducat
+    /// stats), plus per-cell special-room rare-monster Ducat targets (built once at <c>StartRun</c>, 0 allocs per kill).</summary>
+    public double CursedQuantityFactor { get; init; } = 1.0;
+    public double CursedRarityFactor { get; init; } = 1.0;
+    public MonsterModSet? RunMods { get; init; }
+    public string?[]? CellRareDucat { get; init; }
+    public int[]? CellRareDucatChance { get; init; }
     /// <summary>Called once when the run ends (DeepwaterExtraction.End or Fail) with the players it ended for and whether it
     /// succeeded.</summary>
     public Func<IReadOnlyList<ClientState>, bool, Task>? OnEnd { get; set; }

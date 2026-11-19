@@ -81,6 +81,25 @@ internal static class DeepwaterMonsters
                 plan.Add(new Pack(cell.Index, kind, at.X, at.Y, rarity, members));
                 kinds.Add(kind.Id.Replace("Deepwater", "") + (rarity == MonsterRarity.Normal ? "" : $"({rarity})"));
             }
+            // G: occasional Filthscrabble (Sandy) or Captainsbane (Coral) miniboss so their Cursed Ducats are organically obtainable.
+            int minibossChance = DeepwaterLoot.Setting("deepwater_miniboss_chance");
+            string? minibossId = biome switch
+            {
+                "DeepwaterSandy" => DeepwaterCursedDucats.FilthscrabbleVariety,
+                "DeepwaterCoralForest" or "DeepwaterCoralReef" => DeepwaterCursedDucats.CaptainsbaneVariety,
+                _ => null,
+            };
+            if (minibossId is not null && minibossChance > 0 && random.Next(100) < minibossChance
+                && Monsters.Find(minibossId) is { Supported: true } boss
+                && Centre(layout, cell, start, centres, random) is { } bossAt)
+            {
+                centres.Add(bossAt);
+                taken.Add(bossAt);
+                var bossPack = new PackCatalog.Pack(-1, boss.Name, 1, 1, 0, 0, [], [(boss.Row, 1)], new Dictionary<int, int>());
+                plan.Add(new Pack(cell.Index, bossPack, bossAt.X, bossAt.Y, MonsterRarity.Unique,
+                    [new AreaPopulation.Spawn(boss.Row, bossAt.X, bossAt.Y, MonsterRarity.Unique, boss.Name)]));
+                kinds.Add($"{boss.Name}(Unique)");
+            }
             notes.Add($"cell {cell.Index} {biome}: {kinds.Count}/{count} [{string.Join(", ", kinds)}]");
         }
         log($"Allflame monsters: {plan.Count} packs, {plan.Sum(p => p.Members.Count)} monsters planned at level {run.Level} (life +{LifeAt(run.Level)}% more); "
@@ -130,11 +149,12 @@ internal static class DeepwaterMonsters
         return extra;
     }
 
-    /// <summary>A run's monster mods at <paramref name="level"/>: its more life and a Voyage cell's map effects (null when
-    /// there are none).</summary>
-    public static MonsterModSet? ModsFor(int level, IReadOnlyDictionary<string, int>? cell)
+    /// <summary>A run's monster mods at <paramref name="level"/>: its more life, Cursed Ducat monster stats, and a Voyage
+    /// cell's map effects (null when there are none).</summary>
+    public static MonsterModSet? ModsFor(int level, IReadOnlyDictionary<string, int>? cell, IReadOnlyDictionary<string, int>? cursed = null)
     {
-        var stats = new Dictionary<string, int>(cell ?? new Dictionary<string, int>());
+        var merged = DeepwaterCursedDucats.MergeMonsterStats(cell, cursed);
+        var stats = new Dictionary<string, int>(merged ?? new Dictionary<string, int>(), StringComparer.Ordinal);
         if (LifeAt(Math.Clamp(level, 1, MaxLevel)) is int life and not 0) stats[LevelMoreLife] = stats.GetValueOrDefault(LevelMoreLife) + life;
         return stats.Count == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(stats));
     }
@@ -190,7 +210,7 @@ internal static class DeepwaterMonsters
     static async Task<int> Spawn(ClientState conn, DeepwaterRun run, IEnumerable<AreaPopulation.Spawn> members)
     {
         byte level = (byte)Math.Clamp(run.Level, 1, MaxLevel);
-        var runMods = ModsFor(level, null);
+        var runMods = run.RunMods ?? ModsFor(level, null);
         var extraStats = new List<(uint Key, int Value)>();
         foreach (string stat in (string[])["is_near_deepwater_lantern", "deepwater_lantern_touched"])
             if (Stats.Key(stat) is uint key) extraStats.Add((key, 1));

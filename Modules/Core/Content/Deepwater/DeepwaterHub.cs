@@ -31,13 +31,16 @@ public sealed partial class DeepwaterModule
         GameEvents.EnterMessages.Add(id, conn =>
             PlayerOf(conn).AreaId == HubId && DeepwaterPlanner.Message(conn, DeepwaterPlanner.Current(conn)) is { } border
                 ? [("0x02c9 DeepwaterHubRules mode 1 (border modifiers)", border)] : []);
-        GameEvents.NpcOptionPicked.Add(id, (conn, talk) => ValerieOption(module, conn, talk));
+        GameEvents.NpcOptionPicked.Add(id, async (conn, talk) =>
+            await DeepwaterCrafting.TryOpenOption(module, conn, talk, HubOwner(conn))
+            && await ValerieOption(module, conn, talk));
         // Offer 130 (Valerie's tutorial chart): the chart device opens with the reward window, as her 3930's script says
         // (FinishNPCChat, open_deepwater_device_1x1). The client lets the chart be picked from the reward window only while
         // the device's window is open (live 2026-11-19: no C→S 0x88 or 0x8a without it, and the pick and 0x88 with it).
         // Once the reward is taken the device opens again, where the chart goes (tracker 1976, QF 3554).
-        GameEvents.MessagesHandled.Add(id, async (conn, _) =>
+        GameEvents.MessagesHandled.Add(id, async (conn, ids) =>
         {
+            await DeepwaterCursedDucats.OnMessagesHandled(conn, ids);
             if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.DeviceAfterReward) return;
             if (conn.NpcRewardOffer is not null)
             {
@@ -56,13 +59,39 @@ public sealed partial class DeepwaterModule
             }
             await PlayerOf(conn).Send(InstanceWaypoints.OpenUi(ChartUi), $"0x007b open DeepwaterChartWindow (kind 0x{ChartUi:x2}) after Valerie's chart");
         });
-        GameEvents.InventoryRefusal.Add(id, DeepwaterLocker.Refusal);
-        GameEvents.InventoryPlace.Add(id, (conn, place) => Task.FromResult(DeepwaterLocker.RefusedPlace(module, conn, place)));
-        // C→S 0x0111: Ctrl + click into or out of the open Chart Locker.
+        GameEvents.InventoryRefusal.Add(id, (conn, row, item) =>
+            DeepwaterLocker.Refusal(conn, row, item)
+            ?? DeepwaterCrafting.Refusal(conn, row, item)
+            ?? DeepwaterCursedDucats.Refusal(conn, row, item));
+        GameEvents.InventoryPlace.Add(id, (conn, place) => Task.FromResult(
+            DeepwaterLocker.RefusedPlace(module, conn, place)
+            || DeepwaterCursedDucats.RefusedPlace(module, conn, place)));
+        // C→S 0x010e: Ctrl + click into or out of the open Chart Window slot (103).
+        GameEvents.Packet(InstanceItems.MissionSlotMoveId).Add(id, async (conn, bytes) =>
+        {
+            if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
+            await DeepwaterLocker.QuickMoveChart(module, conn, InstanceItems.ReadLeagueWindowMove(bytes));
+            return true;
+        });
+        // C→S 0x010f: Ctrl + click into or out of Vesper's Allflame Crafting input slot (105).
+        GameEvents.Packet(InstanceItems.CraftingSlotMoveId).Add(id, async (conn, bytes) =>
+        {
+            if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
+            await DeepwaterCrafting.QuickMove(module, conn, InstanceItems.ReadLeagueWindowMove(bytes));
+            return true;
+        });
+        // C→S 0x0111: Ctrl + click into or out of the open Chart Locker (112).
         GameEvents.Packet(InstanceItems.LockerMoveId).Add(id, async (conn, bytes) =>
         {
             if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
             await DeepwaterLocker.QuickMove(module, conn, InstanceItems.ReadLeagueWindowMove(bytes));
+            return true;
+        });
+        // C→S 0x0115: Ctrl + click Cursed Ducats between MainInventory (0), active sockets (115), and storage (116).
+        GameEvents.Packet(InstanceItems.SocketStorageMoveId).Add(id, async (conn, bytes) =>
+        {
+            if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
+            await DeepwaterCursedDucats.QuickMove(module, conn, InstanceItems.ReadLeagueWindowMove(bytes));
             return true;
         });
     }
@@ -83,6 +112,7 @@ public sealed partial class DeepwaterModule
         if (lines.FirstOrDefault(o => o.Type == ChartPortal) is { } portal
             && await SpawnStateObject(module, conn, portal, "ready", 0) is { } p)
             (state.Portal, state.PortalAt, state.PortalReach) = (p.Id, (portal.X, portal.Y), OffFloorReach(conn, (portal.X, portal.Y), p.Reach));
+        await DeepwaterCrafting.SpawnVats(module, conn, HubOwner(conn));
     }
 
     /// <summary>The Bathysphere hangs over the water, about 32 cells from the nearest deck cell (live 2026-11-19): a walk-up
@@ -152,6 +182,7 @@ public sealed partial class DeepwaterModule
             return true;
         }
         if (state.Portal != 0 && use.TargetId == state.Portal) return await UsePortal(module, conn, state, at);
+        if (await DeepwaterCrafting.UseVat(module, conn, use, at, HubOwner(conn))) return true;
         return false;
     }
 
@@ -214,6 +245,7 @@ public sealed partial class DeepwaterModule
         lock (conn.Monsters) unlocked = conn.LeagueQuestFlags.Contains(DeepwaterConstants.BoatUnlockedLeagueFlag);
         if (!unlocked) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.BoatUnlockedLeagueFlag]);
         await FourCharts(module, conn, live: true);
+        await DeepwaterCursedDucats.SyncFlags(conn);
     }
 
     // ---- Valerie ----
@@ -294,6 +326,9 @@ public sealed partial class DeepwaterModule
                 break;
             case DeepwaterHubRuleset.Op.OpenMission:
                 await StartVoyage(module, conn, a.Args);
+                break;
+            case DeepwaterHubRuleset.Op.DoCraft:
+                await DeepwaterCrafting.DoCraft(module, conn, a.Args, HubOwner(conn));
                 break;
             case DeepwaterHubRuleset.Op.ConfirmEnterMission:
                 await ConfirmStart(module, conn);

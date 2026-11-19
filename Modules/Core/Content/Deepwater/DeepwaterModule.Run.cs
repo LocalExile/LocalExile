@@ -51,12 +51,21 @@ public sealed partial class DeepwaterModule
                     module.Log($"{player.Character}: the plan's {planned.Size}×{planned.Size} board generated as {board.Size}×{board.Size}; its cell effects are not applied");
                 }
                 int level = planned?.Level ?? Math.Clamp((int)conn.Pools.Level, 1, DeepwaterMonsters.MaxLevel);
-                var effects = planned is { Voyage: true } && planned.Size == board.Size ? CellEffects(planned, level) : default;
+                var cursedEffects = planned is not null
+                    ? DeepwaterCursedDucats.EffectsFor(planned.Global, new Random((int)(conn.Seed ^ 0x43555253u)))
+                    : DeepwaterCursedDucats.EffectsFor(new Dictionary<string, int>());
+                var effects = planned is { Voyage: true } && planned.Size == board.Size
+                    ? CellEffects(planned, level, cursedEffects.MonsterStats)
+                    : default;
+                var runMods = DeepwaterMonsters.ModsFor(level, null, cursedEffects.MonsterStats);
+                var (cellRareDucat, cellRareDucatChance) = DeepwaterLoot.RoomRareDucats(board);
                 run = new DeepwaterRun
                 {
                     Voyage = voyage, Board = board, Controller = planned?.Owner ?? player.Character, Total = DeepwaterLanterns.Total(conn, voyage),
                     Level = level, Plan = planned,
                     CellMods = effects.Mods, CellQuantity = effects.Quantity, CellRarity = effects.Rarity,
+                    CursedQuantityFactor = cursedEffects.QuantityFactor, CursedRarityFactor = cursedEffects.RarityFactor,
+                    RunMods = runMods, CellRareDucat = cellRareDucat, CellRareDucatChance = cellRareDucatChance,
                 };
                 if (planned is not null) run.OnEnd = (members, success) => Finish(module, planned, members, success);
                 var plan = DeepwaterMonsters.Plan(conn.Layout, conn.Seed, run, module.Log);
@@ -105,12 +114,14 @@ public sealed partial class DeepwaterModule
             }
         }
         await DeepwaterExtraction.SyncFlags(conn, run);
+        await DeepwaterCursedDucats.SyncFlags(conn);
     }
 
     /// <summary>What each cell of a Voyage adds on its own, precomputed once so the per-kill and per-spawn paths only index
-    /// arrays: the monsters' map mods with the level's more life, and the drops' quantity and rarity factors (the cell's
-    /// increased quantity and rarity, and the border mods' more rarity, G).</summary>
-    static (MonsterModSet?[]? Mods, double[]? Quantity, double[]? Rarity) CellEffects(DeepwaterPlan plan, int level)
+    /// arrays: the monsters' map mods with the level's more life and Cursed Ducat stats, and the drops' quantity and rarity
+    /// factors (the cell's increased quantity and rarity, and the border mods' more rarity, G).</summary>
+    static (MonsterModSet?[]? Mods, double[]? Quantity, double[]? Rarity) CellEffects(DeepwaterPlan plan, int level,
+        IReadOnlyDictionary<string, int>? cursedMonsterStats)
     {
         int count = plan.CellStats.Count;
         var mods = new MonsterModSet?[count];
@@ -119,7 +130,7 @@ public sealed partial class DeepwaterModule
         for (int i = 0; i < count; i++)
         {
             var map = new MapMods(DeepwaterPlan.Named(plan.CellStats[i]));
-            mods[i] = DeepwaterMonsters.ModsFor(level, global::Game.MapMonsterEffects(map));
+            mods[i] = DeepwaterMonsters.ModsFor(level, global::Game.MapMonsterEffects(map), cursedMonsterStats);
             quantity[i] = Math.Max(0, 100 + map.Quantity) / 100.0;
             rarity[i] = Math.Max(0, 100 + map.Rarity) / 100.0 * Math.Max(0, 100 + map.Get("chart_item_drop_rarity_+%_final_from_border_modifier")) / 100.0;
         }

@@ -12,7 +12,7 @@ namespace GameServer.Modules.Deepwater;
 /// counts, size mix, weights and amounts are guesses (marked G) where the client data gives none.</summary>
 internal static class DeepwaterLoot
 {
-    public enum Kind { Node, SunkenLoot, GoldPile, Clam, Bottle, GoldenLantern, SoothingCoral, Kindling }
+    public enum Kind { Node, SunkenLoot, GoldPile, Clam, Bottle, GoldenLantern, SoothingCoral, Kindling, PiratesLocker, DrownedOffering, RotmothersStash }
 
     /// <summary>A node, chest or interactable of the run: its type and place, its object id now (an opened chest is created
     /// again under a new id, as Chest has no update reader), a node's Sulphur, and whether it was collected or used.</summary>
@@ -37,6 +37,7 @@ internal static class DeepwaterLoot
 
     const string Objects = "Metadata/Terrain/Leagues/Deepwater/Objects/";
     const string Chests = "Metadata/Chests/LeagueDeepwater/";
+    const string RotmothersStashType = Chests + "DeepwaterChestHazardBoat";
     const string LeagueMonsters = "Metadata/Monsters/LeagueDeepwater/";
     const string BottleItem = "Metadata/Items/Deepwater/DeepwaterBottledItem";
     const string ResourceFound = "map_deepwater_league_resource_found_+%";
@@ -58,6 +59,8 @@ internal static class DeepwaterLoot
         (Kind.GoldPile, Chests + "GoldTreasureChest", "deepwater_weight_gold_pile", false),
         (Kind.Clam, Chests + "ClamTreasureChest", "deepwater_weight_treasure_clam", false),
         (Kind.Bottle, Chests + "BottledItemChest", "deepwater_weight_message_in_a_bottle", false),
+        (Kind.PiratesLocker, Chests + "RandomDucatChest", "deepwater_weight_pirates_locker", false),
+        (Kind.DrownedOffering, DeepwaterCursedDucats.DrownedOfferingObject, "deepwater_weight_offering_of_the_drowned", false),
         (Kind.GoldenLantern, Objects + "DeepwaterGoldenLantern", "deepwater_weight_golden_lantern", false),
         (Kind.SoothingCoral, Objects + "DeepwaterFlaskRefill", "deepwater_weight_soothing_coral", false),
         (Kind.Kindling, Objects + "DeepwaterLanternReplenishEncounter", "deepwater_weight_allflame_kindling", true),
@@ -66,13 +69,33 @@ internal static class DeepwaterLoot
     /// <summary>A world.db <c>system_settings</c> value (0-10000); 0 without its row.</summary>
     internal static int Setting(string key) => SystemSettings.Default.Values.TryGetValue(key, out var v) && double.IsFinite(v) ? (int)Math.Clamp(v, 0, 10_000) : 0;
 
+    static int SettingOr(string key, int fallback) =>
+        SystemSettings.Default.Values.TryGetValue(key, out var v) && double.IsFinite(v) ? (int)Math.Clamp(v, 0, 10_000) : fallback;
+
     // G: the spacing of the scattered objects and nodes, and the clear ring around the start Bathysphere.
     const int ThingsApart = 15, NodesApart = 12, StartClear = 20, Tries = 200;
     /// <summary>Message in a Bottle's Chest <c>item_drop_delay</c>.</summary>
     const double BottleDelay = 2.3;
 
+    // Chests rows by Id: __col7 (read as a spawn weight, G), AOFiles, and InheritsFrom (for chests without their own .ot).
+    static readonly Lazy<Dictionary<string, (int Weight, string[] Models, string? InheritsFrom)>> ChestRows = new(() => ClientTables.TableOrEmpty("Chests")
+        .Where(r => r.Text("Id") is { } id && id.StartsWith(Chests, StringComparison.Ordinal))
+        .ToDictionary(r => r.Text("Id")!, r => (r.IntOrNull("__col7") ?? 0, r.Texts("AOFiles").ToArray(), r.TextOrNull("InheritsFrom"))));
+
     static readonly Lazy<Dictionary<string, StateMachineData?>> States = new(() =>
-        StatesOf(Nodes.Select(n => n.Type).Concat(Scattered.Select(s => s.Type)).ToHashSet(StringComparer.Ordinal)));
+    {
+        var wanted = Nodes.Select(n => n.Type)
+            .Concat(Scattered.Select(s => s.Type))
+            .Append(RotmothersStashType)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var row in ChestRows.Value.Values)
+            if (row.InheritsFrom is { Length: > 0 } parent) wanted.Add(parent);
+        var map = StatesOf(wanted);
+        foreach (var (id, row) in ChestRows.Value)
+            if (!map.ContainsKey(id) && row.InheritsFrom is { Length: > 0 } parent && map.TryGetValue(parent, out var inherited))
+                map[id] = inherited;
+        return map;
+    });
 
     /// <summary>These types' StateMachine defaults (their .ot's shared states), by type.</summary>
     internal static Dictionary<string, StateMachineData?> StatesOf(IReadOnlySet<string> types)
@@ -80,11 +103,6 @@ internal static class DeepwaterLoot
         var shared = ObjectTypes.SharedStates();
         return ObjectTypes.All().Where(t => types.Contains(t.Type)).ToDictionary(t => t.Type, t => ObjectTypes.StateMachine(t.Row, shared));
     }
-
-    // Chests rows by Id: __col7 (read as a spawn weight, G) and AOFiles.
-    static readonly Lazy<Dictionary<string, (int Weight, string[] Models)>> ChestRows = new(() => ClientTables.TableOrEmpty("Chests")
-        .Where(r => r.Text("Id") is { } id && id.StartsWith(Chests, StringComparison.Ordinal))
-        .ToDictionary(r => r.Text("Id")!, r => (r.IntOrNull("__col7") ?? 0, r.Texts("AOFiles").ToArray())));
 
     static readonly Lazy<Dictionary<int, (int Min, int Max, int Packs)>> RoomRanges = new(() => ClientTables.TableOrEmpty("DeepwaterRooms")
         .ToDictionary(r => r.Index, r => (r.IntOrNull("__col10") ?? 0, r.IntOrNull("__col11") ?? 0, r.IntOrNull("__col8") ?? 0)));
@@ -134,9 +152,12 @@ internal static class DeepwaterLoot
 
         foreach (var o in layout.Level?.RoomObjects ?? [])
         {
-            if (Scattered.FirstOrDefault(s => s.Type == o.Type) is not { Type: not null } s || s.VoyageOnly && !run.Voyage
-                || run.Board.CellAt((o.X, o.Y)) is not { } cell || Info(o.Type) is null) continue;
-            things.Add(new Thing { Kind = s.Kind, Type = o.Type, X = o.X, Y = o.Y, Cell = cell.Index, Rotation = o.Rotation, Model = ModelOf(o.Type, random), FromRoom = true,
+            Kind kind;
+            if (o.Type == RotmothersStashType) kind = Kind.RotmothersStash;
+            else if (Scattered.FirstOrDefault(s => s.Type == o.Type) is { Type: not null } s && (!s.VoyageOnly || run.Voyage)) kind = s.Kind;
+            else continue;
+            if (run.Board.CellAt((o.X, o.Y)) is not { } cell || Info(o.Type) is null) continue;
+            things.Add(new Thing { Kind = kind, Type = o.Type, X = o.X, Y = o.Y, Cell = cell.Index, Rotation = o.Rotation, Model = ModelOf(o.Type, random), FromRoom = true,
                 Pose = IsCorpse(o.Type) ? poses.Next(Poses) : 0, Id = conn.TakeObjectId() });
             taken.Add((o.X, o.Y));
         }
@@ -396,17 +417,47 @@ internal static class DeepwaterLoot
         {
             case Kind.SunkenLoot:
             {
-                // G: 3-6 currency items by the server's currency weights (ItemDrops.Currency) at the run's level.
-                var pool = ItemDrops.Currency.Select(c => (Type: catalog.Find(c.Id), c.Weight))
-                    .Where(c => c.Type is { Supported: true } && c.Type.DropLevel <= level).ToList();
-                var drops = new List<ItemDrops.Drop>();
-                for (int i = Random.Shared.Next(3, 7); i > 0 && pool.Count > 0; i--)
+                var drops = RollSunkenCurrency(catalog, level);
+                // G: special-room Sunken Loot Ducat drops (Anchorfield -> Kishara, Lost Ruins -> Tzamoto; other rooms small chance for Changeling/Telesia).
+                int room = thing.Cell >= 0 && thing.Cell < run.Board.Cells.Count ? run.Board.Cells[thing.Cell].Room : -1;
+                string? bonusDucat = room switch
                 {
-                    double roll = Random.Shared.NextDouble() * pool.Sum(p => p.Weight);
-                    var pick = pool[^1];
-                    foreach (var p in pool) if ((roll -= p.Weight) < 0) { pick = p; break; }
-                    drops.Add(new(ItemCatalog.Create(pick.Type!) with { StackSize = 1, ItemLevel = (byte)level }, pick.Type!));
+                    19 or 20 when Random.Shared.Next(100) < SettingOr("deepwater_room_ducat_chance", 15) => DeepwaterDucats.Kishara,
+                    48 or 49 when Random.Shared.Next(100) < SettingOr("deepwater_room_ducat_chance", 15) => DeepwaterDucats.Tzamoto,
+                    _ when Random.Shared.Next(100) < SettingOr("deepwater_sunken_ducat_chance", 4) =>
+                        Random.Shared.Next(2) == 0 ? DeepwaterDucats.Changeling : DeepwaterDucats.Telesia,
+                    _ => null,
+                };
+                if (bonusDucat is not null && catalog.Find(bonusDucat) is { Supported: true } ducatType)
+                    drops.Add(new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType));
+                await Drop(conn, thing, ItemDrops.Stacked(drops));
+                break;
+            }
+            case Kind.PiratesLocker:
+            {
+                string id = DeepwaterDucats.AllDucats[Random.Shared.Next(DeepwaterDucats.AllDucats.Length)];
+                if (catalog.Find(id) is { Supported: true } ducatType)
+                    await Drop(conn, thing, [new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType)]);
+                break;
+            }
+            case Kind.DrownedOffering:
+            {
+                if (await DeepwaterCursedDucats.DropFromOffering(module, conn, level) is { } cursedDrop)
+                    await Drop(conn, thing, [cursedDrop]);
+                else
+                {
+                    // Already unlocked Ducat of the Undead Sea: drop 1 random crafting Ducat instead (G).
+                    string id = DeepwaterDucats.AllDucats[Random.Shared.Next(DeepwaterDucats.AllDucats.Length)];
+                    if (catalog.Find(id) is { Supported: true } ducatType)
+                        await Drop(conn, thing, [new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType)]);
                 }
+                break;
+            }
+            case Kind.RotmothersStash:
+            {
+                var drops = RollSunkenCurrency(catalog, level);
+                if (catalog.Find(DeepwaterDucats.Rotmother) is { Supported: true } rotType)
+                    drops.Add(new(ItemCatalog.Create(rotType) with { StackSize = 1, ItemLevel = (byte)level }, rotType));
                 await Drop(conn, thing, ItemDrops.Stacked(drops));
                 break;
             }
@@ -452,6 +503,22 @@ internal static class DeepwaterLoot
                 await DeepwaterLanterns.SendCount(conn, run);
                 break;
         }
+    }
+
+    // G: 3-6 currency items by the server's currency weights (ItemDrops.Currency) at the run's level.
+    static List<ItemDrops.Drop> RollSunkenCurrency(ItemCatalog catalog, int level)
+    {
+        var pool = ItemDrops.Currency.Select(c => (Type: catalog.Find(c.Id), c.Weight))
+            .Where(c => c.Type is { Supported: true } && c.Type.DropLevel <= level).ToList();
+        var drops = new List<ItemDrops.Drop>();
+        for (int i = Random.Shared.Next(3, 7); i > 0 && pool.Count > 0; i--)
+        {
+            double roll = Random.Shared.NextDouble() * pool.Sum(p => p.Weight);
+            var pick = pool[^1];
+            foreach (var p in pool) if ((roll -= p.Weight) < 0) { pick = p; break; }
+            drops.Add(new(ItemCatalog.Create(pick.Type!) with { StackSize = 1, ItemLevel = (byte)level }, pick.Type!));
+        }
+        return drops;
     }
 
     static Task Drop(ClientState conn, Thing thing, IReadOnlyList<ItemDrops.Drop> drops) =>
@@ -502,21 +569,59 @@ internal static class DeepwaterLoot
         await GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, "Soothing Coral");
     }
 
+    /// <summary>Precomputes the special-room rare-monster Ducat target and drop chance (%) per board cell (built once at
+    /// <c>StartRun</c>, O(1) lookup and 0 allocations on the per-kill hot path).</summary>
+    public static (string?[]? Ducats, int[]? Chances) RoomRareDucats(DeepwaterBoard board)
+    {
+        int n = board.Cells.Count;
+        string?[]? ducats = null;
+        int[]? chances = null;
+        int roomChance = SettingOr("deepwater_room_ducat_chance", 15);
+        for (int i = 0; i < n; i++)
+        {
+            var (ducat, chance) = board.Cells[i].Room switch
+            {
+                61 or 62 => (DeepwaterDucats.Brinehook, 15),          // Brine King's Domain (room stat 23289 = 15%)
+                42 or 43 => (DeepwaterDucats.Merrick, roomChance),    // Pelagic Abyss (G)
+                44 or 45 => (DeepwaterDucats.Ukatoa, roomChance),     // Eldritch Depths (G)
+                21 or 22 or 46 or 47 => (DeepwaterDucats.Genteel, roomChance), // Infested Bathyspheres / Sea Pillars (G)
+                63 or 64 => (DeepwaterDucats.Cyaxan, roomChance),     // Diving Shoals (G)
+                65 or 66 => (DeepwaterDucats.Katakohi, roomChance),   // Sunken Totems (G)
+                _ => ((string?)null, 0),
+            };
+            if (ducat is null || chance <= 0) continue;
+            ducats ??= new string?[n];
+            chances ??= new int[n];
+            ducats[i] = ducat;
+            chances[i] = chance;
+        }
+        return (ducats, chances);
+    }
+
     // ---- drops ----
 
     /// <summary>GameEvents.Drops in a run: the league's monsters drop map-related items at −50 %
-    /// (<c>map_related_item_drop_chance_+%_final_from_league</c> −50, DeepwaterBase.ot), and the killer's Golden Lantern
-    /// stacks add +10 % quantity and +30 % rarity each (Ruthless +3 % / +10 %; the wiki), applied as multipliers (G). In a
-    /// Voyage the dead monster's cell multiplies them by its own quantity and rarity (DeepwaterRun.CellQuantity/CellRarity).</summary>
+    /// (<c>map_related_item_drop_chance_+%_final_from_league</c> −50, DeepwaterBase.ot), Cursed Ducat IIQ/IIR multipliers
+    /// apply to all kills, a Voyage cell multiplies by its own quantity and rarity, special-room rare monsters roll their
+    /// targeted Ducat, and the killer's Golden Lantern stacks add +10 % quantity and +30 % rarity each (Ruthless +3 % / +10 %;
+    /// the wiki), applied as multipliers (G).</summary>
     public static void Drops(DropRoll roll, DeepwaterRun run)
     {
         if (roll.Monster.VarietyId.StartsWith(LeagueMonsters, StringComparison.Ordinal)) roll.MapRelated *= 0.5;
-        // A Voyage cell's own quantity and rarity (precomputed at the run's start; a loop over at most 9 cells).
-        if (run.CellQuantity is { } cellQuantity && run.CellRarity is { } cellRarity && run.CellIndex(roll.Monster.X, roll.Monster.Y) is int cell
-            && cell >= 0 && cell < cellQuantity.Length)
+        DeepwaterCursedDucats.ApplyDropFactors(roll, run.CursedQuantityFactor, run.CursedRarityFactor);
+        // Compute cell index once for both Voyage cell multipliers and special-room rare Ducats (0 allocs per kill).
+        int cell = (run.CellQuantity is not null || (roll.Monster.Rarity >= MonsterRarity.Rare && run.CellRareDucat is not null))
+            ? run.CellIndex(roll.Monster.X, roll.Monster.Y) : -1;
+        if (run.CellQuantity is { } cellQuantity && run.CellRarity is { } cellRarity && cell >= 0 && cell < cellQuantity.Length)
         {
             roll.Quantity *= cellQuantity[cell];
             roll.Rarity *= cellRarity[cell];
+        }
+        if (roll.Monster.Rarity >= MonsterRarity.Rare && run.CellRareDucat is { } cellDucats && run.CellRareDucatChance is { } cellChances
+            && cell >= 0 && cell < cellDucats.Length && cellDucats[cell] is { } ducatId && cellChances[cell] > 0
+            && Random.Shared.Next(100) < cellChances[cell])
+        {
+            roll.Items.Add(ducatId);
         }
         int stacks;
         lock (run.Gate) stacks = run.GoldenLanterns.GetValueOrDefault(CharacterName(roll.Conn));
