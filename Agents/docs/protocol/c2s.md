@@ -29,7 +29,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 
 ## Validation against the Gateway
 
-`InstanceProtocol.KnownClientLength` has 93 fixed lengths: 87 agree with an exact extracted length, 0 disagree; 6 have no exact extracted length (branching or variable writers): 0x1b, 0x28, 0x4a, 0x99, 0xe7, 0x15d.
+`InstanceProtocol.KnownClientLength` has 115 fixed lengths: 107 agree with an exact extracted length, 0 disagree; 8 have no exact extracted length (branching or variable writers): 0x1b, 0x28, 0x4a, 0x99, 0xe4, 0xe5, 0xe7, 0x15d.
 
 ## Instance connection (u16 id, `instance+0xc288`)
 
@@ -195,10 +195,10 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x010d | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef30` |  |
 | 0x010e | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef80` |  |
 | 0x010f | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403170a0`, `0x14216efd0` |  |
-| 0x0110 | `0x1435ca3a0` / `0x141fa06e0` | 12 |  | `0x14216f020` |  |
-| 0x0111 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f080` |  |
-| 0x0112 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f0d0` |  |
-| 0x0113 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14216f120` |  |
+| 0x0110 | `0x1435ca3a0` / `0x141fa06e0` | 12 |  | `0x14216f020` | Ctrl + click with the Inventories row 0x6c window open; an extra argument, not framed |
+| 0x0111 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f080` | as 0x0112, for the Inventories row 0x70 window (Chart Locker); framed (`InstanceItems.LockerMoveId`) |
+| 0x0112 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f0d0` | Ctrl + click with the Allflame capsule window open (`0x14030e970`, only while UI slot +0x8a0 is true): u32 BE item id, u8 the clicked grid is row 0x54, u8 1 = from the main inventory (row 0) into row 0x71, 0 = out of row 0x71; other grids send nothing. Framed (`InstanceItems.ExtractionMoveId`) |
+| 0x0113 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14216f120` | u32 BE item id taken out of the Inventories row 0x72 window; framed (`InstanceItems.CollectionTakeId`) |
 | 0x0114 | `0x1435ca220` / `0x141fa08c0` | 16 |  | `0x140312da0` |  |
 | 0x0115 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f170`, `0x14216f1c0` |  |
 | 0x0116 | `0x1435ca4e0` / `0x141fa09e0` | 26 |  | `0x1403f8670`, `0x14040ac30` |  |

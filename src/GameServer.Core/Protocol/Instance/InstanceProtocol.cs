@@ -126,6 +126,8 @@ public static class InstanceProtocol
         // Ctrl + click with the map device open: a map sends one of these, never 0xe8 (that is the Atlas Idol path).
         InstanceMapDevice.MoveIntoDeviceId => InstanceMapDevice.MoveItemLength,
         InstanceMapDevice.MoveOutOfDeviceId => InstanceMapDevice.MoveItemLength,
+        InstanceItems.LockerMoveId => InstanceItems.LeagueWindowMoveLength, InstanceItems.ExtractionMoveId => InstanceItems.LeagueWindowMoveLength,
+        InstanceItems.CollectionTakeId => InstanceItems.CollectionTakeLength,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnObjectId => InstanceItems.UseItemOnObjectLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
         InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
         InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,

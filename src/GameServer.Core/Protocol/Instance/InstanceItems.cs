@@ -117,6 +117,17 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public bool Vestigial { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
 
+    /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30, u8 +0x31, u8 a DeepwaterRooms row (+0x20).
+    /// Null writes 00 00 FF (no room).</summary>
+    public ChartData? Chart { get; init; }
+
+    /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
+    /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
+    /// bit 1 the tooltip's second marker icon (0x140c998a0); bit 3 → +0x2b, refused in every inventory; bit 4 the
+    /// constructor argument; bits 5-8 → +0x2d, +0x2c, +0x2e, +0x2f. Bit 9 (a u64 follows) is never sent. <b>Not saved</b>:
+    /// a feature that sets it keeps its own record of the items and clears or re-sets the bits itself after a reload.</summary>
+    public ushort HeaderFlags { get; init; }
+
     /// <summary>Hinekora's Lock: the item is in the foreseeing state. Sent as the Mods component's flag bit 8
     /// (0x0100); the client reads it at item +0x2c0 and shows the purple glow and the Lock tooltip text.</summary>
     public bool Foreseeing { get; init; }
@@ -147,7 +158,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -170,13 +181,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
 
     /// <summary>
     /// The item data the reader 0x1421f2d00 takes (all little-endian: it reads with memcpy): u32 type hash, u16 flags
-    /// (bits 0-8 → item +0x28..+0x2f, bit 4 also passed to the item ctor; bit 9 → a u64 follows), then each component's
+    /// (<see cref="HeaderFlags"/>), then each component's
     /// data in the type's order, then a u16 for four types.
     /// </summary>
     public byte[] Payload()
     {
         if (!CanSerialize(Components)) throw new ArgumentException($"unsupported item components: {string.Join(", ", Components.Where(c => !Supported.Contains(c)))}");
-        var w = new BlobWriter().U32(TypeHash).U16(0);
+        var w = new BlobWriter().U32(TypeHash).U16((ushort)(HeaderFlags & 0x01ff));
         foreach (string c in Components)
         {
             switch (c)
@@ -235,6 +246,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "MapKey": w.U8(0); break;
                 case "HeistBlueprint":
                     (HeistBlueprint ?? new HeistBlueprintState(0, 1, 1, false, [])).Write(w);
+                    break;
+                case "DeepwaterChart":
+                    var chart = Chart ?? new ChartData(0, 0, 0xff);
+                    w.U8(chart.A).U8(chart.B).U8(chart.Room);
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
@@ -352,6 +367,22 @@ public static class InstanceItems
     public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
         LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7;
+
+    /// <summary>C→S 0x0111 / 0x0112: Ctrl + click on an item with a league storage window open (one class, writer
+    /// 0x141f993f0; 0x0112 sender 0x14216f0d0 from 0x14030e970, sent only while UI slot +0x8a0 is true). 0x0112 is
+    /// Inventories row 0x71's window, 0x0111 row 0x70's. 8 bytes: u16 id, u32 BE item id, u8 the clicked grid is row 0x54
+    /// (ExpandedMainInventory1), u8 1 from the main inventory into the window's inventory, 0 out of it.
+    /// C→S 0x0113 (sender 0x14216f120, 6 bytes): u16 id, u32 BE item id, taken out of row 0x72's window. A sibling 0x0110
+    /// (row 0x6c) has an extra argument of unknown length and is not framed.</summary>
+    public const ushort LockerMoveId = 0x0111, ExtractionMoveId = 0x0112, CollectionTakeId = 0x0113;
+    public const int LeagueWindowMoveLength = 8, CollectionTakeLength = 6;
+
+    public readonly record struct LeagueWindowMove(uint ItemId, bool FromExpanded, bool Into);
+
+    public static LeagueWindowMove ReadLeagueWindowMove(byte[] m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m.AsSpan(2)), m[6] != 0, m[7] != 0);
+
+    public static uint ReadCollectionTake(byte[] m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m.AsSpan(2));
 
     /// <summary>
     /// C→S 0x31 (14 bytes, live 2026-10-23): the level-up arrow on a socketed gem with experience one below its next
@@ -645,3 +676,6 @@ public static class InstanceItems
         return new(r.U32(), r.U32(), r.U32(), r.U8());
     }
 }
+
+/// <summary>The DeepwaterChart component's three bytes: two unnamed (+0x30, +0x31) and the DeepwaterRooms row (0xff: none).</summary>
+public readonly record struct ChartData(byte A, byte B, byte Room);
