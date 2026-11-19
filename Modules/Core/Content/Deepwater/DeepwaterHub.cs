@@ -38,6 +38,12 @@ public sealed partial class DeepwaterModule
             if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.DeviceAfterReward || conn.NpcRewardOffer is not null) return;
             state.DeviceAfterReward = false;
             if (!ClientHasQuestFlag(conn, TutorialChartTaken)) return;
+            // LQF 1820 DeepwaterQuestChartTaken once the chart is taken (G: the trigger).
+            if (!HasLeagueFlag(conn, DeepwaterConstants.ChartTakenLeagueFlag))
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.ChartTakenLeagueFlag]);
+            }
             await PlayerOf(conn).Send(InstanceWaypoints.OpenUi(ChartUi), $"0x007b open DeepwaterChartWindow (kind 0x{ChartUi:x2}) after Valerie's chart");
         });
         GameEvents.InventoryRefusal.Add(id, DeepwaterLocker.Refusal);
@@ -154,8 +160,8 @@ public sealed partial class DeepwaterModule
 
     /// <summary>On The Sovereign the owner holds IsMapOwner (QuestFlags 2020): Valerie's "Chart Area" and "Plan Voyage" and
     /// the Bathysphere need it (H, the client's gates). DeepwaterBoatUnlocked (league quest flag 1834, the ChartLocker's gate)
-    /// is set for a character aboard before Valerie's rows applied it (G).</summary>
-    async Task SyncHub(ClientState conn, List<string> clearing)
+    /// is set for a character aboard before Valerie's rows applied it (G). The Maiden Voyage's 1822 catches up here too.</summary>
+    async Task SyncHub(IModuleContext module, ClientState conn, List<string> clearing)
     {
         var (remote, stream, ciphers) = conn.Wire;
         bool owner = HubOwner(conn);
@@ -165,6 +171,7 @@ public sealed partial class DeepwaterModule
         bool unlocked;
         lock (conn.Monsters) unlocked = conn.LeagueQuestFlags.Contains(DeepwaterConstants.BoatUnlockedLeagueFlag);
         if (!unlocked) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.BoatUnlockedLeagueFlag]);
+        await FourCharts(module, conn, live: true);
     }
 
     // ---- Valerie ----
@@ -195,9 +202,8 @@ public sealed partial class DeepwaterModule
             module.Log($"{player.Character}: Valerie NPCTalk {talk.Row} CallOnClient( ChartCallout ) skipped (no known message)");
         if (device && talk.RewardOffer is not null)
         {
-            // 3930 "Take Chart" (G: LQF 1820 DeepwaterQuestChartTaken with it).
+            // 3930 "Take Chart": the device (and LQF 1820) once the reward is taken.
             _states.GetOrCreateValue(player).DeviceAfterReward = true;
-            await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.ChartTakenLeagueFlag]);
             return true;
         }
         if (!device) return true;

@@ -77,8 +77,22 @@ internal static class DeepwaterConstants
     public const string FirstLanternPlaced = "FirstLanternPlaced";
     /// <summary>QuestFlags 3625: the player is on the encounter's own deck.</summary>
     public const string InPseudoHub = "InMyDeepwaterPseudoHub";
-    /// <summary>The run's flags, cleared at any entry outside the encounter areas (a crash or a relog left them on).</summary>
-    public static readonly string[] RunFlags = [LanternController, MapOwner, CanExtract, InPseudoHub, VoyageDefend];
+    // The Maiden Voyage's run steps (Quest 209's tracker, QuestStates 1975-1965; G: what sets each, R1 §6).
+    /// <summary>QuestFlags 3568 (tracker 1975 "enter the Bathysphere"): the chart device's Descend was accepted.</summary>
+    public const string EnterTheChart = "DeepwaterEnterTheChart";
+    /// <summary>QuestFlags 3569 (1974 "place lanterns"): the owner arrived in a Chart started from the deck.</summary>
+    public const string PlaceLanterns = "DeepwaterPlaceLanterns";
+    /// <summary>QuestFlags 3570 (1973 "return and extract"): the Chart's last lantern was placed.</summary>
+    public const string ReturnToSurface = "DeepwaterReturnToSurface";
+    /// <summary>QuestFlags 3571 (1967 "explore the Voyage"): the owner arrived in a Voyage started from the deck.</summary>
+    public const string VoyageExplore = "DeepwaterVoyageExploreAndExtractWhenReady";
+    /// <summary>QuestFlags 3573 (1965 "extract"): the Voyage's called Bathysphere landed.</summary>
+    public const string VoyageReturn = "DeepwaterVoyageReturnToSurface";
+    /// <summary>The tracker's run steps, cleared when the run ends.</summary>
+    public static readonly string[] TutorialRunFlags = [EnterTheChart, PlaceLanterns, ReturnToSurface, VoyageExplore, VoyageReturn];
+    /// <summary>The run's flags, cleared at any entry outside the encounter areas (a crash or a relog left them on; an
+    /// armed run does not outlive a new entry of the deck, so 3568 goes too).</summary>
+    public static readonly string[] RunFlags = [LanternController, MapOwner, CanExtract, InPseudoHub, VoyageDefend, .. TutorialRunFlags];
 
     /// <summary>League quest flag 1893 <c>Deepwater3x3VoyagesEnabled</c>: a Voyage then has 40 more lanterns (the wiki's
     /// 65 after the first Voyage; DeepwaterUpgrades 5, stat 23281).</summary>
@@ -89,4 +103,18 @@ internal static class DeepwaterConstants
     public const int BoatUnlockedLeagueFlag = 1834;
     /// <summary>League quest flag 1820 <c>DeepwaterQuestChartTaken</c>.</summary>
     public const int ChartTakenLeagueFlag = 1820;
+    // The Maiden Voyage's league quest flags (QuestStates 209 __col13/__col14; G: when the server set them, R1 §6).
+    /// <summary>League quest flag 1821 <c>DeepwaterFirstChartCharted</c>: the first Chart succeeded (tracker 1970). Valerie's 3927 sets it too, with the pity Sulphur.</summary>
+    public const int FirstChartLeagueFlag = 1821;
+    /// <summary>League quest flag 1822 <c>DeepwaterFirst4ChartsCharted</c> (tracker 1968; Valerie's "Plan Voyage" needs it).</summary>
+    public const int FourChartsLeagueFlag = 1822;
+    /// <summary>League quest flag 1823 <c>DeepwaterFirstVoyageCompleted</c> (tracker 1964).</summary>
+    public const int FirstVoyageLeagueFlag = 1823;
+    /// <summary>League quest flag 1881 <c>DeepwaterTutorialFailedFirstChart</c> (tracker 1972; Valerie's 3928 needs it).</summary>
+    public const int FailedFirstChartLeagueFlag = 1881;
+    /// <summary>League quest flag 1892 <c>DeepwaterFirstChartEntered</c>: the first arrival in a Chart started from the deck. Live check: the Voyage window tests league flag 0x764 (1892) for its 3 × 3 board, which may be 1893 0-based.</summary>
+    public const int FirstChartEnteredLeagueFlag = 1892;
+    /// <summary>The charted charts (in 104) that set <see cref="FourChartsLeagueFlag"/> (the wiki's 4 Charts for the
+    /// tutorial Voyage; the 2 × 2 board's size).</summary>
+    public const int ChartsForFirstVoyage = 4;
 }

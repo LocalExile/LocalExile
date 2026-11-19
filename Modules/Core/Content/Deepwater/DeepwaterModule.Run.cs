@@ -23,7 +23,7 @@ public sealed partial class DeepwaterModule
             // A crash or a relog in a run left its flags on.
             var on = DeepwaterConstants.RunFlags.Where(conn.HasQuestFlag).ToList();
             // The Sovereign's owner keeps IsMapOwner (DeepwaterHub).
-            if (player.AreaId == HubId) await SyncHub(conn, on);
+            if (player.AreaId == HubId) await SyncHub(module, conn, on);
             if (on.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, on, on: false);
             // A chart left active by a crash or a relog (no run waits for it on this connection) goes back (G).
             if (ItemsOf(conn).Items(DeepwaterLocker.ActiveRow).Count > 0 && (!_states.TryGetValue(player, out var deck) || deck.Armed is null))
@@ -89,7 +89,21 @@ public sealed partial class DeepwaterModule
         // the capsule window's gate; G that the owner is the one). Other players get neither (G: the
         // TransferLanternControlObject that hands the lanterns over is not built).
         if (player.Character.Equals(run.Controller, StringComparison.OrdinalIgnoreCase) && run.Phase != DeepwaterRun.RunPhase.Ended)
+        {
             await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner]);
+            // The Maiden Voyage's tracker: a Chart or a Voyage from the deck, at its first entry (G: the triggers, R1 §6).
+            if (made && run.Plan is { } planned)
+            {
+                if (planned.Voyage) await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.VoyageExplore]);
+                else
+                {
+                    await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.PlaceLanterns]);
+                    await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart], on: false);
+                    if (!HasLeagueFlag(conn, DeepwaterConstants.FirstChartEnteredLeagueFlag))
+                        await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.FirstChartEnteredLeagueFlag]);
+                }
+            }
+        }
         await DeepwaterExtraction.SyncFlags(conn, run);
     }
 
@@ -176,7 +190,9 @@ public sealed partial class DeepwaterModule
         foreach (var member in DeepwaterLoot.Members(conn))
         {
             var (remote, stream, ciphers) = member.Wire;
-            await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract]);
+            // The tracker's "return and extract" (QuestFlags 3570) for whoever had its "place lanterns".
+            await SetQuestFlags(remote, stream, ciphers, member, member.HasQuestFlag(DeepwaterConstants.PlaceLanterns)
+                ? [DeepwaterConstants.CanExtract, DeepwaterConstants.ReturnToSurface] : [DeepwaterConstants.CanExtract]);
         }
     }
 

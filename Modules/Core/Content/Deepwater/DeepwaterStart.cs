@@ -135,6 +135,9 @@ public sealed partial class DeepwaterModule
             ChartItem = active.Id,
         };
         module.Log($"{what}: item {active.Id} ({catalog.ByHash(active.Item.TypeHash)?.Name}, room {cell.Chart.Room}, rotation {cell.Chart.Rotation}) at level {plan.Level}");
+        // The tracker's "enter the Bathysphere" (QuestFlags 3568, G: set by the accepted Descend).
+        var (remote, stream, ciphers) = conn.Wire;
+        await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart]);
         await Arm(module, conn, state, plan, active.Item.Rarity);
     }
 
@@ -268,6 +271,11 @@ public sealed partial class DeepwaterModule
         var items = ItemsOf(conn);
         if (!plan.Voyage)
         {
+            if (!conn.Closed && conn.HasQuestFlag(DeepwaterConstants.EnterTheChart))
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart], on: false);
+            }
             await ReturnActive(module, conn, $"the run did not start: {reason}");
             return;
         }
@@ -314,15 +322,25 @@ public sealed partial class DeepwaterModule
     /// the chart waits in 109 and goes back to 103 at the next entry.</summary>
     async Task Finish(IModuleContext module, DeepwaterPlan plan, IReadOnlyList<ClientState> members, bool success)
     {
-        if (plan.Voyage) return;
         var owner = members.FirstOrDefault(m => CharacterName(m).Equals(plan.Owner, StringComparison.OrdinalIgnoreCase));
         if (owner is null)
         {
-            module.Log($"{plan.Owner}: the Chart ended {(success ? "well" : "badly")} without its owner; the chart stays in 109");
+            module.Log($"{plan.Owner}: the {(plan.Voyage ? "Voyage" : "Chart")} ended {(success ? "well" : "badly")} without its owner"
+                + (plan.Voyage ? "" : "; the chart stays in 109"));
             return;
         }
         var items = ItemsOf(owner);
         bool live = !owner.Closed && !owner.LeavingArea;
+        if (plan.Voyage)
+        {
+            // The Maiden Voyage's end: the first Voyage that succeeded completes it and opens the 3 × 3 board (G: the trigger).
+            if (success) await SetTutorialFlags(module, owner, live, DeepwaterConstants.FirstVoyageLeagueFlag, DeepwaterConstants.VoyagesEnabledLeagueFlag);
+            return;
+        }
+        // The tutorial's first Chart: a failure before any success is the pity path ("saved from drowning", Valerie's 3928),
+        // a success its "completed your first Chart" (G: the triggers, R1 §6).
+        if (!HasLeagueFlag(owner, DeepwaterConstants.FirstChartLeagueFlag))
+            await SetTutorialFlags(module, owner, live, success ? DeepwaterConstants.FirstChartLeagueFlag : DeepwaterConstants.FailedFirstChartLeagueFlag);
         if (items.Items(DeepwaterLocker.ActiveRow).FirstOrDefault(i => i.Id == plan.ChartItem) is not { } active) return;
         if (!success)
         {
@@ -345,10 +363,42 @@ public sealed partial class DeepwaterModule
             return;
         }
         module.Log($"{plan.Owner}: the Chart succeeded; chart {placed.Id} is charted ({string.Join(", ", charted.Mods.Where(m => m.Section == ModSection.Implicit).Select(m => catalog.Mods.ByHash(m.Hash)?.Id))}) at {placed.X} in 104");
-        if (!live) return;
-        await SendRow(owner, DeepwaterLocker.ActiveRow, [active.Id], [], $"remove item {active.Id} (charted)");
-        await SendRow(owner, DeepwaterLocker.ChartedRow, [], [placed], $"add item {placed.Id} (charted)");
+        if (live)
+        {
+            await SendRow(owner, DeepwaterLocker.ActiveRow, [active.Id], [], $"remove item {active.Id} (charted)");
+            await SendRow(owner, DeepwaterLocker.ChartedRow, [], [placed], $"add item {placed.Id} (charted)");
+        }
+        await FourCharts(module, owner, live);
     }
+
+    static bool HasLeagueFlag(ClientState conn, int flag)
+    {
+        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(flag);
+    }
+
+    /// <summary>Sets the Maiden Voyage's league quest flags the character lacks; for a closed connection only in its save.</summary>
+    static async Task SetTutorialFlags(IModuleContext module, ClientState conn, bool live, params int[] flags)
+    {
+        var missing = flags.Where(f => !HasLeagueFlag(conn, f)).ToList();
+        if (missing.Count == 0) return;
+        module.Log($"{CharacterName(conn)}: the Maiden Voyage's league quest flag(s) {string.Join(", ", missing)}");
+        if (live)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await SetLeagueQuestFlags(remote, stream, ciphers, conn, missing);
+            return;
+        }
+        PersonalStashOf(conn).ChangeLeagueQuestFlags(missing, true);
+        lock (conn.Monsters) conn.LeagueQuestFlags.UnionWith(missing);
+    }
+
+    /// <summary>League quest flag 1822 (the tracker's "plot a Voyage", Valerie's "Plan Voyage"): the charted inventory holds
+    /// the tutorial Voyage's 4 charts (G: the count, R1 §6). Checked after each charting and at each entry of the deck, which
+    /// covers the pity path and charts charted before this check existed.</summary>
+    static Task FourCharts(IModuleContext module, ClientState conn, bool live) =>
+        !HasLeagueFlag(conn, DeepwaterConstants.FourChartsLeagueFlag)
+        && ItemsOf(conn).Items(DeepwaterLocker.ChartedRow).Count >= DeepwaterConstants.ChartsForFirstVoyage
+            ? SetTutorialFlags(module, conn, live, DeepwaterConstants.FourChartsLeagueFlag) : Task.CompletedTask;
 
     /// <summary>A click on the deck's Bathysphere: the armed run's one entry, for the owner, once it is open.</summary>
     async Task<bool> UsePortal(IModuleContext module, ClientState conn, State state, double at)

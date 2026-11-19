@@ -593,7 +593,9 @@ internal static class DeepwaterExtraction
         foreach (var member in DeepwaterLoot.Members(conn))
         {
             var (remote, stream, ciphers) = member.Wire;
-            await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract]);
+            // With the tracker's "extract" (QuestFlags 3573) in a Voyage from the deck (G: the trigger).
+            await SetQuestFlags(remote, stream, ciphers, member, run is { Voyage: true, Plan: not null }
+                ? [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageReturn] : [DeepwaterConstants.CanExtract]);
             await SendDropStage(member, landed, DropStages);
             await SendLanded(member, landed);
         }
@@ -633,7 +635,8 @@ internal static class DeepwaterExtraction
             await Leftovers(module, member);
             await DeepwaterDredge.Clear(module, member);
             await SetQuestFlags(remote, stream, ciphers, member,
-                [DeepwaterConstants.CanExtract, DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner, DeepwaterConstants.VoyageDefend], on: false);
+                [DeepwaterConstants.CanExtract, DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner, DeepwaterConstants.VoyageDefend,
+                    .. DeepwaterConstants.TutorialRunFlags.Where(member.HasQuestFlag)], on: false);
             if (deck is not { } at)
             {
                 module.Log($"{CharacterName(member)}: the deck has no default point; travelling to The Sovereign");
@@ -739,7 +742,8 @@ internal static class DeepwaterExtraction
                     $"0x00bf inventory 113: {removed.Count} items lost");
             if (member.ModuleWindow == CapsuleWindow) member.ModuleWindow = null;
             var (remote, stream, ciphers) = member.Wire;
-            await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageDefend], on: false);
+            await SetQuestFlags(remote, stream, ciphers, member,
+                [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageDefend, .. DeepwaterConstants.TutorialRunFlags.Where(member.HasQuestFlag)], on: false);
             await SendEnd(member, success: false);
         }
         if (run.OnEnd is { } ended) await ended(members, false);
