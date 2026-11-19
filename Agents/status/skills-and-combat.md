@@ -64,7 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Righteous Fire settles enemy and self-burn when its gem is removed or its host leaves active equipment, including weapon swaps. [Skills §12](../docs/protocol/11-skills.md)
+- Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
   on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".

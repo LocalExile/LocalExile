@@ -22,8 +22,7 @@ public static partial class Game
 
         public void CommitLocked()
         {
-            if (fire is not null && (ItemsOf(conn).RowOf(fire.Source.SourceLifetime!.Key.Host) is not byte row
-                || !ItemModStats.EquipmentRows.Contains(row)))
+            if (fire is not null && !EquippedRighteousFireQualifiesLocked(conn, fire))
                 finalBurn = SettleRighteousFireRemovalLocked(remote, stream, ciphers, conn, fire);
             using var scope = new PlayerStatScope(conn, fresh: true);
             RecomputePoolsAndSpeed(conn);

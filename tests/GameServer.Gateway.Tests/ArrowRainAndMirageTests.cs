@@ -869,13 +869,14 @@ public class ArrowRainAndMirageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Righteous_fire_burns_only_between_activation_and_physical_source_removal(bool recovery)
+    public async Task Righteous_fire_burns_only_between_activation_and_source_retirement(bool recovery)
     {
         await RighteousFireSocketIntervals(recovery);
-        foreach (string move in new[] { "pickup", "place", "onto", "weapon swap", "promotion", "stash", "vendor" })
+        foreach (string move in new[] { "pickup", "place", "onto", "weapon swap", "promotion", "stash", "vendor",
+            "loses qualification", "cascading qualification", "keeps qualification", "gem qualification" })
         {
             var (atWrite, atTick, running, lease, rate) = await RighteousFireHostInterval(recovery, move);
-            bool retained = move == "promotion";
+            bool retained = move is "promotion" or "keeps qualification";
             Assert.Equal((move, (int)(rate * (retained ? .5 : .75)), (int)(rate * (retained ? 1 : .75)), retained, retained),
                 (move, atWrite, atTick, running, lease));
         }
@@ -1076,6 +1077,37 @@ public class ArrowRainAndMirageTests
         }
     }
 
+    static uint EquipRighteousFireAttributeItems(ClientState c, PlayerInventories items, ItemCatalog.BaseType wand, string move)
+    {
+        c.PlayerStats.Remove(Program.Stats.Key("virtual_intelligence_for_requirements")!.Value);
+        var intelligence = Program.Items.Mods.ById("Intelligence8")!;
+        int bare = Game.CurrentGemRequirements(c).Intelligence;
+        Assert.InRange(Program.Items.Requirements(wand).Int, bare + 1, bare + intelligence.RangeAt(0).Max);
+
+        InventoryItem Equip(byte row, string type, params string[] modifiers)
+        {
+            var affixes = modifiers.Select(id => Program.Items.Mods.ById(id)!)
+                .Select(mod => new ItemMod(ModSection.Explicit, mod.Hash, [mod.RangeAt(0).Max])).ToArray();
+            return items.Add(row, 0, 0, ItemCatalog.Create(Program.Items.Find(type)!) with
+                { Rarity = affixes.Length == 1 ? ItemRarity.Magic : ItemRarity.Rare, Mods = affixes });
+        }
+        if (move == "cascading qualification")
+        {
+            c.PlayerStats.Remove(Program.Stats.Key("virtual_dexterity_for_requirements")!.Value);
+            var boots = Program.Items.Find("Goathide Boots")!;
+            int dex = Game.CurrentGemRequirements(c).Dexterity;
+            Assert.InRange(Program.Items.Requirements(boots).Dex, dex + 1, dex + Program.Items.Mods.ById("Dexterity8")!.RangeAt(0).Max);
+            Equip(PlayerInventories.Boots, boots.Name, "Intelligence8");
+            return Equip(PlayerInventories.Gloves, "Iron Gauntlets", "Dexterity8").Id;
+        }
+        if (move == "keeps qualification")
+        {
+            Equip(PlayerInventories.Helmet, "Iron Hat", "Intelligence8");
+            return Equip(PlayerInventories.Gloves, "Iron Gauntlets", "Intelligence8").Id;
+        }
+        return Equip(PlayerInventories.Gloves, "Iron Gauntlets", "Intelligence8", "FireResist3").Id;
+    }
+
     static async Task<(int AtWrite, int AtTick, bool Running, bool Lease, double Rate)> RighteousFireHostInterval(
         bool recovery, string move)
     {
@@ -1083,11 +1115,23 @@ public class ArrowRainAndMirageTests
         var c = b.Conn;
         var items = Game.ItemsOf(c);
         var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
-        var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
+        bool attributeMove = move is "loses qualification" or "cascading qualification" or "keeps qualification" or "gem qualification";
+        using var exemption = move == "gem qualification"
+            ? GameEvents.RequirementExemptions.Add("Game", actor => ReferenceEquals(actor, c) ? [host.Id] : []) : null;
+        var wandType = Program.Items.Find(attributeMove ? "Carved Wand" : "Driftwood Wand")!;
+        var wand = ItemCatalog.Create(wandType);
         var burningWand = wand with { Sockets = host.Item.Sockets, Links = [2], ItemLevel = 80 };
+        if (move == "gem qualification")
+        {
+            var socket = burningWand.Sockets[0];
+            var fire = socket.Gem!;
+            var type = Program.Items.Gem(Program.Items.ByHash(fire.TypeHash)!)!;
+            burningWand = burningWand with { Sockets = [socket with { Gem = fire with { GemExperience = type.ExperienceFor(8) } },
+                burningWand.Sockets[1]] };
+        }
         items.Change(PlayerInventories.Weapon1, host.Id, _ => burningWand);
         var replacement = wand with { Sockets = [burningWand.Sockets[0]], Links = [1] };
-        uint picked = host.Id;
+        uint picked = attributeMove ? EquipRighteousFireAttributeItems(c, items, wandType, move) : host.Id;
         if (move == "promotion")
         {
             items.Remove(PlayerInventories.Weapon1, host.Id);
@@ -1115,7 +1159,7 @@ public class ArrowRainAndMirageTests
         try
         {
             const string name = "rf-host";
-            uint inv = PlayerInventories.InventoryId(PlayerInventories.Weapon1);
+            uint inv = PlayerInventories.InventoryId(attributeMove ? PlayerInventories.Gloves : PlayerInventories.Weapon1);
             double start = Math.Ceiling(Math.Max(c.Clock.Elapsed.TotalSeconds, clock.Now(c))) + 1;
             void At(double time) => b.Session.AdvanceTo(ProjectileRuntime.Time(start + time));
             Task Pick() => Game.PickUpItem(name, b.Stream, b.Ciphers, c, new(inv, picked, 0, 0, 0));
@@ -1139,7 +1183,7 @@ public class ArrowRainAndMirageTests
             {
                 Assert.Equal((int)(rate * .5), Loss());
                 At(.625);
-                if (move == "pickup")
+                if (move == "pickup" || attributeMove)
                 {
                     var held = items.Add(PlayerInventories.Cursor, 0, 0, wand);
                     await Pick();
@@ -1173,6 +1217,7 @@ public class ArrowRainAndMirageTests
                 {
                     operation = move switch
                     {
+                        _ when attributeMove => Pick(),
                         "pickup" or "promotion" => Pick(),
                         "place" => Game.PlaceItem(name, b.Stream, b.Ciphers, c, new(inv, 0, 0, 0, 0, 0, 0)),
                         "onto" => Game.HeldOntoItem(name, b.Stream, b.Ciphers, c, new(inv, host.Id, 0, 0, 0), ""),
@@ -1188,7 +1233,24 @@ public class ArrowRainAndMirageTests
                 }
                 finally { gate.Release(); }
                 await operation;
-                if (move == "promotion") Assert.Equal(host.Id, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+                if (attributeMove)
+                {
+                    Assert.Equal(host.Id, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+                    bool eligible = move == "keeps qualification";
+                    Assert.Equal(!eligible && move != "gem qualification", Game.IsInactive(c, host.Id));
+                    Assert.Equal(eligible, Game.SupportedSkill(c, gem.Id).RequirementsMet);
+                    if (move == "cascading qualification")
+                        Assert.True(Game.IsInactive(c, Assert.Single(items.Items(PlayerInventories.Boots)).Id));
+                    if (!eligible)
+                    {
+                        At(.875);
+                        await Game.PlaceItem(name, b.Stream, b.Ciphers, c, new(inv, 0, 0, 0, 0, 0, 0));
+                        Assert.True(Game.SupportedSkill(c, gem.Id).RequirementsMet);
+                        Assert.Null(c.RighteousFire);
+                        Assert.False(c.GemSourceLifetimes.IsCurrent(rf.SourceLifetime));
+                    }
+                }
+                else if (move == "promotion") Assert.Equal(host.Id, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
                 else Assert.DoesNotContain(items.EquipmentSnapshot(), entry => entry.Item.Id == host.Id);
                 if (move is "place" or "onto" or "weapon swap" or "vendor")
                     Assert.Equal(gem.Id, Assert.Single(Game.GemSkillEffects(c)).Id);

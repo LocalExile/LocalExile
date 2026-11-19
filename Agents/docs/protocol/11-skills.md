@@ -3143,8 +3143,10 @@ failed I/O, allocation limits, actual official values and every skill's successf
   Inspiration count only for the part of a tick while their buff or charges are active. Nothing outgoing scales the self-burn.
   The server settles enemy and self-burn through the instant the gem is removed or replaced, or its host leaves active
   equipment. This includes taking off or stashing the item, equipping a replacement and switching weapon sets.
-  The final interval uses the old links, nearby monsters and player defences. Promoting the same weapon from off hand to
-  main hand or changing the gem's art preserves the running burn. Native timing and rounding await a client check.
+  Removing gear that supplies required attributes can disable a still-equipped host or its gem. The final interval uses
+  the old links, nearby monsters and player defences. Restoring those attributes makes the skill available to cast again.
+  Promoting the same weapon from off hand to main hand or changing the gem's art preserves the running burn.
+  Native timing and rounding await a client check.
   **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +

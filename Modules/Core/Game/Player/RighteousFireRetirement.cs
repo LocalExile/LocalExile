@@ -1,10 +1,11 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 public static partial class Game
 {
-    sealed record RighteousFireRemoval(PlayerUpdatesState Updates, RighteousFireState Source,
+    sealed record RighteousFireRemoval(PlayerUpdatesState Updates, RighteousFireState Source, Item? SocketedGem,
         Dictionary<uint, int> Stats, double EnemyDps, double SelfDps, int Bypass);
 
     // Resolve the physical source while its original links and equipment are readable. Preparing a refused
@@ -15,11 +16,19 @@ public static partial class Game
             && sources.Any(source => source.Identity == lifetime.Key) ? CaptureRighteousFireRemovalLocked(conn, rf) : null;
     }
 
-    static RighteousFireRemoval? CaptureEquippedRighteousFireLocked(ClientState conn, ReadOnlySpan<byte> affectedRows)
+    static RighteousFireRemoval? CaptureEquippedRighteousFireLocked(ClientState conn, ReadOnlySpan<byte> affectedRows) =>
+        conn.RighteousFire is { SourceLifetime.Key.Source: GemSkillIds.SourceKind.SocketedGem or GemSkillIds.SourceKind.WornGrant } rf
+            && affectedRows.ContainsAny(ItemModStats.EquipmentRows) ? CaptureRighteousFireRemovalLocked(conn, rf) : null;
+
+    // Any active equipment row can supply attributes to the host or its gem. The new qualification
+    // uses one equipment snapshot before the old life, shield and timed support profile are recomputed.
+    static bool EquippedRighteousFireQualifiesLocked(ClientState conn, RighteousFireRemoval fire)
     {
-        return conn.RighteousFire is { SourceLifetime.Key: var key } rf && key.Source != GemSkillIds.SourceKind.PassiveGrant
-            && ItemsOf(conn).RowOf(key.Host) is byte row && affectedRows.Contains(row)
-            ? CaptureRighteousFireRemovalLocked(conn, rf) : null;
+        uint host = fire.Source.SourceLifetime!.Key.Host;
+        var equipment = ItemsOf(conn).EquipmentSnapshot();
+        if (!equipment.Any(entry => entry.Item.Id == host)) return false;
+        var requirements = CurrentGemRequirements(conn, equipment);
+        return !requirements.Inactive.Contains(host) && GemRequirementsUnmetAt(conn, fire.SocketedGem, requirements) is null;
     }
 
     static RighteousFireRemoval? CaptureRighteousFireRemovalLocked(ClientState conn, RighteousFireState rf)
@@ -32,7 +41,7 @@ public static partial class Game
         using var scope = new PlayerStatScope(conn, fresh: true);
         var stats = CharacterPlayerStats(conn);
         int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        return new(updates, rf, stats, RighteousFireEnemyDps(conn, rf, stats, supported.Stats),
+        return new(updates, rf, supported.SourceGem, stats, RighteousFireEnemyDps(conn, rf, stats, supported.Stats),
             RighteousFireSelfDps(conn, rf) * ResourceDamageTakenFactor(conn, Stat),
             Stat(IncomingResourceDefences.BypassStat));
     }
