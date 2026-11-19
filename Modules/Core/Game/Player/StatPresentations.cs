@@ -13,15 +13,40 @@ public static partial class Game
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
         SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
-        SendAttackerSlows, SendExpandedInventory,
+        SendAttackerSlows, SendExpandedInventory, SendQuestItems,
     ];
+
+    // After the others, outside their batch: Spirit Chieftain's minion follows its published state.
+    static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] StatPresentationsAfter =
+    [
+        SendSpiritChieftain,
+    ];
+
+    // The quest items' grant flags follow the items carried (dropped, sold, stashed ones too): on an inventory change
+    // (PlayerInventories.Changed); no inventory change here (the message path removes items).
+    static Task SendQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (conn.PlayerLife == 0) return Task.CompletedTask;
+        lock (conn.Monsters)
+            if (HardcoreProgressBlocked(conn)) return Task.CompletedTask;
+        return SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
+    }
 
     // What depends on where the player and the monsters stand: run when a walker moved to another cell (the area's
     // movement), a blocker was added, and with the stat presentations (a stat change moves radii and grants).
     static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] NearbyPresentations =
     [
-        SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld,
+        SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld, SendQuestThresholds,
     ];
+
+    // A monster that never dies reached its quest threshold (its PresentationChanged).
+    static Task SendQuestThresholds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (conn.PlayerLife == 0) return Task.CompletedTask;
+        lock (conn.Monsters)
+            if (HardcoreProgressBlocked(conn)) return Task.CompletedTask;
+        return CheckQuestThresholds(remote, stream, ciphers, conn);
+    }
 
     static Task SendExpandedInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         SyncExpandedInventory(conn);
@@ -178,31 +203,44 @@ public static partial class Game
         presenting.Pending = presenting.NearbyPending = false;
         presenting.Ran = true;
         var (remote, stream, ciphers) = conn.Wire;
-        presenting.Running = AsPlayer(conn, updates, () => SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
+        presenting.Running = AsPlayer(conn, updates, async () =>
         {
-            if (all)
-                foreach (var send in StatPresentations)
+            if (!await SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
+            {
+                if (all)
+                    foreach (var send in StatPresentations)
+                    {
+                        await send(remote, stream, ciphers, conn);
+                        if (!PlayerUpdatesCurrent(conn, updates)) return false;
+                    }
+                foreach (var send in NearbyPresentations)
                 {
                     await send(remote, stream, ciphers, conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 }
-            foreach (var send in NearbyPresentations)
-            {
-                await send(remote, stream, ciphers, conn);
-                if (!PlayerUpdatesCurrent(conn, updates)) return false;
-            }
-            return true;
-        }));
+                return true;
+            })) return;
+            if (all)
+                foreach (var send in StatPresentationsAfter)
+                {
+                    await send(remote, stream, ciphers, conn);
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
+                }
+        });
     }
 
-    // Game_PRESENT_VERIFY=1: the player tick runs them too, tagged; whatever it still sends is a change no event reached.
+    // Game_PRESENT_VERIFY=1: the content tick runs them too, tagged; whatever it still sends is a change no event reached.
     static readonly bool VerifyPresentations = Environment.GetEnvironmentVariable("Game_PRESENT_VERIFY") == "1";
     static readonly AsyncLocal<string?> PresentVerifyTag = new();
 
     static async Task VerifyStatPresentations(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (!VerifyPresentations || !PresentingOf.GetOrCreateValue(conn).Ran) return;
-        foreach (var send in StatPresentations.Concat(NearbyPresentations))
+        var presenting = PresentingOf.GetOrCreateValue(conn);
+        if (!VerifyPresentations || !presenting.Ran) return;
+        // What is still to run (a mark, a due end, a pending or running presentation) is not missed yet.
+        if (StatsUnsettled(conn) || presenting.Pending || presenting.NearbyPending || !presenting.Running.IsCompleted
+            || conn.Clock.Elapsed.TotalSeconds >= presenting.NextAt) return;
+        foreach (var send in StatPresentations.Concat(NearbyPresentations).Concat(StatPresentationsAfter))
         {
             PresentVerifyTag.Value = send.Method.Name;
             try { await send(remote, stream, ciphers, conn); }

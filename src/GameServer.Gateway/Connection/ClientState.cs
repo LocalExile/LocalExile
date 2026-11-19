@@ -280,8 +280,9 @@ public sealed record MonsterMovement
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public uint ObjectId { get; set; }
-    /// <summary>A timed debuff on it changed (the players' presentations of it follow). Set by whoever spawns it.</summary>
-    public Action? DebuffsChanged;
+    /// <summary>What the players are shown of it changed: a timed debuff, a quest threshold reached. Set by whoever spawns
+    /// it.</summary>
+    public Action? PresentationChanged;
     public MadnessExplosion? MadnessExplosion;
     public readonly SpiderWebState SpiderWebs = new();
 

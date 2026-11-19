@@ -339,6 +339,7 @@ public static partial class Game
         conn.PhysicalAegis.Changed = () => PresentStats(conn);
         conn.BlockersChanged = () => PresentNearby(conn);
         conn.AuraStatsDirtied = () => PresentNearby(conn);
+        ItemsOf(conn).Changed = () => PresentStats(conn);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.IncomingAilments],
             a => conn.IncomingAilments.Changed = () => { a(); PresentStats(conn); });
         On(PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments],
@@ -369,6 +370,16 @@ public static partial class Game
     public static void MarkPlayerStats(ClientState conn, PlayerStatStep step)
     {
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);
+    }
+
+    // A mark or a timed end waits for the next Stats phase (the verifiers compare only once it ran).
+    static bool StatsUnsettled(ClientState conn)
+    {
+        if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return false;
+        if (graph.MarksPending) return true;
+        double clock = conn.Clock.Elapsed.TotalSeconds;
+        lock (frame.Timed)
+            return frame.Timed.Values.Any(times => times.Any(t => (t.Now?.Invoke() ?? clock) >= t.At));
     }
 
     // Game_STATS_FRAME_VERIFY=1: the graph's values against every step run in order now; what differs is a change no

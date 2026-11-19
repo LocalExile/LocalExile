@@ -917,59 +917,19 @@ public static partial class Game
         }
     }
 
-    // The slower player tick: RF on nearby enemies, suppression conditions, waypoints, auto-loot and quests.
-    // Continuous player pool changes are handled by RunResourceRecovery instead.
-    public static async Task RunPlayerTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
-    {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
-        double last = updates.Schedule.Now(conn);
-        while (PlayerUpdatesCurrent(conn, updates))
+    // The content's own periodic work (GameEvents.Tick: boss fights, Delve, Delirium), every PlayerTickMs on the area's
+    // timers while the player's updates run; with Game_PRESENT_VERIFY=1 also the presentations' check.
+    static void StartContentTick(ClientState conn, PlayerUpdatesState state) =>
+        EveryAsPlayer(conn, PlayerTickMs, () => PlayerUpdatesCurrent(conn, state), async (remote, stream, ciphers, conn) =>
         {
-            await updates.Schedule.Wait(PlayerUpdateRole.Player, PlayerTickMs, updates.Stop.Token);
-            if (!PlayerUpdatesCurrent(conn, updates)) break;
-            double tickNow = updates.Schedule.Now(conn);
-            double seconds = tickNow - last;
-            last = tickNow;
-            if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
-            await GameEvents.RunTick(conn, seconds);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
-            // eleven holds a tick, each with the Monsters lock, were what the input handlers queued behind. Spirit
-            // Chieftain stays outside: its minion follows its published state.
-            bool current = await SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
-            {
-                await VerifyStatPresentations(remote, stream, ciphers, conn);
-                return PlayerUpdatesCurrent(conn, updates);
-            });
-            if (!current) return;
-            await SendSpiritChieftain(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // The instance's monsters' ailments tick once: on the runner's tick (each player's tick did it again, which
-            // multiplied their damage by the players in the instance).
-            // In an instance the area ticks them (AreaSetup's "monster damage over time").
-            if (IsMonsterRunner(conn) && !AreaRunsGame(conn))
-            {
-                await BurnIgnited(remote, stream, ciphers, conn);
-                await BleedMonsters(remote, stream, ciphers, conn);
-                await TickPoisons(remote, stream, ciphers, conn);
-                await TickContagions(remote, stream, ciphers, conn);
-                await TickEssenceDrains(remote, stream, ciphers, conn);
-            }
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // What death and an empty mana pool end follows their conditions (SendLifeAndManaEndings).
-            if (conn.PlayerLife == 0) continue;
-            lock (conn.Monsters)
-                if (HardcoreProgressBlocked(conn)) continue;
-            await CheckQuestThresholds(remote, stream, ciphers, conn);
-            // The quest items' grant flags follow the items carried (dropped, sold, stashed ones too), about once a second;
-            // no inventory change here (the message path removes items).
-            if (conn.Clock.Elapsed.TotalSeconds >= conn.QuestItemSyncAt)
-            {
-                conn.QuestItemSyncAt = conn.Clock.Elapsed.TotalSeconds + 1;
-                await SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
-            }
-        }
-    }
+            await GameEvents.RunTick(conn, EverySeconds(PlayerTickMs));
+            if (VerifyPresentations && PlayerUpdatesCurrent(conn, state))
+                await SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
+                {
+                    await VerifyStatPresentations(remote, stream, ciphers, conn);
+                    return PlayerUpdatesCurrent(conn, state);
+                });
+        });
 
     // Time inside [4,5), [8,9), ... since the regeneration modifier became active.
     internal static double PeriodicRegenSeconds(double elapsed)

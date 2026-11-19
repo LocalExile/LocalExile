@@ -120,7 +120,7 @@ public static partial class Game
         var state = ResourceEffectsOf(conn);
         if (!(ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
             .Inflict(at, seconds, effect, target.Mods.Effects["cannot_be_blinded"] != 0))) return false;
-        target.DebuffsChanged?.Invoke();
+        target.PresentationChanged?.Invoke();
         return true;
     }
     public static byte[]? BlindPresentation(ClientState conn, IReadOnlyDictionary<uint, int>? snapshot = null)

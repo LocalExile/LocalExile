@@ -11,10 +11,9 @@ public static partial class Game
     static void EveryAsPlayer(ClientState conn, int ms, Func<bool> keep,
         Func<string, NetworkStream, ConnectionCiphers, ClientState, Task> work)
     {
-        if (conn.Frames.Area is not { } area) return;
         int interval = Math.Max(1, (int)Math.Round(ms / (double)Program.FrameMs));
         Task pass = Task.CompletedTask;
-        area.Defer(a => a.Timers.Every(a.Frame, interval, timer =>
+        InArea(conn, a => a.Timers.Every(a.Frame, interval, timer =>
         {
             if (conn.Closed || !keep()) { timer.Cancel(); return; }
             if (!pass.IsCompleted || !CurrentGameWork || conn.LeavingArea || conn.Paused
@@ -27,9 +26,16 @@ public static partial class Game
     /// <summary>Runs <paramref name="work"/> once on the area's timers in <paramref name="seconds"/> (an effect's end).</summary>
     static void AfterSeconds(ClientState conn, double seconds, Action work)
     {
-        if (conn.Frames.Area is not { } area) return;
         long frames = Math.Max(1, (long)Math.Ceiling(Math.Max(0, seconds) * 1000 / Program.FrameMs));
-        area.Defer(a => a.Timers.After(a.Frame, frames, _ => { if (!conn.Closed && CurrentGameWork) work(); }, source: CombatLifetime));
+        InArea(conn, a => a.Timers.After(a.Frame, frames, _ => { if (!conn.Closed && CurrentGameWork) work(); }, source: CombatLifetime));
+    }
+
+    // In the area's frame, once its world exists (a player's updates start before the frames' first member joined).
+    static void InArea(ClientState conn, Action<GameArea> work)
+    {
+        if (conn.Frames.Area is { } area) area.Defer(work);
+        else _ = conn.Frames.AreaReady.ContinueWith(t => t.Result.Defer(work),
+            TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously);
     }
 
     /// <summary>The seconds each run of <see cref="EveryAsPlayer"/> at <paramref name="ms"/> stands for.</summary>

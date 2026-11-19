@@ -159,7 +159,7 @@ public static partial class Game
     /// <summary>Grants Arcane Surge from a generic source (the Honoured Flood tattoo, "Gain Arcane Surge on Hit with
     /// Spells"): the same helper as the support's gain, so both share the 0.25 s refresh limit, the shown deadline and
     /// the strongest running values, and an expired surge's values are not carried into this one. Under the Monsters
-    /// lock; the player tick presents it.</summary>
+    /// lock; the stat presentations show it.</summary>
     public static void GainArcaneSurgeLocked(ClientState conn, double now) =>
         GainArcaneSurgeLocked(conn, now, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeed, ArcaneSurgeManaRegen);
 

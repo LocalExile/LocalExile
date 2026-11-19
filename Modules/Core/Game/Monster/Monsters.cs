@@ -524,7 +524,7 @@ public static partial class Game
             MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique, movement.ThroughBodies),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
-                DebuffsChanged = () => { foreach (var p in conn.Frames.Players()) PresentNearby(p); },
+                PresentationChanged = () => { foreach (var p in conn.Frames.Players()) PresentNearby(p); },
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
                 Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,

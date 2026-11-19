@@ -211,7 +211,7 @@ public static partial class Game
             double until = target.Ignites.Until;
             var key = (DamageType.Fire, settings.FireExposure);
             target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-            { target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until); target.DebuffsChanged?.Invoke(); }
+            { target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until); target.PresentationChanged?.Invoke(); }
         }
         if (playerIgnite && target.Hostile)
         {
@@ -255,7 +255,7 @@ public static partial class Game
             await Send(remote, stream, ciphers, packets[i], i < packets.Count - 1 ? null : "0x01c1 " + log);
     }
 
-    // One tick of the ignited monsters (RunPlayerTick): the strongest ignite's fire damage through the monster's
+    // One tick of the ignited monsters (the area's monster damage over time): the strongest ignite's fire damage through the monster's
     // resistance and damage taken (MonsterDotTaken), the buff off when the last ignite ends, and kills, as Righteous
     // Fire's burn (BurnAround) commits them. They burn on while the player is dead (the kill then gives no experience,
     // MonsterKilled).

@@ -58,7 +58,7 @@ public static partial class Game
     public const double PickupReach = 20;
 
     public static int PickupToleranceOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.GroundSize ?? 1;
-    // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
+    // How close (cells, centre to centre) gold on the ground is picked up by itself (a nearby presentation): our own number, a
     // little inside a click's PickupReach.
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103
     // is free in 3.29.3b and 3.29.3c (SkillCatalog.SkillIds).
@@ -140,7 +140,7 @@ public static partial class Game
     public const string DefaultProjectileImpactAo = "Metadata/Effects/Spells/fireball/explode_new2.ao";
     // Secondary KB explosion: kinetic_blast_small, distinct from the unscaled main-impact kinetic_blast_large art.
     public const string KineticBlastExplosionAo = "Metadata/Effects/Spells/cluster_burst/mini.ao";
-    // The player's own tick (RunPlayerTick): regeneration and damage over time.
+    // The cadence of the player's periodic work on the area's timers (Righteous Fire, totems, GameEvents.Tick).
     public const int PlayerTickMs = 250;
     public static readonly (string Stat, int Value)[] GodStats =
     [

@@ -196,7 +196,7 @@ public static partial class Game
         target.Bleeds.Accrue(now, BleedTaken(target, now), AggravatedExtra(target, now));
     }
 
-    // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage (Crimson
+    // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
     public static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);

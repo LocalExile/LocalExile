@@ -71,8 +71,8 @@ public static partial class Game
         try
         {
             var (remote, stream, ciphers) = conn.Wire;
-            await Task.WhenAll(Drive(PlayerUpdateRole.Player, () => RunPlayerTick(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Recovery, () => RunResourceRecovery(remote, stream, ciphers, conn, state)),
+            StartContentTick(conn, state);
+            await Task.WhenAll(Drive(PlayerUpdateRole.Recovery, () => RunResourceRecovery(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.MonsterAi, () => RunMonsterAi(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.LivingCollisions, () => RunLivingCollisions(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.Charges, () => RunCharges(remote, stream, ciphers, conn, state)),

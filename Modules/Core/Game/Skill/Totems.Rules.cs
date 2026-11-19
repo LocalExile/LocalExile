@@ -404,7 +404,7 @@ public static partial class Game
         }
     }
 
-    // The totems as the client should see them, from the player tick and after a placement: expired ones die, their Life
+    // The totems as the client should see them, from the totems' timer and after a placement: expired ones die, their Life
     // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
     public static byte[]? TotemPresentation(ClientState conn) => TotemRecords(conn, new(conn, null)) is { } batch
         ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
@@ -559,7 +559,7 @@ public static partial class Game
         }
     }
 
-    // The totems as the client should see them, from the player tick and after a placement: the living ones with a
+    // The totems as the client should see them, from the totems' timer and after a placement: the living ones with a
     // skill of their own use it, the expired ones die, their Life (0x1b1), the dead ones' removal (0x2bd), and the aura
     // buff on the player (0x1c1 from the totem, 0x1c2) with his stats. An adopted projectile spell totem uses nothing
     // here: it has no Strike and SendTotems ticks its cast first (SpellTotems.cs).

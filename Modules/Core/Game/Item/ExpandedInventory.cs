@@ -28,7 +28,7 @@ static partial class Game
             && (!stats.TryGetValue(key, out int value) || value <= 0)) stats[key] = 1;
     }
 
-    // The ordinary player tick owns publication: enabling/disabling a stat mod needs no relog or mod-owned timer.
+    // A stat presentation owns publication: enabling/disabling a stat mod needs no relog or mod-owned timer.
     internal static async Task SyncExpandedInventory(ClientState conn)
     {
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;

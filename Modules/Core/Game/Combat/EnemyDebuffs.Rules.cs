@@ -31,7 +31,7 @@ public static partial class Game
         return taunted;
     }
 
-    // The player tick (RunPlayerTick, 250 ms, not while paused) steps the player's debuffs on monsters.
+    // A nearby presentation (StatPresentations: a walker moved, a debuff changed or ended) steps the player's debuffs on monsters.
     public static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
 

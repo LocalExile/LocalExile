@@ -7,7 +7,7 @@ using GameServer.Core;
 
 // The quest engine's hooks (Quests, Agents/docs/protocol/12-quests.md §5, Agents/docs/game/campaign-quests.md): what the
 // quests' tables and the client's data ask of the game on entering an area, on a kill, a pickup, an item move or use, a click
-// on a quest object, a dialogue choice and every player tick. The tables come from a module (QuestObjects' Acts/); with none
+// on a quest object, a dialogue choice and the nearby presentations. The tables come from a module (QuestObjects' Acts/); with none
 // registered every query is empty and these do nothing. Quest flags are read through conn.QuestFlagsSnapshot /
 // ClientHasQuestFlag and changed through SetQuestFlags (under the Monsters lock); flag changes and the item syncs hold
 // conn.QuestGate, inventory removals happen only on the message path (area entry, after a read that moved items) so their
@@ -829,9 +829,9 @@ public static partial class Game
         }
     }
 
-    // ---- the player tick ----
+    // ---- the nearby presentations ----
 
-    // Every player tick: the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
+    // Where the player stands (a nearby presentation): the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
     public static async Task CheckQuestSights(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
     {
         if (PendingEncounterChests.TryGetValue(conn, out var pending) && !pending.IsEmpty)
@@ -915,7 +915,7 @@ public static partial class Game
 
     // ---- thresholds (Quests.ThresholdRule) ----
 
-    // Every player tick in an area with a quest threshold: a monster any hit took to its threshold (a projectile, Rampage, a
+    // A nearby presentation in an area with a quest threshold: a monster any hit took to its threshold (a projectile, Rampage, a
     // monster mod's damage: every path that takes life marks it, TakeDamageLocked) leaves the fight here, wherever the hit
     // came from; melee and spell hits also call QuestThreshold at once.
     public static async Task CheckQuestThresholds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

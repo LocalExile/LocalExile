@@ -109,7 +109,7 @@ public static partial class Game
             conn.SentStatKeys = now;
             RefreshPeerScale(conn, stats.Single(s => s.Item1 == ActorScale.Final).Item2);
         }
-        // The ground around a stationary player follows the stats the client was told (RunPlayerTick starts its ticker).
+        // The ground around a stationary player follows the stats the client was told (the stat presentations).
         int Sent(string name) => Stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         conn.FlaskGrounds.Configure(FlaskGrounds.StationaryRadius(Sent), Sent(FlaskGrounds.LingerStat),
             Sent(FlaskGrounds.ProfaneLingerStat));

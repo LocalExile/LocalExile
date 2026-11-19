@@ -876,8 +876,14 @@ public sealed class PlayerInventories
     /// <summary>The next revision number of an inventory's contents (sent with each S→C 0xbf).</summary>
     public uint NextRevision(byte row)
     {
-        lock (_lock) return _revisions[row] = _revisions.GetValueOrDefault(row) + 1;
+        uint revision;
+        lock (_lock) revision = _revisions[row] = _revisions.GetValueOrDefault(row) + 1;
+        Changed?.Invoke();
+        return revision;
     }
+
+    /// <summary>An inventory's contents changed (a new revision was taken for the client).</summary>
+    public Action? Changed;
 
     private static readonly ConcurrentDictionary<string, int> ClassRows = new(StringComparer.OrdinalIgnoreCase);
 

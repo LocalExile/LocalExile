@@ -140,7 +140,7 @@ public static partial class Game
     }
 
     // The Leadership buff on the player (S→C 0x1c1 with its remaining seconds, 0x1c2 when it ends or the player dies) and
-    // the player's stats with or without its stats. Sent after a trigger and from the player tick.
+    // the player's stats with or without its stats. Sent after a trigger and as a stat presentation.
     public static byte[]? SpiritChieftainPresentation(ClientState conn)
     {
         lock (conn.Monsters)
@@ -172,7 +172,7 @@ public static partial class Game
     }
 
     /// <summary>
-    /// The chieftain minions, after a trigger and from the player tick. One whose time is up, or whose owner died, dies (0x1b1
+    /// The chieftain minions, after a trigger and as a stat presentation. One whose time is up, or whose owner died, dies (0x1b1
     /// at 0) and its body goes a second later (0x2bd); a queued summon then rises next to the living player: the chieftain's
     /// MonsterVarieties row (AncestralEmbraceVariations) at its level, on his team, as his minion (is_player_minion), with
     /// his minion modifiers (minion_damage_+%, minion_attack_speed_+%, minion_attack_and_cast_speed_+%,

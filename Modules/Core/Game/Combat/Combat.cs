@@ -2928,7 +2928,7 @@ public static partial class Game
         if (m.Threshold is { } threshold)
         {
             long left = Math.Max(1, (long)m.Life - damage);
-            if (left * 100 <= (long)m.MaxLife * threshold.LifePct) m.ThresholdReached = true;
+            if (left * 100 <= (long)m.MaxLife * threshold.LifePct) { m.ThresholdReached = true; m.PresentationChanged?.Invoke(); }
             return ((uint)left, false);
         }
         var (life, starts) = BossFights.Damage(m.Life, m.MaxLife, damage, m.StageTaken ? null : m.Stage);
