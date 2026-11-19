@@ -228,12 +228,19 @@ public class SacrificeSupportTests
         Assert.Equal(1, Game.MonsterDotTaken(entering, DamageType.Cold, at));
         entering.Walk.Teleport(160, 100, at);
         Assert.Equal(1.12, Game.MonsterDotTaken(entering, DamageType.Cold, at), 9);
-        var late = caster.Monsters[105] = new("ground only", new(160, 100, 0), 0, 0, 1000) { Hostile = true };
-        await Game.ReservationSkillsTick("chilling area", supported.Stream, supported.Ciphers, caster, at);
+        var peer = new ClientState(caster.Layout, 2, 2) { Instance = caster.Instance };
+        var late = new SpawnedMonster("ground only", new(160, 100, 0), 0, 0, 1000);
+        lock (peer.Monsters) Assert.False(MonsterEmerge.AddLocked(peer, 105, late, EmergeKind.None, false));
+        at = Game.ProjectileWorldTime(peer);
+        Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at), 9);
+        Assert.Equal(1, Game.AilmentTypesInflicted(late, caster.PeerId, at));
+        Assert.Equal(0, Game.AilmentTypesInflicted(late, peer.PeerId, at));
         double expires = caster.Reservations.Trail[1].Until;
         Assert.True(expires > at + .5);
         Assert.Equal(12, late.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, at + .5));
         Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at + .5), 9);
+        // A handoff gives the same monster a new walk before the next field update.
+        late.Walk = new PlayerWalk(160, 100, at + .5);
         late.Walk.Teleport(200, 100, at + .625);
         Assert.Equal(1, Game.MonsterDotTaken(late, DamageType.Cold, at + .65));
         late.Walk.Teleport(160, 100, at + .75);

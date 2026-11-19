@@ -6,6 +6,7 @@ public sealed class ReservationState
     public sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
     public sealed record Ice((int X, int Y) At, double Until, uint? Object = null, int Radius = 4, int? Epoch = null)
     {
+        public double From { get; init; }
         public MonsterElementalAilments.GroundChill Chill { get; init; } = new(0, 30, false);
         public MonsterElementalAilments.Circle Area => new(At, Radius);
     }

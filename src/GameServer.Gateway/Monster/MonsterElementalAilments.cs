@@ -70,6 +70,14 @@ public sealed class MonsterElementalAilments
         chillingAreas[field] = new(new(Kind.Chill, from, until, magnitude) { ColdTaken = coldTaken }, walk, area);
     }
 
+    // A new instance runner gives the same actor a walk attached to the new collision world.
+    internal void RebindGroundWalk(PlayerWalk previous, PlayerWalk current)
+    {
+        if (chillingAreas is null) return;
+        foreach (var (field, ground) in chillingAreas)
+            if (ReferenceEquals(ground.Walk, previous)) chillingAreas[field] = ground with { Walk = current };
+    }
+
     public void RemoveChillingArea(object field) => chillingAreas?.Remove(field);
 
     double expiryRate = 1;

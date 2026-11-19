@@ -65,7 +65,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Manual Vortex and Vortex of Projection hit around the caster and leave non-stacking cold damage and chill.
-  Projection consumes nearby owned Frostbolts in sequence. Native presentation and triggered casts remain open.
+  Projection consumes nearby owned Frostbolts in sequence. Monsters entering an existing chilling area see it on
+  becoming targetable. Vortex damage starts at entry. Native presentation and triggered casts remain open.
 - Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle

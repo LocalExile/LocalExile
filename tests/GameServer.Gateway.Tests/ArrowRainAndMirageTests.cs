@@ -170,6 +170,45 @@ public class ArrowRainAndMirageTests
         Assert.Equal(240u, m.MaxLife - m.Life); // 110 under the first chill, 130 under the replacement.
     }
 
+    static void VortexStartsAtMonsterEntry(Battle caster, Game.ProjectileSession peer)
+    {
+        var centre = (X: 200, Y: 200);
+        caster.Session.AdvanceTo(ProjectileRuntime.Time(8));
+        caster.Session.PlaceVortexGround(centre, 4, .25, 3200, name => name switch
+        {
+            "support_chilling_areas_also_grant_cold_damage_taken_+%_equal_to_slow_amount" => 1,
+            "virtual_chill_effect_+%" => 25,
+            _ => 0,
+        }, 0);
+        var arrived = new SpawnedMonster("arrives", new(200, 200, 0), 0, 0, 10000);
+        var buried = new SpawnedMonster("buried", new(200, 200, 0), 0, 0, 10000);
+        var lurking = new SpawnedMonster("lurking", new(200, 200, 0), 0, 0, 10000);
+        peer.AdvanceTo(ProjectileRuntime.Time(8.03125));
+        lock (peer.Conn.Monsters)
+        {
+            Assert.False(MonsterEmerge.AddLocked(peer.Conn, 209, arrived, EmergeKind.None, false));
+            Assert.True(MonsterEmerge.AddLocked(peer.Conn, 210, buried, EmergeKind.Buried, true));
+            Assert.True(MonsterEmerge.AddLocked(peer.Conn, 211, lurking, EmergeKind.Lurking, true));
+            Assert.Equal(0, arrived.Ailments.ChillColdTakenPct(8));
+            Assert.Equal(12, arrived.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal(0, buried.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal(12, lurking.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal([buried, lurking], new MonsterEmerge().RiseLocked(peer.Conn, centre, 8.0625, out _).Select(r => r.Monster));
+            Assert.Equal(0, buried.Ailments.ChillColdTakenPct(8.03125));
+            Assert.Equal(12, buried.Ailments.ChillColdTakenPct(8.0625));
+        }
+        caster.Session.AdvanceTo(ProjectileRuntime.Time(8.09375));
+        caster.Session.SettleVortexGround();
+        Assert.Equal(224u, arrived.MaxLife - arrived.Life);
+        Assert.Equal(112u, buried.MaxLife - buried.Life);
+        Assert.Equal(224u, lurking.MaxLife - lurking.Life);
+        arrived.Mods = arrived.Mods with { Effects = arrived.Effects.Combine(new Dictionary<string, int> { ["cannot_be_chilled"] = 1 }) };
+        caster.Session.AdvanceTo(ProjectileRuntime.Time(8.125));
+        caster.Session.SettleVortexGround();
+        Assert.Equal(0, arrived.Ailments.ChillColdTakenPct(8.125));
+        Assert.Equal(12, lurking.Ailments.ChillColdTakenPct(8.125));
+    }
+
     static async Task VortexSharesGroundAcrossCasters()
     {
         using var b = new Battle("Vortex");
@@ -179,6 +218,7 @@ public class ArrowRainAndMirageTests
         peer.ProjectileRuntimeState = other;
         try
         {
+            VortexStartsAtMonsterEntry(b, other);
             var at = (X: 120, Y: 100);
             long start = ProjectileRuntime.Time(16);
             b.Session.AdvanceTo(start);

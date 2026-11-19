@@ -57,18 +57,31 @@ public static partial class Game
     // monster, including fields from another caster. Its owner receives the kill. A retiring clock hands the timer on.
     static readonly RuleTable<SortedDictionary<uint, SpawnedMonster>, VortexGround> VortexGrounds = new();
 
+    internal static void EnterChillingGroundLocked(ClientState conn, uint id, SpawnedMonster monster, double now)
+    {
+        foreach (var caster in conn.ChillingTrailCasters)
+            foreach (var patch in caster.Reservations.Trail)
+                if (now < patch.Until && (patch.Epoch is null || patch.Epoch == caster.ProjectileEpoch))
+                    ObserveChilledGroundLocked(caster, patch, monster, Math.Max(now, patch.From));
+        if (VortexGrounds.TryGetValue(conn.Monsters, out var ground)) ground.Enter(id, monster, now);
+    }
+
     sealed class VortexGround(SortedDictionary<uint, SpawnedMonster> monsters)
     {
-        sealed class Exposure(uint id, (int X, int Y) cell)
+        sealed class Exposure(uint id, (int X, int Y) cell, double since)
         {
             public readonly uint Id = id;
+            public readonly double Since = since;
             public (int X, int Y) Cell = cell;
             public double Carry;
+            public MonsterModEffects? Effects;
+            public int FieldVersion;
         }
         readonly List<VortexField> fields = [];
         readonly Dictionary<SpawnedMonster, Exposure> samples = new(ReferenceEqualityComparer.Instance);
         ProjectileSession? driver;
         long through, timer;
+        int fieldVersion;
         void BeforeChillChange(double at) => Advance(ProjectileRuntime.Time(at));
 
         public void Add(ProjectileSession owner, (int, int) centre, int radius, long duration, double dps, Func<string, int> stats)
@@ -76,6 +89,7 @@ public static partial class Game
             if (fields.Count == 0) through = owner.Runtime.Now;
             else Advance(owner.Runtime.Now);
             fields.Add(new(owner, new(centre, radius), through + duration, dps, MonsterElementalAilments.GroundChill.From(stats)));
+            fieldVersion++;
             Sample(through, through);
             if (driver is null) Arm();
         }
@@ -131,23 +145,76 @@ public static partial class Game
 
         static double Seconds(long time) => time / (double)ProjectileRuntime.QuantaPerSecond;
 
+        static bool CanDamage(SpawnedMonster m) => m is { Hostile: true, Dead: false, Life: > 0, OwnerId: null } && !m.Invulnerable;
+
+        public void Enter(uint id, SpawnedMonster monster, double now)
+        {
+            if (fields.Count == 0 || !CanDamage(monster)) return;
+            double at = Math.Max(now, Seconds(through));
+            Track(id, monster, monster.Walk.Position(at), at);
+        }
+
+        void Track(uint id, SpawnedMonster monster, (int X, int Y) cell, double at)
+        {
+            var exposure = new Exposure(id, cell, at);
+            samples.Add(monster, exposure);
+            monster.Ailments.ChillChanging += BeforeChillChange;
+            ObserveFields(monster, exposure, at);
+        }
+
+        void ObserveFields(SpawnedMonster monster, Exposure exposure, double at)
+        {
+            var effects = monster.Effects;
+            // Position is checked at contact. Reproject the ground only for a new field or a changed target.
+            if (exposure.FieldVersion == fieldVersion && ReferenceEquals(exposure.Effects, effects)) return;
+            exposure.FieldVersion = fieldVersion;
+            exposure.Effects = effects;
+            BindFields(monster, at, effects);
+        }
+
+        void BindFields(SpawnedMonster monster, double at, MonsterModEffects effects)
+        {
+            int Target(string name) => effects[name];
+            foreach (var field in fields)
+            {
+                double end = Seconds(field.End);
+                if (at >= end) continue;
+                double magnitude = monster.Ailments.ChillingAreaMagnitude(field.Chill, Target);
+                monster.Ailments.SetChillingArea(field, at, end, magnitude, field.Chill.ColdTaken, monster.Walk, field.Area);
+            }
+        }
+
+        void Untrack(SpawnedMonster monster)
+        {
+            foreach (var field in fields) monster.Ailments.RemoveChillingArea(field);
+            monster.Ailments.ChillChanging -= BeforeChillChange;
+            samples.Remove(monster);
+        }
+
         void Sample(long from, long until)
         {
-            double start = Seconds(from), end = Seconds(until);
+            double end = Seconds(until);
             foreach (var (monster, exposure) in samples.ToArray())
             {
                 if (fields.Count != 0 && monsters.TryGetValue(exposure.Id, out var current) && ReferenceEquals(monster, current)
-                    && monster is { Hostile: true, Dead: false, Life: > 0, OwnerId: null } && !monster.Invulnerable) continue;
-                foreach (var field in fields) monster.Ailments.RemoveChillingArea(field);
-                monster.Ailments.ChillChanging -= BeforeChillChange;
-                samples.Remove(monster);
+                    && CanDamage(monster)) continue;
+                Untrack(monster);
             }
             if (fields.Count == 0) return;
             foreach (var (id, monster) in monsters.ToArray())
             {
-                if (monster is not { Hostile: true, Dead: false, Life: > 0, OwnerId: null } || monster.Invulnerable) continue;
+                if (!CanDamage(monster)) continue;
                 var cell = monster.Walk.Position(end);
-                if (samples.TryGetValue(monster, out var exposure) && end > start)
+                if (!samples.TryGetValue(monster, out var exposure))
+                {
+                    Track(id, monster, cell, end);
+                    continue;
+                }
+                // The driver's last tick can precede this monster's admission by another player.
+                double start = Math.Max(Seconds(from), exposure.Since);
+                ObserveFields(monster, exposure, start);
+                if (end < start) continue;
+                if (end > start)
                 {
                     var position = exposure.Cell;
                     double at = start;
@@ -170,7 +237,9 @@ public static partial class Game
                     void Charge((int X, int Y) point, double a, double b)
                     {
                         if (b <= a || monster.Life == 0 || monster.Invulnerable) return;
-                        var best = Cover(point, a);
+                        VortexField? best = null;
+                        foreach (var field in fields)
+                            if (field.Dps > (best?.Dps ?? 0) && field.Area.Contains(point)) best = field;
                         if (best is null) return;
                         double total = exposure.Carry;
                         while (a < b)
@@ -185,31 +254,8 @@ public static partial class Game
                             QueueVortexKill(best.Owner, id, monster, b);
                     }
                 }
-                if (exposure is null)
-                {
-                    samples.Add(monster, new(id, cell));
-                    monster.Ailments.ChillChanging += BeforeChillChange;
-                }
-                else exposure.Cell = cell;
-                Cover(cell, end);
-
-                VortexField? Cover((int X, int Y) point, double at)
-                {
-                    VortexField? best = null;
-                    foreach (var field in fields)
-                    {
-                        double expires = Seconds(field.End);
-                        if (at >= expires || !field.Area.Contains(point) || monster.Dead)
-                        {
-                            monster.Ailments.RemoveChillingArea(field);
-                            continue;
-                        }
-                        double magnitude = monster.Ailments.ChillingAreaMagnitude(field.Chill, name => monster.Effects[name]);
-                        monster.Ailments.SetChillingArea(field, at, expires, magnitude, field.Chill.ColdTaken);
-                        if (field.Dps > (best?.Dps ?? 0)) best = field;
-                    }
-                    return best;
-                }
+                exposure.Cell = cell;
+                if (!CanDamage(monster)) Untrack(monster);
             }
         }
     }

@@ -405,7 +405,15 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool Fleeing;
     public (int X, int Y)? FleeTo;
     public string Label => label;
-    public PlayerWalk Walk { get; set; } = walk;
+    public PlayerWalk Walk
+    {
+        get => walk;
+        set
+        {
+            Ailments.RebindGroundWalk(walk, value);
+            walk = value;
+        }
+    }
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; set; } = maxLife;
@@ -1300,6 +1308,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The instance's (InstanceWorld.Monsters, also the instance's lock): every connection in it sees and hits the same ones.
     public SortedDictionary<uint, SpawnedMonster> Monsters => Instance?.World.Monsters ?? ownMonsters;
     readonly SortedDictionary<uint, SpawnedMonster> ownMonsters = [];
+    public HashSet<ClientState> ChillingTrailCasters => Instance?.World.ChillingTrailCasters ?? (ownChillingTrailCasters ??= []);
+    HashSet<ClientState>? ownChillingTrailCasters;
     /// <summary>Created, untargetable monsters shared by the instance. Their native bodies exist before emergence.
     /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
     public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;
