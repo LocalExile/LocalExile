@@ -442,9 +442,13 @@ public static partial class Game
     public static void LockstepAttackSwings(ClientState conn, LockstepAttack attack, double start, double end)
     {
         conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil, end + attack.Hold());
+        var stand = conn.Walk.Destination;
         if (attack.GroundAttackSeconds is { } seconds)
+        {
+            FacePlayerAction(conn, stand, attack.GroundTarget, start, CharacterPlayerStats(conn));
             conn.NextAttackAt = AttackTiming.After(start, conn.NextAttackAt, seconds());
-        attack.Swings(start, end, conn.Walk.Destination);
+        }
+        attack.Swings(start, end, stand);
     }
 
     // The attack is over, swung or not: nothing more holds the held skill's next use.

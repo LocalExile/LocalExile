@@ -5,7 +5,7 @@ public static partial class Game
     // Each seal reoccurs a tenth of a cast apart. Spell Echo repeats a full cast apart, sharing the original use.
     static Task ScheduleNovaReleases(ProjectileSession session, ushort skillId, int effect, int? actionToken,
         CooldownUseTicket? cooldownUse, SacrificeUse sacrifice, int repeats, int seals, Func<int, bool, Task> release,
-        Action? beginRepeat = null)
+        Func<Action?>? startUse = null)
     {
         var conn = session.Conn;
         if (CastMs(conn, effect, skillId) is not int castMs) return Task.CompletedTask;
@@ -16,6 +16,8 @@ public static partial class Game
         {
             bool Current() => session.Active && conn.PlayerLife > 0 && sacrifice.Current
                 && (cooldownUse?.Current(conn) ?? PlayerActionCurrent(conn, action));
+            if (!Current()) return Task.CompletedTask;
+            var beginRepeat = startUse?.Invoke();
             long start = session.Runtime.Now;
             long contact = ProjectileRuntime.Time(cast * Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
             for (int i = 0; i <= repeats + seals; i++)

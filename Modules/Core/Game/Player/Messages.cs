@@ -153,7 +153,7 @@ public static partial class Game
                 if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
                 {
                     double duration = DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn));
-                    if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
+                    if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, (use.X, use.Y), out var shot)) continue;
                     int projectileEpoch;
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
@@ -327,8 +327,12 @@ public static partial class Game
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
+                        {
+                            var player = CharacterPlayerStats(conn);
+                            FacePlayerAction(conn, (px, py), (use.X, use.Y), at, player);
                             conn.NextAttackAt = AttackTiming.After(at, conn.NextAttackAt,
-                                Math.Max(TickSeconds, DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
+                                Math.Max(TickSeconds, DefaultAttackSeconds(conn, use.Slot, player) / PlayerActionFactor(conn)));
+                        }
                     }
                 }
                 Mark("begin");

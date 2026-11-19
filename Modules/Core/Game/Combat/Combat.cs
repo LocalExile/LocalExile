@@ -45,9 +45,23 @@ public static partial class Game
         return profile.Chance(evasion, target.Rarity == MonsterRarity.Unique, close);
     }
 
+    // The native action's facing gate (0x14193f430 / 0x14193f580). The source attributes and the skill's own
+    // attributes both apply. The caller owns the actor lock and has accepted this use.
+    static void FacePlayerAction(ClientState conn, (int X, int Y) from, (int X, int Y) to, double now,
+        IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int>? own = null)
+    {
+        int Get(string name) => GolemStat(stats, name) + (own is null ? 0 : GolemStat(own, name));
+        if (Get("action_do_not_face_target") == 0)
+            conn.Walk.Face(from, to, now, Get("action_should_face_away_from_target") != 0);
+    }
+
     // A ground ranged shot reserves pacing, its action token and stationary walk together with the input-time gate.
     public static bool TryBeginRangedAttack(ClientState conn, double requestedAt, double duration,
-        ushort skill, ushort sequence, out (int Action, int X, int Y, SkillCriticalRoll CriticalRoll) started)
+        ushort skill, ushort sequence, out (int Action, int X, int Y, SkillCriticalRoll CriticalRoll) started) =>
+        TryBeginRangedAttack(conn, requestedAt, duration, skill, sequence, null, out started);
+
+    static bool TryBeginRangedAttack(ClientState conn, double requestedAt, double duration, ushort skill, ushort sequence,
+        (int X, int Y)? aim, out (int Action, int X, int Y, SkillCriticalRoll CriticalRoll) started)
     {
         started = default;
         using (ProjectileMutation(conn))
@@ -61,6 +75,7 @@ public static partial class Game
             int action = Interlocked.Increment(ref conn.ActionCount);
             var (x, y) = conn.Walk.Position(requestedAt);
             conn.Walk.Order(x, y, requestedAt);
+            if (aim is { } target) FacePlayerAction(conn, (x, y), target, requestedAt, CharacterPlayerStats(conn));
             conn.ChannelSkill = skill;
             conn.ChannelSkillSequence = sequence;
             started = (action, x, y, CaptureSkillCriticalRoll(conn, skill));
@@ -415,6 +430,7 @@ public static partial class Game
             conn.NextAttackAt = AttackTiming.After(begun, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
             inReach = SwingInReach(conn, m, stop, target, weapon.Range + 2);
+            if (inReach && Current()) FacePlayerAction(conn, stop, target, begun, CharacterPlayerStats(conn));
         }
         LockstepAttackOver(conn, action);
         if (!inReach)
@@ -1260,6 +1276,11 @@ public static partial class Game
                 if (paid && dash) conn.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(conn));
                 if (paid)
                 {
+                    // Fireball, Spark, Freezing Pulse and Frostbolt turn to a distinct aim at their shared start (0x141ba58f0).
+                    // Their placed or totem forms use a separate action on a different actor.
+                    if (from != to && targetId != PlayerId && placedAdmission is null && SkillsFor(conn).ActionHash(gem.Effect) is
+                        (0xaa4e or 0x7859 or 0x4923 or FrostboltAction) && GolemStat(paymentGem.Stats, "is_totem") == 0)
+                        FacePlayerAction(conn, from, to, ProjectileWorldTime(conn), CharacterPlayerStats(conn), paymentGem.Stats);
                     criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                     // Reserve the whole paid use before cost publication can yield to another held input.
                     if (!IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect)
@@ -1824,7 +1845,7 @@ public static partial class Game
         string? nova = SkillsFor(conn).EffectId(gem.Effect);
         if (nova == "ShockNova" || nova == "ShockNovaAltX" && ManualMarkedNova(conn, skillId, supported))
             return CastShockNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
-                criticalRoll, sacrifice, spellRepeats, seals, reoccurrenceMore, procession: nova == "ShockNovaAltX");
+                criticalRoll, sacrifice, spellRepeats, seals, reoccurrenceMore, procession: nova == "ShockNovaAltX", selfTarget: targetId == PlayerId);
         if (nova is "IceNovaAltX" or "Vortex" or "VortexAltX")
             return CastFrostboltNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
                 criticalRoll, sacrifice, supported, spellRepeats, seals, reoccurrenceMore, vortex: nova != "IceNovaAltX");

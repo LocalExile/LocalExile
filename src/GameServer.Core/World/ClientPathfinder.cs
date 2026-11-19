@@ -401,12 +401,13 @@ public static class ClientPathfinder
     struct LineCells
     {
         readonly bool steep;
-        readonly int majorEnd, majorLen, minorLen, majorStep, minorStep;
-        int major, minor, err;
+        readonly int majorStep, minorStep;
+        readonly long majorEnd, majorLen, minorLen;
+        long major, minor, err;
 
         public LineCells((int X, int Y) a, (int X, int Y) b)
         {
-            steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
+            steep = Math.Abs((long)b.X - a.X) < Math.Abs((long)b.Y - a.Y);
             major = steep ? a.Y : a.X; majorEnd = steep ? b.Y : b.X; minor = steep ? a.X : a.Y;
             int minorEnd = steep ? b.X : b.Y;
             majorLen = Math.Abs(majorEnd - major); minorLen = Math.Abs(minorEnd - minor);
@@ -417,8 +418,8 @@ public static class ClientPathfinder
         public bool Next(out int x, out int y)
         {
             if (major == majorEnd + majorStep) { x = y = 0; return false; }
-            (x, y) = steep ? (minor, major) : (major, minor);
-            int e = minorLen + err;
+            (x, y) = steep ? ((int)minor, (int)major) : ((int)major, (int)minor);
+            long e = minorLen + err;
             major += majorStep;
             if (e < 1) err = e;
             else { err = e - majorLen; minor += minorStep; }

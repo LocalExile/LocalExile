@@ -1,5 +1,6 @@
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
@@ -42,11 +43,12 @@ public sealed class AreaSpellTimingTests
         await VortexDetonatesSelectedBolts();
         await ShockNovaSamplesBothContacts();
         await ProcessionRepeatsAlongItsOriginalAim();
+        WalkFacingAtAWaypoint();
     }
 
     static async Task ProcessionRepeatsAlongItsOriginalAim()
     {
-        using var battle = new ArrowRainAndMirageTests.Battle("Shock Nova of Procession", "Assassin's Mark");
+        using var battle = new ArrowRainAndMirageTests.Battle("Shock Nova of Procession", "Assassin's Mark", "Fireball");
         var conn = battle.Conn;
         var session = battle.Session;
         conn.Use(conn.Layout with
@@ -109,18 +111,93 @@ public sealed class AreaSpellTimingTests
         Assert.Equal(pastWall.MaxLife, pastWall.Life);
         Assert.Equal(cursor.MaxLife, cursor.Life);
 
-        // A cast aimed at the caster's own cell still has a known first ring and disc.
+        // A fresh actor faces north. Its second repeat reaches beyond the first disc.
         conn.PlayerStats.Remove(Program.Stats.Key("nova_spells_cast_at_marked_target")!.Value);
         var self = At(100);
-        contact = session.Runtime.Now + (contact - start);
-        use = Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, nova.Id,
-            (100, 100), (100, 100), conn.ActionInterruptionGeneration);
+        var north = At(100, 46);
+        long windup = contact - start;
+        contact = session.Runtime.Now + windup;
+        use = Cast((100, 100));
         session.AdvanceTo(contact);
         Assert.Equal(self.MaxLife, self.Life);
         session.AdvanceTo(contact + gap);
         Assert.True(self.Life < self.MaxLife);
+        Assert.Equal(north.MaxLife, north.Life);
         session.AdvanceTo(contact + 2 * interval + gap);
         await use;
+        Assert.True(north.Life < north.MaxLife);
+
+        // Identical ground requests retain different directions after an east or west cast.
+        var east = At(152);
+        var west = At(47, 98);
+        foreach (var (aim, along, behind) in new[] { ((240, 100), east, west), ((20, 100), west, east) })
+        {
+            await Finish(aim);
+            uint alongLife = along.Life, behindLife = behind.Life;
+            await Finish((100, 100));
+            Assert.True(along.Life < alongLife);
+            Assert.Equal(behindLife, behind.Life);
+        }
+
+        // A paid Fireball turns to its aim. A refused Fireball, a stale action and a no-turn cast keep it.
+        var fire = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
+        conn.PlayerMana = 200;
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, fire.Id,
+            (100, 100), (240, 100), actionToken: conn.ActionCount));
+        conn.PlayerMana = 0;
+        Assert.False(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, fire.Id,
+            (100, 100), (20, 100), actionToken: conn.ActionCount));
+        await Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, nova.Id,
+            (100, 100), (20, 100), conn.ActionInterruptionGeneration, actionToken: conn.ActionCount - 1);
+        conn.PlayerStats[Program.Stats.Key("action_do_not_face_target")!.Value] = 1;
+        await Finish((20, 100));
+        Assert.Equal(MathF.PI / 2, conn.Walk.Rotation(Game.ProjectileWorldTime(conn)));
+        conn.PlayerStats.Remove(Program.Stats.Key("action_do_not_face_target")!.Value);
+        conn.PlayerStats[Program.Stats.Key("action_should_face_away_from_target")!.Value] = 1;
+        await Finish((240, 100));
+        Assert.Equal(3 * MathF.PI / 2, conn.Walk.Rotation(Game.ProjectileWorldTime(conn)));
+
+        Task Cast((int X, int Y) aim) => Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers,
+            conn, nova.Id, (100, 100), aim, conn.ActionInterruptionGeneration);
+
+        async Task Finish((int X, int Y) aim)
+        {
+            var pending = Cast(aim);
+            session.AdvanceTo(session.Runtime.Now + windup + 2 * interval + gap);
+            await pending;
+        }
+    }
+
+    static void WalkFacingAtAWaypoint()
+    {
+        var npc = new ClientPathfinder.Blocker(20, 0, 4);
+        var walk = new PlayerWalk(0, 0, 37, (x, y) => x >= 0 && y >= 0 && x < 60 && y < 60, 60, 60, () => [npc]);
+        walk.Order(40, 0, 0);
+        var steps = walk.Steps(0, walk.ArrivesAt);
+        var bends = steps.Where(s => walk.EndsPiece(s.At)).ToArray();
+        Assert.True(bends.Length >= 2);
+        var bend = bends[0];
+        float incoming = Heading((0, 0), bend.Cell), outgoing = Heading(bend.Cell, bends[1].Cell);
+        Assert.NotEqual(incoming, outgoing);
+        var route = walk.Save();
+        walk.Pause(0, .5);
+        Assert.Equal(incoming, walk.Rotation(bend.At), 5);
+        Assert.Equal(outgoing, walk.Rotation(bend.At + .5 + .000001), 5);
+        walk.Restore(route);
+        walk.StopAfter(bend.At);
+        Assert.Equal(incoming, walk.Rotation(walk.ArrivesAt + 1), 5);
+        walk.Restore(route);
+        var next = steps.First(s => s.At > bend.At);
+        walk.StopAt(next.At); // The next piece was set up even when its first step was blocked.
+        Assert.Equal(outgoing, walk.Rotation(next.At), 5);
+        walk.Teleport(10, 10, next.At);
+        Assert.Equal(outgoing, walk.Rotation(next.At + 1), 5);
+
+        static float Heading((int X, int Y) a, (int X, int Y) b)
+        {
+            double angle = Math.Atan2(b.X - a.X, a.Y - b.Y);
+            return (float)(angle < 0 ? angle + Math.Tau : angle);
+        }
     }
 
     static async Task ShockNovaSamplesBothContacts()

@@ -63,20 +63,15 @@ public static partial class Game
         return last;
     }
 
-    static (int X, int Y)? ProcessionStep((int X, int Y) from, (int X, int Y) start, (int X, int Y) aim,
-        float length, bool turnsToAim, bool faceAway)
+    static (int X, int Y) ProcessionStep((int X, int Y) from, (int X, int Y) start, float length, float facing)
     {
         if (start != from)
         {
-            float dx = start.X - from.X, dy = start.Y - from.Y;
+            float dx = (long)start.X - from.X, dy = (long)start.Y - from.Y;
             float scale = length / MathF.Sqrt(dx * dx + dy * dy);
             return ((int)MathF.Floor(dx * scale + .5f), (int)MathF.Floor(dy * scale + .5f));
         }
-        // At its own cell the native action uses the actor's rotation. An ordinary directed cast faces the aim first.
-        if (!turnsToAim || aim == from) return null;
-        float facing = MathF.Atan2(aim.Y - from.Y, aim.X - from.X) + MathF.PI / 2;
-        if (facing < 0) facing += MathF.Tau;
-        if (faceAway) facing -= MathF.PI;
+        // A coincident centre takes the actor's retained rotation (0x14015d790).
         int Cells(float component) => (int)MathF.Floor(component * 10.869565f * length * .092f);
         return (Cells(MathF.Sin(facing)), Cells(-MathF.Cos(facing)));
     }
@@ -84,13 +79,14 @@ public static partial class Game
     static Task CastShockNova(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort id, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         ushort sequence, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll critical, SacrificeUse sacrifice,
-        int repeats, int seals, double sealMore, bool procession)
+        int repeats, int seals, double sealMore, bool procession, bool selfTarget)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         var stored = aim;
-        (int X, int Y)? step = null;
-        using var setup = procession ? ProjectileMutation(conn) : null;
-        if (procession)
+        return ScheduleNovaReleases(session, id, gem.Effect, actionToken, cooldownUse, sacrifice, repeats, seals, Release,
+            procession ? StartProcession : null);
+
+        Action? StartProcession()
         {
             var supported = SupportedSkill(conn, id);
             var stats = SkillAreaStats(conn, supported.Stats, gem.Effect);
@@ -100,24 +96,18 @@ public static partial class Game
             bool graft = GolemStat(stats, "nova_spells_cast_at_marked_target") != 0;
             stored = cursor ? ProcessionGroundCell(conn.Layout, from, aim)
                 : graft ? MarkedNovaCentreLocked(conn, id, supported, now) ?? aim : from;
-            if (repeats > 0)
-            {
-                int radius = 33 * ShockNovaScale(stats, 0) / 100;
-                bool turns = !cursor && !graft && GolemStat(stats, "action_do_not_face_target") == 0;
-                step = ProcessionStep(from, stored, aim, radius * .5f, turns, GolemStat(stats, "action_should_face_away_from_target") != 0);
-                if (step is null)
-                    Console.WriteLine($"[gateway] {remote} Shock Nova of Procession: the first cast has a known centre; directional repeats need the actor's retained facing");
-            }
+            if (!cursor && !graft && !selfTarget) FacePlayerAction(conn, from, aim, now, stats);
+            if (repeats == 0) return null;
+            int radius = 33 * ShockNovaScale(stats, 0) / 100;
+            var step = ProcessionStep(from, stored, radius * .5f, conn.Walk.Rotation(now));
+            return step == (0, 0) ? null : () => stored = ProcessionGroundCell(conn.Layout, conn.Walk.Position(ProjectileWorldTime(conn)),
+                (Offset(stored.X, step.X), Offset(stored.Y, step.Y)));
         }
-        Action? advance = null;
-        if (step is { } offset && offset != (0, 0))
-            advance = () => stored = ProcessionGroundCell(conn.Layout, conn.Walk.Position(ProjectileWorldTime(conn)),
-                (stored.X + offset.X, stored.Y + offset.Y));
-        return ScheduleNovaReleases(session, id, gem.Effect, actionToken, cooldownUse, sacrifice, repeats, seals, Release, advance);
+
+        static int Offset(int cell, int delta) => (int)Math.Clamp((long)cell + delta, int.MinValue, int.MaxValue);
 
         Task Release(int repeat, bool seal)
         {
-            if (procession && repeat > 0 && step is null) return Task.CompletedTask;
             var repeatCentre = stored; // The detached disc retains this repeat's accepted cell.
             long discAt = session.Runtime.Now + ProjectileRuntime.QuantaPerSecond / 10;
             var ring = Hit(ring: true);

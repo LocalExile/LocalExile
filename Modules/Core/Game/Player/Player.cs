@@ -2006,6 +2006,7 @@ public static partial class Game
                         ReconcileOwnAuras(conn, validateSkills: true);
                         var player = PlayerForCreation(conn);
                         conn.PresentedMarkedTarget = MarkedMonsterLocked(conn)?.Id ?? 0;
+                        conn.Walk.SetRotation(player.Rotation, ProjectileWorldTime(conn));
                         conn.PeerTemplate = player;
                         conn.ClientSkillIds = [.. player.Skills!.Select(s => s.Id)];
                         conn.SentVaalSouls.Clear();

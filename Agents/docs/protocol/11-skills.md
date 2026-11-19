@@ -1755,8 +1755,13 @@ The step is half the initial scaled disc radius. A distant start rounds each nor
 At each animation restart (0x141d17af0) the action adds the saved step to its last accepted cell, then traces
 from the current caster. A zero in the projectile grid ends the trace. The last cell with walk layer 0 of at
 least one supplies the new centre. Both hits of that repeat use the saved cell, including after a mark moves.
-On the Gateway, an aim that needs the actor's previous rotation still resolves the first ring and disc.
-The directional repeats for that case require retained player facing.
+For a coincident aim the turn at `0x141e355a0` leaves Positioned rotation unchanged. The facing getter
+(`0x14015d790`) returns `(sin(angle), -cos(angle))`. An ordinary directed Procession can turn first.
+Cursor and Novamark placement preserve facing. The Gateway seeds rotation from player creation and retains
+it across walks and stops. Default attacks and directed Fireball, Spark, Freezing Pulse and Frostbolt casts
+turn toward their target. Isolated paid Procession casts aimed east or west and then at the caster repeat in
+that previous direction. Native presentation, the projectile actions' seeded aim at a coincident point and
+turns from other player actions still need verification.
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
 Ice Nova can use a reserved bolt. GroundEffectTypes `Maelstorm` has its own art variation and the buff

@@ -474,6 +474,7 @@ public class LockstepTests : IDisposable
         Replay(conn, .33);
         Assert.Equal((108, 95), conn.Walk.Position(.33));
         Assert.Equal((108, 95), (await attack.Decided)!.Value.From);
+        Assert.Equal(MathF.Atan2(9, 4), conn.Walk.Rotation(.33), 5);
         Assert.True(conn.LockstepBusyUntil > .33);
         Assert.True(conn.NextAttackAt > .33);
 

@@ -217,7 +217,9 @@ instead of 1–7.
 
 **The client's walk** (Positioned `0x141e37740` → `0x141e50880`, ticked by `0x141e35a50` → `0x141e50a90`). Each segment
 between waypoints is a Bresenham line of cells; one step takes `(√(dx² + dy²) / speed) / max(|dx|, |dy|)` seconds,
-and the grid cell (`+0x294`) only changes a step at a time. Each frame adds its time to the accumulator (`+0x244`: a
+and the grid cell (`+0x294`) only changes a step at a time. At piece setup (`0x141e37b25`) the actor turns toward
+that waypoint. A stop on a waypoint keeps the incoming direction when it prevents the next piece from starting.
+Each frame adds its time to the accumulator (`+0x244`: a
 predictive client's own frame, a whole number of milliseconds of its clock; a lockstep client's server frame, below)
 and steps while it holds a whole step time (`+0x240`); before every
 step the next cell is checked again (terrain, objects) and a blocked step ends the walk: the walker stands, with no new
