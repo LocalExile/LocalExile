@@ -84,18 +84,21 @@ public static partial class Game
         (int X, int Y) from, (int X, int Y) aim, uint targetId, ushort sequence, double now, int? repeatsLeft = null)
     {
         var player = CharacterPlayerStats(conn);
-        int Get(string key) => GolemStat(player, key) + GolemStat(own, key);
-        if (from == aim && Get("projectiles_rain") == 0)
-        {
-            // A root action has derived byte and chain count zero. The five-word draw rewrites the stored grid
-            // point before the optional turn, independently of the later per-projectile direction rolls.
-            uint remaining = (uint)(repeatsLeft ?? SpellRepeats(conn, effect, Get));
-            var random = new AnimationVariantSelector.NativeRandom([sequence, 0, 0, remaining, PlayerId]);
-            float angle = random.Range(0, 6.28318f);
-            aim = (from.X + (int)(60 * MathF.Sin(angle)), from.Y + (int)(60 * MathF.Cos(angle)));
-        }
+        if (from == aim) aim = CoincidentPlayerProjectileAim(conn, effect, player, own, aim, sequence, repeatsLeft);
         if (targetId != PlayerId) FacePlayerAction(conn, from, aim, now, player, own);
         return aim;
+    }
+
+    static (int X, int Y) CoincidentPlayerProjectileAim(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int> own, (int X, int Y) at, ushort sequence, int? repeatsLeft)
+    {
+        int Get(string key) => GolemStat(player, key) + GolemStat(own, key);
+        if (Get("projectiles_rain") != 0) return at;
+        // Both action start and ordinary contact write this point back. The root's derived byte and chain count are zero.
+        uint remaining = (uint)(repeatsLeft ?? SpellRepeats(conn, effect, Get));
+        var random = new AnimationVariantSelector.NativeRandom([sequence, 0, 0, remaining, PlayerId]);
+        float angle = random.Range(0, 6.28318f);
+        return (at.X + (int)(60 * MathF.Sin(angle)), at.Y + (int)(60 * MathF.Cos(angle)));
     }
 
     public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -185,7 +188,7 @@ public static partial class Game
             return Task.CompletedTask;
         }
         int repeats = attack ? 0 : SpellRepeats(conn, skillId, gem.Effect);
-        bool restartAim = repeats > 0 && UsesPlayerProjectileAim(conn, gem.Effect);
+        bool playerAim = UsesPlayerProjectileAim(conn, gem.Effect);
         lock (conn.Monsters)
         {
             if (!session.Active) return Task.CompletedTask;
@@ -196,7 +199,7 @@ public static partial class Game
                 double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
                 double castOffset = ordinal + Math.Min(release, seals) * .1;
                 double start = acceptedAt + castOffset * cast.Value / 1000d;
-                if (restartAim && ordinal > 0)
+                if (playerAim && ordinal > 0)
                 {
                     // Spell Echo restarts the action with its stored target. Unleash only rewinds the animation.
                     session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(start)), () =>
@@ -207,11 +210,17 @@ public static partial class Game
                             conn.Walk.Position(now), aim, targetId, sequence, now, left);
                     });
                 }
-                session.Schedule(ProjectileRuntime.Time(start + delay), Valid,
-                    () => ClientDrawnVolley(conn, session, skillId, gem,
-                        CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                            cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
-                        sequence, (uint)left));
+                session.Schedule(ProjectileRuntime.Time(start + delay), Valid, () =>
+                {
+                    // A delayed warp can put the caster on the saved aim during windup. Ordinary contact
+                    // (3.29.3c, 0x141ba7eb7) rewrites that point without turning the actor again.
+                    if (playerAim && conn.Walk.Position(ProjectileWorldTime(conn)) == aim)
+                        aim = CoincidentPlayerProjectileAim(conn, gem.Effect, CharacterPlayerStats(conn),
+                            SupportedSkill(conn, skillId).Stats, aim, sequence, left);
+                    var use = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
+                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more);
+                    return ClientDrawnVolley(conn, session, skillId, gem, use, sequence, (uint)left);
+                });
             }
         }
         return Task.CompletedTask;

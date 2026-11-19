@@ -71,8 +71,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shock Nova of Procession repeats along its original direction. Walls and gaps in the ground limit each centre.
   A caster-centred repeat uses the player's retained facing after walking, default attacks and aimed casts.
   When directed at the caster's cell, manual Fireball, Spark, Freezing Pulse and Frostbolt resolve a seeded
-  aim before turning. Spell Echo starts again with the saved point. Other action-specific turns, native
-  presentation and triggered casts remain open.
+  aim before turning. If a delayed warp lands on the saved aim during windup, ordinary contact picks a new
+  point and Spell Echo uses it. A moving enemy and a paid Lightning Warp were tested on loopback. Native
+  presentation, target-refresh animation events and triggered casts remain open.
 - Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle

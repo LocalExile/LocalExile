@@ -251,6 +251,7 @@ public class SacrificeSupportTests
     [Fact]
     public async Task Lightning_warp_moves_at_release_and_hits_both_endpoints()
     {
+        await FireballDuringWarp();
         using var fixture = new Fixture();
         fixture.Equip("LightningWarp");
         var c = fixture.Conn;
@@ -271,6 +272,47 @@ public class SacrificeSupportTests
         Assert.True(c.Monsters[301].Life < 100000);
         Assert.True(c.Monsters[302].Life < 100000);
         Assert.Equal(100000u, c.Monsters[303].Life);
+    }
+
+    static async Task FireballDuringWarp()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Lightning Warp", "Fireball", "Spell Echo Support");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Monsters.Clear();
+        session.AdvanceTo(ProjectileRuntime.Time(10));
+        conn.Walk.SetSpeed(40, 10);
+        var target = conn.Monsters[400] = new("moving target", new(160, 100, 10), 0, 0, 100000) { Hostile = true };
+        var gems = Game.GemSkillEffects(conn);
+        var warp = gems.Single(g => g.Name == "Lightning Warp");
+        var fire = gems.Single(g => g.Name == "Fireball");
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, warp.Id, (100, 100), (160, 100)));
+        session.AdvanceTo(session.Runtime.Now);
+        Assert.Equal(1, session.WarpCount);
+
+        // Start Fireball on the monster half a windup before the already-paid warp lands on its old cell.
+        double cast = Game.CastMs(conn, fire.Effect, fire.Id)!.Value / 1000d;
+        double windup = cast * Game.Animations.SpellRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
+        session.AdvanceTo(session.LastWarpTime - ProjectileRuntime.Time(windup / 2));
+        conn.Clock.Start();
+        double start = Game.ProjectileWorldTime(conn);
+        uint mana = conn.PlayerMana;
+        await Game.OnUseObject(session.remote, battle.Stream, battle.Ciphers, conn, new(400, fire.Id, 43, 0x408), conn.Clock.Elapsed.TotalSeconds);
+        Assert.Equal(7u, mana - conn.PlayerMana);
+        target.Walk.Teleport(100, 160, start);
+        session.AdvanceTo(session.LastWarpTime);
+        await battle.FlushOutput();
+        Assert.Equal((160, 100), conn.Walk.Position(Game.ProjectileWorldTime(conn)));
+
+        foreach (double delay in new[] { windup, cast + windup })
+        {
+            session.AdvanceTo(ProjectileRuntime.Time(start + delay));
+            var shot = Assert.Single(session.Runtime.Projectiles, p => p.CreatedAt == session.Runtime.Now);
+            Assert.Equal(new ProjectileVector(184, 154), shot.Use.Aim);
+            var direction = new ProjectileVector(24, 54).Unit;
+            Assert.Equal(direction.X, shot.Direction.X, 6);
+            Assert.Equal(direction.Y, shot.Direction.Y, 6);
+        }
     }
 
     [Fact]

@@ -1767,8 +1767,14 @@ from `[sequence, derived byte, chain count, outer repeats remaining, owner ID]`.
 derived byte and chain count. It adds the truncated components of `60 * (sin(angle), cos(angle))` to the
 source and stores that point before applying the facing gates. Targeting the player's own object skips the
 turn but still sets the projectile aim. Spell Echo restarts from the saved point with one fewer repeat.
-Unleash reoccurrences share the outer action's aim. The projectile's own spread and travel use their usual
-rules. Native presentation, moving object targets across repeats and turns from other player actions need verification.
+For an object action, the input reader `0x14193e340` stores the resolved target's current grid. The ordinary
+contact event (`0x9b8d`) uses the stored aim. If the caster now occupies that cell, release preparation
+(`0x141ba7eb7..0x141ba7f8b`) draws with the current outer repeat count and writes back the new point.
+This release does not turn the actor. Subsequent Unleash contacts and Spell Echo starts see the updated aim.
+In loopback, a paid Lightning Warp lands on a moving enemy's original cell during Fireball windup. Both
+Fireballs then fly toward the point picked at the first contact. The four action classes' target-update slot
+(`+0x110`) is empty. A separate animation event (`0xc4a5`, base handler `0x141942838`) can refresh the aim
+from a bound target. Its use by player clips and native presentation still need verification.
 
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
