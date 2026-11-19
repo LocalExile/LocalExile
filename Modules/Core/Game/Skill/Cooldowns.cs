@@ -20,11 +20,15 @@ public static partial class Game
         return CooldownForSkill(conn, sources.FirstOrDefault(g => g.Id == source).Name is not null ? source : sources[0].Id);
     }
 
-    internal static SingleUseCooldown? CooldownForSkill(ClientState conn, ushort skillId)
+    public static SingleUseCooldown? CooldownForSkill(ClientState conn, ushort skillId)
     {
         var supported = SupportedSkill(conn, skillId);
         return CooldownPlan(conn, supported, CharacterPlayerStats(conn));
     }
+
+    /// <summary>The client-facing stored-use state of one skill, null when it has none.</summary>
+    public static SingleUseCooldownState? SingleUseState(ClientState conn, int effect, ushort skillId) =>
+        conn.SingleUseCooldowns.GetValueOrDefault(CooldownKey(conn, effect, skillId));
 
     // Ikiaho's Leadership: travel skills recover cooldowns faster (the level 1 spirit's 100 is a 2x rate).
     public static int TravelSkillCooldownSpeed(SkillCatalog skills, int effect,
@@ -187,6 +191,12 @@ public static partial class Game
                 if (reserve && !TryPlanStanceLocked(conn, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
             }
             if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(conn, manual)) is not null) return false;
+            // A guard skill shares one cooldown with the other guard skills, and its own buff has to be over before a
+            // new one starts: Immortal Call's cooldown does not recover during its effect, so it is ready again only
+            // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
+            // a bypass charge or a cost is spent.
+            if (skillId is not null && SkillsFor(conn).IsGuard(effect)
+                && !TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(conn)
@@ -318,8 +328,9 @@ public static partial class Game
                     || key < 0 && state.NativeSkillId != id) continue;
                 state.Refresh(now, state.Rate);
                 if (!state.NeedsNativeRefresh) continue;
-                updates.Add(new(id, state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
-                    state.TotalBaseMilliseconds / 1000f, (float)state.Rate, state.SpentUses));
+                updates.Add(new(id, state.Held ? state.TotalBaseMilliseconds / 1000f
+                        : state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),
+                    state.TotalBaseMilliseconds / 1000f, state.Held ? 0f : (float)state.Rate, state.SpentUses));
                 synchronized.Add(state);
             }
             if (updates.Count == 0) return null;

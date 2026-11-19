@@ -24,7 +24,8 @@ else that needs the lock waits behind it.
 - **The guard** is the Gateway test `A_stat_sources_lookup_with_nothing_changed_sums_no_item_mods`: an unchanged lookup
   calls `ItemModStats.Sum` zero times and allocates within a budget. Raise the budget only with the measurement below.
 - **Measure a change to player stat building before and after**: `live.ps1 -Release` with `Game_TRACE=lag,latency`, a
-  minute of fighting on each build, and the Gateway log's `stat-builds=N/s=P%cpu` (2026-11-17: 2-7 % of a core). For
+  minute of fighting on each build, and the Gateway log's `stat-builds=N/s=P%cpu` (2026-11-17: 2-7 % of a core) and
+  `[latency-lookup]` (a hit's cost; the lag probe's lines are in [debugging](debugging.md)). For
   where the time goes, sample the Gateway during the fight:
   `dotnet-trace collect -p <pid> --profile dotnet-sampled-thread-time --format Speedscope`.
 

@@ -26,17 +26,18 @@ public static partial class Game
             ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         return WithOverheat(conn, skillId, MonsterPoisons.Settings.From(rows, hand, get,
-            spell || weapon is not null ? null : MainHandLocalSources(conn)));
+            spell ? null : weapon is null ? MainHandLocalSources(conn) : weapon.LocalSources));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     public static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player,
-        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
+        int? accuracy = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         var sourceWeapon = weapon ?? WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(conn, player))), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources);
     }
@@ -90,6 +91,7 @@ public static partial class Game
         for (int i = 0; i < stacks; i++)
             if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
         if (accepted == 0) return false;
+        InflictedLocked(conn, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(conn, now);
         return true;
     }

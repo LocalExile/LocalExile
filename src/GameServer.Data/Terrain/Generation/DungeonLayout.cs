@@ -25,6 +25,8 @@ sealed class DungeonPlacement
     public int Orientation;
     public byte Kind, Flags;
     public List<string> Descriptions = [];
+    /// <summary>The extra room pool row the room was placed for (<see cref="DungeonLayout"/>'s feature rooms), if any.</summary>
+    public ExtraFeatureRow? Feature;
     public DungeonDoor[] Exits = [];
     public string? Type40, Type48;
 
@@ -506,7 +508,8 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
                 return true;
             }
             if (room.Unit != map.Unit) return false;
-            if (PlaceSpecial([(room, row.Mask)]) is null) return false;
+            if (PlaceSpecial([(room, row.Mask)]) is not { } placement) return false;
+            placement.Feature = row;
             // 0x141d8e240 (the pool's placed rooms, by position) is left out: nothing in the layout reads it.
             used.Add(row);
             share--;

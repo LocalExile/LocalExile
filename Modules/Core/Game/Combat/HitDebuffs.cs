@@ -73,6 +73,8 @@ public static partial class Game
         if (m.Effects["immune_to_maim"] != 0 || RandomRolls.Chance(m.Effects["avoid_maim_%_chance"], 100, random))
             return false;
         if (!RandomRolls.Chance(chance, 100, random)) return false;
+        // Settle elapsed bleed damage at its Rupture deadlines using the target's previous Maim.
+        if (physicalTaken > 0 && m.Bleeds.Burning) SettleBleeding(m, now);
         m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
         physicalTaken = Math.Max(0, physicalTaken);
         if (physicalTaken > 0 && (physicalTaken >= m.MaimedPhysicalTakenPct || m.MaimedPhysicalTakenUntil <= now))

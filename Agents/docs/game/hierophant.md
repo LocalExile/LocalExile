@@ -54,8 +54,8 @@ Phrecia class's and are not covered here. Every stat is applied through its sum,
 
 - Brands: no Brand skill executes (no attachment, activation or recall), so `sigil_damage_+%`, Sign of Purpose's recall
   cooldown and activation frequency have nothing to act on.
-- The non-damaging reduction acts on chill and shock only: the player's freeze has no magnitude here, and scorch,
-  brittle and sap are not inflicted on the player.
+- The non-damaging reduction acts on chill, shock, scorch and brittle: the player's freeze has no magnitude here, and
+  sap is not inflicted on the player.
 - Arcane Blessing on hit executors outside the area and projectile paths (the default attack is not a spell).
 
 ## Not seen in the client

@@ -15,6 +15,7 @@ public static partial class Game
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
     public static bool VaalExecutor(ClientState conn, int effect) =>
         SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
+            or VaalImmortalCallEffect or "VaalHaste" or "VaalSmite"
             || IsVaalMinion(SkillsFor(conn).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
@@ -56,7 +57,7 @@ public static partial class Game
         int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
         bool buffScaled = Get("modifiers_to_buff_effect_duration_also_affect_soul_prevention_duration") != 0;
-        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats)
+        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats, SkillDurationModifiers.Kinds.Buff)
             : Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
             ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;
@@ -106,12 +107,10 @@ public static partial class Game
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
         conn.PlayerMana -= plan.Mana;
-        if (plan.Life > 0)
-        {
-            conn.PlayerLife -= plan.Life;
-            Lifetap.Spend(conn, SupportedSkill(conn, plan.Skill).Stats, (int)plan.Life, now);
-        }
+        conn.PlayerLife -= plan.Life;
         ManaSpentLocked(conn, plan.Mana, stats);
+        if (plan.Life > 0 || plan.Mana > 0)
+            ApplyPaidSupportCostsLocked(conn, plan.Skill, SupportedSkill(conn, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
         if (attackDeadline is double next) conn.NextAttackAt = next;
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
         Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(conn).EffectId(plan.Effect)}, " +

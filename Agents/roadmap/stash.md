@@ -21,6 +21,7 @@ verify the corrected fossil/resonator presentation in the real client (18-stash.
   (MapStashSpecialSubStashGroup / MapStashUniqueMapInfo). Unique collection categories and `/item_tab` filling
   are implemented; unique Heist contract generation and catalogue entries absent from the native collection remain
   unsupported. The divination and gem tabs show items (18 §7).
+  Verify Unique Collection close/reopen (#998) in the native client; category retention has only offline evidence.
 - **Done when:** tab settings are kept and every special tab takes its items as the real one does.
 
 ### Special-tab crafting follow-up

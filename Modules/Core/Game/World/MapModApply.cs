@@ -57,6 +57,16 @@ public static partial class Game
         return extra;
     }
 
+    public static IReadOnlyDictionary<string, int> MapBossEffects(MapMods mods) => new Dictionary<string, int>
+    {
+        ["maximum_life_+%"] = mods.Get("map_boss_maximum_life_+%"),
+        ["damage_+%"] = mods.Get("map_boss_damage_+%"),
+        ["attack_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
+        ["base_cast_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
+        ["base_item_found_quantity_+%"] = mods.Get("map_boss_dropped_item_quantity_+%"),
+        ["base_item_found_rarity_+%"] = mods.Get("map_boss_item_rarity_+%"),
+    };
+
     static IEnumerable<AreaPopulation.Spawn> WithTwinBosses(IEnumerable<AreaPopulation.Spawn> spawns, MapMods? mods)
     {
         if ((mods?.Get("map_spawn_two_bosses") ?? 0) == 0) return spawns;
@@ -82,7 +92,7 @@ public static partial class Game
             yield return extraCard;
         double scarab = MapDropFactor(mods, "map_scarab_drop_chance_+%_final_from_uber_mod",
             "map_unscaled_scarab_drop_chance_+%_final_from_uber_mod", "map_scarab_drop_chance_+%_final_from_faridun_wish");
-        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel) is { } extraScarab)
+        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel, mods) is { } extraScarab)
             yield return extraScarab;
     }
 

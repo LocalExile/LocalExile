@@ -576,6 +576,22 @@ public static class InstanceItems
         return new(r.U32(), r.U32(), r.U32(), r.U32());
     }
 
+    public const ushort UseItemOnObjectId = 0x74;
+    public const int UseItemOnObjectLength = 14;
+
+    /// <summary>
+    /// C→S 0x74 (14 bytes; writer 0x141f9ad60, live 2026-11-17): an item used on a world object, e.g. right-click a currency
+    /// item, then click a strongbox: <c>0074 00000001 0000000E 04000000</c>, u32 inventory id and u32 item id of the used
+    /// item, then u32 the object's id, all big-endian.
+    /// </summary>
+    public sealed record UseItemOnObject(uint InventoryId, uint ItemId, uint TargetObjectId);
+
+    public static UseItemOnObject ReadUseItemOnObject(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32(), r.U32());
+    }
+
     public const ushort UseItemOnPassiveId = 0x77;
     public const int UseItemOnPassiveLength = 12;
 
