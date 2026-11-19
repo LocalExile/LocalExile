@@ -217,6 +217,11 @@ public sealed class EssenceCorruptionTests
         Assert.Equal(50, Game.MaimedMovementFactor(monster, 0).Pct);
         monster.Attack = monster.Attack! with { Spell = true };
         Assert.Equal(.7, Game.MonsterSwingSeconds(conn, monster, 0), 8);
+        var ally = new SpawnedMonster("enraged ally", new(10, 10, 36), 60, 8, 100)
+            { Hostile = false, Life = 50, Mods = monster.Mods, Attack = monster.Attack };
+        Assert.False(Game.EnemyOnLowLife(ally));
+        Assert.Equal(227, Game.MonsterModHit(ally, ally.Attack!.Damage, 1000, 1000, new Random(505), out _, now: 0).MinTotal, 8);
+        Assert.Equal(.7, Game.MonsterSwingSeconds(conn, ally, 0), 8);
         monster.MaimedUntil = 0;
         monster.Life = 51;
         Game.MonsterAilmentChangesLocked(conn, 0);

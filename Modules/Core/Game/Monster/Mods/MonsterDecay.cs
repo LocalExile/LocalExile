@@ -26,7 +26,7 @@ public static partial class Game
         int basis = effects[DecayOnHit];
         if (basis <= 0 || blocked || conn.Immune || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)
             || Stats.Key("base_cannot_be_damaged") is uint cannot && player.GetValueOrDefault(cannot) != 0) return;
-        double dps = effects.OverTime(basis, DamageType.Chaos, EnemyOnLowLife(monster) ? effects["damage_+%_when_on_low_life"] : 0);
+        double dps = effects.OverTime(basis, DamageType.Chaos, MonsterOnLowLife(monster) ? effects["damage_+%_when_on_low_life"] : 0);
         var state = Decays.GetValue(conn, _ => new());
         RetimeDecay(conn, state, now, player);
         if (!state.Damage.Add(now, dps, MonsterDecaySeconds)) return;

@@ -2252,7 +2252,7 @@ public static partial class Game
     {
         if (m.Attack is not { } a) return 0;
         var effects = m.Effects;
-        int extra = EnemyOnLowLife(m) ? effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] : 0;
+        int extra = MonsterOnLowLife(m) ? effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] : 0;
         if (!a.Spell && now - m.HitPlayerAt <= RecentlySeconds) extra += conn.Pools.AttackerSlowPct;
         if (extra == 0) return a.Seconds;
         int increased = effects[a.Spell ? "base_cast_speed_+%" : "attack_speed_+%"];
@@ -2273,7 +2273,7 @@ public static partial class Game
             {
                 if (m.Dead || m.Attack is not { } a) continue;
                 if (m.SwingSecondsSent is null && (a.Spell || !slows || now - m.HitPlayerAt > RecentlySeconds)
-                    && (!EnemyOnLowLife(m) || m.Effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] == 0)) continue;
+                    && (!MonsterOnLowLife(m) || m.Effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] == 0)) continue;
                 double seconds = MonsterSwingSeconds(conn, m, now);
                 if (seconds == (m.SwingSecondsSent ?? a.Seconds)) continue;
                 m.SwingSecondsSent = seconds == a.Seconds ? null : seconds;

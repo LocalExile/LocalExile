@@ -230,7 +230,7 @@ public static partial class Game
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
-        int lowLife = EnemyOnLowLife(m) ? m.Effects["movement_velocity_+%_when_on_low_life"] : 0;
+        int lowLife = MonsterOnLowLife(m) ? m.Effects["movement_velocity_+%_when_on_low_life"] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
             totalPct = Math.Max(0, totalPct);
@@ -401,7 +401,7 @@ public static partial class Game
             double vines = ToxicWalkFactor(m);
             if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
             bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
-            bool lowLifeMove = EnemyOnLowLife(m) && m.Effects["movement_velocity_+%_when_on_low_life"] != 0;
+            bool lowLifeMove = MonsterOnLowLife(m) && m.Effects["movement_velocity_+%_when_on_low_life"] != 0;
             if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) continue;
             if (!elementalIdle)
