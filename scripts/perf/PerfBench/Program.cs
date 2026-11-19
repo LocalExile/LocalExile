@@ -39,7 +39,8 @@ static class PerfBenchMain
                 case "idle": await PerfBench.Idle_player_cpu(); break;
                 case "sweep": await PerfBench.Area_sweep(); break;
                 case "stats": PerfBench.Player_stat_builds(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats"); return 2;
+                case "pause": await PerfBench.Pause_and_resume(); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats|pause"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -536,6 +537,59 @@ static class PerfBench
         Record("busy", "bytes sent per game second", (Interlocked.Read(ref wire.Received) - sentBefore) / elapsed, "B/s");
         Record("busy", "aggro monsters", conn.Monsters.Values.Count(m => m.Aggro), "");
         Record("busy", "log lines per game second", (LogLines() - linesBefore) / elapsed, "/s");
+    }
+
+    // The busy instance paused (the Escape menu, Game.SetPaused) for 10 s and resumed: the area's frames a second before
+    // and after. A frame driver that replays the paused time runs far more than 30 a second after the resume.
+    public static async Task Pause_and_resume()
+    {
+        var (wire, conn, _) = await BusyInstance();
+        using var __ = wire;
+        // 10,000 more life: the crowd kills the character in about 15 s, and a death's frame is not the resume's.
+        conn.God = true;
+        // A robe with a Righteous Fire gem (Game_PERF_RF=0: none): its timers are what replayed the paused frames on the
+        // resume (each a tick per paused frame, in one area step). The skill itself is not turned on here.
+        if (Environment.GetEnvironmentVariable("Game_PERF_RF") != "0")
+        {
+            var items = Game.ItemsFor(conn);
+            var (gemType, variant) = items.FindGem("Righteous Fire") ?? throw new InvalidOperationException("no Righteous Fire gem");
+            var created = ItemCatalog.Create(gemType) with { GemExperience = items.Gem(gemType)!.ExperienceFor(1), GemVariant = variant.Index };
+            var inventories = Game.ItemsOf(conn);
+            uint robe = inventories.NewItemId();
+            inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(robe, 0, 0,
+                ItemCatalog.Create(items.Find("Simple Robe")!) with { Sockets = [new ItemSocket(SocketColour.Red, created)] }));
+            // The character does not meet the gem's requirements: exempt (as a mod may).
+            GameEvents.RequirementExemptions.Add("perf", c => ReferenceEquals(c, conn) ? [robe] : []);
+        }
+        var area = StartArea(conn);
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        long FramesIn(double seconds)
+        {
+            long from = conn.Frames.Frame;
+            Thread.Sleep(TimeSpan.FromSeconds(seconds));
+            return conn.Frames.Frame - from;
+        }
+        Record("pause", "frames in the second before", FramesIn(1), "");
+        await Game.SetPaused(conn, true);
+        Record("pause", "frames in 10 s paused", FramesIn(10), "");
+        await Game.SetPaused(conn, false);
+        // The longest wait for the next frame in the 3 s after the resume (the client sees nothing meanwhile).
+        double longest = 0;
+        var clock = Stopwatch.StartNew();
+        long last = conn.Frames.Frame;
+        double lastAt = 0;
+        while (clock.Elapsed.TotalSeconds < 3)
+        {
+            Thread.Sleep(2);
+            long frame = conn.Frames.Frame;
+            double at = clock.Elapsed.TotalMilliseconds;
+            if (frame != last) { longest = Math.Max(longest, at - lastAt); (last, lastAt) = (frame, at); }
+        }
+        longest = Math.Max(longest, clock.Elapsed.TotalMilliseconds - lastAt);
+        Record("pause", "longest gap between frames after the resume", longest, "ms");
+        Record("pause", "frames a second after the resume", FramesIn(1), "");
+        lock (conn.Monsters) conn.Closed = true;
+        await area;
     }
 
     // The planner alone, single-threaded, over the same crowd: one decision pass per AI step (no sends).
