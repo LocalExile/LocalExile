@@ -83,6 +83,7 @@ public static partial class Game
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Mark).ToArray()) m.Curses.Remove(mark.Caster, mark.Effect);
         monster.Curses.Put(new(conn.PeerId, effect, skill, definition.Buff, conn.NextBuff++, now,
             aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats), CurseLimit(conn, player));
+        if (!aura) monster.DebuffsChanged?.Invoke();
         return true;
     }
 

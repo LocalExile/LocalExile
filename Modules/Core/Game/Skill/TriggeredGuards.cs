@@ -122,6 +122,8 @@ public static partial class Game
             guard.Reflection = Own("molten_shell_%_of_absorbed_damage_dealt_as_reflected_fire");
         }
         guard.Until = now + duration;
+        // It ends at Until (Molten Shell reflects then), whoever reads it first.
+        AfterSeconds(conn, duration, () => { lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds); });
         double recovery = Math.Max(0, 1 + Get("virtual_cooldown_speed_+%") / 100d + Own("base_cooldown_speed_+%") / 100d);
         guard.RecoverySeconds = recovery > 0 ? SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);

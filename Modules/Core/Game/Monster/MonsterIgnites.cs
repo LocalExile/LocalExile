@@ -211,7 +211,7 @@ public static partial class Game
             double until = target.Ignites.Until;
             var key = (DamageType.Fire, settings.FireExposure);
             target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-            target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
+            { target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until); target.DebuffsChanged?.Invoke(); }
         }
         if (playerIgnite && target.Hostile)
         {

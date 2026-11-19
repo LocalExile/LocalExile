@@ -280,6 +280,8 @@ public sealed record MonsterMovement
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public uint ObjectId { get; set; }
+    /// <summary>A timed debuff on it changed (the players' presentations of it follow). Set by whoever spawns it.</summary>
+    public Action? DebuffsChanged;
     public MadnessExplosion? MadnessExplosion;
     public readonly SpiderWebState SpiderWebs = new();
 
@@ -947,7 +949,11 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null)
     {
         lock (_blockers) { _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius }; _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values); }
+        BlockersChanged?.Invoke();
     }
+
+    /// <summary>A stationary blocker was added or moved (the player may now stand in it).</summary>
+    public Action? BlockersChanged;
 
     public void RemoveBlocker(uint id)
     {
@@ -1087,7 +1093,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public readonly Dictionary<ushort, AuraCatalog.Aura> Auras = [];
     // Only self-owned aura instances actually sent on this connection's current player object.
     public readonly Dictionary<ushort, AuraCatalog.Aura> PresentedAuras = [];
-    public bool AuraStatsDirty;
+    public bool AuraStatsDirty { get => auraStatsDirty; set { auraStatsDirty = value; if (value) AuraStatsDirtied?.Invoke(); } }
+    bool auraStatsDirty;
+    /// <summary>The auras' stats need publishing again (the aura presentation follows).</summary>
+    public Action? AuraStatsDirtied;
     /// <summary>The stance the next Flesh and Stone activation starts in ("Blood" or "Sand"): the skill alternates on each
     /// use, and the stance flips when the aura starts (Game.ToggleAura), not when it ends.</summary>
     public string Stance = "Blood";

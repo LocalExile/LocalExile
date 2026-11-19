@@ -32,11 +32,18 @@ public static class AreaSetup
         // them to its time first, and this pass then has nothing left to do.
         var frames = conn.Frames;
         var monsters = conn.Monsters;
+        var cells = new Game.WalkerCells();
         area.Systems.Add("movement", AreaPhase.Movement, a =>
         {
             var players = frames.Players();
             if (players.Length == 0 || !Game.AreaSteps(players[0])) return;
-            lock (monsters) Game.StepAreaWalkers(players[0], a.Time);
+            bool moved;
+            lock (monsters)
+            {
+                Game.StepAreaWalkers(players[0], a.Time);
+                moved = cells.Moved(players, a.Time);
+            }
+            if (moved) foreach (var p in players) Game.PresentNearby(p);
         }, source: source);
         Console.WriteLine($"[area] {conn.Layout.Id}: {area.Systems.All.Count(s => ReferenceEquals(s.Source, source))} game system(s) in the area's world");
     }

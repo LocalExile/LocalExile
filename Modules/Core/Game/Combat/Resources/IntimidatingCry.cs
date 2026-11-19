@@ -123,7 +123,7 @@ public static partial class Game
         TauntLocked(conn, at, radius, now, taunt);
         if (Own("enemies_taunted_by_your_warcies_are_intimidated") != 0 && taunt > 0)
             foreach (var m in enemies)
-                m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate);
+                { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate); m.DebuffsChanged?.Invoke(); }
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         double effect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("skill_buff_effect_+%")) / 100d);
         int movement = (int)Math.Clamp(Math.Floor(Math.Min(30, power) / 5d)

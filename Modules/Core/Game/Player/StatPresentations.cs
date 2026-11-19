@@ -13,7 +13,62 @@ public static partial class Game
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
         SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
+        SendAttackerSlows, SendExpandedInventory,
     ];
+
+    // What depends on where the player and the monsters stand: run when a walker moved to another cell (the area's
+    // movement), a blocker was added, and with the stat presentations (a stat change moves radii and grants).
+    static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] NearbyPresentations =
+    [
+        SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld,
+    ];
+
+    static Task SendExpandedInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        SyncExpandedInventory(conn);
+
+    static Task SendPushOut(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        PushOutOfCollision(remote, stream, ciphers, conn);
+
+    // The party's auras: the ones this player gives and gets by range.
+    static Task SendNearbyAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
+            || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0)
+            ? SendOwnAuraChanges(remote, stream, ciphers, conn) : Task.CompletedTask;
+
+    // The waypoint, the gold in the auto-loot radius and the quests' sight rules, where the player stands.
+    static async Task SendNearbyWorld(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (conn.PlayerLife == 0) return;
+        lock (conn.Monsters)
+            if (HardcoreProgressBlocked(conn)) return;
+        if (conn.Layout.Waypoint is { } waypoint
+            && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
+            await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
+        // The way walked since the last check counts (PickUpNearbyGold), not only where the player stands.
+        var presenting = PresentingOf.GetOrCreateValue(conn);
+        presenting.GoldCheckedAt = await PickUpNearbyGold(remote, stream, ciphers, conn, presenting.GoldCheckedAt);
+        lock (conn.Monsters)
+            if (HardcoreProgressBlocked(conn)) return;
+        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").
+        if (QuestsOf(conn).Watched(conn.Layout.Id) is { Count: > 0 } watched)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            List<string> seen;
+            lock (conn.Monsters)
+                seen = [.. conn.Monsters.Values.Where(m => !m.Dead && m.Life > 0 && m.Variety is { } v && watched.Contains(v.Id)
+                    && Dist(m.Walk.Position(now), at) <= Quests.SightRange).Select(m => m.Variety!.Id).Distinct()];
+            foreach (string variety in seen)
+                await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterSeen(conn.Layout.Id, variety));
+        }
+        // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
+        if (conn.Glyphs?.Wall is { } glyphWall && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall)
+            && Dist(at, (glyphWall.X, glyphWall.Y)) <= Quests.SightRange)
+            await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
+        // The quest engine's sight rules (room objects, exits).
+        await CheckQuestSights(remote, stream, ciphers, conn, at);
+        if (conn.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(remote, stream, ciphers, conn, at);
+    }
 
     // Death ends the auras, Righteous Fire and Bladefall of Trarthus; an empty mana pool ends Bladefall (the resource
     // writer spends it). Both are stat conditions, so their flip runs this.
@@ -33,7 +88,8 @@ public static partial class Game
 
     sealed class Presenting
     {
-        public volatile bool Pending;
+        public volatile bool Pending, NearbyPending;
+        public (int X, int Y)? GoldCheckedAt;
         public Task Running = Task.CompletedTask;
         // When a presentation's state next changes on its own (PresentIn), on the connection's clock.
         public double NextAt = double.PositiveInfinity;
@@ -93,6 +149,10 @@ public static partial class Game
     /// <summary>What a stat presentation shows changed: they run after the next Stats phase.</summary>
     static void PresentStats(ClientState conn) => PresentingOf.GetOrCreateValue(conn).Pending = true;
 
+    /// <summary>A walker moved to another cell or a blocker appeared: the nearby presentations run after the next Stats
+    /// phase.</summary>
+    public static void PresentNearby(ClientState conn) => PresentingOf.GetOrCreateValue(conn).NearbyPending = true;
+
     /// <summary>A presentation's state changes on its own in <paramref name="seconds"/> (an expiry): they run again then.</summary>
     static void PresentIn(ClientState conn, double seconds)
     {
@@ -112,14 +172,21 @@ public static partial class Game
                 presenting.NextAt = double.PositiveInfinity;
                 presenting.Pending = true;
             }
-        if (!presenting.Pending || !presenting.Running.IsCompleted
+        if (!presenting.Pending && !presenting.NearbyPending || !presenting.Running.IsCompleted
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
-        presenting.Pending = false;
+        bool all = presenting.Pending;
+        presenting.Pending = presenting.NearbyPending = false;
         presenting.Ran = true;
         var (remote, stream, ciphers) = conn.Wire;
         presenting.Running = AsPlayer(conn, updates, () => SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
         {
-            foreach (var send in StatPresentations)
+            if (all)
+                foreach (var send in StatPresentations)
+                {
+                    await send(remote, stream, ciphers, conn);
+                    if (!PlayerUpdatesCurrent(conn, updates)) return false;
+                }
+            foreach (var send in NearbyPresentations)
             {
                 await send(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
@@ -135,7 +202,7 @@ public static partial class Game
     static async Task VerifyStatPresentations(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!VerifyPresentations || !PresentingOf.GetOrCreateValue(conn).Ran) return;
-        foreach (var send in StatPresentations)
+        foreach (var send in StatPresentations.Concat(NearbyPresentations))
         {
             PresentVerifyTag.Value = send.Method.Name;
             try { await send(remote, stream, ciphers, conn); }

@@ -45,6 +45,25 @@ public static partial class Game
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
 
+    // When a timed debuff on a monster next ends (taunt, hit debuffs, exposure, wither, curse), or a step of Pride's
+    // 4-second ramp is due.
+    static double? MonsterDebuffsNextChange(ClientState conn, double now)
+    {
+        double next = double.PositiveInfinity;
+        void Next(double until) { if (until > now && until < next) next = until; }
+        foreach (var m in conn.Monsters.Values)
+        {
+            if (m.Dead) continue;
+            Next(m.TauntedUntil); Next(m.IntimidatedUntil); Next(m.UnnervedUntil); Next(m.CrushedUntil);
+            Next(m.MaimedUntil); Next(m.HinderedUntil);
+            foreach (double until in m.ExposureUntil) Next(until);
+            foreach (var stack in m.Withered) Next(stack.Until);
+            foreach (var curse in m.Curses.All.Values) Next(curse.Until);
+            if (!double.IsNaN(m.PrideSince) && now - m.PrideSince < 4) Next(now + PlayerTickMs / 1000.0);
+        }
+        return double.IsFinite(next) ? next : null;
+    }
+
     public static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         ushort[] nodes;
@@ -61,6 +80,7 @@ public static partial class Game
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
                 now = AreaTime(conn);
+                if (MonsterDebuffsNextChange(conn, now) is double next) PresentIn(conn, next - now + 1e-6);
                 ushort[] currentNodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
                 var current = nodes.SequenceEqual(currentNodes) ? all
                     : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(conn).HardMode, EnemyAuraActs);

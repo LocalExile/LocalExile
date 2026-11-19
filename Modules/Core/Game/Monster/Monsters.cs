@@ -524,6 +524,7 @@ public static partial class Game
             MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique, movement.ThroughBodies),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
+                DebuffsChanged = () => { foreach (var p in conn.Frames.Players()) PresentNearby(p); },
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
                 Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
@@ -2364,8 +2365,8 @@ public static partial class Game
         : now - m.HitPlayerAt <= RecentlySeconds ? m.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
 
     // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
-    // its attack time changes or goes back, so the client's swing can follow the server's. Called from the player tick
-    // and after a hit.
+    // its attack time changes or goes back, so the client's swing can follow the server's. After a hit, and as a stat
+    // presentation (the player's slow changes with the stats; a slowed monster's "recently" ends on PresentIn).
     public static async Task SendAttackerSlows(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var changed = new List<(uint Id, double Seconds, IReadOnlyList<(uint, int)> Stats)>();
@@ -2373,6 +2374,9 @@ public static partial class Game
         {
             double now = ProjectileWorldTime(conn);
             bool slows = conn.Pools.AttackerSlowPct != 0;
+            foreach (var (_, m) in conn.Monsters)
+                if (m.SwingSecondsSent is not null && m.HitPlayerAt + RecentlySeconds > now)
+                    PresentIn(conn, m.HitPlayerAt + RecentlySeconds - now + 1e-6);
             foreach (var (id, m) in conn.Monsters)
             {
                 if (m.Dead || m.Attack is not { } a || m.SwingSecondsSent is null && (!slows || now - m.HitPlayerAt > RecentlySeconds)) continue;

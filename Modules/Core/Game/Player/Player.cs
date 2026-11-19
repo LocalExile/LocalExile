@@ -923,7 +923,6 @@ public static partial class Game
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         double last = updates.Schedule.Now(conn);
-        (int X, int Y)? goldCheckedAt = null;
         while (PlayerUpdatesCurrent(conn, updates))
         {
             await updates.Schedule.Wait(PlayerUpdateRole.Player, PlayerTickMs, updates.Stop.Token);
@@ -934,30 +933,16 @@ public static partial class Game
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
             await GameEvents.RunTick(conn, seconds);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SyncExpandedInventory(conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
             // eleven holds a tick, each with the Monsters lock, were what the input handlers queued behind. Spirit
             // Chieftain stays outside: its minion follows its published state.
             bool current = await SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
             {
-                // A stationary, full-resource ally may otherwise send no stats or mana at all.
-                // Reconcile shared auras on the periodic gate too, so entry/exit never needs another action.
-                if (conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
-                    || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
-                    await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await VerifyStatPresentations(remote, stream, ciphers, conn);
-                await SendAttackerSlows(remote, stream, ciphers, conn);
-                lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);
-                if (!PlayerUpdatesCurrent(conn, updates)) return false;
-                await TickPassiveAuras(remote, stream, ciphers, conn);
-                await SendBlind(remote, stream, ciphers, conn);
                 return PlayerUpdatesCurrent(conn, updates);
             });
             if (!current) return;
             await SendSpiritChieftain(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await PushOutOfCollision(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The instance's monsters' ailments tick once: on the runner's tick (each player's tick did it again, which
             // multiplied their damage by the players in the instance).
@@ -975,38 +960,6 @@ public static partial class Game
             if (conn.PlayerLife == 0) continue;
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
-            if (conn.Layout.Waypoint is { } waypoint
-                && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
-                await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // Gold within the configured auto-loot radius is picked up unless a league system suppresses loot.
-            // The way walked since the last check counts (PickUpNearbyGold), not only where the player stands.
-            var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            goldCheckedAt = await PickUpNearbyGold(remote, stream, ciphers, conn, goldCheckedAt);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            lock (conn.Monsters)
-                if (HardcoreProgressBlocked(conn)) continue;
-            // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").
-            if (QuestsOf(conn).Watched(conn.Layout.Id) is { Count: > 0 } watched)
-            {
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                List<string> seen;
-                lock (conn.Monsters)
-                    seen = [.. conn.Monsters.Values.Where(m => !m.Dead && m.Life > 0 && m.Variety is { } v && watched.Contains(v.Id)
-                        && Dist(m.Walk.Position(now), at) <= Quests.SightRange).Select(m => m.Variety!.Id).Distinct()];
-                foreach (string variety in seen)
-                {
-                    await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterSeen(conn.Layout.Id, variety));
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                }
-            }
-            // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
-            if (conn.Glyphs?.Wall is { } glyphWall && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall)
-                && Dist(at, (glyphWall.X, glyphWall.Y)) <= Quests.SightRange)
-                await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
-            // The quest engine's sight rules (room objects, exits).
-            await CheckQuestSights(remote, stream, ciphers, conn, at);
-            if (conn.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(remote, stream, ciphers, conn, at);
             await CheckQuestThresholds(remote, stream, ciphers, conn);
             // The quest items' grant flags follow the items carried (dropped, sold, stashed ones too), about once a second;
             // no inventory change here (the message path removes items).

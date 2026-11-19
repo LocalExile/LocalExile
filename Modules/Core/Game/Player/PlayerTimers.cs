@@ -24,6 +24,14 @@ public static partial class Game
         }, source: CombatLifetime));
     }
 
+    /// <summary>Runs <paramref name="work"/> once on the area's timers in <paramref name="seconds"/> (an effect's end).</summary>
+    static void AfterSeconds(ClientState conn, double seconds, Action work)
+    {
+        if (conn.Frames.Area is not { } area) return;
+        long frames = Math.Max(1, (long)Math.Ceiling(Math.Max(0, seconds) * 1000 / Program.FrameMs));
+        area.Defer(a => a.Timers.After(a.Frame, frames, _ => { if (!conn.Closed && CurrentGameWork) work(); }, source: CombatLifetime));
+    }
+
     /// <summary>The seconds each run of <see cref="EveryAsPlayer"/> at <paramref name="ms"/> stands for.</summary>
     static double EverySeconds(int ms) => Math.Max(1, (int)Math.Round(ms / (double)Program.FrameMs)) * Program.FrameMs / 1000.0;
 }

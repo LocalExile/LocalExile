@@ -70,6 +70,7 @@ public static partial class Game
             if (!(ResourceEffectsCurrent(conn, state) && conn.PlayerLife > 0 && !conn.LeavingArea && !conn.Paused
                 && state.PlayerBlind.Inflict(ResourceEffectsTime(conn), seconds, effect, BlindImmune(conn, player)))) return false;
             MarkPlayerBlind(conn);
+            PresentNearby(conn);
             return true;
         }
     }
@@ -117,8 +118,10 @@ public static partial class Game
         if (chance <= 0 || !CurrentGameRules || conn.LeavingArea || conn.Paused
             || !RandomRolls.Chance(chance, 100, random ?? Random.Shared)) return false;
         var state = ResourceEffectsOf(conn);
-        return ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
-            .Inflict(at, seconds, effect, target.Mods.Effects["cannot_be_blinded"] != 0);
+        if (!(ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
+            .Inflict(at, seconds, effect, target.Mods.Effects["cannot_be_blinded"] != 0))) return false;
+        target.DebuffsChanged?.Invoke();
+        return true;
     }
     public static byte[]? BlindPresentation(ClientState conn, IReadOnlyDictionary<uint, int>? snapshot = null)
     {
@@ -141,6 +144,11 @@ public static partial class Game
             }
             double now = ResourceEffectsTime(conn);
             state.CollectRetiredTargets(conn);
+            // Each Blind's end shows again (a nearby presentation, PresentIn).
+            double next = state.PlayerBlind.NextEnd ?? double.PositiveInfinity;
+            foreach (var (_, target) in state.Targets) next = Math.Min(next, target.Blind.NextEnd ?? double.PositiveInfinity);
+            foreach (var m in conn.Monsters.Values) if (m.RampageBlindUntil > now) next = Math.Min(next, m.RampageBlindUntil);
+            if (next > now && double.IsFinite(next)) PresentIn(conn, next - now + 1e-6);
             bool work = state.PlayerBlind.Read(now).Less > 0 || state.PlayerBlind.Sent.Less > 0 || state.Targets.Count > 0
                 || conn.RetiredResourceBuffs.Count > 0 || conn.FlaskGrounds.BlindedMonsters().Any()
                 || conn.Monsters.Keys.Any(conn.BlindAura.Blinded)

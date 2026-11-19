@@ -337,6 +337,8 @@ public static partial class Game
         LeechOf(conn).DisplayChanged = () => PresentStats(conn);
         conn.PetrifiedBlood.Changed = () => PresentStats(conn);
         conn.PhysicalAegis.Changed = () => PresentStats(conn);
+        conn.BlockersChanged = () => PresentNearby(conn);
+        conn.AuraStatsDirtied = () => PresentNearby(conn);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.IncomingAilments],
             a => conn.IncomingAilments.Changed = () => { a(); PresentStats(conn); });
         On(PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments],

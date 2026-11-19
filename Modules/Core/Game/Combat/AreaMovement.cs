@@ -28,6 +28,31 @@ public static partial class Game
     /// <summary>Steps the area's walkers up to <paramref name="now"/> (whole frames: up to the start of the frame being
     /// sent). Stepping again to the same time does nothing, so whoever needs the walkers current calls it. Under the
     /// instance's Monsters lock.</summary>
+    /// <summary>Where each walker of an area stood after the last movement step, by cell: a walker in another cell (or one
+    /// that came or went) is what the nearby presentations follow. Under the Monsters lock.</summary>
+    public sealed class WalkerCells
+    {
+        Dictionary<uint, (int X, int Y)> last = [], next = [];
+
+        public bool Moved(ClientState[] players, double now)
+        {
+            bool moved = false;
+            void See(uint id, (int X, int Y) at)
+            {
+                next[id] = at;
+                if (!last.TryGetValue(id, out var was) || was != at) moved = true;
+            }
+            foreach (var (id, m) in players[0].Monsters)
+                if (!m.Dead) See(id, m.Walk.Position(now));
+            foreach (var p in players)
+                if (p.PlayerSent) See(p.PeerId, p.Walk.Position(now));
+            moved |= next.Count != last.Count;
+            (last, next) = (next, last);
+            next.Clear();
+            return moved;
+        }
+    }
+
     public static void StepAreaWalkers(ClientState conn, double now)
     {
         var world = conn.Instance.World;

@@ -55,14 +55,14 @@ public static partial class Game
         if (!m.Hostile || m.Dead || m.Life == 0) return;
         random ??= Random.Shared;
         var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
-        if (intimidate) m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds);
-        if (unnerve) m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds);
+        if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.DebuffsChanged?.Invoke(); }
+        if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.DebuffsChanged?.Invoke(); }
         if (RandomRolls.Chance(get("chance_to_crush_on_hit_%"), 100, random))
-            m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
+            { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.DebuffsChanged?.Invoke(); }
         TryMaimOnHitLocked(m, get("maim_on_hit_%"),
             Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%")), now, random);
         if (spell && RandomRolls.Chance(get("spells_chance_to_hinder_on_hit_%"), 100, random))
-            m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds);
+            { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.DebuffsChanged?.Invoke(); }
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
@@ -73,7 +73,7 @@ public static partial class Game
         if (m.Effects["immune_to_maim"] != 0 || RandomRolls.Chance(m.Effects["avoid_maim_%_chance"], 100, random))
             return false;
         if (!RandomRolls.Chance(chance, 100, random)) return false;
-        m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
+        { m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds); m.DebuffsChanged?.Invoke(); }
         physicalTaken = Math.Max(0, physicalTaken);
         if (physicalTaken > 0 && (physicalTaken >= m.MaimedPhysicalTakenPct || m.MaimedPhysicalTakenUntil <= now))
         {
@@ -161,7 +161,7 @@ public static partial class Game
         var key = (ExposureTypes[i], magnitude);
         double until = now + ExposureSeconds;
         m.Exposures[key] = Math.Max(m.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-        m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until);
+        { m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until); m.DebuffsChanged?.Invoke(); }
     }
 
     /// <summary>The resistance its Exposure of this type applies at <paramref name="now"/>: the highest running one, 0
@@ -204,7 +204,7 @@ public static partial class Game
         if (m.Mods.Effects["immune_to_wither"] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
         m.Withered.RemoveAll(s => s.Until <= now);
         if (m.Withered.Count >= WitheredMaxStacks) m.Withered.Remove(m.Withered.MinBy(s => s.Until));
-        m.Withered.Add((now + seconds, WitheredPct * Math.Max(0, 1 + get("withered_effect_+%") / 100.0)));
+        { m.Withered.Add((now + seconds, WitheredPct * Math.Max(0, 1 + get("withered_effect_+%") / 100.0))); m.DebuffsChanged?.Invoke(); }
     }
 
     /// <summary>The increased chaos damage its running Withered stacks give at <paramref name="now"/>, 0 without a time.</summary>
