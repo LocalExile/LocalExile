@@ -406,24 +406,34 @@ internal static class DeepwaterEncounters
     // ---- tick ----
 
     /// <summary>Each tick: a player near an idle locked chest starts it (G: proximity, the chests are <c>locked</c>); the
-    /// fights' queued guards spawn; a fight whose guards are all dead is cleared. One table lookup when the instance has
-    /// no encounter going.</summary>
+    /// fights' queued guards spawn; a fight whose guards are all dead is cleared. Without an encounter due (a fight, or an
+    /// idle locked chest in reach) it costs a table lookup and a walk over the area's few encounters, with no allocation.</summary>
     public static async Task Tick(IModuleContext module, ClientState conn)
     {
         if (conn.Instance is not { } instance || !Areas.TryGetValue(instance, out var area) || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-        Encounter[] due;
-        lock (area.Encounters) due = [.. area.Encounters.Where(e => e.Phase is Phase.Idle or Phase.Fighting)];
-        if (due.Length == 0) return;
-        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        int radius = Setting("deepwater_encounter_trigger_radius");
-        bool near = due.Any(e => e.Phase == Phase.Fighting || e.Kind != EncounterKind.CoralNest && Near(at, (e.X, e.Y), radius));
-        if (!near) return;
+        (int X, int Y)? at = null;
+        int radius = 0;
+        List<Encounter>? due = null;
+        lock (area.Encounters)
+            foreach (var e in area.Encounters)
+            {
+                if (e.Phase == Phase.Idle && e.Kind != EncounterKind.CoralNest)
+                {
+                    if (at is null) (at, radius) = (conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), Setting("deepwater_encounter_trigger_radius"));
+                    if (!Near(at.Value, (e.X, e.Y), radius)) continue;
+                }
+                else if (e.Phase != Phase.Fighting) continue;
+                (due ??= []).Add(e);
+            }
+        if (due is null) return;
+        at ??= conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        if (radius == 0) radius = Setting("deepwater_encounter_trigger_radius");
         await area.Gate.WaitAsync();
         try
         {
             foreach (var e in due)
             {
-                if (e.Phase == Phase.Idle && e.Kind != EncounterKind.CoralNest && Near(at, (e.X, e.Y), radius)) await Start(module, conn, area, e);
+                if (e.Phase == Phase.Idle && e.Kind != EncounterKind.CoralNest && Near(at.Value, (e.X, e.Y), radius)) await Start(module, conn, area, e);
                 if (e.Phase != Phase.Fighting) continue;
                 if (e.Pending.Count > 0) await SpawnPending(conn, area, e);
                 if (e.Pending.Count > 0) continue;
