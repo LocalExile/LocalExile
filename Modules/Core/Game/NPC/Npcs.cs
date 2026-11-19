@@ -241,8 +241,11 @@ public static partial class Game
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again (offer {offer} taken without an item)");
             return true;
         }
-        if (LeagueRewardTaken(conn, rewardOffer) ?? QuestRewardCatalog.Taken(rewardOffer.TakenFlag, ItemsFor(conn).ByHash(rewardItems[0].Item!.TypeHash)?.Quest,
-                f => ClientHasQuestFlag(conn, f))) return false;
+        var rewardQuest = ItemsFor(conn).ByHash(rewardItems[0].Item!.TypeHash)?.Quest;
+        // An offer with a league flag is taken by it or by its own flags (an offer with only a league flag has none).
+        if (LeagueRewardTaken(conn, rewardOffer) == true
+            || (rewardOffer.TakenLeagueFlag is null || rewardOffer.TakenFlag is not null || rewardQuest is not null)
+            && QuestRewardCatalog.Taken(rewardOffer.TakenFlag, rewardQuest, f => ClientHasQuestFlag(conn, f))) return false;
         conn.InNpcTalk = false;
         conn.NpcRewardOffer = offer;
         conn.NpcRewardItems = rewardItems.ToDictionary(c => c.Choice.Id, c => c.Item!);

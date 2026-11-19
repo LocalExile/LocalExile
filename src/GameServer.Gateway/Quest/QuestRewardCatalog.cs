@@ -110,19 +110,24 @@ public sealed class QuestRewardCatalog
 
     /// <summary>Puts the reward into an admitted carried grid and records the offer as taken (its taken flag, or the quest item's
     /// pickup flags: an Act 1 book's a1q7-HaveRewardBook), in one save transaction. Null (nothing changes) when it is taken
-    /// already or does not fit.
-    /// <paramref name="leagueTaken"/>: for an offer with a <see cref="Offer.TakenLeagueFlag"/>, whether the league holds it
-    /// (it is then the only test; the caller sets the flag after a claim).</summary>
+    /// already or does not fit. With <paramref name="leagueFlag"/> (an <see cref="Offer.TakenLeagueFlag"/>) and the account's
+    /// <paramref name="leagueFlags"/> stash, the offer is also taken when that stash holds the flag, and the claim sets it in
+    /// the same transaction.</summary>
     public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
         Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row = PlayerInventories.MainInventory,
-        bool expandedAllowed = false, bool? leagueTaken = null) => Saves.Atomically(() =>
+        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null) => Saves.Atomically(() =>
     {
         if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-        if ((leagueTaken ?? Taken(takenFlag, quest, saved.Contains)) || !inventory.Fits(row, reward, shapeOf)) return null;
+        bool league = leagueFlag is int lf && leagueFlags is not null;
+        // An offer with only a league flag is taken by it alone (Taken(null, null) would call it taken already).
+        bool taken = league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
+            || (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains);
+        if (taken || !inventory.Fits(row, reward, shapeOf)) return null;
         var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
+        if (league) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
         var flags = new List<string>();
         if (takenFlag is not null) flags.Add(takenFlag);
         if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>().Where(f => !saved.Contains(f)));
