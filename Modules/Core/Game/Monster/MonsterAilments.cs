@@ -234,8 +234,9 @@ public static partial class Game
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
-        int totalPct = basePct + maimPct - hinderPct;
-        if ((maimPct != 0 || hinderPct != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+        int lowLife = MonsterOnLowLife(m) ? m.Effects["movement_velocity_+%_when_on_low_life"] : 0;
+        int totalPct = basePct + maimPct - hinderPct + lowLife;
+        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
             totalPct = Math.Max(0, totalPct);
         double Movement(double pct) => m.Variety is { } variety
             ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
@@ -404,8 +405,9 @@ public static partial class Game
             double vines = ToxicWalkFactor(m);
             if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
             bool elementalIdle = a.IdleAt(now) && now >= m.ReceivedActionUntil;
+            bool lowLifeMove = MonsterOnLowLife(m) && m.Effects["movement_velocity_+%_when_on_low_life"] != 0;
             if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
-                && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) continue;
+                && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) continue;
             if (!elementalIdle)
             {
                 foreach (var (kind, removed, added, magnitude) in a.Present(now))
@@ -444,7 +446,8 @@ public static partial class Game
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
             }
-            bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0;
+            bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
+                || lowLifeMove;
             bool maimShown = m.MaimedMovementShown;
             bool movementChanged = maimed
                 ? !maimShown || movement.Pct != m.MaimedMovementShownPct
@@ -454,7 +457,7 @@ public static partial class Game
             {
                 m.MaimedMovementShownPct = movement.Pct;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, movement.Pct)]),
-                    $"0x01b3 monster 0x{id:x} movement_velocity_+% = {movement.Pct}" + (m.MaimedMovementShown ? " (maimed)" : " (maim ends)")));
+                    $"0x01b3 monster 0x{id:x} movement_velocity_+% = {movement.Pct} (movement modifiers)"));
             }
             else if (!m.MaimedMovementShown)
             {
