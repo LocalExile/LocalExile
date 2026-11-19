@@ -203,11 +203,18 @@ public sealed partial class AccountStash
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
 
-    /// <summary>The tabs the player sees: the roots only. A map tab's 191 hidden pages are children with a unique
+    /// <summary>The tabs the player sees, in folders or not. A map tab's 191 hidden pages are children with a unique
     /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
     public int VisibleCount
     {
-        get { lock (_lock) return _tabs.Count(t => t.Saved.Parent == ushort.MaxValue && t.Saved.UniqueCategory == 0 && !t.Saved.Hidden); }
+        get { lock (_lock) return _tabs.Count(t => t.Saved.UniqueCategory == 0 && !t.Saved.Hidden); }
+    }
+
+    /// <summary>Whether the tab is one the panel shows as a tab of its own (in a folder or not): not a page of a Map or
+    /// Unique tab, and not removed.</summary>
+    public bool IsShownTab(int tab)
+    {
+        lock (_lock) return tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved is { UniqueCategory: 0, Hidden: false };
     }
 
     /// <summary>Appends <paramref name="count"/> tabs of one type and saves the header (the new tabs have no items, so no
@@ -411,6 +418,36 @@ public sealed partial class AccountStash
         }
         Persist();
         return result;
+    }
+
+    /// <summary>
+    /// Removes a tab with what is in it: the record stays, hidden from the panel, so the tabs after it keep their places
+    /// and inventory ids. A Map or Unique tab's pages go with it, a folder's tabs move out of it. The items removed, or
+    /// null for no such tab (a page, or one already removed).
+    /// </summary>
+    public int? RemoveTab(int tab)
+    {
+        int removed = 0;
+        var changed = new List<int>();
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved is not { UniqueCategory: 0, Hidden: false }) return null;
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var t = _tabs[i];
+                if (i == tab || t.Saved.UniqueCategory != 0 && t.Saved.Parent == tab)
+                {
+                    removed += t.Items.Count;
+                    if (t.Items.Count > 0) { t.Items.Clear(); t.Revision++; changed.Add(i); }
+                    t.Saved = t.Saved with { Hidden = true, Affinities = 0, Parent = i == tab ? ushort.MaxValue : t.Saved.Parent };
+                }
+                else if (t.Saved.UniqueCategory == 0 && t.Saved.Parent == tab) t.Saved = t.Saved with { Parent = ushort.MaxValue };
+            }
+            if (_tabs[_lastTab].Saved is { Hidden: true } or { UniqueCategory: not 0 })
+                _lastTab = Math.Max(0, _tabs.FindIndex(t => t.Saved is { UniqueCategory: 0, Hidden: false } && t.Saved.Type != StashRules.Folder));
+        }
+        Persist([.. changed]);
+        return removed;
     }
 
     /// <summary>Deletes a folder (C→S 0xd2, "Delete Folder" in its settings): the tabs in it move out, and it stays as
