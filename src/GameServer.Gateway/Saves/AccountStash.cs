@@ -38,9 +38,11 @@ public sealed partial class AccountStash
 
     /// <summary>A tab: name, StashType row, colour, items, and its affinities (a bitset of StashTabAffinityId rows, set in the
     /// tab settings, C→S 0xd3).</summary>
-    /// <summary>A tab as saved. <paramref name="Position"/>: its button's place in the panel (C→S 0xcc), null for its index.</summary>
+    /// <summary>A tab as saved. <paramref name="Position"/>: its button's place in the panel (C→S 0xcc), null for its index.
+    /// <paramref name="Parent"/>: a unique category page's Unique tab, else the folder the tab is in (0xffff none).
+    /// <paramref name="Hidden"/>: left out of the panel; a deleted folder, kept so later tabs keep their places.</summary>
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
-        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue);
+        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue, bool Hidden = false);
 
     /// <summary>LeagueQuestFlags: the league quest flags (client ids, Quests.League) the account's characters set in this
     /// stash's league, such as a Trial of Ascendancy's: every character of the league has them.</summary>
@@ -205,7 +207,7 @@ public sealed partial class AccountStash
     /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
     public int VisibleCount
     {
-        get { lock (_lock) return _tabs.Count(t => t.Saved.Parent == ushort.MaxValue && t.Saved.UniqueCategory == 0); }
+        get { lock (_lock) return _tabs.Count(t => t.Saved.Parent == ushort.MaxValue && t.Saved.UniqueCategory == 0 && !t.Saved.Hidden); }
     }
 
     /// <summary>Appends <paramref name="count"/> tabs of one type and saves the header (the new tabs have no items, so no
@@ -353,9 +355,74 @@ public sealed partial class AccountStash
         if (name.Length is 0 or > 64) return false;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type)) return false;
+            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type) && _tabs[tab].Saved.Type != StashRules.Folder) return false;
             if (_tabs[tab].Saved.Name == name) return true;
             _tabs[tab].Saved = _tabs[tab].Saved with { Name = name };
+        }
+        Persist();
+        return true;
+    }
+
+    /// <summary>
+    /// A tab into a folder or out of one (C→S 0xd1, from the tab settings' Folder box or a drag in the tab list):
+    /// <paramref name="folder"/> 0xffff takes it out, the tab's own index makes a new folder that holds it (the client's
+    /// "Create New Folder": its sender 0x14216dd20 leaves its own record alone only then), and a folder's index puts it
+    /// there. A new folder reuses a deleted one, so the tabs after it keep their places, and stands where the tab stood.
+    /// Folders do not go into folders, nor do the pages of a Map or Unique tab. The new folder's index, the folder's, or
+    /// 0xffff out; null when refused.
+    /// </summary>
+    public int? MoveToFolder(int tab, int folder)
+    {
+        int result;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved is { Hidden: true } or { UniqueCategory: not 0 }
+                || _tabs[tab].Saved.Type == StashRules.Folder) return null;
+            var saved = _tabs[tab].Saved;
+            // A page of a Map or Unique tab stays with that tab.
+            if (saved.Parent != ushort.MaxValue && (saved.Parent >= _tabs.Count || _tabs[saved.Parent].Saved.Type != StashRules.Folder)) return null;
+            if (folder == ushort.MaxValue)
+            {
+                if (saved.Parent == ushort.MaxValue) return folder;
+                _tabs[tab].Saved = saved with { Parent = ushort.MaxValue };
+                result = folder;
+            }
+            else if (folder == tab)
+            {
+                int reused = _tabs.FindIndex(t => t.Saved is { Type: StashRules.Folder, Hidden: true });
+                if (reused < 0 && _tabs.Count >= ushort.MaxValue) return null;
+                var names = _tabs.Where(t => t.Saved is { Type: StashRules.Folder, Hidden: false }).Select(t => t.Saved.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                int n = 1;
+                while (!names.Add($"Folder {n}")) n++;
+                var made = new SavedTab($"Folder {n}", StashRules.Folder, saved.R, saved.G, saved.B, [], Position: saved.Position ?? (ushort)tab,
+                    Colour: saved.Colour);
+                if (reused >= 0) _tabs[reused].Saved = made;
+                else _tabs.Add(new TabState(made));
+                result = reused >= 0 ? reused : _tabs.Count - 1;
+                _tabs[tab].Saved = saved with { Parent = (ushort)result };
+            }
+            else
+            {
+                if (folder < 0 || folder >= _tabs.Count || _tabs[folder].Saved is not { Type: StashRules.Folder, Hidden: false }) return null;
+                if (saved.Parent == folder) return folder;
+                _tabs[tab].Saved = saved with { Parent = (ushort)folder };
+                result = folder;
+            }
+        }
+        Persist();
+        return result;
+    }
+
+    /// <summary>Deletes a folder (C→S 0xd2, "Delete Folder" in its settings): the tabs in it move out, and it stays as
+    /// a hidden record, which the next new folder reuses. False when it is not a folder.</summary>
+    public bool DeleteFolder(int folder)
+    {
+        lock (_lock)
+        {
+            if (folder < 0 || folder >= _tabs.Count || _tabs[folder].Saved is not { Type: StashRules.Folder, Hidden: false }) return false;
+            foreach (var t in _tabs.Where(t => t.Saved.UniqueCategory == 0 && t.Saved.Parent == folder))
+                t.Saved = t.Saved with { Parent = ushort.MaxValue };
+            _tabs[folder].Saved = _tabs[folder].Saved with { Hidden = true, Parent = ushort.MaxValue, Name = "" };
         }
         Persist();
         return true;
@@ -391,10 +458,11 @@ public sealed partial class AccountStash
             return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name,
                 t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) ? 0 : InventoryOf(i), t.Saved.Type,
                 t.Saved.R, t.Saved.G, t.Saved.B,
-                Flags: IsPremium(t.Saved.Type) ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
                 Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
                 Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
-                Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory))];
+                Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,
+                Hidden: t.Saved.Hidden))];
     }
 
     public string NameOf(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Name : "?"; }
