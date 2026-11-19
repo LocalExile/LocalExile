@@ -58,6 +58,15 @@ public sealed class NpcCatalog
         public int? RewardOffer { get; init; }
         /// <summary>The row's second script (NPCTalk Script2).</summary>
         public string Script2 { get; init; } = "";
+        /// <summary>NPCTalk <c>__col15</c>: the LeagueQuestFlags rows the row sets when chosen. Data only: 1168 rows of
+        /// many leagues use these three columns (1911 is the "none" sentinel of <c>__col17/__col19</c>), and the server
+        /// applies none of them generically; a module applies them for its own NPCs. The client already filters what it
+        /// shows by them.</summary>
+        public IReadOnlyList<int> LeagueFlagsSet { get; init; } = [];
+        /// <summary>NPCTalk <c>__col16</c>: the LeagueQuestFlags rows the row requires (see <see cref="LeagueFlagsSet"/>).</summary>
+        public IReadOnlyList<int> LeagueFlagsRequired { get; init; } = [];
+        /// <summary>NPCTalk <c>__col18</c>: the LeagueQuestFlags rows that hide the row (see <see cref="LeagueFlagsSet"/>).</summary>
+        public IReadOnlyList<int> LeagueFlagsRefused { get; init; } = [];
         public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
 
         // A call names one flag or several: Eramir's "Bandit Amulets" (NPCTalk 95) has
@@ -350,6 +359,9 @@ public sealed class NpcCatalog
                 StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
                 RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
                 Script2 = r.TextOrNull("Script2") ?? "",
+                LeagueFlagsSet = r.IsNull("__col15") ? [] : [.. r.Ints("__col15")],
+                LeagueFlagsRequired = r.IsNull("__col16") ? [] : [.. r.Ints("__col16")],
+                LeagueFlagsRefused = r.IsNull("__col18") ? [] : [.. r.Ints("__col18")],
             });
         }
         return talk;
