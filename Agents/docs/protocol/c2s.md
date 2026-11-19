@@ -116,7 +116,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0088 | `0x1435cb1b0` / `0x141f9bdb0` | ≥ 14 |  | `0x1403148b0` |  |
 | 0x0089 | `0x1435cadb0` / `0x141f9c300` | 20 |  | `0x140314a90` |  |
 | 0x008a | `0x1435ca4c0` / `0x141f9c040` | ≥ 10 |  | `0x14216c700` |  |
-| 0x008b | `0x1435cb1f0` / `0x140e27920` | 3 |  | `0x140779d60`, `0x140c661a0` |  |
+| 0x008b | `0x1435cb1f0` / `0x140e27920` | 3 |  | `0x140779d60`, `0x140c661a0` | `TakeAllRewardsId`: "TAKE ALL" on multi-item quest reward offers (`QuestRewardOffers.__col6 == 1`, e.g., `#111` Voidstones, `#139` Cursed Ducats); `u16 BE 0x008b, u8 flag` (live 2026-11-19: `008B00`) |
 | 0x0092 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x142169740` |  |
 | 0x0093 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a9ef70`, `0x140ab8d60`, `0x142162d20` |  |
 | 0x0094 | `0x1435ca068` / `0x141f98140` | ≥ 2 | generic (11 S→C ids) | `0x140a9cfa0`, `0x140ab8ed0`, `0x142162d20` |  |

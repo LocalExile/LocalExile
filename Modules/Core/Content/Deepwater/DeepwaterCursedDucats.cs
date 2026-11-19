@@ -442,6 +442,7 @@ public static class DeepwaterCursedDucats
         InstanceItems.CommandId or
         InstanceNpcs.BuyId or
         InstanceNpcs.CtrlBuyId or
+        InstanceNpcs.TakeAllRewardsId or
         InstanceTransfer.UseSkillOnObjectId or
         InstanceChat.ChatId
         || QuestItems.MovesItems(id);

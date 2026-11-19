@@ -150,4 +150,79 @@ public sealed class QuestRewardCatalog
         if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
         return added;
     });
+
+    /// <summary>Result of claiming all available rewards from a multi-item quest reward offer (<c>C→S 0x008b</c>).</summary>
+    public sealed record ClaimAllResult(
+        IReadOnlyList<uint> RemovedMainIds,
+        IReadOnlyList<InventoryItem> AddedMain,
+        IReadOnlyList<uint> RemovedExpandedIds,
+        IReadOnlyList<InventoryItem> AddedExpanded,
+        IReadOnlyList<uint> ClaimedOfferIds,
+        IReadOnlyList<string> GrantedFlags,
+        bool LeagueFlagSet);
+
+    /// <summary>Claims every eligible reward from a multi-item offer ("TAKE ALL", <c>C→S 0x008b</c>) into the player's
+    /// carried inventories in one save transaction. For reclaimable offers, skips any item already carried.</summary>
+    public static ClaimAllResult? ClaimAll(string character, string? takenFlag, PlayerInventories inventory,
+        IReadOnlyList<(uint OfferItemId, Item Reward, QuestItemFlags? Quest)> rewards,
+        Func<Item, PlayerInventories.Shape?> shapeOf, bool expandedAllowed = false,
+        int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false) => Saves.Atomically(() =>
+    {
+        if (rewards.Count == 0) return null;
+        var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+        bool league = leagueFlag is int lf && leagueFlags is not null;
+        if (league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)) return null;
+        if (!reclaimable && takenFlag is not null && saved.Contains(takenFlag)) return null;
+
+        var removedMain = new List<uint>();
+        var addedMain = new List<InventoryItem>();
+        var removedExpanded = new List<uint>();
+        var addedExpanded = new List<InventoryItem>();
+        var claimedIds = new List<uint>();
+        var granted = new List<string>();
+        var carriedTypes = reclaimable
+            ? QuestItems.Carried(inventory).Select(c => c.Item.Item.TypeHash).ToHashSet()
+            : null;
+
+        foreach (var (offerItemId, reward, quest) in rewards)
+        {
+            if (reclaimable)
+            {
+                if (carriedTypes!.Contains(reward.TypeHash)) continue;
+            }
+            else if (takenFlag is null && Taken(null, quest, saved.Contains)) continue;
+
+            byte dest;
+            if (inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf))
+                dest = PlayerInventories.MainInventory;
+            else if (expandedAllowed && inventory.Fits(PlayerInventories.ExpandedInventory, reward, shapeOf))
+                dest = PlayerInventories.ExpandedInventory;
+            else
+                continue;
+
+            var placed = inventory.AddStacked(dest, reward, shapeOf);
+            if (placed.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
+            if (dest == PlayerInventories.MainInventory)
+            {
+                removedMain.AddRange(placed.RemovedIds);
+                addedMain.AddRange(placed.AddedItems);
+            }
+            else
+            {
+                removedExpanded.AddRange(placed.RemovedIds);
+                addedExpanded.AddRange(placed.AddedItems);
+            }
+            claimedIds.Add(offerItemId);
+            carriedTypes?.Add(reward.TypeHash);
+            if (quest is not null)
+                foreach (var f in new[] { quest.Grant, quest.Extra }.OfType<string>())
+                    if (saved.Add(f)) granted.Add(f);
+        }
+
+        if (claimedIds.Count == 0) return null;
+        if (league) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
+        if (takenFlag is not null && saved.Add(takenFlag)) granted.Add(takenFlag);
+        if (granted.Count > 0) CharacterSaves.ChangeQuestFlags(character, granted, true);
+        return new ClaimAllResult(removedMain, addedMain, removedExpanded, addedExpanded, claimedIds, granted, league);
+    });
 }

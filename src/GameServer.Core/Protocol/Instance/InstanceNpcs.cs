@@ -80,6 +80,13 @@ public static class InstanceNpcs
     /// <summary>The length of a C→S 0x8a at the start of <paramref name="data"/>, or null until its compact int arrived.</summary>
     public static int? CtrlBuyLength(ReadOnlySpan<byte> data) => data.Length < 9 ? null : 8 + CompactUIntLength(data[8]) + 2;
 
+    /// <summary>C→S 0x8b (3 bytes, class 0x1435cb1f0, write 0x140e27920, live 2026-11-19 on "TAKE ALL" in a multi-item
+    /// quest reward offer such as Kirac's Voidstones or Valerie's Cursed Ducats): u16 BE 0x008b, u8 flag (0x00).</summary>
+    public const ushort TakeAllRewardsId = 0x8b;
+    public const int TakeAllRewardsLength = 3;
+
+    public static byte ReadTakeAllRewards(ReadOnlySpan<byte> m) => m[2];
+
     static int CompactUIntLength(byte first) => first < 0x80 ? 1 : first < 0xc0 ? 2 : first < 0xe0 ? 3 : first < 0xf0 ? 4 : 5;
 
     static uint CompactUInt(ReadOnlySpan<byte> b) => CompactUIntLength(b[0]) switch

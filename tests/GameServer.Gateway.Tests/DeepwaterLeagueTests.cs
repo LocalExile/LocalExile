@@ -134,6 +134,13 @@ public sealed class DeepwaterLeagueTests
         string expectedDisplayHex = "0101" + Convert.ToHexString(primaryBytes) + Convert.ToHexString(secondaryBytes) + "01000000";
         Assert.Contains(expectedDisplayHex + "020001000000" + "00", Convert.ToHexString(fullVat));
 
+        // Phase 6: 3-byte C->S 0x008b ("TAKE ALL" on multi-item quest reward offers like #111 / #139).
+        split = InstanceProtocol.SplitClientMessages([.. Convert.FromHexString("008B00"), .. Tick()], out partial, out unknown);
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+        Assert.Equal([(ushort)InstanceNpcs.TakeAllRewardsId, (ushort)0x1b], split.Select(m => m.Id));
+        Assert.Equal((byte)0, InstanceNpcs.ReadTakeAllRewards(split[0].Bytes));
+
         // Phase 6: 8-byte quick-move framing for 0x010e (Chart), 0x010f (Crafting), 0x0115 (Cursed Ducats).
         foreach (var (opcode, hex, expected) in new (ushort, string, InstanceItems.LeagueWindowMove)[]
         {

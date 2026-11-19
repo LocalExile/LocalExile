@@ -114,5 +114,11 @@ public sealed class VendorsModule : IModule
             await CtrlBuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadCtrlBuy(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceNpcs.TakeAllRewardsId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await ClaimAllNpcRewards(remote, stream, ciphers, conn);
+            return true;
+        });
     }
 }
