@@ -279,6 +279,8 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                 // third of a frame later. The loops still step once a frame length of real time (they see the pause).
                 if (Paused() is { } paused)
                 {
+                    // The messages still get their turn: the resume (C→S 0x1d4 0) is one of them.
+                    await Input();
                     if (paused.Conn.LockstepClient) await Guard(paused, async () => { await Program.EndPausedFrame(paused.Conn); return true; });
                     await Task.Delay(Math.Max(1, Program.FrameMs / 3));
                     if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
