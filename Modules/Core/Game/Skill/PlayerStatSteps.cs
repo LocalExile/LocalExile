@@ -11,7 +11,7 @@ using GameServer.Core.World;
 /// </summary>
 public enum PlayerStatStep : byte
 {
-    Pools, Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
+    Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
@@ -56,9 +56,6 @@ public static partial class Game
     public sealed class PlayerStepOutputs
     {
         public double BaselineLifePerSecond;
-        /// <summary>What the pools are built from changed outside the steps (the area's stat buffs, a new area): the Pools
-        /// step builds them again.</summary>
-        public volatile bool RebuildPools;
     }
 
     static readonly Action<ClientState, StatMap, PlayerStepOutputs>[] PlayerSteps = BuildPlayerSteps();
@@ -70,25 +67,6 @@ public static partial class Game
         static int GetIn(StatMap stats, string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         static void AddTo(StatMap stats, uint key, long value) => stats[key] = ActorScale.Saturate(stats.GetValueOrDefault(key) + value);
 
-        Step(PlayerStatStep.Pools, (conn, _, outputs) =>
-        {
-            if (outputs.RebuildPools)
-            {
-                outputs.RebuildPools = false;
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                // Smaller pools hold no more than they can; a larger one is not refilled.
-                lock (conn.Monsters)
-                {
-                    conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
-                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-                }
-                conn.ApplyMovementSpeed();
-            }
-            EnsureConditionalItemPools(conn);
-            EnsureAntiquarianPools(conn);
-            EnsureOwnAuraPools(conn);
-            EnsureFortificationPools(conn);
-        });
         // The character's own stats (BaseStats): every stat of the allocated passives and the active items, summed.
         Step(PlayerStatStep.Sources, (conn, stats, _) =>
         {

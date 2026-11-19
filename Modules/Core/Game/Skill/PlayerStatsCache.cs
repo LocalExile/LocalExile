@@ -57,12 +57,24 @@ public static partial class Game
         public long ItemChanges;
     }
 
+    // The pools from what they are built of now (a new Pools marks the steps that read them). Smaller pools hold no more
+    // than they can; a larger one is not refilled.
+    static void RebuildPools(ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+        }
+        conn.ApplyMovementSpeed();
+    }
+
     /// <summary>The area's stat buffs on a player's entity changed (AreaStatBuffs): its pools and sources are built again.</summary>
     internal static void PlayerStatBuffsChanged(ClientState conn)
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return;
-        frame.Outputs.RebuildPools = true;
-        graph.MarkRule((int)PlayerStatStep.Pools);
+        RebuildPools(conn);
         graph.MarkRule((int)PlayerStatStep.Sources);
         // The client's panel and skills follow them, once for the frame.
         if (frame.ByFrame) lock (frame) frame.Publish ??= PlayerStatChange.Sources;
@@ -80,6 +92,9 @@ public static partial class Game
         double at = frame.Clock + Math.Max(0, seconds);
         AddTimed(frame, at, null);
     }
+
+    // StatsChangeIn inside a condition.
+    static bool StatsChangeInAnd(double seconds) { StatsChangeIn(seconds); return true; }
 
     /// <summary>As <see cref="StatsChangeIn"/>, for an effect timed on another clock than the connection's (the
     /// projectile runtime's): the step runs again once <paramref name="now"/> reaches <paramref name="at"/>.</summary>
@@ -113,7 +128,7 @@ public static partial class Game
         readers[(int)PlayerStatChange.Sources] = [PlayerStatStep.Sources];
         readers[(int)PlayerStatChange.Auras] =
         [
-            PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.Auras, PlayerStatStep.AuraPenetration,
+            PlayerStatStep.Sources, PlayerStatStep.Auras, PlayerStatStep.AuraPenetration,
             PlayerStatStep.CatAspect, PlayerStatStep.AvianCrab, PlayerStatStep.SelfVulnerability, PlayerStatStep.VaalAura,
             PlayerStatStep.SpiritLeadership, PlayerStatStep.TotemAura, PlayerStatStep.AuraRestriction,
         ];
@@ -149,7 +164,7 @@ public static partial class Game
     // conditions, the conditional pools, recovery and leech, the tail's low life and recharge rows), and what death ends.
     static readonly PlayerStatStep[] ConditionReaders =
     [
-        PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.CryMovement, PlayerStatStep.SpiritLeadership,
+        PlayerStatStep.Sources, PlayerStatStep.CryMovement, PlayerStatStep.SpiritLeadership,
         PlayerStatStep.ClassAttributes, PlayerStatStep.Onslaught, PlayerStatStep.VaalPrevention, PlayerStatStep.TotemAura,
         PlayerStatStep.Rage, PlayerStatStep.Blind, PlayerStatStep.Recovery, PlayerStatStep.Rampage,
         PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
@@ -304,7 +319,7 @@ public static partial class Game
         On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => conn.SoulEater.Changed = a);
         On([PlayerStatStep.SpiritLeadership], a => conn.SpiritChieftains.Changed = a);
         On([PlayerStatStep.Ward], a => conn.Ward.Changed = a);
-        On([PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => conn.Antiquarian.Changed = a);
+        On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => conn.Antiquarian.Changed = a);
         On([PlayerStatStep.TimedRecovery], a => conn.EnduringCryRecovery.Changed = a);
         On([PlayerStatStep.TotemAura], a => conn.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => conn.Rampage.Changed = a);

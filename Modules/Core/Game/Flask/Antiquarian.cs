@@ -16,7 +16,8 @@ public static partial class Game
             int Get(string name) => Stats.Key(name) is uint key
                 ? sources.GetValueOrDefault(key) : 0;
             double now = conn.Clock.Elapsed.TotalSeconds;
-            if (Get(AntiquarianEffects.AdrenalineSource) > 0 && conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(now))
+            if (Get(AntiquarianEffects.AdrenalineSource) > 0 && conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(now)
+                && StatsChangeInAnd(conn.Antiquarian.AdrenalineUntil - now))
                 foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
                     sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
             return sources;

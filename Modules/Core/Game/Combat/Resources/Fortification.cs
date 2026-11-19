@@ -12,7 +12,7 @@ public static partial class Game
     public static FortificationSession FortificationOf(ClientState conn) =>
         FortificationSessions.GetValue(conn, c => new()
         {
-            Changed = () => { MarkPlayerStats(c, PlayerStatStep.Pools); MarkPlayerStats(c, PlayerStatStep.TimedRecovery); },
+            Changed = () => MarkPlayerStats(c, PlayerStatStep.TimedRecovery),
         });
 
     public static void EnsureFortificationPools(ClientState conn)

@@ -7,6 +7,12 @@ public static partial class Game
     static void PlayerStatsUpdated(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // What the pools are built of (Adrenaline, Fortification, the aspects and aura reservations, conditional items):
+        // a change rebuilds them, and the steps that read the pools run in the next phase.
+        EnsureConditionalItemPools(conn);
+        EnsureAntiquarianPools(conn);
+        EnsureOwnAuraPools(conn);
+        EnsureFortificationPools(conn);
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
         ConfigureLeech(conn, Get, CriticalOnLowLife(conn, stats));
         ConfigureKillOnslaught(conn, Get);
