@@ -145,32 +145,18 @@ internal static class DeepwaterLanterns
     /// 100 or more from the player, behind the player and 30 or more from them, or within range − 5 of any lantern. The
     /// nearest to the cursor wins (only it is tried); a cell that is not walkable (client layer 0 below 4,
     /// <c>0x141d888f0</c>) moves to the first walkable one of rings 1-9 around it. Null with the reason when none fits.
-    /// The player-distance tests allow <see cref="Slack"/>, as the server's estimate of the player trails the client's.
+    /// The player-distance tests run with the client's limits, then, when no candidate fits, with <see cref="Slack"/>
+    /// more, as the server's estimate of the player trails the client's.
     /// With a cell, <paramref name="why"/> is a note for the log (empty, or the blocked line).</summary>
     public static (int X, int Y)? Snap(ClientState conn, DeepwaterRun run, (int X, int Y) cursor, out string why)
     {
         var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         int range = DeepwaterConstants.BaseLanternPlacementRange;
-        long apart = (long)(range - 5) * (range - 5), far = (long)(PlayerReach + Slack) * (PlayerReach + Slack) + 1,
-            behind = (long)(Behind + Slack) * (Behind + Slack) + 1;
+        long apart = (long)(range - 5) * (range - 5);
         var anchors = run.Snapshot();
-        (int X, int Y)? best = null;
-        long bestD2 = long.MaxValue;
-        foreach (var a in anchors)
-        {
-            int vx = cursor.X - a.X, vy = cursor.Y - a.Y;
-            float length = MathF.Sqrt((float)vx * vx + (float)vy * vy);
-            float s = length > 0 ? range / length : 0;
-            (int X, int Y) p = (a.X + (int)MathF.Floor(vx * s + 0.5f), a.Y + (int)MathF.Floor(vy * s + 0.5f));
-            long d2 = Square(p.X - cursor.X, p.Y - cursor.Y);
-            if (d2 >= CursorReach) continue;
-            long wx = p.X - player.X, wy = p.Y - player.Y, w2 = wx * wx + wy * wy;
-            if (w2 >= far) continue;
-            if (wx * (cursor.X - player.X) + wy * (cursor.Y - player.Y) < 0 && w2 >= behind) continue;
-            if (anchors.Any(b => Square(b.X - p.X, b.Y - p.Y) <= apart)) continue;
-            // The client sorts by d2 ascending (0x141fd6240); the first kept of equals wins here (G for ties).
-            if (d2 < bestD2) (best, bestD2) = (p, d2);
-        }
+        // The client's limits first, so the server picks the client's candidate whenever its estimate of the player is
+        // close; the slackened ones only when that finds none (the estimate trails the client's).
+        var best = Pick(PlayerReach, Behind) ?? Pick(PlayerReach + Slack, Behind + Slack);
         if (best is not { } at)
         {
             why = $"no lantern in reach of the cursor ({cursor.X}, {cursor.Y}) with the player at ({player.X}, {player.Y})";
@@ -199,6 +185,28 @@ internal static class DeepwaterLanterns
             ? $" (the line from the player's estimate ({player.X}, {player.Y}) is blocked; placed anyway)" : "";
         return at;
 
+        (int X, int Y)? Pick(int reach, int back)
+        {
+            long far = (long)reach * reach + 1, behind = (long)back * back + 1;
+            (int X, int Y)? best = null;
+            long bestD2 = long.MaxValue;
+            foreach (var a in anchors)
+            {
+                int vx = cursor.X - a.X, vy = cursor.Y - a.Y;
+                float length = MathF.Sqrt((float)vx * vx + (float)vy * vy);
+                float s = length > 0 ? range / length : 0;
+                (int X, int Y) p = (a.X + (int)MathF.Floor(vx * s + 0.5f), a.Y + (int)MathF.Floor(vy * s + 0.5f));
+                long d2 = Square(p.X - cursor.X, p.Y - cursor.Y);
+                if (d2 >= CursorReach) continue;
+                long wx = p.X - player.X, wy = p.Y - player.Y, w2 = wx * wx + wy * wy;
+                if (w2 >= far) continue;
+                if (wx * (cursor.X - player.X) + wy * (cursor.Y - player.Y) < 0 && w2 >= behind) continue;
+                if (anchors.Any(b => Square(b.X - p.X, b.Y - p.Y) <= apart)) continue;
+                // The client sorts by d2 ascending (0x141fd6240); the first kept of equals wins here (G for ties).
+                if (d2 < bestD2) (best, bestD2) = (p, d2);
+            }
+            return best;
+        }
         bool Walkable(int x, int y) => conn.Layout.WalkableFor(x, y, 3);
         static long Square(long x, long y) => x * x + y * y;
     }

@@ -191,7 +191,8 @@ anchor (lit or not; none is ever removed) the spot exactly BaseLanternPlacementR
 (float32, rounded), kept if under 60 cells from the cursor, under 100 from the player, not behind the player when 30 or
 more away, and over 110 from every anchor; the nearest to the cursor wins and no other is tried. It must be walkable
 (layer 0 ≥ 4, else the first walkable cell on rings 1..9, rows outer) with a clear layer-1 line from the player.
-Without an anchor nothing can be placed. The module runs the same snap on the cursor cell.
+Without an anchor nothing can be placed. The module runs the same snap on the cursor cell; as its estimate of the
+player trails the client's, it retries the player tests 10 cells looser when none fits and only logs the line test.
 
 S→C 0x1e is a ruleset event by name: `u16 0x001e, u32 entity BE, u16 length BE, ASCII` (reader `0x1421a44a0`); the
 client passes it to every ruleset's slot 3. Row 171 acts only on `update_collection_chest` and
