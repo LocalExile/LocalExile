@@ -67,6 +67,22 @@ public static class BeyondCatalog
         return -1;
     }
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, int?> PortalFinals = new();
+
+    /// <summary>A variety's own <c>monster_beyond_portal_chance_+%_final</c> (BreachReducedBeyondPortalChance -66 on Legion
+    /// and Harvest monsters, ExpeditionReducedBeyondPortalChance -35), or null when its <c>monster_no_beyond_portal</c>
+    /// (CannotSpawnBeyondPortals: Delve, Expedition, Ultimatum …) stops it opening portals at all.</summary>
+    public static int? PortalChanceFinal(MonsterCatalog.Variety? variety) => variety is null ? 0
+        : PortalFinals.GetOrAdd(variety.Row, _ =>
+        {
+            int final = 0;
+            foreach (int row in variety.SpeciesModsOrEmpty)
+                foreach (var stat in Program.Items.Mods.Row(row)?.Stats ?? [])
+                    if (stat.Id == "monster_no_beyond_portal" && stat.Min > 0) return null;
+                    else if (stat.Id == "monster_beyond_portal_chance_+%_final") final += stat.Min;
+            return final;
+        });
+
     /// <summary>Portal object specification (components, Transitionable index, StateMachine) from client.db.</summary>
     public static PortalSpec? Portal(string type) => Portals.Value.GetValueOrDefault(type);
 

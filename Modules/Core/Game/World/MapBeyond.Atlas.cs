@@ -21,7 +21,7 @@ public static partial class MapBeyond
         if (conn.PlayerLife == 0) return;
 
         // Beyond Scarab of Haemophilia: X% chance for rare Beyond monsters to grant their mods to the killer for 20 s.
-        if (kill.Monster.Rarity == MonsterRarity.Rare
+        if (kill.Monster.Rarity == MonsterRarity.Rare && KilledByPlayerOrOwned(kill)
             && Stat(conn, "map_rare_beyond_monster_gives_mods_to_killer_chance_%") is int stealChance and > 0
             && kill.Monster.Mods.Affixes.Any()
             && Random.Shared.Next(100) < stealChance)
@@ -224,7 +224,6 @@ public static partial class MapBeyond
         }
         else if (faction == 1 && Stat(conn, "map_beyond_unique_item_quantity_+%_final_from_flesh_faction") is int uniquePct and > 0)
         {
-            drop.Rarity *= (100.0 + uniquePct) / 100.0;
             double baseUnique = isBoss ? 20.0 : drop.Monster.Rarity switch { MonsterRarity.Rare => 5.0, MonsterRarity.Magic => 1.5, _ => 0.5 };
             if (rng.NextDouble() * 100.0 < baseUnique * uniquePct / 100.0 && RollUnique(conn, level, rng) is { } unique)
                 drop.Made.Add(unique);

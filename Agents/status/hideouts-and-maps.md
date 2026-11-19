@@ -121,8 +121,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
   (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
   `Game.MapModsOf`.
-  Live verified on 3.29.3d (portals, non-buried faction demons, all three Resurgence bosses, post-boss shutdown,
-  Tainted/corrupted drops, and Demonic Power buffs).
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`

@@ -71,7 +71,7 @@ public static partial class MapBeyond
         public List<Portal> Portals { get; set; } = [];
     }
 
-    sealed record KillEvent(ClientState Killer, MonsterRarity Rarity, (int X, int Y) At);
+    sealed record KillEvent(ClientState Killer, MonsterRarity Rarity, (int X, int Y) At, int ChanceFinal);
 
     sealed class Area
     {
@@ -246,8 +246,9 @@ public static partial class MapBeyond
             return;
         }
 
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.State is not { Active: true, BossSpawned: false }) return;
-        area.Kills.Enqueue(new(conn, kill.Monster.Rarity, kill.At));
+        if (!Areas.TryGetValue(conn.Instance, out var area) || area.State is not { Active: true, BossSpawned: false }
+            || BeyondCatalog.PortalChanceFinal(kill.Monster.Variety) is not int final) return;
+        area.Kills.Enqueue(new(conn, kill.Monster.Rarity, kill.At, final));
     }
 
     public static async Task Tick(ClientState conn, double seconds)
@@ -285,13 +286,15 @@ public static partial class MapBeyond
             double radius = MergeRadius(conn);
             double chance = state.InvasionOnly ? 0
                 : PortalChance(Stat(conn, "map_beyond_portal_chance_+%") + Stat(conn, "map_monster_beyond_portal_chance_+%"));
+            
             int rareInvasion = Stat(conn, "map_rare_monsters_spawn_X_beyond_portals");
             int uniqueInvasion = Stat(conn, "map_unique_monsters_spawn_X_beyond_portals");
             var rng = Random.Shared;
 
             while (!state.BossSpawned && area.Kills.TryDequeue(out var kill))
             {
-                if (chance > 0 && (chance >= 100 || rng.NextDouble() * 100.0 < chance))
+                double own = chance * Math.Max(0, 100 + kill.ChanceFinal) / 100.0;
+                if (own > 0 && (own >= 100 || rng.NextDouble() * 100.0 < own))
                 {
                     AddOrbAndMerge(conn, state, kill.At, radius, rng);
                     changed = true;
@@ -540,6 +543,7 @@ public static partial class MapBeyond
     {
         if (conn.Closed || conn.LeavingArea || area.State is not { } state) return;
         var shown = Presented.GetValue(conn, _ => []);
+        if (state.Portals.Count == 0 && shown.Count == 0) return;
         var w = conn.Wire;
 
         // Remove portals that are no longer in state.Portals.

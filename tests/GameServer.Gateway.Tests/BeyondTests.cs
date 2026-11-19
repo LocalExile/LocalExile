@@ -27,6 +27,9 @@ public sealed class BeyondTests
             Assert.True(f.BossBuffRow > 0);
         });
         Assert.Equal((50, 318, 378), (BeyondCatalog.LifePct(1), BeyondCatalog.LifePct(68), BeyondCatalog.LifePct(83)));
+        // The monsters' own portal mods: Breach/Legion/Harvest kills -66% final, CannotSpawnBeyondPortals none at all.
+        Assert.Equal(-66, BeyondCatalog.PortalChanceFinal(Game.Monsters.Find("Metadata/Monsters/Hellion/HellionBreach")));
+        Assert.Null(BeyondCatalog.PortalChanceFinal(Game.Monsters.Find("Metadata/Monsters/SummonedPhantasm/SummonedPhantasmPenanceMark")));
         var paleBoss = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/LeagueHellscape/PaleFaction/HellscapePaleBoss"));
         var paleStates = Assert.IsType<StateMachineData>(MapBeyond.StartStates(paleBoss));
         Assert.Equal(1, paleStates.SharedStates[paleStates.IndexOf("spawned")]);
