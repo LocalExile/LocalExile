@@ -611,17 +611,26 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// resolved by 0x1424fe990): a gate's "teleportN-&lt;key&gt;", e.g. BrutusAreaName "The Warden's Quarters".</summary>
     public uint? Label { get; init; }
 
+    /// <summary>Optional trailing StateMachine component (reader 0x141e42430; 00 00 for zero shared states and timers).</summary>
+    public StateMachineData? StateMachine { get; init; }
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x143479f98), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
     public static readonly string[] ComponentOrder =
         ["Positioned", "Animated", "AreaTransition", "Stats", "ObjectMagicProperties", "MinimapIcon", "InteractionAction"];
 
-    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob: exactly
-    /// <see cref="ComponentOrder"/>. Types that add components (e.g. Transitionable) cannot: see
-    /// AreaTransitionCatalog.Resolve in the Gateway.</summary>
-    public static bool CanSerialize(IEnumerable<string> components) =>
-        components.Where(c => c != "BaseEvents").SequenceEqual(ComponentOrder);
+    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob:
+    /// <see cref="ComponentOrder"/> or <see cref="ComponentOrder"/> followed by a trailing <c>StateMachine</c>. Types
+    /// that add other components (e.g. Transitionable) cannot: see AreaTransitionCatalog.Resolve in the Gateway.</summary>
+    public static bool CanSerialize(IEnumerable<string> components)
+    {
+        var list = components.Where(c => c != "BaseEvents").ToArray();
+        return list.SequenceEqual(ComponentOrder)
+            || list.Length == ComponentOrder.Length + 1
+                && list[..ComponentOrder.Length].SequenceEqual(ComponentOrder)
+                && list[^1] == "StateMachine";
+    }
 
     public byte[] Blob()
     {
@@ -660,6 +669,7 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 case "InteractionAction": w.U8(0); break;
             }
         }
+        StateMachine?.Write(w);
         w.U8(0);            // tasks
         return w.ToArray();
     }
