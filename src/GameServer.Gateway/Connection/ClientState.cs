@@ -35,9 +35,6 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
-    // The skill before monster modifiers. A later change of mods recalculates from these same values.
-    public double BaseSeconds { get; } = Seconds;
-    public DamagePacket BaseDamage { get; } = Damage;
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
@@ -60,6 +57,10 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
     /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
     public bool DualWielding { get; init; }
+
+    // The skill before monster modifiers. A later change of mods recalculates from these same values.
+    public double BaseSeconds { get; } = Seconds;
+    public DamagePacket BaseDamage { get; } = Damage;
 
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
