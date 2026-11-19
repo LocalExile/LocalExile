@@ -33,7 +33,9 @@ internal static class DeepwaterConstants
 
     /// <summary>GameObjectTasks 149 <c>DeepwaterLantern</c> (HASH16): f32 a, rate_a, b, rate_b (LE).</summary>
     public const ushort LanternTask = 0xc4df;
-    /// <summary>GameObjectTasks 155 <c>DeepwaterBathysphereDrop</c> (HASH16): f32, f32 (LE).</summary>
+    /// <summary>GameObjectTasks 155 <c>DeepwaterBathysphereDrop</c> (HASH16): u32 stages, u32 stage (LE; handler
+    /// <c>0x141640fd0</c>, writer <c>0x141ebe4f0</c>). The height is (1 − stage/(stages − 1))·1500; a stage ≥ stages plays
+    /// <c>land_01</c> and the task ends itself (<c>0x141641310</c>).</summary>
     public const ushort BathysphereDropTask = 0x2387;
     /// <summary>The <c>this.RandomNumber</c> script variable (<c>QuestObject.VariableHash("RandomNumber")</c>) a Sulphur
     /// corpse's <c>ResourceChest*.ot</c> picks its <c>set_animated_0..7</c> pose with; without it the client logs a GEAL

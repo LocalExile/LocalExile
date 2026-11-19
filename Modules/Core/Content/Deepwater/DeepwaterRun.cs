@@ -97,6 +97,10 @@ internal sealed class DeepwaterRun
     public readonly Dictionary<string, uint> OpenCapsule = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>When a called Bathysphere lands (instance seconds), 0 when none is coming.</summary>
     public double LandAt { get; set; }
+    /// <summary>When the called Bathysphere started its descent (instance seconds), and the last stage of its
+    /// <c>DeepwaterBathysphereDrop</c> task sent to the run's members.</summary>
+    public double DescentStart { get; set; }
+    public uint DropStage { get; set; }
     /// <summary>How the run ended (null while it runs): "success", "failure: …".</summary>
     public string? Outcome { get; set; }
     /// <summary>The run failed (a death, drowning, leaving another way; DeepwaterExtraction.Fail): its instance is dead.

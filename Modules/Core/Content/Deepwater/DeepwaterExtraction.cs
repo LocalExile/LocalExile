@@ -11,7 +11,7 @@ namespace GameServer.Modules.Deepwater;
 /// <para>H: the objects, their states (<c>landed</c> 0 suspended, 1 dropped, 2 the start one), the gates (QuestFlags
 /// 3562 on the Bathysphere, 2020 and a filled 113 for Send to Surface, an empty 113 for Call Bathysphere), the window
 /// kind 0x68 and the ruleset modes. M/G: the window's first u32 = the capsule (what enables its buttons was not found),
-/// the 30 s descent and the task's data (30, 0), the backup capsule beside the Bathysphere, "the last capsule" = the last
+/// the 30 s descent in 3 stages, the backup capsule beside the Bathysphere, "the last capsule" = the last
 /// unsent one, the fail line under 25 % of the run's possible Sulphur, the CollectionChest's window kind 0x6f, a death
 /// or another exit ending the run for everyone in it, and the Sulphur as one stack at the deck's LootSpiralMarker.</para></summary>
 internal static class DeepwaterExtraction
@@ -44,8 +44,10 @@ internal static class DeepwaterExtraction
     public const byte CapsuleRow = 113, CollectionRow = 114;
     /// <summary>S→C 0x7b kinds: ExtractionInventory (the capsule window) and CollectionInventory.</summary>
     const byte CapsuleUi = 0x68, CollectionUi = 0x6f;
-    /// <summary>G: the called Bathysphere's descent.</summary>
+    /// <summary>G: the called Bathysphere's descent, in <see cref="DropStages"/> stages of the
+    /// <c>DeepwaterBathysphereDrop</c> task (stage 0 at the call, 1500 up; the last one on the ground).</summary>
     public const double Descent = 30;
+    public const uint DropStages = 3;
     /// <summary>G: the backup capsule's distance from the start Bathysphere (size 12).</summary>
     const int BackupBeside = 16;
     const string CollectionChest = "Metadata/Terrain/Leagues/Deepwater/Objects/CollectionChest";
@@ -85,7 +87,8 @@ internal static class DeepwaterExtraction
 
     // ---- the objects ----
 
-    static async Task Create(ClientState conn, Device device, double now, double landAt)
+    /// <summary>Creates a device; <paramref name="stage"/> is a descending Bathysphere's current drop stage.</summary>
+    static async Task Create(ClientState conn, Device device, uint? stage)
     {
         if (Info(device.Type) is not { } info) return;
         var obj = new QuestObject(device.X, device.Y, info.Components, 0, null, null,
@@ -94,8 +97,8 @@ internal static class DeepwaterExtraction
             obj = obj with
             {
                 StateMachine = States.Value.GetValueOrDefault(device.Type)?.Set("landed", device.Landed),
-                // G: DeepwaterBathysphereDrop (f32, f32) read as (seconds left, elapsed).
-                Tasks = device.Landed == 0 && landAt > now ? [(DeepwaterConstants.BathysphereDropTask, DropTask(landAt - now))] : [],
+                // A re-entry during the descent picks it up at the current stage.
+                Tasks = device.Landed == 0 && stage is { } s ? [(DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, s))] : [],
             };
         var player = PlayerOf(conn);
         if (!await global::Game.SendWorldCreate(player, device.Id, InstanceEntities.CreateObject(device.Id, InstanceEntities.ObjectTypeHash(device.Type), obj.Blob()),
@@ -104,23 +107,36 @@ internal static class DeepwaterExtraction
         await global::Game.SendWorldRecord(player, device.Id, InstanceProtocol.EnterWakeZone(device.Id));
     }
 
-    static byte[] DropTask(double seconds)
+    static byte[] DropTask(uint stages, uint stage)
     {
         var b = new byte[8];
-        BitConverter.TryWriteBytes(b.AsSpan(0), (float)seconds);
-        BitConverter.TryWriteBytes(b.AsSpan(4), 0f);
+        BitConverter.TryWriteBytes(b.AsSpan(0), stages);
+        BitConverter.TryWriteBytes(b.AsSpan(4), stage);
         return b;
     }
+
+    /// <summary>The descent's stage at <paramref name="now"/>: one per <see cref="Descent"/> / <see cref="DropStages"/>
+    /// seconds, the last one held until the landing.</summary>
+    static uint DropStage(double descentStart, double now) =>
+        (uint)Math.Clamp(Math.Floor((now - descentStart) / (Descent / DropStages)), 0, DropStages - 1);
+
+    static async Task SendDropStage(ClientState conn, Device device, uint stage) =>
+        await global::Game.SendWorldRecord(PlayerOf(conn), device.Id, InstanceEntities.UpdateTask(device.Id, DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, stage)),
+            $"0x02c3 Allflame Bathysphere 0x{device.Id:x} drop stage {stage}/{DropStages}");
 
     /// <summary>Creates the run's Bathyspheres and capsules on this connection as they are now, and the deck's
     /// CollectionChest once someone rode up.</summary>
     public static async Task Show(ClientState conn, DeepwaterRun run)
     {
         Device[] devices;
-        double landAt;
-        lock (run.Gate) (devices, landAt) = ([.. run.Devices], run.LandAt);
+        uint? stage;
         double now = conn.Clock.Elapsed.TotalSeconds;
-        foreach (var device in devices) await Create(conn, device, now, landAt);
+        lock (run.Gate)
+        {
+            devices = [.. run.Devices];
+            stage = run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > 0 ? DropStage(run.DescentStart, now) : null;
+        }
+        foreach (var device in devices) await Create(conn, device, stage);
         if (run.DeckChest != 0) await ShowDeckChest(conn, run);
     }
 
@@ -341,6 +357,8 @@ internal static class DeepwaterExtraction
                     capsule.Called = true;
                     run.Phase = DeepwaterRun.RunPhase.Descending;
                     run.LandAt = now + Descent;
+                    run.DescentStart = now;
+                    run.DropStage = 0;
                     bathysphere = new Device { Kind = Kind.Bathysphere, Id = conn.TakeObjectId(), X = capsule.X, Y = capsule.Y, Landed = 0 };
                     run.Devices.Add(bathysphere);
                 }
@@ -355,7 +373,7 @@ internal static class DeepwaterExtraction
         foreach (var member in DeepwaterLoot.Members(conn))
         {
             await Transition(member, capsule);
-            await Create(member, bathysphere, now, now + Descent);
+            await Create(member, bathysphere, 0);
             var (remote, stream, ciphers) = member.Wire;
             await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.VoyageDefend]);
         }
@@ -385,7 +403,8 @@ internal static class DeepwaterExtraction
 
     // ---- per tick ----
 
-    /// <summary>One tick: a dead player ends the run (a failure); a called Bathysphere lands after its descent.</summary>
+    /// <summary>One tick: a dead player ends the run (a failure); a called Bathysphere goes down a stage at a time and
+    /// lands after its descent.</summary>
     public static async Task Tick(IModuleContext module, ClientState conn, DeepwaterRun run, Func<ClientState, string, Task> failed)
     {
         if (run.Phase == DeepwaterRun.RunPhase.Ended || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
@@ -396,22 +415,40 @@ internal static class DeepwaterExtraction
         }
         if (run.Phase != DeepwaterRun.RunPhase.Descending) return;
         double now = conn.Clock.Elapsed.TotalSeconds;
-        Device? landed = null;
+        Device? landed = null, lower = null;
+        uint stage = 0;
         lock (run.Gate)
-            if (run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > 0 && now >= run.LandAt)
+            if (run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > 0)
             {
-                run.Phase = DeepwaterRun.RunPhase.Extractable;
-                run.LandAt = 0;
-                landed = run.Devices.LastOrDefault(d => d.Kind == Kind.Bathysphere && d.Landed == 0);
-                if (landed is not null) landed.Landed = 1;
+                var descending = run.Devices.LastOrDefault(d => d.Kind == Kind.Bathysphere && d.Landed == 0);
+                if (now >= run.LandAt)
+                {
+                    run.Phase = DeepwaterRun.RunPhase.Extractable;
+                    run.LandAt = 0;
+                    landed = descending;
+                    if (landed is not null) landed.Landed = 1;
+                }
+                else if ((stage = DropStage(run.DescentStart, now)) > run.DropStage && descending is not null)
+                {
+                    run.DropStage = stage;
+                    lower = descending;
+                }
             }
+        if (lower is not null)
+        {
+            foreach (var member in DeepwaterLoot.Members(conn)) await SendDropStage(member, lower, stage);
+            return;
+        }
         if (landed is null) return;
         module.Log($"{CharacterName(conn)}: Allflame Bathysphere 0x{landed.Id:x} landed at ({landed.X}, {landed.Y})");
+        // M: whether Targetable re-reads its required quest flag on a flag change is untraced, so the flag goes first and
+        // landed = 1 (which refreshes it) last. The stage past the last plays land_01 and ends the task.
         foreach (var member in DeepwaterLoot.Members(conn))
         {
-            await SendLanded(member, landed);
             var (remote, stream, ciphers) = member.Wire;
             await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract]);
+            await SendDropStage(member, landed, DropStages);
+            await SendLanded(member, landed);
         }
     }
 
