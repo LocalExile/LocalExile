@@ -9,6 +9,8 @@ using DamageTypes = GameServer.Core.World.DamageTypes;
 
 public static partial class Game
 {
+    static bool MonsterOnLowLife(SpawnedMonster monster) => !monster.Dead && monster.Life > 0
+        && (ulong)monster.Life * 2 <= monster.MaxLife;
     // Monster-domain Mods.dat rows, their names and effects; loaded with the first magic or rare monster.
     public static readonly Lazy<MonsterModCatalog> MonsterModRolls = new(() => new MonsterModCatalog(Items.Mods));
 
@@ -62,10 +64,11 @@ public static partial class Game
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
         int spiderDamage = m.SpiderWebs.Damage(now);
-        if (executioner > 0 || spiderDamage != 0)
+        int lowLife = MonsterOnLowLife(m) ? e["damage_+%_when_on_low_life"] : 0;
+        if (executioner > 0 || spiderDamage != 0 || lowLife != 0)
         {
             int increased = e["damage_+%"] + e["physical_damage_+%"];
-            factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage) / (100d + increased) : 0;
+            factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage + lowLife) / (100d + increased) : 0;
         }
         return factor == 1 ? rolled : rolled.Scale(factor);
     }

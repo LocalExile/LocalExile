@@ -20,7 +20,7 @@ public static partial class Game
         IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
     {
         // The active items are worked out once: every check below would otherwise ask each worn item again.
-        activeItems = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
+        activeItems = activeItems?.ToArray() ?? EquipmentForStats(conn)
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         var ailments = conn.ElementalAilments.Snapshot(now);
         var leech = LeechOf(conn).Active(now);
@@ -76,9 +76,9 @@ public static partial class Game
             ["_while_es_leeching"] = alive && leech.EnergyShield,
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
-        var activeRings = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
+        var activeRings = activeItems?.ToArray() ?? EquipmentForStats(conn)
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
-        foreach (var (key, value) in ConditionalRings(ItemsOf(conn).EquipmentSnapshot(), activeRings).Flags) flags[key] = value;
+        foreach (var (key, value) in ConditionalRings(EquipmentForStats(conn), activeRings).Flags) flags[key] = value;
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
         // The uniques spell the life/mana states with "when"; the same state answers both keys.
         foreach (string state in new[] { "_on_full_life", "_on_low_life", "_not_on_low_life", "_on_full_mana", "_on_low_mana" })
@@ -136,7 +136,7 @@ public static partial class Game
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
                 charges.Converted(type), alive, ChargeScaling.CountsAsMaximum(type, observed));
         }
-        var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
+        var equipmentFlags = QualifiedEquipmentItemFlags(flags, EquipmentForStats(conn), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
             RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
         return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
@@ -175,7 +175,7 @@ public static partial class Game
 
     static int ItemReservationPercent(ClientState conn, IEnumerable<Item>? activeItems)
     {
-        var active = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
+        var active = activeItems?.ToArray() ?? EquipmentForStats(conn)
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         return Stats.Key(LifeReservation.ItemPercentStat) is uint key
             && conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
@@ -209,6 +209,7 @@ public static partial class Game
         public long Revision, Presented;
         public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
+        public long ItemStatRevision = GameEvents.ItemStatSources.Revision;
     }
 
     static readonly RuleTable<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
@@ -221,7 +222,10 @@ public static partial class Game
         {
             var state = ConditionalItemPools.GetOrCreateValue(conn);
             if (state.Building || conn.Closed || conn.LeavingArea) return false;
-            EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot());
+            long itemStatRevision = GameEvents.ItemStatSources.Revision;
+            bool providersChanged = state.ItemStatRevision != itemStatRevision;
+            state.ItemStatRevision = itemStatRevision;
+            EquipmentStatSources(conn, EquipmentForStats(conn));
             ReconcileBeastCompanionsLocked(conn);
             var current = conn.StatSourcesCache;
             var before = state.Applied;
@@ -231,7 +235,7 @@ public static partial class Game
                 ? conn.PlayerStats.TryGetValue(effectKey, out int replacement) ? replacement
                     : current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
             bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
-            if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
+            if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
             state.Applied = current;
             state.AppliedElusive = elusive;
             state.AppliedOnslaughtEffect = onslaughtEffect;
@@ -245,7 +249,7 @@ public static partial class Game
                         || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
             bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
                 == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
-            if (sameElusive && sameHerEmbrace && sameOnslaughtEffect
+            if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect
                 && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)

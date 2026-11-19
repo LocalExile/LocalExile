@@ -80,6 +80,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
   it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
   Transference, a spread when a projectile or a minion makes the kill.
+- Bane and Bane of Condemnation: independent chaos damage over time and linked Hex application. Damage and duration
+  use the Hexes applied to each target. The Bane-specific buff presentation remains open.
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
   Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
   Desperation's life loss, the debuff in Survivors.
@@ -177,7 +179,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
   landings across terrain gaps. A guard's bar entry is held at the skill's own cooldown with a zero recovery rate while
-  its buff runs and counts at the character's recovery after it, as the official client shows.
+  its buff runs and counts at the character's recovery after it, as the official client shows. The held entry is published
+  before the instant action so the client skips its press prediction, and a stat-only skill refresh (a guard or self buff
+  starting/ending) no longer rebuilds the skill bar: the ring does not sweep or replay on the first press (#1127).
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) §11, §12.
@@ -197,7 +201,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem. Docs: [11](../docs/protocol/11-skills.md) §10g.
-- Holy Flame Totem's piercing bolts; consecrated ground remains open. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Holy Flame Totem places without channelling on its owner and fires piercing bolts. Consecrated ground remains open.
+  Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.

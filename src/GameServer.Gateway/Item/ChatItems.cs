@@ -29,6 +29,7 @@ public static class ChatItems
         var sockets = item.Sockets ?? [];
         if (sockets.Count > (socketable ? MaxSockets : 0)) return false;
         if (item.Links is { } links && (links.Contains((byte)0) || links.Sum(n => n) != sockets.Count)) return false;
+        if (item.SkinTransferSource is { } donor && (!socketable || donor.SkinTransferSource is not null || !Possible(donor, socketable: true))) return false;
         return sockets.All(s => Enum.IsDefined(s.Colour) && (s.Gem is null || Possible(s.Gem, socketable: false)));
     }
 
@@ -39,5 +40,6 @@ public static class ChatItems
         AlternateQualityType = item.AlternateQualityType is byte quality && catalog.IsAlternateQuality(quality) ? quality : null,
         GemVariant = catalog.ByHash(item.Type) is { } type && catalog.Gem(type) is { } gem && item.GemVariant >= 0 && item.GemVariant < gem.Variants.Count ? item.GemVariant : 0,
         Sockets = item.Sockets?.Select(s => s with { Gem = s.Gem is null ? null : Known(s.Gem, catalog) }).ToList(),
+        SkinTransferSource = item.SkinTransferSource is null ? null : Known(item.SkinTransferSource, catalog),
     };
 }
