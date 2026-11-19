@@ -96,6 +96,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the instance the character enters, so its portals left stand at the new device (2026-11-18).
   A click on a portal back into a hideout or town whose instance expired enters a new one of that area, by its
   device, instead of a transfer that was refused (2026-11-18).
+  "Resurrect at Checkpoint" from a map whose hideout instance is gone enters a new instance of it by its device, not
+  a refused transfer that left the dead character in the map (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
@@ -108,12 +110,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
-  box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage and Decay; other skills/scaling remain partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
-  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
