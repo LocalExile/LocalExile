@@ -29,7 +29,8 @@ public static class WorldLoader
         // The catalogs every other one reads.
         Step("stats", () =>
         {
-            Program.Stats = new();
+            // Made by the first Stat.Of when game data (GameData.Open) read stat names earlier: its server ids stay.
+            Program.Stats ??= new();
             // The rules name stats by the generated keys (Stat.g.cs): they must be this build's.
             if (Program.Stats.Names.Count > 0 && Program.Stats.Checksum != Stat.Checksum)
                 throw new InvalidOperationException("The client's Stats table differs from Stat.g.cs; run python scripts/dev/stat_ids.py and rebuild.");
