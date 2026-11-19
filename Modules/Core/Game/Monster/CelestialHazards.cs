@@ -122,7 +122,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
             if (now <= sweep.Starts + 2.25 && now >= sweep.NextPatch)
             {
                 sweep.NextPatch = now + .25;
-                double until = now + Stat(c, 6464, caster.Level, "base_skill_effect_duration") / 1000d;
+                double until = now + Stat(c, 6464, caster.Level, Stat.BaseSkillEffectDuration) / 1000d;
                 patches.Add(new(at, 10.8, 6464, until));
                 await Effect(c, at, "Solaris_e/solarbeam_groundfire_01.ao", until, clip: 2);
             }
@@ -131,7 +131,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         foreach (var meteor in meteors.Where(m => now >= m.At).ToArray())
         {
             meteors.Remove(meteor);
-            double delay = Stat(c, 6472, caster.Level, "fire_storm_fireball_delay_ms") / 1000d;
+            double delay = Stat(c, 6472, caster.Level, Stat.FireStormFireballDelayMs) / 1000d;
             // Meteor_v01_01.amd contacts at 999/4966 ms; fit that contact to the native skill's 300 ms delay.
             float speed = (float)(.999 / Math.Max(.01, delay));
             await Effect(c, meteor.Position, "Lunaris_e/meteor_fall_01.ao", now + 4.966 / speed, clip: 0, speed: speed);
@@ -142,7 +142,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
             impacts.Remove(hit);
             if (hit.Effect == 6473)
             {
-                double until = hit.At + Stat(c, 6473, caster.Level, "base_skill_effect_duration") / 1000d;
+                double until = hit.At + Stat(c, 6473, caster.Level, Stat.BaseSkillEffectDuration) / 1000d;
                 if (now >= until) continue;
                 patches.Add(new(hit.To, 12, hit.Effect, until));
                 await Effect(c, hit.To, "Lunaris_e/ground_darkness_01.ao", until, clip: 2);
@@ -153,7 +153,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
                 await Hit(p, casterId, caster, attack,
                     at => hit.Cone ? ConeContains(at, hit.From, hit.To, hit.Inner, hit.Outer) : Distance(at, hit.To) <= hit.Outer,
                     () => Current, Math.Max(0, 1 + Stat(c, hit.Effect, caster.Level,
-                        "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d));
+                        Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d));
         }
         if (now >= nextGround)
         {
@@ -195,7 +195,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         }
         else if (effectId == 6477)
         {
-            double charge = Stat(c, effectId, caster.Level, "base_skill_effect_duration") / 1000d;
+            double charge = Stat(c, effectId, caster.Level, Stat.BaseSkillEffectDuration) / 1000d;
             await Effect(c, origin, "Solaris_e/Sunflare_decal.ao", now + .5 + charge, (float)facing, 1.4f, clip: 0);
             flares.Add(new(now + charge, origin, aim, (float)facing));
         }
@@ -208,10 +208,10 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Pla
         }
         else
         {
-            int count = Stat(c, effectId, caster.Level, "trigger_cascade_number_of_spikes");
-            double interval = Stat(c, effectId, caster.Level, "trigger_cascade_ms_between_spikes") / 1000d;
-            int a = Stat(c, effectId, caster.Level, "trigger_cascade_A"), b = Stat(c, effectId, caster.Level, "trigger_cascade_B"),
-                degrees = Stat(c, effectId, caster.Level, "trigger_cascade_angle");
+            int count = Stat(c, effectId, caster.Level, Stat.TriggerCascadeNumberOfSpikes);
+            double interval = Stat(c, effectId, caster.Level, Stat.TriggerCascadeMsBetweenSpikes) / 1000d;
+            int a = Stat(c, effectId, caster.Level, global::Stat.TriggerCascadeA), b = Stat(c, effectId, caster.Level, global::Stat.TriggerCascadeB),
+                degrees = Stat(c, effectId, caster.Level, Stat.TriggerCascadeAngle);
             for (int i = 0; i < count; i++) meteors.Add(new(release + i * interval, CascadePoint(aim, facing, i, a, b, degrees)));
         }
     }

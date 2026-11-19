@@ -6,9 +6,9 @@ public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDic
 {
     public bool Suppressed => Kind == SkillHitKind.Spell
         && ActualCaster.GetValueOrDefault(Stat.SpellSkillsDealNoDamage) != 0
-        || Get("keystone_ancestral_bond") != 0 || Get("deal_no_damage_yourself") != 0;
+        || Get(Stat.KeystoneAncestralBond) != 0 || Get(Stat.DealNoDamageYourself) != 0;
 
-    int Get(string name) => Program.Stats.Key(name) is uint key ? ActualCaster.GetValueOrDefault(key) : 0;
+    int Get(uint key) => ActualCaster.GetValueOrDefault(key);
 
     public DamagePacket Hit(DamagePacket packet) => Suppressed ? DamagePacket.Empty : DamageFactor == 1 ? packet : packet.Scale(DamageFactor);
 
@@ -23,7 +23,7 @@ public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDic
     bool Prohibits(DamageType type)
     {
         var caster = ActualCaster;
-        int Get(string name) => Program.Stats.Key(name) is uint key ? caster.GetValueOrDefault(key) : 0;
+        int Get(uint key) => caster.GetValueOrDefault(key);
         return DamageStats.Prohibited(type, Get, attack: Kind == SkillHitKind.Attack);
     }
 

@@ -28,8 +28,8 @@ public sealed class HerEmbraceState
 
 public static partial class Game
 {
-    public const string HerEmbraceGain = "gain_her_embrace_for_x_ms_on_enemy_ignited";
-    public const string HerEmbraceDegen = "%_maximum_es_and_life_taken_as_fire_damage_per_minute_per_level_while_in_her_embrace";
+    public const uint HerEmbraceGain = Stat.GainHerEmbraceForXMsOnEnemyIgnited;
+    public const uint HerEmbraceDegen = Stat.PctMaximumEsAndLifeTakenAsFireDamagePerMinutePerLevelWhileInHerEmbrace;
     public const ushort HerEmbraceBuffRow = 979;
     static readonly Store<Player, HerEmbraceState> HerEmbraces = new();
     public static HerEmbraceState HerEmbraceOf(Player conn) => HerEmbraces.GetOrCreateValue(conn);
@@ -77,16 +77,16 @@ public static partial class Game
     {
         var state = HerEmbraceOf(conn);
         if (conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") != true) return sources;
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (Stats.Key(name) is uint key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+            if (name is var key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         }
-        Add("has_her_embrace", 1); Add("base_cannot_be_stunned", 1);
-        Add("sword_physical_damage_%_to_add_as_fire", 123);
-        if (WeaponProfileFor(conn, activeSet: true).Sword) Add("attack_physical_damage_%_to_add_as_fire", 123);
-        Add("burning_ground_effect_on_self_+%", -100);
-        foreach (string ailment in new[] { "freeze", "chill", "ignite" }) Add($"base_immune_to_{ailment}", 1);
-        Add("attack_speed_+%", 20); Add("base_cast_speed_+%", 20); Add("base_movement_velocity_+%", 20);
+        Add(Stat.HasHerEmbrace, 1); Add(Stat.BaseCannotBeStunned, 1);
+        Add(Stat.SwordPhysicalDamagePctToAddAsFire, 123);
+        if (WeaponProfileFor(conn, activeSet: true).Sword) Add(Stat.AttackPhysicalDamagePctToAddAsFire, 123);
+        Add(Stat.BurningGroundEffectOnSelfPlusPct, -100);
+        foreach (string ailment in new[] { "freeze", "chill", "ignite" }) Add(Stat.Of($"base_immune_to_{ailment}"), 1);
+        Add(Stat.AttackSpeedPlusPct, 20); Add(Stat.BaseCastSpeedPlusPct, 20); Add(Stat.BaseMovementVelocityPlusPct, 20);
         int coefficient = GolemStat(sources, HerEmbraceDegen);
         state.Degeneration = coefficient;
         state.PerSecond = Math.Max(0, coefficient) * (double)conn.Pools.Level
@@ -101,12 +101,12 @@ public static partial class Game
         RequalifyHerEmbrace(conn, new Dictionary<string, bool>());
         double raw = state.Pending; state.Pending = 0;
         if (raw <= 0 || InGracePeriod(conn) || InTown(conn) || conn.Immune || HardcoreProgressBlocked(conn)) return 0;
-        int Get(string name) => GolemStat(stats, name);
+        int Get(uint name) => GolemStat(stats, name);
         if (DamageImmunities.From(Get).Contains(DamageType.Fire)) return 0;
         double resistance = Math.Clamp(Resistance(conn, DamageType.Fire), -200, MaxResistance(conn, DamageType.Fire));
         int damage = IncomingResourceDefences.TakenOverTime(raw * (1 - resistance / 100d), Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(conn.Pools, Get),
-            typedIncreasedPct: ActorScale.Saturate((long)Get("fire_damage_taken_+%") + Get("elemental_damage_taken_+%")));
+            typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.FireDamageTakenPlusPct) + Get(Stat.ElementalDamageTakenPlusPct)));
         int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
             Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry);
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - life);

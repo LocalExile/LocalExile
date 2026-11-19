@@ -2,8 +2,8 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class EnergyShieldNotDelayedTests
 {
-    static Func<string, int> Stats(bool notDelayed) =>
-        name => notDelayed && name == "energy_shield_recharge_not_delayed_by_damage" ? 1 : 0;
+    static Func<uint, int> Stats(bool notDelayed) =>
+        name => notDelayed && name == Stat.EnergyShieldRechargeNotDelayedByDamage ? 1 : 0;
 
     // Vaal Discipline: while the stat holds, damage taken does not hold back recharge (base 2 s delay otherwise).
     [Fact]
@@ -30,7 +30,7 @@ public sealed class EnergyShieldNotDelayedTests
     public void VaalAuraExpiryUsesGameTimeAndRemovesBothBuffsOnce()
     {
         var conn = new Player(new(1, "vaal", 100, 100, 10, 10, null, []), 1, 1) { PlayerLife = 100 };
-        var aura = new Game.VaalAuraState { Buff = 11, Source = 12, Until = 3, Stat = "energy_shield_recharge_not_delayed_by_damage" };
+        var aura = new Game.VaalAuraState { Buff = 11, Source = 12, Until = 3, Stat = global::Stat.EnergyShieldRechargeNotDelayedByDamage };
         Game.VaalAuraStates.Add(conn, aura);
         try
         {

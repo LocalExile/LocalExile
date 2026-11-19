@@ -11,7 +11,7 @@ public static class StrongboxCatalog
     }
 
     public sealed record Definition(int Row, string Id, string Name, int Weight, int HardModeWeight, int MinLevel, int MaxLevel,
-        bool RareType, string? WeightStat, string Model, IReadOnlyList<string> Components, StateMachineData? States,
+        bool RareType, uint? WeightStat, string Model, IReadOnlyList<string> Components, StateMachineData? States,
         IReadOnlyList<ItemMod> Mods);
 
     static IReadOnlyList<Definition> Data = default!;
@@ -45,7 +45,7 @@ public static class StrongboxCatalog
             int? stat = row.IntOrNull("SpawnWeightIncrease");
             result.Add(new(index, id, chest.Text("Name") ?? id, row.Int("SpawnWeight"), row.Int("SpawnWeightHardmode"),
                 chest.Int("MinLevel"), chest.Int("MaxLevel"), row.BoolOrNull("__col7") == true,
-                stat is int key && key >= 0 && key < stats.Count ? stats[key] : null, model, components, states, mods));
+                stat is int key && key >= 0 && key < stats.Count ? (uint)key + 1 : null, model, components, states, mods));
         }
         return result;
     }
@@ -55,7 +55,7 @@ public static class StrongboxCatalog
         if (level < type.MinLevel || level > type.MaxLevel) return 0;
         long weight = hardMode ? type.HardModeWeight : type.Weight;
         weight = weight * Math.Max(0, 100L + (type.WeightStat is { } stat ? mods.Get(stat) : 0)) / 100;
-        if (type.RareType && mods.Get("map_strongbox_rare_boxes_weighting_multiplier") is int multiplier and > 0) weight *= multiplier;
+        if (type.RareType && mods.Get(Stat.MapStrongboxRareBoxesWeightingMultiplier) is int multiplier and > 0) weight *= multiplier;
         return (int)Math.Clamp(weight, 0, int.MaxValue);
     }
 

@@ -37,8 +37,8 @@ public static class MapEssences
         if (Packs.For(opening.Area.Id)?.Scattered.Any(p => p.Pack.Entries.Any(e =>
             Monsters.Find(e.Variety.ToString()) is { Supported: true })) != true) return;
         request.HandledContent.UnionWith([Content, Ascent, Calcification]);
-        if (opening.Mods.Get("map_has_monoliths") > 0 || opening.Mods.Get("map_rare_monsters_trapped_in_essences") > 0
-            || opening.Mods.Get("map_essences_are_1_tier_higher_chance_%") > 0)
+        if (opening.Mods.Get(Stat.MapHasMonoliths) > 0 || opening.Mods.Get(Stat.MapRareMonstersTrappedInEssences) > 0
+            || opening.Mods.Get(Stat.MapEssencesAre1TierHigherChancePct) > 0)
             request.ContentWarnings.Add(("Essence.Parity",
                 $"area={opening.Area.Id} content=Essence: release/reward lifecycle enabled; base essence multiplicity/weights use replica balance, corruption and specialised essence skills remain unsupported"));
     }
@@ -61,7 +61,7 @@ public static class MapEssences
     public static async Task<bool> Imprison(Player conn, AreaPopulation.Spawn spawn)
     {
         if (spawn.Rarity != MonsterRarity.Rare || MapModsOf(conn) is not { } mods
-            || mods.Get("map_rare_monsters_trapped_in_essences") <= 0
+            || mods.Get(Stat.MapRareMonstersTrappedInEssences) <= 0
             || Packs.For(conn.Layout.Id)?.Scattered.Any(p => p.Pack.Id == spawn.Pack) != true
             || MapScarabPacks.Packs.Any(p => p.Id == spawn.Pack)
             || Monsters.Find(spawn.Variety.ToString()) is not { Supported: true } variety) return false;

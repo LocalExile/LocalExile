@@ -14,7 +14,7 @@ public sealed class GolemCatalog
     }
 
     public sealed record Definition(int Effect, string Id, string Kind, string Variety, ushort Buff,
-        IReadOnlyList<(string Source, string Target)> BuffStats, bool Hordes, bool Special, bool IsGolem = true);
+        IReadOnlyList<(uint Source, uint Target)> BuffStats, bool Hordes, bool Special, bool IsGolem = true);
 
     readonly IReadOnlyDictionary<string, Definition> definitions;
     readonly Scaling scaling;
@@ -72,20 +72,20 @@ public sealed class GolemCatalog
         var active = ClientTables.Table("ActiveSkills");
         var rows = ClientTables.Table("BuffDefinitions").Select((r, i) => (Id: r.Text("Id")!, Row: (ushort)i))
             .ToDictionary(r => r.Id, r => r.Row, StringComparer.Ordinal);
-        var species = new (string Kind, string Variety, string Buff, (string, string)[] Stats)[]
+        var species = new (string Kind, string Variety, string Buff, (uint, uint)[] Stats)[]
         {
             ("Chaos", "Metadata/Monsters/ChaosElemental/ChaosElementalSummoned", "chaos_elemental_buff",
-                [("chaos_golem_grants_dot_multiplier_+", "dot_multiplier_+"), ("chaos_golem_grants_chaos_resistance_%", "base_chaos_damage_resistance_%")]),
+                [(Stat.ChaosGolemGrantsDotMultiplierPlus, Stat.DotMultiplierPlus), (Stat.ChaosGolemGrantsChaosResistancePct, Stat.BaseChaosDamageResistancePct)]),
             ("Ice", "Metadata/Monsters/IceElemental/IceElementalSummoned", "ice_elemental_buff",
-                [("ice_golem_grants_accuracy_rating_+", "accuracy_rating"), ("ice_golem_grants_critical_strike_chance_+%", "critical_strike_chance_+%")]),
+                [(Stat.IceGolemGrantsAccuracyRatingPlus, Stat.AccuracyRating), (Stat.IceGolemGrantsCriticalStrikeChancePlusPct, Stat.CriticalStrikeChancePlusPct)]),
             ("Flame", "Metadata/Monsters/FireElemental/FireElementalSummoned", "fire_elemental_buff",
-                [("fire_golem_grants_damage_+%", "damage_+%"), ("fire_golem_grants_area_of_effect_+%", "base_skill_area_of_effect_+%")]),
+                [(Stat.FireGolemGrantsDamagePlusPct, Stat.DamagePlusPct), (Stat.FireGolemGrantsAreaOfEffectPlusPct, Stat.BaseSkillAreaOfEffectPlusPct)]),
             ("Stone", "Metadata/Monsters/RockGolem/RockGolemSummoned", "rock_golem_buff",
-                [("stone_golem_grants_base_life_regeneration_rate_per_minute", "base_life_regeneration_rate_per_minute"), ("stone_golem_grants_defences_+%", "global_defences_+%")]),
+                [(Stat.StoneGolemGrantsBaseLifeRegenerationRatePerMinute, Stat.BaseLifeRegenerationRatePerMinute), (Stat.StoneGolemGrantsDefencesPlusPct, Stat.GlobalDefencesPlusPct)]),
             ("Lightning", "Metadata/Monsters/LightningGolem/LightningGolemSummoned", "lightning_elemental_buff",
-                [("lightning_golem_grants_attack_and_cast_speed_+%", "attack_and_cast_speed_+%"), ("lightning_golem_grants_base_mana_regeneration_rate_per_minute", "base_mana_regeneration_rate_per_minute")]),
+                [(Stat.LightningGolemGrantsAttackAndCastSpeedPlusPct, Stat.AttackAndCastSpeedPlusPct), (Stat.LightningGolemGrantsBaseManaRegenerationRatePerMinute, Stat.BaseManaRegenerationRatePerMinute)]),
             ("Carrion", "Metadata/Monsters/BoneGolem/BoneGolem", "bone_golem_buff",
-                [("bone_golem_grants_minion_minimum_added_physical_damage", "non_golem_minion_global_minimum_added_physical_damage"), ("bone_golem_grants_minion_maximum_added_physical_damage", "non_golem_minion_global_maximum_added_physical_damage")]),
+                [(Stat.BoneGolemGrantsMinionMinimumAddedPhysicalDamage, Stat.NonGolemMinionGlobalMinimumAddedPhysicalDamage), (Stat.BoneGolemGrantsMinionMaximumAddedPhysicalDamage, Stat.NonGolemMinionGlobalMaximumAddedPhysicalDamage)]),
         };
         var result = new Dictionary<string, Definition>(StringComparer.Ordinal);
         int index = 0;
@@ -101,7 +101,7 @@ public sealed class GolemCatalog
                 if ((skill.Text("DisplayedName") ?? "").StartsWith("[DNT]", StringComparison.Ordinal)) continue;
                 bool special = id.EndsWith("AltY", StringComparison.Ordinal), hordes = id.EndsWith("AltX", StringComparison.Ordinal);
                 var stats = special && kind.Kind == "Stone"
-                    ? new (string, string)[] { ("stone_golem_grants_melee_damage_removed_from_stone_golem_before_life_or_es_%", "melee_damage_removed_from_stone_golem_before_life_or_es_%") }
+                    ? new (uint, uint)[] { (Stat.StoneGolemGrantsMeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct) }
                     : kind.Stats;
                 ushort buff = hordes || special && kind.Kind != "Stone" ? (ushort)0
                     : rows[special ? "rock_golem_alt_buff" : kind.Buff];
@@ -112,21 +112,21 @@ public sealed class GolemCatalog
         return result;
     }
 
-    public static int Limit(int skillBase, Func<string, int> player)
+    public static int Limit(int skillBase, Func<uint, int> player)
     {
-        long value = Math.Max(1, skillBase) + (long)player("base_number_of_golems_allowed") + player("number_of_golems_allowed");
-        if (player("primordial_jewel_count") >= 3) value += player("number_of_golems_allowed_with_3_primordial_jewels");
-        if (player("double_golem_limit") != 0) value *= 2;
+        long value = Math.Max(1, skillBase) + (long)player(Stat.BaseNumberOfGolemsAllowed) + player(Stat.NumberOfGolemsAllowed);
+        if (player(Stat.PrimordialJewelCount) >= 3) value += player(Stat.NumberOfGolemsAllowedWith3PrimordialJewels);
+        if (player(Stat.DoubleGolemLimit) != 0) value *= 2;
         return (int)Math.Clamp(value, 0, 100);
     }
 
-    public static int BuffEffect(Definition definition, Func<string, int> player, Func<string, int> own, int count)
+    public static int BuffEffect(Definition definition, Func<uint, int> player, Func<uint, int> own, int count)
     {
         string family = definition.Kind switch { "Flame" => "fire", "Carrion" => "bone", _ => definition.Kind.ToLowerInvariant() };
-        int effect = player("golem_buff_effect_+%") + own("golem_buff_effect_+%")
-            + player("base_" + family + "_golem_granted_buff_effect_+%")
-            + player("golem_buff_effect_+%_per_summoned_golem") * count;
-        if (definition.Kind is "Flame" or "Ice" or "Lightning") effect += player("elemental_golem_granted_buff_effect_+%");
+        int effect = player(Stat.GolemBuffEffectPlusPct) + own(Stat.GolemBuffEffectPlusPct)
+            + player(Stat.Of("base_" + family + "_golem_granted_buff_effect_+%"))
+            + player(Stat.GolemBuffEffectPlusPctPerSummonedGolem) * count;
+        if (definition.Kind is "Flame" or "Ice" or "Lightning") effect += player(Stat.ElementalGolemGrantedBuffEffectPlusPct);
         return Math.Max(-100, effect);
     }
 }

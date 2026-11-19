@@ -2,9 +2,9 @@
 /// contact and one per owner kill, including both on a melee killing blow. A counter alone is not full Rampage.</summary>
 public sealed class RampageSession
 {
-    public const string Source = "melee_hits_grant_rampage_stacks";
+    public const uint Source = Stat.MeleeHitsGrantRampageStacks;
     /// <summary>The other way to start a streak: kills grant the stacks instead of melee hits.</summary>
-    public const string KillSource = "player_gain_rampage_stacks";
+    public const uint KillSource = Stat.PlayerGainRampageStacks;
     public static readonly int[] Thresholds = [15, 30, 45, 70, 100, 135, 175, 220, 270, 325, 385, 450, 520];
     readonly RampageState state = new(Thresholds);
     readonly HashSet<object> creditedKills = new(ReferenceEqualityComparer.Instance);

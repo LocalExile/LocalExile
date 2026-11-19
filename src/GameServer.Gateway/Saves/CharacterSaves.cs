@@ -641,7 +641,7 @@ public static class CharacterSaves
         if (t.HasOneSocket && item.Rarity != ItemRarity.Unique && item.Sockets.Count == 0)
         {
             var local = ItemModStats.Local(item, catalog.Mods);
-            if (local.GetValueOrDefault("local_has_X_sockets") == 1 && !local.ContainsKey("local_has_no_sockets"))
+            if (local.GetValueOrDefault(Stat.LocalHasXSockets) == 1 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = item with { Sockets = [new(SocketColour.White)], Links = [1] };
         }
         item = item with { RequiredLevel = s.RequiredLevel };
@@ -650,13 +650,13 @@ public static class CharacterSaves
             && !item.Sockets.Any(socket => socket.Colour == SocketColour.Abyss))
         {
             var local = ItemModStats.Local(item, catalog.Mods);
-            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+            if (local.GetValueOrDefault(Stat.LocalHasXAbyssSockets) > 0 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = AbyssJewels.StygianSockets(item, local);
         }
         else if (item.Rarity == ItemRarity.Unique && item.Sockets.Count == 0 && t.Components.Contains("Sockets"))
         {
             var local = ItemModStats.Local(item, catalog.Mods);
-            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+            if (local.GetValueOrDefault(Stat.LocalHasXAbyssSockets) > 0 && !local.ContainsKey(Stat.LocalHasNoSockets))
                 item = AbyssJewels.EquipmentSockets(item, t, catalog, local, new Random(item.TypeHash.GetHashCode()));
         }
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);

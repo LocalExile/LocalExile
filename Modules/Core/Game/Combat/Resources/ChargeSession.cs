@@ -27,7 +27,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     readonly Charges.Limits[] limits = [Default, Default, Default];
     readonly int[] applied = new int[3];
     Charges.Shown[] shown => State.Presented;
-    Dictionary<string, int> observed = [];
+    Dictionary<uint, int> observed = [];
     double lastStep = double.NaN;
 
     static readonly Charges.Limits Default = new(ChargePanelStats.BaseMaximumCharges, 0, Charges.BaseDurationMs);
@@ -72,7 +72,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     // With nothing held the ticker may have left the rate as it last was (TimesCharges): a gain rolled with these stats
     // is timed by their rate. Held charges keep the ticker's, as their deadlines always did.
-    void TimeGains(double now, Func<string, int> stats)
+    void TimeGains(double now, Func<uint, int> stats)
     {
         if (!Holds) State.SetExpiryRate(now, RecipientEffectTime.Rate(3, stats));
     }
@@ -82,11 +82,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     /// the stats the session reads between events (the periodic gains, the gain-to-maximum chances, the duration
     /// stats), kept until the next observation.
     /// </summary>
-    public void Observe(Func<string, int> get)
+    public void Observe(Func<uint, int> get)
     {
         SettleDegeneration(clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep));
-        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-        int Record(string name) => seen[name] = get(name);
+        var seen = new Dictionary<uint, int>();
+        int Record(uint name) => seen[name] = get(name);
         foreach (var type in Charges.Types)
         {
             limits[(int)type] = Charges.LimitsOf(type, Record, State.Held(type));
@@ -98,7 +98,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         observed = seen;
     }
 
-    int Observed(string name) => observed.GetValueOrDefault(name);
+    int Observed(uint name) => observed.GetValueOrDefault(name);
 
     /// <summary>Whether the type's charges are its special type's (Brutal, Affliction, Absorption) as last observed:
     /// the "gain … instead of" flag (<see cref="Charges.ConversionFlag"/>).</summary>
@@ -127,11 +127,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     /// events are waiting (their gain chances); without them the events wait for the next step. While dead every gained
     /// charge is lost and the events are dropped; in towns no periodic charge is gained.
     /// </summary>
-    public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
+    public StepResult Step(double now, Func<uint, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
         bool inTown, Random rng) =>
         Step(now, stats, weapon, alive, moving, inTown, rng, mineDetonatedRecently: false);
 
-    public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
+    public StepResult Step(double now, Func<uint, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
         bool inTown, Random rng, bool mineDetonatedRecently)
     {
         var log = new List<string>();
@@ -155,7 +155,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     // An admitted contact resolves only its own events at the original contact time. It never steps periodic/moving
     // timers, drains unrelated queued events, or changes lastStep. Call in the same mutation transaction as the hit.
-    public StepResult Admit(double now, IEnumerable<ChargeEvent> accepted, Func<string, int> stats,
+    public StepResult Admit(double now, IEnumerable<ChargeEvent> accepted, Func<uint, int> stats,
         Func<WeaponProfile> weapon, bool alive, Random rng)
     {
         var log = new List<string>();
@@ -184,7 +184,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         return true;
     }
 
-    void ApplyEvent(ChargeEvent e, double now, Func<string, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
+    void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
         SettleDegeneration(now);
         if (e is ChargeEvent.WhenHit) { LastHitAt = now; Degeneration.HitUntil = now + RecentlySeconds; }

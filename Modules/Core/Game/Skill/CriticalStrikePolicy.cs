@@ -5,7 +5,7 @@
 /// Its low-life input is virtual_on_low_life; it has no attack or melee gate, so spell critical rolls qualify.</summary>
 public static class CriticalStrikePolicy
 {
-    public const string UnarmedMeleeMultiplierStat = "unarmed_melee_attack_critical_strike_multiplier_+";
+    public const uint UnarmedMeleeMultiplierStat = Stat.UnarmedMeleeAttackCriticalStrikeMultiplierPlus;
 
     public static bool OnLowLife(uint currentLife, uint maximumLife, int thresholdOverride = 0,
         int thresholdPercent = 0, bool countsAsLowLife = false) =>

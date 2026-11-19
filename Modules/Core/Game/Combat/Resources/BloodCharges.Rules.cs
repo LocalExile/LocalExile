@@ -13,13 +13,13 @@ public static partial class Game
     public static readonly ConcurrentDictionary<(bool HardMode, int Effect), bool> BloodChargeEffects = new();
 
     public static bool UsesBloodCharges(Player conn, int effect) => BloodChargeEffects.GetOrAdd((LeagueFor(conn).HardMode, effect),
-        key => BloodCharges.Uses(name => Stats.Key(name) is uint k
+        key => BloodCharges.Uses(name => name is var k
             ? SkillsFor(conn).EffectStats(key.Effect, 1).Where(s => s.Item1 == k).Select(s => s.Item2).FirstOrDefault() : 0));
 
     // The Charges tab's rows: the count, the maximum (Character.ot's 5 plus the raw maximum_blood_scythe_charges sources,
     // the Reap enchantment) and show_blood_charge_info while a gem socketed in an active item uses the charges. get reads
     // the sources before this publication, so the base adds once.
-    public static List<(string Stat, int Value)> BloodChargePanelRows(Player conn, Func<string, int> get)
+    public static List<(uint Stat, int Value)> BloodChargePanelRows(Player conn, Func<uint, int> get)
     {
         var (held, shown) = BloodChargePanelInputs(conn);
         return BloodChargePanelRows(held, shown, get);
@@ -36,7 +36,7 @@ public static partial class Game
         return (held, shown);
     }
 
-    public static List<(string Stat, int Value)> BloodChargePanelRows(int held, bool shown, Func<string, int> get)
+    public static List<(uint Stat, int Value)> BloodChargePanelRows(int held, bool shown, Func<uint, int> get)
     {
         return
         [
@@ -48,10 +48,10 @@ public static partial class Game
 
     // The maximum as the character's final stats publish it (BloodChargePanelRows).
     public static int BloodChargeMaximum(IReadOnlyDictionary<uint, int> player) =>
-        Stats.Key(BloodCharges.Maximum) is uint key ? Math.Max(0, player.GetValueOrDefault(key)) : BloodCharges.BaseMaximum;
+        BloodCharges.Maximum is var key ? Math.Max(0, player.GetValueOrDefault(key)) : BloodCharges.BaseMaximum;
 
     // The skill's more damage from the charges held now, read under the lock with the sweep's other inputs.
-    public static double BloodChargeDamageMore(Player conn, Func<string, int> own)
+    public static double BloodChargeDamageMore(Player conn, Func<uint, int> own)
     {
         if (!BloodCharges.Uses(own)) return 1;
         lock (conn.Monsters) return BloodCharges.More(own(BloodCharges.DamagePerCharge), conn.BloodCharges);

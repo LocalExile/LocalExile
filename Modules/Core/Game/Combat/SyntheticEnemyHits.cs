@@ -27,7 +27,7 @@ public static partial class Game
             // "Avoid All Damage from Hits" roll for the whole hit.
             int elusiveAvoid = ElusiveAvoidPct(conn);
             bool avoided = (elusiveAvoid > 0 && PlayerDamageTaken.AvoidsAll(elusiveAvoid, conn.IncomingHitRandom))
-                || PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+                || PlayerDamageTaken.Avoids(type, name => name is var key ? stats.GetValueOrDefault(key) : 0,
                     conn.IncomingHitRandom);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
@@ -37,14 +37,14 @@ public static partial class Game
                 resistance = maximum = 90;
             bool immune = PlayerImmunities(conn, stats).Contains(type);
             bool armourRelevant = type == DamageType.Physical ? amount > 0
-                : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
+                : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
                     && DamageModel.Mitigate(amount, resistance, maximum) > 0;
             var armour = IncomingArmourLocked(conn, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
             int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
                 stats, attack: !spell, ranged: ranged && !spell, spell: spell);
             // A blocked hit deals only its share ("You take X% of Damage from Blocked Hits", 0 by default).
             if (blocked) dealt = (int)Math.Round(dealt * PlayerDamageTaken.BlockedPct(type,
-                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) / 100.0);
+                name => name is var key ? stats.GetValueOrDefault(key) : 0) / 100.0);
             string mitigation = immune ? "immunity" : avoided ? "avoidance"
                 : MitigationLabel(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(conn) : default;
@@ -80,7 +80,7 @@ public static partial class Game
         var (physical, elemental) = PlayerDamageReduction(conn, stats);
         if (type == DamageType.Physical)
             return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
-        int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0);
         return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
             (share > 0
                 ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"

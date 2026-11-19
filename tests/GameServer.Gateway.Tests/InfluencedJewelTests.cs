@@ -44,8 +44,8 @@ public class InfluencedJewelTests
         Assert.Equal(0, oneEach.GetValueOrDefault(life));
         var twoElder = ItemModStats.Global([both, elder, jewel], items.Mods, Program.Stats);
         Assert.Equal(15, twoElder[life]);
-        Assert.Equal(0, ItemModStats.RawAttributes([both, elder, jewel], items.Mods).GetValueOrDefault("strength_+%"));
-        Assert.Equal(12, ItemModStats.RawAttributes([both, warlord, jewel], items.Mods)["strength_+%"]);
+        Assert.Equal(0, ItemModStats.RawAttributes([both, elder, jewel], items.Mods).GetValueOrDefault(Stat.StrengthPlusPct));
+        Assert.Equal(12, ItemModStats.RawAttributes([both, warlord, jewel], items.Mods)[Stat.StrengthPlusPct]);
     }
 
     [Fact]

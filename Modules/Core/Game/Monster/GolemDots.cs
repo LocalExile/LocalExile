@@ -14,10 +14,10 @@ public static partial class Game
 
     public static bool GolemElementalImmune(GolemState.Golem golem)
     {
-        int Player(string name) => GolemStat(golem.Player, name);
-        return golem.Definition.IsGolem && (Player("golem_immunity_to_elemental_damage") > 0
+        int Player(uint name) => GolemStat(golem.Player, name);
+        return golem.Definition.IsGolem && (Player(Stat.GolemImmunityToElementalDamage) > 0
             || golem.Definition.Kind is "Flame" or "Ice" or "Lightning"
-                && Player("elemental_golem_immunity_to_elemental_damage") > 0);
+                && Player(Stat.ElementalGolemImmunityToElementalDamage) > 0);
     }
 
     /// <summary>The invulnerable reservation families reject every contact and every owned damaging ailment.</summary>
@@ -57,7 +57,7 @@ public static partial class Game
         if (bleed > 0) lifeDamage += golem.ShieldPool.Damage(bleed, bypass: false, lastDamageAt!.Value);
         if (poison > 0)
             lifeDamage += golem.ShieldPool.Damage(poison,
-                m.Mods.Effects["chaos_damage_does_not_bypass_energy_shield"] == 0, lastDamageAt!.Value);
+                m.Mods.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] == 0, lastDamageAt!.Value);
 
         if (lifeDamage > 0)
         {
@@ -156,11 +156,11 @@ public static partial class Game
         if (!elementalImmune)
         {
             double fire = baseHit[DamageType.Fire].Min;
-            int IgniteStat(string n) => n == "critical_ailment_dot_multiplier_+" ? 50
+            int IgniteStat(uint n) => n == Stat.CriticalAilmentDotMultiplierPlus ? 50
                 : IgniteIncreases.Contains(n) ? 0 : effects[n];
-            if (fire > 0 && victim["immune_to_ignite"] == 0 && victim["cannot_be_ignited"] == 0
+            if (fire > 0 && victim[Stat.ImmuneToIgnite] == 0 && victim[Stat.CannotBeIgnited] == 0
                 && IgniteFromHit(fire, critical, IgniteStat, 1, target, random) is { } ignite
-                && !RandomRolls.Chance(victim["avoid_ignite_%"] + victim["base_avoid_ignite_%"], 100, random)
+                && !RandomRolls.Chance(victim[Stat.AvoidIgnitePct] + victim[Stat.BaseAvoidIgnitePct], 100, random)
                 && target.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds))
             {
                 target.Ignites.BuffSource = attacker;
@@ -169,24 +169,24 @@ public static partial class Game
             }
         }
 
-        int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
-            attack ? effects["bleed_on_hit_with_attacks_%"] : 0);
+        int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
+            attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
         double bleedDamage = physical * .10
-            * Math.Max(0, 1 + effects["bleeding_damage_+%"] / 100.0)
-            * Math.Max(0, 1 + effects["monster_bleeding_damage_+%_final"] / 100.0);
+            * Math.Max(0, 1 + effects[Stat.BleedingDamagePlusPct] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.MonsterBleedingDamagePlusPctFinal] / 100.0);
         double bleedSeconds = Ailments.BleedDurationSeconds
-            * Math.Max(0, 1 + effects["base_bleed_duration_+%"] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.BaseBleedDurationPlusPct] / 100.0)
             * IncomingDamagingAilments.SelfDuration(name => victim[name], bleed: true);
         if (bleedChance > 0 && bleedDamage > 0)
         {
             var settings = new MonsterIgnites.Settings(bleedChance, bleedDamage, bleedDamage,
                 bleedDamage * 1.5, bleedDamage * 1.5, bleedSeconds);
             target.Bleeds.Stacks = settings.Stacks;
-            bool immune = victim["immune_to_bleeding"] != 0 || victim["cannot_gain_bleeding"] != 0
-                || victim["base_cannot_gain_bleeding"] != 0;
+            bool immune = victim[Stat.ImmuneToBleeding] != 0 || victim[Stat.CannotGainBleeding] != 0
+                || victim[Stat.BaseCannotGainBleeding] != 0;
             if (!immune && RandomRolls.Chance(settings.Chance, 100, random)
                 && target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now,
-                    victim["avoid_bleed_%"] + victim["base_avoid_bleed_%"], immune, random)
+                    victim[Stat.AvoidBleedPct] + victim[Stat.BaseAvoidBleedPct], immune, random)
                 && LabyrinthTrials.BleedingBuffRow is ushort row)
             {
                 target.Bleeds.BuffSource = attacker;
@@ -195,30 +195,30 @@ public static partial class Game
             }
         }
 
-        int poisonChance = Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
-            effects["base_chance_to_poison_on_hit_%"]);
+        int poisonChance = Math.Max(effects[Stat.GlobalPoisonOnHit] != 0 ? 100 : 0,
+            effects[Stat.BaseChanceToPoisonOnHitPct]);
         if (attack) poisonChance = Math.Max(poisonChance,
-            effects["base_attacks_poison"] != 0 ? 100 : effects["chance_to_poison_on_hit_with_attacks_%"]);
-        bool allCanPoison = effects["all_damage_can_poison"] != 0;
+            effects[Stat.BaseAttacksPoison] != 0 ? 100 : effects[Stat.ChanceToPoisonOnHitWithAttacksPct]);
+        bool allCanPoison = effects[Stat.AllDamageCanPoison] != 0;
         double poisonBase = allCanPoison
             ? baseHit.Components.Where(c => !(elementalImmune && DamageTypes.IsElemental(c.Type)))
                 .Sum(c => c.Range.Min)
             : physical + chaos;
         double poisonDamage = poisonBase * .30
-            * Math.Max(0, 1 + effects["base_poison_damage_+%"] / 100.0)
-            * Math.Max(0, 1 + effects["monster_poison_damage_+%_final"] / 100.0);
+            * Math.Max(0, 1 + effects[Stat.BasePoisonDamagePlusPct] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.MonsterPoisonDamagePlusPctFinal] / 100.0);
         double poisonSeconds = Ailments.PoisonDurationSeconds
-            * Math.Max(0, 1 + effects["base_poison_duration_+%"] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.BasePoisonDurationPlusPct] / 100.0)
             * MonsterPoisons.SelfDuration(name => victim[name])
             * IncomingDamagingAilments.SelfDuration(name => victim[name], bleed: false);
         if (poisonChance > 0 && poisonDamage > 0)
         {
             var settings = new MonsterPoisons.Settings(poisonChance, poisonDamage, poisonDamage,
                 poisonDamage * 1.5, poisonDamage * 1.5, poisonSeconds);
-            bool immune = victim["cannot_be_poisoned"] != 0 || victim["immune_to_poison"] != 0
-                || victim["base_cannot_be_poisoned"] != 0;
+            bool immune = victim[Stat.CannotBePoisoned] != 0 || victim[Stat.ImmuneToPoison] != 0
+                || victim[Stat.Of("base_cannot_be_poisoned")] != 0;
             if (target.Poisons.TryApply(settings, critical, now,
-                    victim["avoid_poison_%"] + victim["base_avoid_poison_%"], immune, random))
+                    victim[Stat.AvoidPoisonPct] + victim[Stat.BaseAvoidPoisonPct], immune, random))
             {
                 target.Poisons.BuffSource = attacker;
                 ShowGolemDotBuffLocked(conn, golem, ref target.Poisons.Buff, PoisonBuffRow, attacker,

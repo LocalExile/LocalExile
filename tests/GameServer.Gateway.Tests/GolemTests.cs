@@ -22,9 +22,9 @@ public sealed class GolemTests
             var variety = monsters.Find(definition.Variety);
             Assert.NotNull(variety); Assert.True(variety.Supported);
             var own = skills.EffectStats(definition.Effect, 20, 20).ToDictionary(p => p.Item1, p => p.Item2);
-            int Get(string name) => own.GetValueOrDefault(Program.Stats.Key(name)!.Value);
-            Assert.Equal(70, Get("base_display_minion_actor_level"));
-            Assert.Equal(definition.Hordes ? 3 : 1, Get("base_number_of_golems_allowed"));
+            int Get(uint name) => own.GetValueOrDefault(name);
+            Assert.Equal(70, Get(Stat.BaseDisplayMinionActorLevel));
+            Assert.Equal(definition.Hordes ? 3 : 1, Get(Stat.BaseNumberOfGolemsAllowed));
             Assert.Equal(definition.Hordes || definition.Special && definition.Kind != "Stone", definition.Buff == 0);
             var golem = new GolemState.Golem(1, null!, definition, 1) { Own = own };
             var abilities = Game.GolemAbilities(conn, variety, 70, golem, new Dictionary<uint, int>());
@@ -35,7 +35,7 @@ public sealed class GolemTests
             Assert.Contains(abilities, a => a.Attack.Damage.MaxTotal > 0);
             Assert.All(abilities, a => Assert.True(a.Attack.Seconds > 0));
             foreach (var (source, target) in definition.BuffStats)
-            { Assert.NotNull(Program.Stats.Key(source)); Assert.NotNull(Program.Stats.Key(target)); }
+            { Assert.True(StatCatalog.IsClientId(source)); Assert.True(StatCatalog.IsClientId(target)); }
         }
         // One-row monster spells must use actor level, not leave the row's level-3 values in a level-70 golem.
         var low = catalog.Skill(skills, 5025, 34); var high = catalog.Skill(skills, 5025, 70);
@@ -80,28 +80,28 @@ public sealed class GolemTests
             Assert.Equal(beforeAdded.Single(a => a.Id == hit).Attack.Damage[DamageType.Chaos].Min + 100,
                 afterAdded.Single(a => a.Id == hit).Attack.Damage[DamageType.Chaos].Min);
         }
-        Assert.Equal(3, GolemCatalog.Limit(1, n => n == "number_of_golems_allowed" ? 2 : 0));
-        Assert.Equal(4, GolemCatalog.Limit(1, n => n == "base_number_of_golems_allowed" ? 3 : 0));
-        Assert.Equal(8, GolemCatalog.Limit(3, n => n switch { "number_of_golems_allowed" => 1, "double_golem_limit" => 1, _ => 0 }));
+        Assert.Equal(3, GolemCatalog.Limit(1, n => n == Stat.NumberOfGolemsAllowed ? 2 : 0));
+        Assert.Equal(4, GolemCatalog.Limit(1, n => n == Stat.BaseNumberOfGolemsAllowed ? 3 : 0));
+        Assert.Equal(8, GolemCatalog.Limit(3, n => n switch { Stat.NumberOfGolemsAllowed => 1, Stat.DoubleGolemLimit => 1, _ => 0 }));
         var stone = catalog.Find("SummonStoneGolem")!;
-        Assert.Equal(70, GolemCatalog.BuffEffect(stone, n => n == "golem_buff_effect_+%" ? 50 : 0,
-            n => n == "golem_buff_effect_+%" ? 20 : 0, 1));
+        Assert.Equal(70, GolemCatalog.BuffEffect(stone, n => n == Stat.GolemBuffEffectPlusPct ? 50 : 0,
+            n => n == Stat.GolemBuffEffectPlusPct ? 20 : 0, 1));
         var shielded = new GolemState.Golem(1, null!, flame, 1);
         var raw = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
-            new Dictionary<uint, int>(), new(new Dictionary<string, int>()));
+            new Dictionary<uint, int>(), new(new Dictionary<uint, int>()));
         int nativeChaos = HitMitigation.Resistance(monsters, varietyFlame, 70, DamageType.Chaos).Value;
         var converted = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
-            new Dictionary<uint, int>(), new(new Dictionary<string, int>
+            new Dictionary<uint, int>(), new(new Dictionary<uint, int>
             {
-                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 2,
-                ["base_chaos_damage_resistance_%"] = 50 - nativeChaos
+                [Stat.MaximumLifePctToConvertToMaximumEnergyShieldPer1PctChaosResistance] = 2,
+                [Stat.BaseChaosDamageResistancePct] = 50 - nativeChaos
             }));
         Assert.False(raw.Fatal); Assert.True(raw.MaximumLife > 0);
         var justBelow = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
-            new Dictionary<uint, int>(), new(new Dictionary<string, int>
+            new Dictionary<uint, int>(), new(new Dictionary<uint, int>
             {
-                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 2,
-                ["base_chaos_damage_resistance_%"] = 49 - nativeChaos
+                [Stat.MaximumLifePctToConvertToMaximumEnergyShieldPer1PctChaosResistance] = 2,
+                [Stat.BaseChaosDamageResistancePct] = 49 - nativeChaos
             }));
         Assert.False(justBelow.Fatal); Assert.True(justBelow.MaximumLife > 0);
         Assert.True(justBelow.MaximumEnergyShield > 0);

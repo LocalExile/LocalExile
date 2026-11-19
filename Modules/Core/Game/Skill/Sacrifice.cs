@@ -49,13 +49,13 @@ static partial class Game
                 if (!Current) return 0;
                 if (added is int captured) return captured;
                 var supported = SupportedSkill(caster, skill);
-                int Get(string name) => Stats.Key(name) is uint key ? supported.Stats.GetValueOrDefault(key) : 0;
-                int percent = Get("support_sacrifice_sacrifice_%_of_current_life");
+                int Get(uint key) => supported.Stats.GetValueOrDefault(key);
+                int percent = Get(Stat.SupportSacrificeSacrificePctOfCurrentLife);
                 int sacrificed = SkillsFor(caster).IsSpell(effect) && percent > 0 && caster.PlayerLife > 1
                     ? (int)Math.Min((long)caster.PlayerLife - 1, (long)caster.PlayerLife * percent / 100) : 0;
                 caster.PlayerLife -= (uint)sacrificed;
                 if (sacrificed > 0) paid?.Invoke();
-                added = (int)((long)sacrificed * Get("support_sacrifice_gain_%_of_sacrificed_life_as_added_chaos_damage") / 100);
+                added = (int)((long)sacrificed * Get(Stat.SupportSacrificeGainPctOfSacrificedLifeAsAddedChaosDamage) / 100);
                 return added.Value;
             }
         }

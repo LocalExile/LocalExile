@@ -6,7 +6,7 @@ public static partial class Game
     /// </summary>
     static void PlayerStatsUpdated(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         PresentStats(conn);
         RecoveryRatesChanged(conn);
         // A periodic charge gain's stat may have come (ChargeSession.Observe): the charges ticker runs while it has work.

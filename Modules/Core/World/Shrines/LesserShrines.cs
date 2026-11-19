@@ -72,7 +72,7 @@ public static class LesserShrines
         var stats = CharacterPlayerStats(conn);
         int recovery = Stat.VirtualCooldownSpeedPlusPct is var key ? stats.GetValueOrDefault(key) : 0;
         double rate = Math.Max(0, 1 + recovery / 100.0)
-            * Math.Max(0, 1 + (MapModsOf(conn)?.Get("map_player_cooldown_speed_+%_final") ?? 0) / 100.0);
+            * Math.Max(0, 1 + (MapModsOf(conn)?.Get(Stat.MapPlayerCooldownSpeedPlusPctFinal) ?? 0) / 100.0);
         return rate > 0 ? SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0 / rate : double.PositiveInfinity;
     }
 
@@ -100,9 +100,9 @@ public static class LesserShrines
             }
             var stats = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
             var player = CharacterPlayerStats(conn);
-            int Own(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-            double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"),
-                name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0, Own);
+            int Own(uint key) => stats.GetValueOrDefault(key);
+            double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
+                name => player.GetValueOrDefault(name), Own);
             var choices = ShrineCatalog.All.Where(s => s.Lesser && !s.PvPOnly).ToArray();
             if (seconds <= 0 || choices.Length == 0) return;
             // This request is committed synchronously with the kill, including atomic projectile kills.

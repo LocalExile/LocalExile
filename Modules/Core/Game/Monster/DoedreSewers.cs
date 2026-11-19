@@ -29,10 +29,10 @@ public static class DoedreSewers
     public static Dictionary<uint, int> PlayerStats(Player c, Dictionary<uint, int> stats)
     {
         if (!Exposures.TryGetValue(c, out var e)) return stats;
-        void Add(string name, int value) { if (value != 0 && Stats.Key(name) is uint k) stats[k] = stats.GetValueOrDefault(k) + value; }
-        Add("base_damage_taken_+%", 10 * e.Red);
-        Add("doedre_aura_damage_+%_final", -7 * e.Green);
-        Add("action_speed_-%", 7 * e.Purple);
+        void Add(uint name, int value) { if (value != 0 && name is var k) stats[k] = stats.GetValueOrDefault(k) + value; }
+        Add(Stat.BaseDamageTakenPlusPct, 10 * e.Red);
+        Add(Stat.DoedreAuraDamagePlusPctFinal, -7 * e.Green);
+        Add(Stat.ActionSpeedMinusPct, 7 * e.Purple);
         return stats;
     }
     public static double MinionDamageFactor(Player c) => Exposures.TryGetValue(c, out var e) ? Math.Max(0, 1 - .07 * e.Green) : 1;
@@ -172,7 +172,7 @@ public static class DoedreSewers
             id = objectId; boss = monster; speed = boss.Walk.Speed;
             var catalog = Game.SkillsFor(c);
             cloudDps = catalog.EffectStats(744, catalog.MaxLevelAt(744, boss.Level))
-                .Where(s => Stats.Name(s.Item1) == "base_chaos_damage_to_deal_per_minute").Sum(s => s.Item2) / 60d;
+                .Where(s => s.Item1 == Stat.BaseChaosDamageToDealPerMinute).Sum(s => s.Item2) / 60d;
             var placements = new QuestObjectTypes.AreaPlacements(Area, c.Seed, []);
             centre = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds);
             foreach (string name in new[] { "DoedreCauldronValve", "DoedreSewersCauldron", "DoedreSewerFaceDoor" })

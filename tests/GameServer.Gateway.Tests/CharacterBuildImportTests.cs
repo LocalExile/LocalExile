@@ -256,7 +256,7 @@ public sealed class CharacterBuildImportTests
             var glovesType = catalog.All.First(t => t.Class == "Gloves" && t.Supported && t.DropLevel < 80
                 && catalog.Requirements(t) is { Str: > 14 and < 40, Dex: 0, Int: 0 });
             var strength = catalog.Mods.All.First(m => m.Domain == 1 && m.GenerationType == 2 && m.Level < 80
-                && m.Stats.Count == 1 && m.Stats[0].Id == "additional_strength" && m.RangeAt(0).Max >= 40);
+                && m.Stats.Count == 1 && m.Stats[0].Id == Stat.AdditionalStrength && m.RangeAt(0).Max >= 40);
             int addedStrength = strength.RangeAt(0).Max;
             var fireball = ItemCatalog.Create(catalog.All.First(t => t.Name == "Fireball"));
             var gloves = ItemCatalog.Create(glovesType) with { Rarity = ItemRarity.Rare,

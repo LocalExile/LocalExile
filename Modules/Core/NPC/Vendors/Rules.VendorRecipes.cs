@@ -484,7 +484,7 @@ sealed partial class VendorRecipes
                 }
         }
         bool doubled = item.Mods.Any(m => _catalog.Mods.ByHash(m.Hash)?.Stats.Select((s, n) =>
-            s.Id == "local_item_sell_price_doubled" && n < m.Values.Count && m.Values[n] != 0).Any(x => x) == true);
+            s.Id == Stat.LocalItemSellPriceDoubled && n < m.Values.Count && m.Values[n] != 0).Any(x => x) == true);
         return doubled ? (alteration * 2, alchemy * 2) : (alteration, alchemy);
     }
 }

@@ -13,10 +13,10 @@ public static partial class Game
         if (kind == "Agony")
         {
             int stacks = conn.Reservations.Virulence;
-            GolemAdd(own, "minion_physical_damage_+%", ReservationStat(conn, aura, "scorpion_minion_physical_damage_+%") * stacks);
-            GolemAdd(own, "minion_attack_speed_+%", ReservationStat(conn, aura, "scorpion_minion_attack_speed_+%") * stacks);
-            GolemAdd(own, "minion_global_minimum_added_physical_damage", ReservationStat(conn, aura, "scorpion_minion_minimum_added_physical_damage") * stacks);
-            GolemAdd(own, "minion_global_maximum_added_physical_damage", ReservationStat(conn, aura, "scorpion_minion_maximum_added_physical_damage") * stacks);
+            GolemAdd(own, Stat.Of("minion_physical_damage_+%"), ReservationStat(conn, aura, Stat.ScorpionMinionPhysicalDamagePlusPct) * stacks);
+            GolemAdd(own, Stat.MinionAttackSpeedPlusPct, ReservationStat(conn, aura, Stat.ScorpionMinionAttackSpeedPlusPct) * stacks);
+            GolemAdd(own, Stat.MinionGlobalMinimumAddedPhysicalDamage, ReservationStat(conn, aura, Stat.ScorpionMinionMinimumAddedPhysicalDamage) * stacks);
+            GolemAdd(own, Stat.MinionGlobalMaximumAddedPhysicalDamage, ReservationStat(conn, aura, Stat.ScorpionMinionMaximumAddedPhysicalDamage) * stacks);
         }
         return own;
     }
@@ -35,8 +35,8 @@ public static partial class Game
         if (Monsters.Find(path) is not { Supported: true } variety) return;
         var supported = SupportedSkill(conn, aura.SkillId);
         if (!supported.RequirementsMet) return;
-        int limit = kind == "Purity" ? ReservationStat(conn, aura, "base_number_of_champions_of_light_allowed")
-            + GolemStat(CharacterPlayerStats(conn), "base_number_of_champions_of_light_allowed") : 1;
+        int limit = kind == "Purity" ? ReservationStat(conn, aura, Stat.BaseNumberOfChampionsOfLightAllowed)
+            + GolemStat(CharacterPlayerStats(conn), Stat.BaseNumberOfChampionsOfLightAllowed) : 1;
         if (limit <= 0) return;
         lock (conn.Monsters)
         {
@@ -47,14 +47,14 @@ public static partial class Game
                 if (kind == "Purity")
                 {
                     var refresh = existing.MinBy(g => conn.Reservations.Until.GetValueOrDefault(g.Id))!;
-                    conn.Reservations.Until[refresh.Id] = AreaTime(conn) + ReservationDuration(conn, aura, "base_skill_effect_duration", 12000);
+                    conn.Reservations.Until[refresh.Id] = AreaTime(conn) + ReservationDuration(conn, aura, Stat.BaseSkillEffectDuration, 12000);
                     refresh.Monster.Life = refresh.Monster.MaxLife;
                     conn.Minions.OutputQueue.Add(new([], "Sentinel of Purity refreshed", refresh.Id, refresh.Monster, PlayerMinions.OutputKind.Life));
                 }
                 return;
             }
         }
-        byte level = (byte)Math.Clamp(GolemStat(supported.Stats, "base_display_minion_actor_level") is > 0 and var actorLevel
+        byte level = (byte)Math.Clamp(GolemStat(supported.Stats, Stat.BaseDisplayMinionActorLevel) is > 0 and var actorLevel
             ? actorLevel : SkillsFor(conn).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
         var player = CharacterPlayerStats(conn);
@@ -86,7 +86,7 @@ public static partial class Game
                 monster.Mods = mods;
                 conn.Reservations.Fighters.Add(id, fighter);
                 conn.Reservations.Until[id] = kind == "Purity"
-                    ? AreaTime(conn) + ReservationDuration(conn, aura, "base_skill_effect_duration", 12000) : double.PositiveInfinity;
+                    ? AreaTime(conn) + ReservationDuration(conn, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
                 conn.Minions.Add(new(id, monster, aura.EffectId, kind) { Until = conn.Reservations.Until[id] });
                 monster.NoRewards = true; monster.Aggro = true;
                 if (pools.Fatal) GolemDieLocked(conn, fighter, AreaTime(conn), emitLife: false);
@@ -114,7 +114,7 @@ public static partial class Game
                 while (state.Virulence > 0 && now >= state.NextVirulence)
                 {
                     state.Virulence--;
-                    double slower = Math.Max(.01, 1 + GolemStat(CharacterPlayerStats(conn), "virulence_decay_rate_+%") / 100.0);
+                    double slower = Math.Max(.01, 1 + GolemStat(CharacterPlayerStats(conn), Stat.Of("virulence_decay_rate_+%")) / 100.0);
                     state.NextVirulence += Math.Max(.05, 1.0 / Math.Max(1, state.Virulence)) / slower;
                 }
             }
@@ -148,7 +148,7 @@ public static partial class Game
                 foreach (var monster in conn.Monsters.Values)
                     if (monster is { Hostile: true, Dead: false, Life: > 0 }
                         && Dist(monster.Walk.Position(now), fighter.Monster.Walk.Position(now)) <= SkillArea.Radius(30,
-                            n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n), spell: true))
+                            n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, Stat.Of("minion_" + n)), spell: true))
                         monster.Ailments.WithoutDamage(cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock,
                             .2, now, n => SkitterAilmentStat(fighter, n),
                             n => monster.Mods.Effects[n]);
@@ -163,12 +163,12 @@ public static partial class Game
         }
     }
 
-    public static int SkitterAilmentStat(GolemState.Golem fighter, string name)
+    public static int SkitterAilmentStat(GolemState.Golem fighter, uint name)
     {
-        int Get(string n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n);
+        int Get(uint n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, Stat.Of("minion_" + n));
         return name switch {
-            "virtual_chill_effect_+%" => Get(name) + Get("chill_effect_+%") + Get("cold_ailment_effect_+%") + Get("non_damaging_ailment_effect_+%"),
-            "virtual_shock_effect_+%" => Get(name) + Get("shock_effect_+%") + Get("lightning_ailment_effect_+%") + Get("non_damaging_ailment_effect_+%"),
+            Stat.VirtualChillEffectPlusPct => Get(name) + Get(Stat.ChillEffectPlusPct) + Get(Stat.ColdAilmentEffectPlusPct) + Get(Stat.NonDamagingAilmentEffectPlusPct),
+            Stat.VirtualShockEffectPlusPct => Get(name) + Get(Stat.ShockEffectPlusPct) + Get(Stat.LightningAilmentEffectPlusPct) + Get(Stat.NonDamagingAilmentEffectPlusPct),
             _ => Get(name),
         };
     }

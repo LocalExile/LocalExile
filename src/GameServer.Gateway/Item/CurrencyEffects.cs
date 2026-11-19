@@ -187,7 +187,7 @@ public static class CurrencyEffects
         int count = item.Sockets.Count, capacity = SocketCapacity(item, type);
         if (capacity == 0 || count > capacity || item.Sockets.Any(s => s.Gem is not null)) return null;
         if (item.Sockets.Any(s => s.Colour == SocketColour.Abyss)
-            && ItemModStats.Local(item, Program.Items.Mods).ContainsKey("local_cannot_have_non_abyssal_sockets")) return null;
+            && ItemModStats.Local(item, Program.Items.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets)) return null;
         int last = -1;
         for (int i = 0; i < count; i++) if (item.Sockets[i].Colour != SocketColour.Abyss) last = i;
         bool canAdd = count < MaximumSockets(item, type), canRemove = count > 1 && last >= 0;
@@ -526,7 +526,7 @@ public static class CurrencyEffects
         if (max == 0 || item.Sockets.Count >= SocketCapacity(item, type) || item.Sockets.Any(s => s.Gem is not null)) return null;
         (int Count, int Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (6, 1)];
         var abyss = item.Sockets.Where(s => s.Colour == SocketColour.Abyss).ToArray();
-        if (abyss.Length > 0 && ItemModStats.Local(item, Program.Items.Mods).ContainsKey("local_cannot_have_non_abyssal_sockets"))
+        if (abyss.Length > 0 && ItemModStats.Local(item, Program.Items.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets))
             return null;
         var ordinary = item.Sockets.Where(s => s.Colour != SocketColour.Abyss).ToArray();
         var allowed = choices.Where(c => c.Count >= abyss.Length && c.Count <= max && c.Count != item.Sockets.Count).ToArray();

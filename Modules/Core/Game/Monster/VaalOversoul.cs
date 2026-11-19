@@ -20,12 +20,12 @@ public static class VaalOversoul
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     public static int Level(SkillCatalog catalog, int effect, int monsterLevel) => catalog.MaxLevelAt(effect, monsterLevel);
-    public static int Stat(Player conn, int effect, int level, string name)
+    public static int Stat(Player conn, int effect, int level, uint name)
     {
         var catalog = Game.SkillsFor(conn);
         var values = SkillStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), pair =>
             catalog.EffectStats(pair.Effect, Level(catalog, pair.Effect, pair.Level)).ToDictionary(p => p.Item1, p => p.Item2));
-        return Stats.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
+        return name is var key ? values.GetValueOrDefault(key) : 0;
     }
     internal static MonsterAttack Attack(Player conn, MonsterCatalog.Variety v, byte level, int effect)
     {
@@ -35,14 +35,14 @@ public static class VaalOversoul
         {
             var (min, max) = Monsters.BaseDamage(v, level) ?? (1, 1);
             damage = DamagePacket.Of(DamageType.Physical, min, max)
-                .Scale(Math.Max(0, 1 + Stat(conn, effect, level, "active_skill_damage_+%_final") / 100d));
+                .Scale(Math.Max(0, 1 + Stat(conn, effect, level, global::Stat.ActiveSkillDamagePlusPctFinal) / 100d));
             var physical = damage[DamageType.Physical];
             damage = DamagePacket.Of(DamageType.Physical, physical.Min / 2, physical.Max / 2)
                 .Add(DamageType.Fire, physical.Scale(.5));
         }
         double seconds = Math.Max(.1, catalog.CastTimeMs(effect) / 1000d);
         if (effect is Summon or Laser)
-            seconds /= 1 + Stat(conn, effect, level, "active_skill_cast_speed_+%_final") / 100d;
+            seconds /= 1 + Stat(conn, effect, level, global::Stat.ActiveSkillCastSpeedPlusPctFinal) / 100d;
         return new(Skill(effect), seconds, 105, effect is Travel or Ice ? DamagePacket.Empty : damage)
         {
             Spell = true, Scripted = true,
@@ -285,7 +285,7 @@ public static class VaalOversoul
                 }
                 else if (ev.Kind == Rocks)
                 {
-                    double duration = Math.Max(1, Stat(c, Rocks, boss.Level, "base_skill_effect_duration") / 1000d);
+                    double duration = Math.Max(1, Stat(c, Rocks, boss.Level, global::Stat.BaseSkillEffectDuration) / 1000d);
                     for (int i = 0; i < duration / .2; i++) events.Add((now + i * .2, -1, RockHit, ev.Aim, i));
                 }
                 else if (ev.Kind == RockHit)
@@ -293,7 +293,7 @@ public static class VaalOversoul
                     double angle = Random.Shared.NextDouble() * Math.Tau, range = 42 * Math.Sqrt(Random.Shared.NextDouble());
                     var at = ((int)Math.Round(centre.X + Math.Cos(angle) * range), (int)Math.Round(centre.Y + Math.Sin(angle) * range));
                     await Effect(c, at, Art + $"rock_fall/rockdrop_0{1 + ev.Index % 4}.ao", now + 2, 0);
-                    hits.Add((now + 1.26, at, RockHit, Math.Max(1, Stat(c, RockHit, boss.Level, "active_skill_base_area_of_effect_radius")), null));
+                    hits.Add((now + 1.26, at, RockHit, Math.Max(1, Stat(c, RockHit, boss.Level, global::Stat.ActiveSkillBaseAreaOfEffectRadius)), null));
                 }
                 else if (ev.Kind is Summon or Ice)
                 {
@@ -317,7 +317,7 @@ public static class VaalOversoul
                 else if (ev.Kind == -Ice)
                 {
                     await Effect(c, ev.Aim, Art + "iceshoot.ao", now + 2, 0);
-                    double seconds = Math.Max(1, Stat(c, Cold, boss.Level, "base_skill_effect_duration") / 1000d);
+                    double seconds = Math.Max(1, Stat(c, Cold, boss.Level, global::Stat.BaseSkillEffectDuration) / 1000d);
                     uint fx = await Effect(c, ev.Aim, "Metadata/Effects/Spells/cold_snap_02/grd_fx.ao", now + seconds, 0, .5f);
                     cold.Add((fx, ev.Aim, now + seconds));
                 }
@@ -327,7 +327,7 @@ public static class VaalOversoul
                     boss.EntranceGrace = true; burrowing = true;
                     double angle = Random.Shared.NextDouble() * Math.Tau;
                     destination = Floor(c, ((int)Math.Round(centre.X + Math.Cos(angle) * 18), (int)Math.Round(centre.Y + Math.Sin(angle) * 18)));
-                    surfaceAt = now + Math.Max(1, Stat(c, Travel, boss.Level, "base_skill_effect_duration") / 1000d);
+                    surfaceAt = now + Math.Max(1, Stat(c, Travel, boss.Level, global::Stat.BaseSkillEffectDuration) / 1000d);
                     await Cast(c, Travel, now, destination);
                     boss.BusyUntil = surfaceAt; readyAt = surfaceAt;
                     Console.WriteLine($"[gateway] Vaal Oversoul: submerged until {surfaceAt:0.000}, destination {destination}");
@@ -356,7 +356,7 @@ public static class VaalOversoul
                     double now = Math.Max(ProjectileWorldTime(p), p.Clock.Elapsed.TotalSeconds);
                     int effect = Effects[attack.SkillId - 0x4000];
                     var minionAttack = attack with { Damage = attack.Damage.Scale(Math.Max(0,
-                        1 + Stat(p, effect, boss.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d)) };
+                        1 + Stat(p, effect, boss.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
                     foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
                         if (!minion.Monster.Dead && Contains(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
                     if (p.PlayerLife == 0 || !Contains(p.Walk.Position(now))) return null;
@@ -379,16 +379,16 @@ public static class VaalOversoul
                     bool inside = !InGracePeriod(p) && cold.Any(g => Distance(g.At, p.Walk.Position(now)) <= 7.5);
                     var exposure = Exposures.GetValue(p, _ => new());
                     double dps = inside && !PlayerImmunities(p).Contains(DamageType.Cold)
-                        ? Stat(p, Cold, boss.Level, "base_cold_damage_to_deal_per_minute") / 60d * (1 - Math.Min(MaxResistance(p, DamageType.Cold), Resistance(p, DamageType.Cold)) / 100d) : 0;
+                        ? Stat(p, Cold, boss.Level, global::Stat.BaseColdDamageToDealPerMinute) / 60d * (1 - Math.Min(MaxResistance(p, DamageType.Cold), Resistance(p, DamageType.Cold)) / 100d) : 0;
                     p.Degens[exposure] = dps; exposure.Dps = dps;
                     if (inside)
                     {
                         var stats = CharacterPlayerStats(p);
-                        int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
+                        int Get(uint k) => stats.GetValueOrDefault(k);
                         ApplyPlayerAilmentsLocked(p, now, ailments =>
                             ailments.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
                     }
-                    VaalGroundMinionsLocked(p, now, Stat(p, Cold, boss.Level, "base_cold_damage_to_deal_per_minute") / 60d,
+                    VaalGroundMinionsLocked(p, now, Stat(p, Cold, boss.Level, global::Stat.BaseColdDamageToDealPerMinute) / 60d,
                         at => cold.Any(patch => Distance(patch.At, at) <= 7.5), minionDotCarry);
                 }
             }
@@ -449,9 +449,9 @@ public static partial class Game
             var m = g.Monster;
             if (!GolemCurrent(conn, g) || m.Dead || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning"
                 || !inside(m.Walk.Position(now))) continue;
-            int Player(string n) => GolemStat(g.Player, n);
-            if (g.Definition.IsGolem && (Player("golem_immunity_to_elemental_damage") != 0
-                || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && Player("elemental_golem_immunity_to_elemental_damage") != 0)) continue;
+            int Player(uint n) => GolemStat(g.Player, n);
+            if (g.Definition.IsGolem && (Player(Stat.GolemImmunityToElementalDamage) != 0
+                || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && Player(Stat.ElementalGolemImmunityToElementalDamage) != 0)) continue;
             var res = MonsterHitResistance(m, DamageType.Cold, default);
             double damage = rawDps * .25 * Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) + carry.GetValueOrDefault(g.Id);
             int amount = (int)Math.Floor(damage); carry[g.Id] = damage - amount;

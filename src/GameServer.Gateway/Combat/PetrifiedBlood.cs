@@ -175,9 +175,9 @@ public static class PetrifiedBlood
     public static uint RecoveryMargin(double lifePerSecond) =>
         (uint)Math.Max(1, Math.Ceiling(Math.Max(0, lifePerSecond) * RecoveryPredictionMarginSeconds));
 
-    public const string PreventSource = "petrified_blood_%_life_loss_below_half_from_hit_to_prevent",
-        LoseOverTimeSource = "petrified_blood_%_prevented_life_loss_to_lose_over_time",
-        LifeCostSource = "skill_grants_life_cost_%_mana_cost_while_not_on_low_life";
+    public const uint PreventSource = Stat.PetrifiedBloodPctLifeLossBelowHalfFromHitToPrevent,
+        LoseOverTimeSource = Stat.PetrifiedBloodPctPreventedLifeLossToLoseOverTime,
+        LifeCostSource = Stat.SkillGrantsLifeCostPctManaCostWhileNotOnLowLife;
 
     /// <summary>Low Life uses the shared threshold: 50% by default, changed by the low-life threshold stats.</summary>
     public static bool OnLowLife(Player conn) =>

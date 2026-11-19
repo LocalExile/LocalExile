@@ -58,21 +58,21 @@ public static partial class Game
         uint cost, double now)
     {
         if (cost == 0 || conn.LeavingArea || conn.PlayerLife == 0) return;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
 
         // Arcane Surge: "each supported spell tracks how much mana you spend on it, granting a buff when the total
         // mana spent reaches a threshold".
-        int threshold = Get("support_arcane_surge_gain_buff_on_mana_use_threshold");
-        if (threshold <= 0 && Get("support_arcane_surge_spell_damage_+%_final_while_you_have_arcane_surge") != 0)
+        int threshold = Get(Stat.SupportArcaneSurgeGainBuffOnManaUseThreshold);
+        if (threshold <= 0 && Get(Stat.SupportArcaneSurgeSpellDamagePlusPctFinalWhileYouHaveArcaneSurge) != 0)
             threshold = 1;
         if (threshold > 0)
         {
             long spent = conn.SupportGems.ArcaneSurgeSpent.GetValueOrDefault(skillId) + cost;
             if (spent >= threshold)
             {
-                int durationMs = Get("support_arcane_surge_base_duration_ms");
+                int durationMs = Get(Stat.SupportArcaneSurgeBaseDurationMs);
                 GainArcaneSurgeLocked(conn, now, durationMs > 0 ? durationMs : ArcaneSurgeDurationMs,
-                    Get("support_arcane_surge_cast_speed_+%"), Get("support_arcane_surge_mana_regeneration_rate_+%"));
+                    Get(Stat.SupportArcaneSurgeCastSpeedPlusPct), Get(Stat.SupportArcaneSurgeManaRegenerationRatePlusPct));
                 spent = 0;
             }
             conn.SupportGems.ArcaneSurgeSpent[skillId] = spent;
@@ -81,13 +81,13 @@ public static partial class Game
         // Inspiration: one shared mana counter for every skill linked to the support. A use that pushes it to the
         // support's threshold resets the counter and removes all charges; otherwise the use gains a charge, five at
         // most, and refreshes the charges' ten-second lifetime.
-        int gain = Get("gain_righteous_charge_on_mana_spent_%");
-        if (gain <= 0 && (Get("support_inspiration_mana_cost_+%_final") != 0
-            || Get("elemental_damage_+%_final_per_righteous_charge") != 0)) gain = 100;
+        int gain = Get(Stat.GainRighteousChargeOnManaSpentPct);
+        if (gain <= 0 && (Get(Stat.SupportInspirationManaCostPlusPctFinal) != 0
+            || Get(Stat.ElementalDamagePlusPctFinalPerRighteousCharge) != 0)) gain = 100;
         if (gain > 0)
         {
             conn.SupportGems.InspirationSpent += cost;
-            int lose = Get("lose_all_righteous_charges_on_mana_use_threshold");
+            int lose = Get(Stat.LoseAllRighteousChargesOnManaUseThreshold);
             if (lose > 0 && conn.SupportGems.InspirationSpent >= lose)
             {
                 conn.SupportGems.InspirationSpent = 0;
@@ -100,7 +100,7 @@ public static partial class Game
                 int before = conn.SupportGems.InspirationCharges;
                 if (gain >= 100 || Random.Shared.Next(100) < gain)
                 {
-                    int durationPct = Get("inspiration_charge_duration_+%");
+                    int durationPct = Get(Stat.InspirationChargeDurationPlusPct);
                     conn.SupportGems.InspirationUntil = now + 10 * Math.Max(0, 1 + durationPct / 100.0);
                     conn.SupportGems.InspirationRefresh = true;
                     conn.SupportGems.InspirationCharges = Math.Min(InspirationMaxCharges,
@@ -125,27 +125,27 @@ public static partial class Game
             stats = WithTriggeredGuard(conn, stats);
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
             StatsChangeIn(conn.SupportGems.ArcaneSurgeUntil - conn.Clock.Elapsed.TotalSeconds);
-            int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-            void Add(string name, long value)
+            int Get(uint k) => stats.GetValueOrDefault(k);
+            void Add(uint name, long value)
             {
-                if (value != 0 && Stats.Key(name) is uint key)
+                if (value != 0 && name is var key)
                     stats[key] = (int)Math.Clamp(stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
             }
-            long effect = Math.Max(0, 100L + Get("arcane_surge_effect_+%"));
+            long effect = Math.Max(0, 100L + Get(Stat.ArcaneSurgeEffectPlusPct));
             long Buff(int value) => value * effect / 100;
-            Add("has_arcane_surge", 1);
-            Add("arcane_surge_cast_speed_+%", Buff(conn.SupportGems.ArcaneSurgeCastSpeedPct));
-            Add("mana_regeneration_rate_+%", Buff(conn.SupportGems.ArcaneSurgeManaRegenPct));
-            Add(ArcaneSurgeSpellMore, Buff(Get("arcane_surge_on_you_spell_damage_+%_final_from_hierophant")));
-            Add(SkillArea.BaseIncreased, Get("area_of_effect_+%_while_you_have_arcane_surge"));
-            Add("base_life_leech_from_spell_damage_permyriad", Get("life_leech_from_spell_damage_permyriad_while_you_have_arcane_surge"));
-            Add("non_damaging_ailment_effect_+%_on_self", Get("non_damaging_ailment_effect_+%_on_self_while_you_have_arcane_surge"));
+            Add(Stat.HasArcaneSurge, 1);
+            Add(Stat.ArcaneSurgeCastSpeedPlusPct, Buff(conn.SupportGems.ArcaneSurgeCastSpeedPct));
+            Add(Stat.ManaRegenerationRatePlusPct, Buff(conn.SupportGems.ArcaneSurgeManaRegenPct));
+            Add(ArcaneSurgeSpellMore, Buff(Get(Stat.ArcaneSurgeOnYouSpellDamagePlusPctFinalFromHierophant)));
+            Add(SkillArea.BaseIncreased, Get(Stat.AreaOfEffectPlusPctWhileYouHaveArcaneSurge));
+            Add(Stat.BaseLifeLeechFromSpellDamagePermyriad, Get(Stat.LifeLeechFromSpellDamagePermyriadWhileYouHaveArcaneSurge));
+            Add(Stat.NonDamagingAilmentEffectPlusPctOnSelf, Get(Stat.NonDamagingAilmentEffectPlusPctOnSelfWhileYouHaveArcaneSurge));
         }
         return stats;
     }
 
     /// <summary>The Arcane Surge buff's more Spell Damage on the player (PlayerHitDamage's spell more).</summary>
-    public const string ArcaneSurgeSpellMore = "spell_damage_+%_final_from_arcane_surge";
+    public const uint ArcaneSurgeSpellMore = Stat.SpellDamagePlusPctFinalFromArcaneSurge;
 
     public static bool ArcaneSurgeActive(Player conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
 

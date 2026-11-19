@@ -18,8 +18,8 @@ public static partial class Game
     // its back to spit (`action_should_face_away_from_target`, with `projectile_uses_contact_position`, the spread and
     // minimum range from the stat set). The attack's numbers win on a shared key; the effect's cast-time and mana-cost
     // entries, which an attack action does not use, stay out.
-    public static readonly string[] MonsterSkillStatsNotSent =
-        ["base_spell_cast_time_ms", "virtual_base_spell_cast_time_ms", "hundred_times_casts_per_second", "base_mana_cost", "mana_cost"];
+    public static readonly uint[] MonsterSkillStatsNotSent =
+        [Stat.BaseSpellCastTimeMs, Stat.VirtualBaseSpellCastTimeMs, Stat.HundredTimesCastsPerSecond, Stat.BaseManaCost, Stat.ManaCost];
 
     // A monster record's skill_behaviour_variation: its effect's SkillID, as the client's own skill-stat builder adds it
     // (SkillCatalog.BehaviourVariation), unless the record already says. Projectile records keep their own rule above
@@ -35,12 +35,12 @@ public static partial class Game
     {
         var stats = ActionSkillStats(conn, effect, level, attack);
         if (!attack.Proxy) return stats;
-        var totem = TotemFlags.Select(Stats.Key).OfType<uint>().ToHashSet();
+        var totem = TotemFlags.ToHashSet();
         return [.. stats.Where(s => !totem.Contains(s.Item1))];
     }
 
     /// <summary>The flags that make a skill a totem's summon (SpellTotems.TotemProxy clears the same).</summary>
-    static readonly string[] TotemFlags = ["is_totem", "base_skill_is_totemified", "skill_is_totemified"];
+    static readonly uint[] TotemFlags = [Stat.IsTotem, Stat.BaseSkillIsTotemified, Stat.SkillIsTotemified];
 
     static IReadOnlyList<(uint, int)> ActionSkillStats(Player conn, int effect, int level, MonsterAttack attack)
     {
@@ -52,14 +52,14 @@ public static partial class Game
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
         if (!attack.Ranged) return own;
         var raw = catalog.EffectStats(effect, level);
-        int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
-        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
-            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        int Get(uint key) => raw.FirstOrDefault(s => s.Item1 == key).Item2;
+        int count = Get(Stat.NumberOfProjectilesOverride) is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles);
         count = Math.Max(1, count);
         own = [.. own, (Stat.TotalNumberOfProjectilesToFire, count), (Stat.VirtualTotalNumberOfProjectiles, count),
             (Stat.TotalNumberOfArrowsToFire, count), (Stat.VirtualTotalNumberOfArrows, count)];
         var taken = own.Select(s => s.Item1).ToHashSet();
-        foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
+        foreach (uint key in MonsterSkillStatsNotSent) taken.Add(key);
         return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
     }
 
@@ -75,7 +75,7 @@ public static partial class Game
             own = [.. own, (Stat.SkillBehaviourVariation, mortar.Variation), (Stat.TotalNumberOfProjectilesToFire, mortar.Count),
                 (Stat.VirtualTotalNumberOfProjectiles, mortar.Count), (Stat.VirtualTotalNumberOfArrows, mortar.Count)];
         var taken = own.Select(s => s.Item1).ToHashSet();
-        foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
+        foreach (uint key in MonsterSkillStatsNotSent) taken.Add(key);
         return [.. SkillsFor(conn).EffectStats(effect, level).Where(s => !taken.Contains(s.Item1)), .. own];
     }
 
@@ -103,17 +103,17 @@ public static partial class Game
     {
         var catalog = SkillsFor(conn);
         var stats = catalog.EffectStats(effect, level);
-        bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
+        bool Has(uint name) => name is var key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
         // A weapon-stanced monster (a Rogue Exile) plays its stance's clip for the skill's own row: Igna Phoenix's
         // Fireball is the Staff stance's SpellProjectileFire, not a root pool. The stance clips carry no position.
         if (SkillAnimations.IsStanced(variety.Id) && SkillAnimations.Key(catalog, effect, DualWields(variety)) is { } key
             && SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence) is { ContactFraction: double at } stanced)
-            return new(stanced.Animation, at, null, Has("action_should_face_away_from_target"));
+            return new(stanced.Animation, at, null, Has(Stat.ActionShouldFaceAwayFromTarget));
         var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
         if (clip is null) return null;
-        var point = Has("projectile_uses_contact_position") ? clip.Point : null;
-        if (point is { } p && Has("use_scaled_contact_offset")) point = p.Scaled(variety.ModelScale);
-        return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has("action_should_face_away_from_target"));
+        var point = Has(Stat.ProjectileUsesContactPosition) ? clip.Point : null;
+        if (point is { } p && Has(Stat.UseScaledContactOffset)) point = p.Scaled(variety.ModelScale);
+        return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has(Stat.ActionShouldFaceAwayFromTarget));
     }
 
     /// <summary>When a weapon-stanced monster's (a Rogue Exile's) kit skill lands, as a fraction of its action: the contact
@@ -278,7 +278,7 @@ public static partial class Game
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
         // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
         if (!friendly && PartyMonsterLife(conn, rarity) is int party and > 0)
-            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<string, int> { ["maximum_life_+%"] = party }) };
+            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = party }) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
@@ -344,7 +344,7 @@ public static partial class Game
         // (ActionClasses.SpellActionDistance: Bone Lance's 90 cells); the attack distance of such a variety is its melee
         // fallback. An encounter that knows better gives its own share of the attack distance (MonsterMovement.Reach).
         double SpellReach() => Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, name =>
-            Stats.Key(name) is uint key ? catalog.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == key).Item2 : 0));
+            name is var key ? catalog.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == key).Item2 : 0));
         double reach = movement.Reach is double share ? variety.AttackRange * share
             : summon is not null ? Math.Max(variety.AttackRange, variety.AggroRange)
             : rangedAttack && !kingActor && spell ? Math.Max(variety.AttackRange, SpellReach()) : variety.AttackRange;
@@ -2135,7 +2135,7 @@ public static partial class Game
         using var defenceTime = FortificationOf(conn).Capture(now);
         // Resolve lazy final defences here, never at AI collection or before a queued echo/pause wait.
         var stats = CharacterPlayerStats(conn);
-        int StatOf(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int StatOf(uint key) => stats.GetValueOrDefault(key);
         var reduction = PlayerDamageReduction(conn, stats);
         if (checkRange && Dist(here, from) > a.Range + 2)
         {
@@ -2168,7 +2168,7 @@ public static partial class Game
         var rolled = gambler.RollIncomingHit(hitDamage, conn.IncomingHitRandom);
         rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out bool monsterCritical,
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
-            () => SelfCriticalReduction(conn) - EnemyAuraStatLocked(conn, m, here, now, "base_critical_strike_multiplier_+"),
+            () => SelfCriticalReduction(conn) - EnemyAuraStatLocked(conn, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus),
             now: now, cannotCrit: VaalOversoul.CannotCrit(m, a));   // its crit, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
@@ -2271,7 +2271,7 @@ public static partial class Game
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
-        if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
+        if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, Random.Shared))
             m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
         AilmentsWhenHitLocked(m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
@@ -2282,11 +2282,11 @@ public static partial class Game
         PlayerRecoveryIntent? recovery = null;
         if (!blocked && !a.Ranged && conn.PlayerLife > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))
             recovery = CommitPlayerHitRecoveryLocked(conn, damage, now);
-        else if (Stats.Key(AntiquarianEffects.StunRecoverySource) is uint turtle && stats.GetValueOrDefault(turtle) > 0)
+        else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={conn.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
-        if (recovery is not null && StatOf("damage_taken_%_recovered_as_life_from_stunning_hits") is > 0 and var recoverPct
-            && StatOf("cannot_recover_life") == 0)
+        if (recovery is not null && StatOf(Stat.DamageTakenPctRecoveredAsLifeFromStunningHits) is > 0 and var recoverPct
+            && StatOf(Stat.CannotRecoverLife) == 0)
         {
             double carry = 0;
             conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife, (long)damage * recoverPct / 100, ref carry);
@@ -2294,10 +2294,10 @@ public static partial class Game
         }
         uint life = conn.PlayerLife;
         RageWhenHitLocked(conn);
-        if (!blocked && conn.PlayerLife > 0 && m.Effects["global_chance_to_blind_on_hit_%"] is > 0 and var blindChance
+        if (!blocked && conn.PlayerLife > 0 && m.Effects[Stat.GlobalChanceToBlindOnHitPct] is > 0 and var blindChance
             && (blindChance >= 100 || conn.IncomingHitRandom.Next(100) < blindChance))
-            InflictPlayerBlind(conn, 4 * Math.Max(0, 1 + m.Effects["blind_duration_+%"] / 100d),
-                m.Effects["blind_effect_+%"], stats);
+            InflictPlayerBlind(conn, 4 * Math.Max(0, 1 + m.Effects[Stat.BlindDurationPlusPct] / 100d),
+                m.Effects[Stat.BlindEffectPlusPct], stats);
         // The hit packet carries this outcome's presentation and is processed at once (kind 3): 0x4000 particles,
         // 0x0200 main hand, 0x0001 blood, 0x0040 blocked, 0x0020 critical, code = the largest damage component.
         // The 3.29.3b decode (action-hit-packet-3.29.3b.md §§1–4) shows kind 2 only queues the package until an
@@ -2343,7 +2343,7 @@ public static partial class Game
         }
     }
 
-    public const string AttackerSlow = "enemies_that_hit_you_with_attack_recently_attack_speed_+%";
+    public const uint AttackerSlow = Stat.EnemiesThatHitYouWithAttackRecentlyAttackSpeedPlusPct;
 
     // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.

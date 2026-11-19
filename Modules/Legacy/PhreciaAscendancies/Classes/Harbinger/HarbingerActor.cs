@@ -26,9 +26,9 @@ internal static class HarbingerActor
     {
         var stats = source.MinionStats.ToDictionary();
         stats[Stat.MaximumLife] = 1;
-        foreach (string flag in new[] { "base_cannot_be_damaged", "base_cannot_be_stunned",
-            "untargetable_by_monster_ai", "is_player_minion", "is_semantic_minion" })
-            if (key(flag) is uint k) stats[k] = 1;
+        foreach (uint flag in new[] { Stat.BaseCannotBeDamaged, Stat.BaseCannotBeStunned,
+            Stat.UntargetableByMonsterAi, Stat.IsPlayerMinion, Stat.IsSemanticMinion })
+            stats[flag] = 1;
         return [.. stats.Select(s => (s.Key, s.Value))];
     }
 

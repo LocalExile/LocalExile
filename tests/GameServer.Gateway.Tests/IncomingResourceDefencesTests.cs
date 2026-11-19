@@ -7,7 +7,7 @@ public sealed class IncomingResourceDefencesTests
     public void Attribute_implicits_take_one_percent_less_damage_per_their_X()
     {
         var pools = new CharacterStats.Pools(1, 100, 0, 0, 0, Strength: 450, Dexterity: 1000, Intelligence: 2000);
-        int Get(string name) => name switch
+        int Get(uint name) => name switch
         {
             IncomingResourceDefences.LessPerStrength => 200,
             IncomingResourceDefences.LessPerDexterity => 400,
@@ -23,7 +23,7 @@ public sealed class IncomingResourceDefencesTests
     [Fact]
     public void Less_damage_taken_multiplies_the_final_taken_stat_on_hits_and_over_time()
     {
-        int Harbinger(string name) => name == IncomingResourceDefences.TakenStat ? -50 : 0;
+        int Harbinger(uint name) => name == IncomingResourceDefences.TakenStat ? -50 : 0;
 
         Assert.Equal(90, IncomingResourceDefences.Taken(100, _ => 0, lessPct: 10));
         Assert.Equal(45, IncomingResourceDefences.Taken(100, Harbinger, lessPct: 10));

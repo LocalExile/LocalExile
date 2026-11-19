@@ -16,8 +16,8 @@ public static partial class Game
         var wanted = new ReservationState.CatAspectOwner(root.SkillId, root.Buff);
         if (state.SpiderOwner == wanted) return;
         var raw = CharacterStatSources(conn).Stats;
-        int interval = AspectInput(conn, raw, "spider_aspect_web_interval_ms_override");
-        if (interval <= 0) interval = ReservationStat(conn, root, "spider_aspect_web_interval_ms");
+        int interval = AspectInput(conn, raw, Stat.SpiderAspectWebIntervalMsOverride);
+        if (interval <= 0) interval = ReservationStat(conn, root, Stat.SpiderAspectWebIntervalMs);
         state.SpiderOwner = wanted;
         state.NextSpiderWeb = now + Math.Max(.05, interval / 1000d);
     }
@@ -43,10 +43,10 @@ public static partial class Game
             var source = SupportedSkill(conn, root.SkillId);
             if (source.RequirementsMet && source.Effect == root.Effect && SkillsFor(conn).EffectId(source.Effect) == SpiderAspect)
             {
-                var player = SkillArea.WithoutPlayerBase(new(CharacterPlayerStats(conn)), Stats.Key(SkillArea.BaseIncreased));
-                int Get(string n) => GolemStat(player, n) + GolemStat(source.Stats, n);
-                int intervalMs = Get("spider_aspect_web_interval_ms_override");
-                if (intervalMs <= 0) intervalMs = ReservationStat(conn, root, "spider_aspect_web_interval_ms");
+                var player = SkillArea.WithoutPlayerBase(new(CharacterPlayerStats(conn)), (SkillArea.BaseIncreased));
+                int Get(uint n) => GolemStat(player, n) + GolemStat(source.Stats, n);
+                int intervalMs = Get(Stat.SpiderAspectWebIntervalMsOverride);
+                if (intervalMs <= 0) intervalMs = ReservationStat(conn, root, Stat.SpiderAspectWebIntervalMs);
                 double interval = Math.Max(.05, intervalMs / 1000d);
                 if (state.SpiderOwner != wanted)
                 { state.SpiderOwner = wanted; state.NextSpiderWeb = now + interval; }
@@ -54,23 +54,23 @@ public static partial class Game
                 {
                     // A late tick cannot apply past pulses to enemies which have only just entered range.
                     state.NextSpiderWeb = now + interval;
-                    int maximum = ReservationStat(conn, root, "spider_aspect_max_web_count") + Get("aspect_of_the_spider_web_count_+");
+                    int maximum = ReservationStat(conn, root, Stat.SpiderAspectMaxWebCount) + Get(Stat.AspectOfTheSpiderWebCountPlus);
                     double seconds = SkillDurationModifiers.Seconds(
-                        ReservationStat(conn, root, "base_skill_effect_duration"),
-                        n => GolemStat(player, n) + (n == "skill_effect_duration_+%" ? Get("spider_aspect_debuff_duration_+%") : 0),
+                        ReservationStat(conn, root, Stat.BaseSkillEffectDuration),
+                        n => GolemStat(player, n) + (n == Stat.SkillEffectDurationPlusPct ? Get(Stat.SpiderAspectDebuffDurationPlusPct) : 0),
                         n => GolemStat(source.Stats, n));
-                    int taken = (int)Math.Round(ReservationStat(conn, root, "base_damage_taken_+%")
-                        * Math.Max(0, 1 + Get("aspect_of_the_spider_debuff_effect_+%") / 100d));
+                    int taken = (int)Math.Round(ReservationStat(conn, root, Stat.BaseDamageTakenPlusPct)
+                        * Math.Max(0, 1 + Get(Stat.AspectOfTheSpiderDebuffEffectPlusPct) / 100d));
                     double radius = SkillArea.Radius(SpiderSimulationRadius,
-                        n => n == "base_skill_area_of_effect_+%" ? Get(n) + Get("spider_aspect_skill_area_of_effect_+%") : Get(n),
+                        n => n == Stat.BaseSkillAreaOfEffectPlusPct ? Get(n) + Get(Stat.SpiderAspectSkillAreaOfEffectPlusPct) : Get(n),
                         spell: true);
                     var here = conn.Walk.Position(now);
                     foreach (var (id, monster) in conn.Monsters)
                         if (monster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                             && !conn.AsleepMonsters.Contains(id) && Dist(here, monster.Walk.Position(now)) <= radius)
                             monster.SpiderWebs.Apply(conn.PeerId, now, seconds, maximum, taken,
-                                Get("resist_all_%_for_enemies_you_inflict_spiders_web_upon"),
-                                Get("damage_+%_for_enemies_you_inflict_spiders_web_upon"));
+                                Get(Stat.ResistAllPctForEnemiesYouInflictSpidersWebUpon),
+                                Get(Stat.DamagePlusPctForEnemiesYouInflictSpidersWebUpon));
                 }
             }
             else { state.SpiderOwner = null; state.NextSpiderWeb = 0; }
@@ -101,10 +101,10 @@ public static partial class Game
             Present(ref webs.HinderBuff, SpiderHinder(monster, now) != 0, 505);
             Present(ref webs.ShroudBuff, count > 0 && (webs.Resistance(now) != 0 || webs.Damage(now) != 0), 1092);
             var changes = new List<(uint, int)>();
-            foreach (string name in new[] { "base_damage_taken_+%", "damage_+%", "is_hindered", "base_fire_damage_resistance_%",
-                         "base_cold_damage_resistance_%", "base_lightning_damage_resistance_%", "base_chaos_damage_resistance_%" })
+            foreach (uint name in new[] { Stat.BaseDamageTakenPlusPct, Stat.DamagePlusPct, Stat.IsHindered, Stat.BaseFireDamageResistancePct,
+                         Stat.BaseColdDamageResistancePct, Stat.BaseLightningDamageResistancePct, Stat.BaseChaosDamageResistancePct })
             {
-                if (Stats.Key(name) is not uint key) continue;
+                if (!(name is var key)) continue;
                 int value = monster.Effects[name] + SpiderRecipientStat(monster, name, now);
                 if (webs.PresentedStats.GetValueOrDefault(key) != value) changes.Add((key, value));
                 webs.PresentedStats[key] = value;
@@ -123,23 +123,26 @@ public static partial class Game
     }
 
     public static int SpiderHinder(SpawnedMonster target, double now) => target.SpiderWebs.Count(now) > 0
-        && target.Effects["immune_to_hinder"] == 0 && target.Effects["you_cannot_be_hindered"] == 0
-        ? (int)Math.Max(0, Math.Round(30 * (1 + target.Effects["hinder_effect_on_self_+%"] / 100d))) : 0;
+        && target.Effects[Stat.ImmuneToHinder] == 0 && target.Effects[Stat.YouCannotBeHindered] == 0
+        ? (int)Math.Max(0, Math.Round(30 * (1 + target.Effects[Stat.HinderEffectOnSelfPlusPct] / 100d))) : 0;
 
-    public static int SpiderRecipientStat(SpawnedMonster target, string name, double now) => name switch
+    static readonly uint BaseResistAll = Stat.Of("base_resist_all_%");
+
+    public static int SpiderRecipientStat(SpawnedMonster target, uint name, double now) => name switch
     {
-        "base_damage_taken_+%" => target.SpiderWebs.Taken(now),
-        "damage_+%" => target.SpiderWebs.Damage(now),
-        "is_hindered" => SpiderHinder(target, now) > 0 ? 1 : 0,
-        "base_fire_damage_resistance_%" or "base_cold_damage_resistance_%" or "base_lightning_damage_resistance_%"
-            or "base_chaos_damage_resistance_%" or "base_resist_all_%" => target.SpiderWebs.Resistance(now),
+        Stat.BaseDamageTakenPlusPct => target.SpiderWebs.Taken(now),
+        Stat.DamagePlusPct => target.SpiderWebs.Damage(now),
+        Stat.IsHindered => SpiderHinder(target, now) > 0 ? 1 : 0,
+        Stat.BaseFireDamageResistancePct or Stat.BaseColdDamageResistancePct or Stat.BaseLightningDamageResistancePct
+            or Stat.BaseChaosDamageResistancePct => target.SpiderWebs.Resistance(now),
+        _ when name == BaseResistAll => target.SpiderWebs.Resistance(now),
         _ => 0,
     };
 
     public static double SpiderOutgoingFactor(SpawnedMonster source, double now)
     {
         int reduction = source.SpiderWebs.Damage(now);
-        double increased = 100d + source.Effects["damage_+%"] + source.Effects["physical_damage_+%"];
+        double increased = 100d + source.Effects[Stat.DamagePlusPct] + source.Effects[Stat.PhysicalDamagePlusPct];
         return reduction == 0 ? 1 : increased > 0 ? Math.Max(0, increased + reduction) / increased : 0;
     }
 
@@ -148,10 +151,10 @@ public static partial class Game
     {
         if (!target.Hostile || target.SpiderWebs.Count(now) == 0 || conn.PlayerLife == 0) return;
         player ??= CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(player, n);
-        int gain = Get("energy_shield_gain_when_you_hit_enemy_affected_by_spiders_web");
+        int Get(uint n) => GolemStat(player, n);
+        int gain = Get(Stat.EnergyShieldGainWhenYouHitEnemyAffectedBySpidersWeb);
         if (gain > 0) conn.EnergyShield.Recover((uint)gain);
-        if (RandomRolls.Chance(Get("chance_to_gain_power_charge_on_hitting_enemy_affected_by_spiders_web_%"),
+        if (RandomRolls.Chance(Get(Stat.ChanceToGainPowerChargeOnHittingEnemyAffectedBySpidersWebPct),
                 100, random ?? Random.Shared))
             ChargesOf(conn).Enqueue(new ChargeEvent.Grant(ChargeType.Power, 1, "Spider's Web hit"));
     }

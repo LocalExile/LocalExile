@@ -221,7 +221,7 @@ public static partial class Game
     // ResistancePenalty's (Player/Player.cs), so their flags are left out here.
     public static Dictionary<uint, int> WithQuestStats(Player conn, Dictionary<uint, int> sources)
     {
-        IReadOnlyDictionary<string, int> rewards;
+        IReadOnlyDictionary<uint, int> rewards;
         lock (conn.Monsters)
         {
             var slot = QuestStatCaches.GetOrCreateValue(conn);
@@ -235,14 +235,14 @@ public static partial class Game
         if (rewards.Count == 0) return sources;
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in rewards)
-            if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            stats[stat] = stats.GetValueOrDefault(stat) + value;
         return stats;
     }
 
     sealed class QuestStatCache
     {
         public HashSet<string>? Flags;
-        public IReadOnlyDictionary<string, int> Stats = new Dictionary<string, int>();
+        public IReadOnlyDictionary<uint, int> Stats = new Dictionary<uint, int>();
     }
     static readonly Store<Player, QuestStatCache> QuestStatCaches = new();
 

@@ -195,8 +195,8 @@ public sealed class ItemRolls
             ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
             : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
         var local = ItemModStats.Local(item, catalog.Mods);
-        return (Math.Max(0, prefix + local.GetValueOrDefault("local_maximum_prefixes_allowed_+")),
-            Math.Max(0, suffix + local.GetValueOrDefault("local_maximum_suffixes_allowed_+")));
+        return (Math.Max(0, prefix + local.GetValueOrDefault(Stat.LocalMaximumPrefixesAllowedPlus)),
+            Math.Max(0, suffix + local.GetValueOrDefault(Stat.LocalMaximumSuffixesAllowedPlus)));
     }
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>

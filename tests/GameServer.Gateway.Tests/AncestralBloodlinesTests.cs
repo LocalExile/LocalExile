@@ -34,19 +34,19 @@ public sealed class AncestralBloodlinesTests
         }
         conn.TattooRevision++;
         var stats = Game.CharacterPlayerStats(conn);
-        int Get(string name) => stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
-        Assert.Equal(18, Get("life_recovery_rate_+%"));
-        Assert.Equal(18, Get("mana_recovery_rate_+%"));
-        Assert.Equal(18, Get("energy_shield_recovery_rate_+%"));
+        int Get(uint name) => stats.GetValueOrDefault(name);
+        Assert.Equal(18, Get(Stat.LifeRecoveryRatePlusPct));
+        Assert.Equal(18, Get(Stat.ManaRecoveryRatePlusPct));
+        Assert.Equal(18, Get(Stat.EnergyShieldRecoveryRatePlusPct));
         // Life regeneration scales by the Life recovery rate.
         Assert.Equal(1.18, PanelStats.LifeRegenerationMultiplier(Get), 9);
         // Mana regeneration and Energy Shield recharge scale by their own recovery rate; without each stat the same
         // pool is 1/1.18 of it.
         double mana = PanelStats.ManaPerMinute(Get, 1000);
-        int WithoutManaRecovery(string name) => name == "mana_recovery_rate_+%" ? 0 : Get(name);
+        int WithoutManaRecovery(uint name) => name == Stat.ManaRecoveryRatePlusPct ? 0 : Get(name);
         Assert.Equal(1.18, mana / PanelStats.ManaPerMinute(WithoutManaRecovery, 1000), 9);
         double recharge = EnergyShield.RechargePerMinute(1000, Get);
-        int WithoutEsRecovery(string name) => name == "energy_shield_recovery_rate_+%" ? 0 : Get(name);
+        int WithoutEsRecovery(uint name) => name == Stat.EnergyShieldRecoveryRatePlusPct ? 0 : Get(name);
         Assert.Equal(1.18, recharge / EnergyShield.RechargePerMinute(1000, WithoutEsRecovery), 9);
     }
 }

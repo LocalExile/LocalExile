@@ -98,7 +98,7 @@ static class ConditionalSourceTestDrivers
             GainLifeBeforeEnemyHitLocked(conn, stats);
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
             // Avoidance rolls before block, as for a monster hit; an avoided hit still lands.
-            bool avoided = PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+            bool avoided = PlayerDamageTaken.Avoids(type, name => stats.GetValueOrDefault(name),
                 conn.IncomingHitRandom);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
@@ -108,14 +108,14 @@ static class ConditionalSourceTestDrivers
                 resistance = maximum = 90;
             bool immune = PlayerImmunities(conn).Contains(type);
             bool armourRelevant = type == DamageType.Physical ? amount > 0
-                : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
+                : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => stats.GetValueOrDefault(name)) > 0
                     && DamageModel.Mitigate(amount, resistance, maximum) > 0;
             var armour = IncomingArmourLocked(conn, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
             int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
                 stats, attack: !spell, ranged: ranged && !spell, spell: spell);
             // A blocked hit deals only its share ("You take X% of Damage from Blocked Hits", 0 by default).
             if (blocked) dealt = (int)Math.Round(dealt * PlayerDamageTaken.BlockedPct(type,
-                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) / 100.0);
+                name => stats.GetValueOrDefault(name)) / 100.0);
             string mitigation = immune ? "immunity" : avoided ? "avoidance"
                 : MitigationLabel(conn, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(conn) : default;

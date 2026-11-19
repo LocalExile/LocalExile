@@ -22,7 +22,7 @@ public sealed class ScarabEncounterTests
         var slot = Slot("ScarabDomination1");
         var catalog = MapRunCatalog.Load("data");
         var mods = catalog.Of([slot], Program.Items.Mods);
-        Assert.Equal(3, mods.Get("map_leaguestone_additional_shrines"));
+        Assert.Equal(3, mods.Get(Stat.MapLeaguestoneAdditionalShrines));
         Dictionary<uint, int> Compose(MapMods input, Dictionary<uint, int>? atlas = null) =>
             Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1, false);
         var stats = Compose(mods);
@@ -37,8 +37,8 @@ public sealed class ScarabEncounterTests
             [Stat.MapNumExtraShrines] = 2,
             [Stat.MapModEffectPlusPctForNonUniqueMaps] = 100,
         })));
-        Assert.Equal(3, mods.Get("map_leaguestone_additional_shrines"));
-        Assert.Equal(0, mods.Get("map_num_extra_shrines"));
+        Assert.Equal(3, mods.Get(Stat.MapLeaguestoneAdditionalShrines));
+        Assert.Equal(0, mods.Get(Stat.MapNumExtraShrines));
 
         var cloister = Slot("ScarabDivinationCardsNew1");
         var cloisterMods = catalog.Of([cloister], Program.Items.Mods);
@@ -61,7 +61,7 @@ public sealed class ScarabEncounterTests
             int count = single.Get(MapScarabPacks.CountStat);
             Assert.InRange(count, 8, 12);
             rolledCounts.Add(count);
-            Assert.Equal(count, Compose(single)[Program.Stats.Key(MapScarabPacks.CountStat)!.Value]);
+            Assert.Equal(count, Compose(single)[MapScarabPacks.CountStat]);
             Assert.InRange(Open(i, cloister, cloister).Opening!.Mods.Get(MapScarabPacks.CountStat), 16, 24);
         }
         Assert.Equal(Enumerable.Range(8, 5), rolledCounts.Order());
@@ -71,11 +71,11 @@ public sealed class ScarabEncounterTests
         Assert.False(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(1)));
         Assert.False(MapScarabPacks.DropsDeck(cloisterMods, "ordinary monster", new FixedRoll(0)));
         Assert.False(MapScarabPacks.DropsDeck(MapMods.None, member, new FixedRoll(0)));
-        var original = new MapMods(new Dictionary<string, int> { [MapScarabPacks.CountStat] = 10 }, 20)
+        var original = new MapMods(new Dictionary<uint, int> { [MapScarabPacks.CountStat] = 10 }, 20)
         {
-            Implicit = new Dictionary<string, int> { [MapScarabPacks.CountStat] = 2 },
-            Fragments = new Dictionary<string, int> { [MapScarabPacks.CountStat] = 8 },
-            ExplicitMods = [new Dictionary<string, int> { ["map_monsters_life_+%"] = 20 }],
+            Implicit = new Dictionary<uint, int> { [MapScarabPacks.CountStat] = 2 },
+            Fragments = new Dictionary<uint, int> { [MapScarabPacks.CountStat] = 8 },
+            ExplicitMods = [new Dictionary<uint, int> { [Stat.MapMonstersLifePlusPct] = 20 }],
             ScarabCount = 1, FragmentCount = 1, MapRarity = GameServer.Core.Protocol.Instance.ItemRarity.Rare, Corrupted = true,
         };
         var replaced = original.WithFragmentStat(MapScarabPacks.CountStat, 12);
@@ -242,10 +242,10 @@ public sealed class ScarabEncounterTests
             await MapEssences.Enter(essenceOwner.Conn);
             Assert.Equal((released.Id, released.Stage, released.Monster), (Monoliths()[0].Id, Monoliths()[0].Stage, Monoliths()[0].Monster));
             Assert.Equal(released.Essences, Monoliths()[0].Essences);
-            var terrorStats = new Dictionary<string, int>(catalog.Of([slot, Slot("ScarabDomination4")], Program.Items.Mods).Stats)
+            var terrorStats = new Dictionary<uint, int>(catalog.Of([slot, Slot("ScarabDomination4")], Program.Items.Mods).Stats)
             {
-                ["map_boss_maximum_life_+%"] = 40, ["map_boss_damage_+%"] = 30,
-                ["map_boss_attack_and_cast_speed_+%"] = 20,
+                [Stat.MapBossMaximumLifePlusPct] = 40, [Stat.MapBossDamagePlusPct] = 30,
+                [Stat.MapBossAttackAndCastSpeedPlusPct] = 20,
             };
             var terrorMods = new MapMods(terrorStats);
             var terrorInstance = new InstanceState();
@@ -265,10 +265,10 @@ public sealed class ScarabEncounterTests
             var guardVariety = Game.Monsters.Find(guardPlan.Variety.ToString())!;
             uint bossId = await Game.SpawnMonster(terrors.Conn, guardVariety, 70, guardPlan.Rarity, guardPlan.X, guardPlan.Y, unrisen: false);
             var boss = terrors.Conn.Monsters[bossId];
-            Assert.Equal(40, boss.Mods.Effects["maximum_life_+%"]);
-            Assert.Equal(30, boss.Mods.Effects["damage_+%"]);
-            Assert.Equal(20, boss.Mods.Effects["attack_speed_+%"]);
-            Assert.Equal(20, boss.Mods.Effects["base_cast_speed_+%"]);
+            Assert.Equal(40, boss.Mods.Effects[Stat.MaximumLifePlusPct]);
+            Assert.Equal(30, boss.Mods.Effects[Stat.DamagePlusPct]);
+            Assert.Equal(20, boss.Mods.Effects[Stat.AttackSpeedPlusPct]);
+            Assert.Equal(20, boss.Mods.Effects[Stat.BaseCastSpeedPlusPct]);
             PlayerInventories.Forget(terrors.Conn.Character!);
             PlayerInventories.Forget(essenceOwner.Conn.Character!);
             PlayerInventories.Forget(essencePeer.Conn.Character!);
@@ -326,7 +326,7 @@ public sealed class ScarabEncounterTests
         var arcanist = Assert.IsType<StrongboxCatalog.Definition>(StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Arcanist"));
         Assert.Equal(81, StrongboxCatalog.Weight(arcanist, 70, false, MapMods.None));
         Assert.Equal(0, StrongboxCatalog.Weight(arcanist, 25, false, MapMods.None));
-        var rareBoxes = new MapMods(new Dictionary<string, int> { ["map_strongbox_rare_boxes_weighting_multiplier"] = 3 });
+        var rareBoxes = new MapMods(new Dictionary<uint, int> { [Stat.MapStrongboxRareBoxesWeightingMultiplier] = 3 });
         Assert.Equal(243, StrongboxCatalog.Weight(arcanist, 70, false, rareBoxes));
         var cartographer = StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/CartographerLowMaps")!;
         Assert.True(StrongboxCatalog.Weight(cartographer, 70, false, MapMods.None) > 0);

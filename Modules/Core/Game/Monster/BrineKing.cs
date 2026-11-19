@@ -67,8 +67,8 @@ public static class BrineKing
     static async Task Maim(Player conn)
     {
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("cannot_be_maimed") != 0 || Random.Shared.Next(100) < Get("base_avoid_maim_%")) return;
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.Of("cannot_be_maimed")) != 0 || Random.Shared.Next(100) < Get(Stat.Of("base_avoid_maim_%"))) return;
         var tide = Tides.GetValue(conn, _ => new());
         if (tide.MaimActive) await RemoveTideBuff(conn, tide.MaimBuff);
         tide.MaimActive = true; tide.MaimUntil = conn.Clock.Elapsed.TotalSeconds + 4; tide.MaimBuff = conn.NextBuff++;

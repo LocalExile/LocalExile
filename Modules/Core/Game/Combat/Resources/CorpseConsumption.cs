@@ -6,7 +6,7 @@ using GameServer.Core.World;
 /// (SpawnedMonster.CorpseConsumed), and records the consumed-corpse recently event the conditional items read.</summary>
 static partial class Game
 {
-    internal const string CorpseKillChance = "killing_blow_consumes_corpse_restore_10%_life_chance_%";
+    internal const uint CorpseKillChance = Stat.KillingBlowConsumesCorpseRestore10PctLifeChancePct;
     internal const int CorpseKillLifePct = 10;
 
     /// <summary>A corpse the player consumed (a warcry, Devour, a raise or offering): an ignited one counts for
@@ -25,7 +25,7 @@ static partial class Game
     {
         if (conn.PlayerLife == 0 || m.Ailments.Shattered || !IsCorpse(m)) return false;
         var player = CharacterPlayerStats(conn);
-        int chance = Stats.Key(CorpseKillChance) is uint key ? player.GetValueOrDefault(key) : 0;
+        int chance = CorpseKillChance is var key ? player.GetValueOrDefault(key) : 0;
         if (!RandomRolls.Chance(chance, 100, Random.Shared)) return false;
         m.CorpseConsumed = true;
         NoteCorpseConsumedLocked(conn, m);

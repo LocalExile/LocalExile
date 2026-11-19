@@ -4,11 +4,11 @@ namespace GameServer.Gateway.Tests;
 
 public class ShaperOfFlamesTests
 {
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
-        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+    static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
     static SpawnedMonster At(int x) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
-        { Mods = new([], [], new(new Dictionary<string, int>())) };
+        { Mods = new([], [], new(new Dictionary<uint, int>())) };
 
     // Shaper of Flames: "All Damage can Ignite" puts a physical hit's damage into the ignite's base (90% per second) and
     // lets it ignite at all; "Hits always Ignite" needs no chance roll.
@@ -18,9 +18,9 @@ public class ShaperOfFlamesTests
         var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
         var shaper = With(("all_damage_can_ignite", 1), ("always_ignite", 1));
         var rows = AilmentPanelStats.Compute(new("spell", Spell: true), physical, new DamageConversion(), shaper);
-        Assert.Contains(("minimum_ignite_damage_to_deal_per_minute_from_non_critical_spell_damage", 5400), rows);
+        Assert.Contains((Stat.MinimumIgniteDamageToDealPerMinuteFromNonCriticalSpellDamage, 5400), rows);
         var plain = AilmentPanelStats.Compute(new("spell", Spell: true), physical, new DamageConversion(), With());
-        Assert.Contains(("minimum_ignite_damage_to_deal_per_minute_from_non_critical_spell_damage", 0), plain);
+        Assert.Contains((Stat.MinimumIgniteDamageToDealPerMinuteFromNonCriticalSpellDamage, 0), plain);
 
         var settings = MonsterIgnites.Settings.From(rows, "spell", shaper);
         Assert.Equal(100, settings.Chance);

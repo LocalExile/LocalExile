@@ -8,8 +8,8 @@ public static partial class Game
     public sealed record RageTransfer(string Character, DateTime At, RageState.Carried State);
     public static readonly ConcurrentDictionary<uint, RageTransfer> CarriedRage = new();
 
-    public static int RageStat(IReadOnlyDictionary<uint, int> stats, string name) =>
-        Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+    public static int RageStat(IReadOnlyDictionary<uint, int> stats, uint name) =>
+        name is var key ? stats.GetValueOrDefault(key) : 0;
 
     // Called after raw character/utility inputs and before attack damage/panel calculations. Derived values are
     // authoritative: setting current_rage cannot create resources or bypass gain prevention.
@@ -25,7 +25,7 @@ public static partial class Game
             if (conn.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(conn));
             RageStats.ExpandItems(stats, value.Effective);
             foreach (var (name, amount) in RageStats.Display(value, inputs))
-                if (Stats.Key(name) is uint key) stats[key] = amount;
+                if (name is var key) stats[key] = amount;
         }
     }
 
@@ -36,11 +36,11 @@ public static partial class Game
         if (conn.Character is null || conn.Closed || conn.LeavingArea || conn.RageRetired
             || conn.Paused || conn.PlayerLife == 0) return false;
         player ??= CharacterPlayerStats(conn);
-        int Get(string name) => (int)Math.Clamp((long)RageStat(player, name)
+        int Get(uint name) => (int)Math.Clamp((long)RageStat(player, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
         return conn.Rage.Hit(ProjectileWorldTime(conn), inputs, attack, melee, critical, (random ?? Random.Shared).Next(100),
-            soulGainPrevention: Get("has_soul_gain_prevention") != 0);
+            soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
     }
 
     public static void RageWhenHitLocked(Player conn)
@@ -52,7 +52,7 @@ public static partial class Game
         if (conn.Character is null) return;
         var stats = CharacterPlayerStats(conn);
         conn.Rage.EnemyHit(ProjectileWorldTime(conn), RageStats.Inputs(name => RageStat(stats, name)),
-            Random.Shared.Next(100), soulGainPrevention: RageStat(stats, "has_soul_gain_prevention") != 0);
+            Random.Shared.Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
     }
 
     public static void ClearRageOnDeath(Player conn)
@@ -109,7 +109,7 @@ public static partial class Game
         var stats = CharacterPlayerStats(conn);
         var inputs = RageStats.Inputs(name => RageStat(stats, name));
         var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
-        bool prevention = RageStat(stats, "has_soul_gain_prevention") != 0;
+        bool prevention = RageStat(stats, Stat.HasSoulGainPrevention) != 0;
         // "when you reach Maximum Rage while a Unique Enemy is in your Presence" (Loyalty Tattoo of Akoya).
         if (value.Maximum > 0 && value.Current >= value.Maximum
             && (conn.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))

@@ -7,10 +7,10 @@ public static partial class Game
     /// <summary>"Gain Soul Eater during any Flask Effect": while a flask effect is on the player, enemies killed within
     /// this radius feed a soul (poedb: 60 units). Each soul gives 5% increased attack and cast speed and 1% character
     /// size; one is lost every 0.5 s after 4 s without a kill.</summary>
-    public const string SoulEaterStat = "gain_soul_eater_during_flask_effect";
+    public const uint SoulEaterStat = Stat.GainSoulEaterDuringFlaskEffect;
     /// <summary>Soul Ascension's "Eat a Soul when you Hit a Rare or Unique Enemy, no more than once every 0.5 seconds":
     /// the stat's value is that cooldown in ms (500; the Divergent-like variant 2000), unscalable.</summary>
-    public const string SoulEaterHitStat = "gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms";
+    public const uint SoulEaterHitStat = Stat.GainSoulEaterStackOnHitVsUniqueCooldownMs;
     public const int SoulEaterRadius = 60;
     /// <summary>BuffDefinitions row "soul_eater_aura" (277): the aura around the eater. Invisible as an icon, its
     /// BuffVisuals 288 EPK draws the soul visuals (the same aura BuffTemplate "MapModPlayerSoulEater" gives a player).</summary>
@@ -20,10 +20,10 @@ public static partial class Game
     public const ushort SoulEaterBuffRow = 279;
 
     static bool SoulEaterStatPresent(IReadOnlyDictionary<uint, int> stats) =>
-        Stats.Key(SoulEaterStat) is uint key && stats.GetValueOrDefault(key) != 0;
+        SoulEaterStat is var key && stats.GetValueOrDefault(key) != 0;
 
     static int SoulEaterHitCooldownMs(IReadOnlyDictionary<uint, int> stats) =>
-        Stats.Key(SoulEaterHitStat) is uint key ? Math.Max(0, stats.GetValueOrDefault(key)) : 0;
+        SoulEaterHitStat is var key ? Math.Max(0, stats.GetValueOrDefault(key)) : 0;
 
     // "Any Flask Effect": a running utility flask, a permanent one from a belt's always-apply effect, or a life/mana
     // flask still recovering. Life and mana flasks keep no utility effect here, but their recovery is a flask effect too.
@@ -85,14 +85,14 @@ public static partial class Game
             stats[maximumKey] = SoulEaterMaximum(stats);
         int stacks = SoulEaterStacks(conn);
         if (stacks <= 0) return;
-        void Add(string name, int amount)
+        void Add(uint name, int amount)
         {
-            if (amount != 0 && Stats.Key(name) is uint key)
+            if (amount != 0 && name is var key)
                 stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + amount, int.MinValue, int.MaxValue);
         }
-        Add("attack_speed_+%", 5 * stacks);
-        Add("cast_speed_+%", 5 * stacks);
-        Add("capped_actor_scale_+%", Math.Min(stacks, 50));
+        Add(Stat.AttackSpeedPlusPct, 5 * stacks);
+        Add(Stat.CastSpeedPlusPct, 5 * stacks);
+        Add(Stat.CappedActorScalePlusPct, Math.Min(stacks, 50));
     }
 
     /// <summary>An enemy killed at <paramref name="at"/>: one soul for the flask source ("during any Flask Effect"),

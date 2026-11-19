@@ -19,7 +19,7 @@ public static partial class Game
         /// <summary>The active set's hands, rows 2 and 3 (immutable item records), and which of them are inactive.</summary>
         public required IReadOnlyList<InventoryItem> MainRow, OffRow;
         public required bool[] MainInactive, OffInactive;
-        public required Dictionary<string, int> MainLocal, OffLocal;
+        public required Dictionary<uint, int> MainLocal, OffLocal;
         public required uint PlayerLife, PlayerMaxLife;
         public required bool EnergyShieldRecharging;
         /// <summary>Petrified Blood runs and Life is above Low Life: the client's own recovery step must not raise it
@@ -72,7 +72,7 @@ public static partial class Game
     public static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
     // Reads the tail's inputs. Called where the tail starts, after the head; stats is the head's (not copied).
     public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(Player conn, StatMap stats,
-        Dictionary<string, int> mainLocal, Dictionary<string, int> offLocal,
+        Dictionary<uint, int> mainLocal, Dictionary<uint, int> offLocal,
         double lifeRegenerationToEnergyShield, bool moving)
     {
         var items = ItemsOf(conn);
@@ -80,7 +80,7 @@ public static partial class Game
         var offRow = items.Items(PlayerInventories.Offhand1);
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(conn);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+            name => name is var key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
         uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
@@ -108,7 +108,7 @@ public static partial class Game
         var pools = inputs.Pools;
         var mainLocal = inputs.MainLocal;
         var offLocal = inputs.OffLocal;
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        int Get(uint k) => stats.GetValueOrDefault(k);
         (Item Item, ItemCatalog.BaseType? Type)? ActiveMainHand() => ActiveHandIn(inputs.MainRow, inputs.Inactive, inputs.Items);
         (Item Item, ItemCatalog.BaseType? Type)? ActiveOffHand() => ActiveHandIn(inputs.OffRow, inputs.Inactive, inputs.Items);
         SkillCatalog.Unarmed WeaponFor() => WeaponIn(inputs.Skills, inputs.Items, inputs.ClassRow, ActiveMainHand())
@@ -136,18 +136,18 @@ public static partial class Game
                 // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield, OnLowLife(stats)))
                 .Concat(FlaskCharges.GainStats(Get))
-                .Concat(new[] { ("energy_shield_recovery_per_minute", (int)Math.Round(EnergyShield.PredictionPerMinute(pools.EnergyShield, Get, inputs.EnergyShieldRecharging) + inputs.LifeRegenerationToEnergyShield)),
-                    ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(pools.EnergyShield, Get) + inputs.LifeRegenerationToEnergyShield)),
-                    ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(pools.EnergyShield, Get))),
-                    ("energy_shield_recharge_active", 0) })
+                .Concat(new[] { (Stat.EnergyShieldRecoveryPerMinute, (int)Math.Round(EnergyShield.PredictionPerMinute(pools.EnergyShield, Get, inputs.EnergyShieldRecharging) + inputs.LifeRegenerationToEnergyShield)),
+                    (Stat.TotalEnergyShieldRecoveryPerMinuteFromRegeneration, (int)Math.Round(EnergyShield.RegenPerMinute(pools.EnergyShield, Get) + inputs.LifeRegenerationToEnergyShield)),
+                    (Stat.EnergyShieldRechargeRatePerMinute, (int)Math.Round(EnergyShield.RechargePerMinute(pools.EnergyShield, Get))),
+                    (Stat.EnergyShieldRechargeActive, 0) })
                 .Concat(ChargePanelStats.Compute(Get)))
-                if (Stats.Key(stat) is uint key) stats[key] = value;
+                if (stat is var key) stats[key] = value;
             // Special maxima mirror completed standard maxima, including explicit final replacements.
             foreach (var (stat, value) in ChargePanelStats.MirroredMaximums(Get))
-                if (Stats.Key(stat) is uint key) stats[key] = value;
+                if (stat is var key) stats[key] = value;
             // Reap's Blood Charges: the count held, the maximum and the rows' gate (BloodChargePanelRows).
             foreach (var (stat, value) in BloodChargePanelRows(inputs.BloodChargesHeld, inputs.BloodChargesShown, Get))
-                if (Stats.Key(stat) is uint key) stats[key] = value;
+                if (stat is var key) stats[key] = value;
             // Petrified Blood: the client's Life step reads life_recovery_per_minute, not the display total, and it
             // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
             if (inputs.PetrifiedBloodRecoveryCapped && Stat.LifeRecoveryPerMinute is var lifeRecovery)
@@ -156,9 +156,9 @@ public static partial class Game
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
                 && Stat.AttackDamagePlusPct is var attackDamage)
-                stats[attackDamage] = ArmourAttackDamage.Total(Get("attack_damage_+%"),
-                    Get("physical_damage_reduction_rating"), Get(ArmourAttackDamage.Per450Armour),
-                    Get("evasion_rating"), Get(ArmourAttackDamage.Per450Evasion));
+                stats[attackDamage] = ArmourAttackDamage.Total(Get(Stat.AttackDamagePlusPct),
+                    Get(Stat.PhysicalDamageReductionRating), Get(ArmourAttackDamage.Per450Armour),
+                    Get(Stat.EvasionRating), Get(ArmourAttackDamage.Per450Evasion));
             return stats;
         }
         if (stage == StatSnapshotStage.Offence)
@@ -170,17 +170,17 @@ public static partial class Game
                 stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
-            if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey)
+            if (SkillDurationModifiers.IncreasedDuration is var durationKey)
                 stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
-                    Get("strength"), Get(SkillDurationModifiers.PerTenStrength));
+                    Get(Stat.Strength), Get(SkillDurationModifiers.PerTenStrength));
             // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
             if (Get(LowestAttributeDamage) is int perFive and not 0 && Stat.DamagePlusPct is var damageKey)
-                stats[damageKey] = (int)Math.Clamp(Get("damage_+%") + (long)perFive
-                    * (Math.Min(Get("strength"), Math.Min(Get("dexterity"), Get("intelligence"))) / 5), int.MinValue, int.MaxValue);
+                stats[damageKey] = (int)Math.Clamp(Get(Stat.DamagePlusPct) + (long)perFive
+                    * (Math.Min(Get(Stat.Strength), Math.Min(Get(Stat.Dexterity), Get(Stat.Intelligence))) / 5), int.MinValue, int.MaxValue);
             // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
             // which the Defence tab shows and the ailment consumer reads.
             foreach (var (conditional, plain, higher, lower) in AttributeAilmentConditions)
-                if (Get(conditional) != 0 && Get(higher) > Get(lower) && Stats.Key(plain) is uint plainKey)
+                if (Get(conditional) != 0 && Get(higher) > Get(lower) && plain is var plainKey)
                     stats[plainKey] = 1;
             // The Offence tab's per-hand damage rows (issue #75): the hit the default attack actually swings with, so the panel
             // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
@@ -189,7 +189,7 @@ public static partial class Game
             var attackConversion = DamageStats.Conversion(stats, Stats, attack: true);
             var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion);
             foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
-                if (Stats.Key(stat) is uint key) stats[key] = value;
+                if (stat is var key) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
             var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
@@ -198,15 +198,15 @@ public static partial class Game
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
                     SupportedAttackDamage.Raw(offWeapon, Get), attackConversion, Get));
             foreach (var (stat, value) in ailmentRows)
-                if (Stats.Key(stat) is uint key) stats[key] = value;
+                if (stat is var key) stats[key] = value;
             return stats;
         }
         // The native walk (0x141e827a0), action clip (0x1419fd730) and animation rate (0x141ea4760) read the final
         // virtual_action_speed_+%, derived natively from the intermediary (0x142822e80) only in a calculator; network
         // stats hold what is sent (04 §4.1a), so it is sent too. Only a clamp to -100 applies, so a reversed chill's
         // positive value goes through. A freeze stays on is_frozen: -100 there would divide the native clip by zero.
-        foreach (var (name, value) in new[] { "is_ignited", "is_chilled", "is_frozen", "is_shocked" }.Zip(inputs.Ailments))
-            if (Stats.Key(name) is uint key && value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
+        foreach (var (name, value) in new[] { Stat.IsIgnited, Stat.IsChilled, Stat.IsFrozen, Stat.IsShocked }.Zip(inputs.Ailments))
+            if (name is var key && value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
         if (Stat.ActionSpeedMinusPct is var actionSpeedKey)
             stats[actionSpeedKey] = (int)Math.Round(100 * (1 - inputs.ActionFactor));
         if (Stat.IntermediaryCombinedActionSpeedPlusPct is var actionCombinedKey)
@@ -221,16 +221,16 @@ public static partial class Game
         var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = TimedBlind.Apply(pools.Accuracy, inputs.BlindLess) };
         foreach (var (name, evasion) in new[]
         {
-            ("main_hand_chance_to_hit_%", Monsters.BaseEvasion(pools.Level) ?? 0),
-            ("main_hand_chance_to_hit_evasive_monsters_%", Monsters.BaseEvasiveEvasion(pools.Level) ?? 0),
+            (Stat.MainHandChanceToHitPct, Monsters.BaseEvasion(pools.Level) ?? 0),
+            (Stat.MainHandChanceToHitEvasiveMonstersPct, Monsters.BaseEvasiveEvasion(pools.Level) ?? 0),
         })
-            if (Stats.Key(name) is uint key)
+            if (name is var key)
                 stats[key] = accuracy.Chance(evasion, false, false);
         // The Off Hand rows of a dual-wielded default attack; the flag clears when nothing is swung with the off hand.
         if (Stat.SkillUsesOffHand is var usesOffHand) stats[usesOffHand] = 0;
         foreach (var (name, value) in OffHandPanelStats(OffhandWeaponFor, ActiveOffHand, () => pools, Profile, inputs.Items,
             () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct), own: null, blindLess: inputs.BlindLess) ?? [])
-            if (Stats.Key(name) is uint key) stats[key] = value;
+            if (name is var key) stats[key] = value;
         if (Stat.VirtualOnLowLife is var lowLife)
             stats[lowLife] = OnLowLife(stats) ? 1 : 0;
         if (Stat.VirtualExtraCriticalRolls is var rolls)
@@ -238,7 +238,7 @@ public static partial class Game
         // The Offence tab's effective (and twice-) critical chance for spells: the pools' chance after the luck and
         // bifurcation policies; a selected spell gets its own (GemSkills).
         foreach (var (stat, value) in SpellEffectiveCritical(() => OnLowLife(stats), stats, pools.SpellCriticalStrikeChance, own: null))
-            if (Stats.Key(stat) is uint key) stats[key] = value;
+            if (stat is var key) stats[key] = value;
         return stats;
     }
 }

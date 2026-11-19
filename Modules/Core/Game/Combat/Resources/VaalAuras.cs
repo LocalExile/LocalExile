@@ -10,17 +10,17 @@ public static partial class Game
     // BuffDefinitions 160 vaal_aura_energy_shield "Vaal Discipline Aura": energy_shield_recharge_not_delayed_by_damage,
     // which EnergyShield reads.
     // Visual: the BuffDefinitions row's BuffVisuals row, sent explicitly (bit4) as Righteous Fire's buffs do.
-    sealed record VaalAuraKind(ushort BuffRow, ushort Visual, string Stat);
+    sealed record VaalAuraKind(ushort BuffRow, ushort Visual, uint Stat);
     static readonly Dictionary<string, VaalAuraKind> VaalAuras = new()
     {
-        ["VaalDiscipline"] = new(160, 329, "energy_shield_recharge_not_delayed_by_damage"),
+        ["VaalDiscipline"] = new(160, 329, Stat.EnergyShieldRechargeNotDelayedByDamage),
     };
-    internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
+    internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public uint? Stat; }
     internal static readonly Store<Player, VaalAuraState> VaalAuraStates = new();
 
     static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n))
-        * Math.Max(0, 1 + ((long)GolemStat(player, "buff_duration_+%") + GolemStat(own, "buff_duration_+%")) / 100d);
+        * Math.Max(0, 1 + ((long)GolemStat(player, Stat.BuffDurationPlusPct) + GolemStat(own, Stat.BuffDurationPlusPct)) / 100d);
 
     static void WithVaalAura(Player conn, StatMap stats)
     {
@@ -28,7 +28,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            if (conn.PlayerLife > 0 && aura.Stat is string name && aura.Until > now && Stats.Key(name) is uint key)
+            if (conn.PlayerLife > 0 && aura.Stat is uint key && aura.Until > now)
             {
                 stats[key] = 1;
                 StatsChangeIn(aura.Until - now);
@@ -42,14 +42,14 @@ public static partial class Game
         var gem = SupportedSkill(conn, skillId);
         string name = SkillsFor(conn).EffectId(gem.Effect) ?? "";
         if (!VaalAuras.TryGetValue(name, out var kind)) return false;
-        double seconds = VaalAuraSeconds(GolemStat(gem.Stats, "base_skill_effect_duration"), CharacterPlayerStats(conn), gem.Stats);
+        double seconds = VaalAuraSeconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration), CharacterPlayerStats(conn), gem.Stats);
         if (seconds <= 0) return false;
         var aura = VaalAuraStates.GetOrCreateValue(conn);
         int token;
         lock (conn.Monsters) token = ++aura.Token;
         // Built fresh, as Flicker Strike's buff: the use's message holds a stats snapshot from before the buff.
         using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(conn, [], $"0x01c1 {name}: {kind.Stat} for {seconds:0.##} s (buff row {kind.BuffRow})",
+        await Send(conn, [], $"0x01c1 {name}: {Stats.Name(kind.Stat)} for {seconds:0.##} s (buff row {kind.BuffRow})",
             still: current, atGate: () =>
             {
                 lock (conn.Monsters)

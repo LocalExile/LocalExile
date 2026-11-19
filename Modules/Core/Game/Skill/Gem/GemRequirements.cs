@@ -26,9 +26,9 @@ public static partial class Game
             var cls = SkillsFor(conn).ClassFor(conn.ClassRow);
             int god = conn.God ? 1000 : 0;
             var (str, dex, intel) = attributes.Apply(cls.Strength + god, cls.Dexterity + god, cls.Intelligence + god);
-            return new(conn.Pools.Level, RequirementAttribute(conn, "strength", str),
-                RequirementAttribute(conn, "dexterity", dex),
-                RequirementAttribute(conn, "intelligence", intel), equipment, inactive);
+            return new(conn.Pools.Level, RequirementAttribute(conn, Stat.Strength, str),
+                RequirementAttribute(conn, Stat.Dexterity, dex),
+                RequirementAttribute(conn, Stat.Intelligence, intel), equipment, inactive);
         }
     }
 }

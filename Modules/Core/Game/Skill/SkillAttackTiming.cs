@@ -3,10 +3,10 @@
 /// <summary>Weapon-based attack timing with additional base time and the gem's inherent GEPL attack-speed multiplier.</summary>
 public static class SkillAttackTiming
 {
-    public const string AdditionalBaseAttackTime = "additional_weapon_base_attack_time_ms";
+    public const uint AdditionalBaseAttackTime = Stat.AdditionalWeaponBaseAttackTimeMs;
 
     public static int AdditionalMilliseconds(IReadOnlyDictionary<uint, int> stats) =>
-        Program.Stats.Key(AdditionalBaseAttackTime) is uint key ? stats.GetValueOrDefault(key) : 0;
+        AdditionalBaseAttackTime is var key ? stats.GetValueOrDefault(key) : 0;
 
     /// <summary><paramref name="own"/> is the skill's unmerged stat set, or the catalog's own rows when omitted.</summary>
     public static double ForSkill(SkillCatalog skills, int effect, int level, SkillCatalog.Unarmed weapon,
@@ -15,7 +15,7 @@ public static class SkillAttackTiming
     {
         if (!skills.IsAttack(effect)) return Math.Max(Program.TickSeconds, weapon.AttackSeconds(player) / actionSpeed);
         int skillAdditional = own is not null ? AdditionalMilliseconds(own)
-            : Program.Stats.Key(AdditionalBaseAttackTime) is uint key
+            : AdditionalBaseAttackTime is var key
                 ? skills.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         int additional = (int)Math.Clamp((long)AdditionalMilliseconds(player) + skillAdditional, int.MinValue, int.MaxValue);
         int inherent = skills.AttackSpeedMultiplier(effect, level);

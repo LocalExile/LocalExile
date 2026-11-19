@@ -27,7 +27,7 @@ public sealed class IncomingHitEventsTests
             var catalog = Program.Items;
             var flaskBase = Assert.IsType<ItemCatalog.BaseType>(catalog.Find("Quicksilver Flask"));
             var hitMod = catalog.Mods.All.First(m => m.GenerationType is 1 or 2 && m.WeightFor(flaskBase.Tags) > 0
-                && m.Stats.Count == 1 && m.Stats[0].Id == "local_flask_gain_X_charges_when_hit" && m.RangeAt(0).Max > 0);
+                && m.Stats.Count == 1 && m.Stats[0].Id == Stat.LocalFlaskGainXChargesWhenHit && m.RangeAt(0).Max > 0);
             int chargesPerHit = Assert.Single(hitMod.MaxValues());
             Assert.InRange(chargesPerHit, 1, flaskBase.MaxCharges - 1);
             var rechargeFlask = ItemCatalog.Create(flaskBase) with
@@ -88,8 +88,8 @@ public sealed class IncomingHitEventsTests
                             conn.FlaskAutomation.Events.Select(e => e.Trigger));
 
                         // Both charge consumers are present: only the matching block type may grant its charge.
-                        int Stat(string name) => name is "chance_to_gain_endurance_charge_when_hit_%"
-                            or "chance_to_gain_frenzy_charge_on_block_attack_%" or "power_charge_on_spell_block_%_chance" ? 100 : 0;
+                        int Stat(uint name) => name is global::Stat.ChanceToGainEnduranceChargeWhenHitPct
+                            or global::Stat.ChanceToGainFrenzyChargeOnBlockAttackPct or global::Stat.PowerChargeOnSpellBlockPctChance ? 100 : 0;
                         var charges = Game.ChargesOf(conn);
                         charges.Step(now, Stat, () => default, alive: true, moving: false, inTown: false, new LowRolls());
                         Assert.Equal(1, charges.Effective(ChargeType.Endurance));

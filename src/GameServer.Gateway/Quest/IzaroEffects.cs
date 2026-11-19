@@ -20,7 +20,7 @@ public static partial class IzaroEffects
     /// monster variety's Id or object type (empty when none), Izaro's buff row (a portal that has not returned has none:
     /// 0, with no stats) and the buff's stats.</summary>
     public sealed record Effect(string Id, string Mechanic, int Tier, int Element, bool Returning, string Variety, string Type,
-        ushort Buff, IReadOnlyDictionary<string, int> Stats);
+        ushort Buff, IReadOnlyDictionary<uint, int> Stats);
 
     /// <summary>A mechanic's three effects of a tier (fire, cold, lightning), or their "…2" ones.</summary>
     public static IReadOnlyList<Effect> Of(string mechanic, int tier, bool returning) =>
@@ -43,9 +43,9 @@ public static partial class IzaroEffects
         (trial.Secrets ?? []).Any(s => s.StartsWith(mechanic, StringComparison.Ordinal) && s.EndsWith('2'));
 
     /// <summary>The effects' stats, summed (for SpawnedMonster.EncounterStats).</summary>
-    public static Dictionary<string, int> Sum(IEnumerable<Effect> on)
+    public static Dictionary<uint, int> Sum(IEnumerable<Effect> on)
     {
-        var sum = new Dictionary<string, int>(StringComparer.Ordinal);
+        var sum = new Dictionary<uint, int>();
         foreach (var e in on)
             foreach (var (stat, value) in e.Stats) sum[stat] = sum.GetValueOrDefault(stat) + value;
         return sum;
@@ -91,11 +91,11 @@ public static partial class IzaroEffects
                 bool buffed = !r.IsNull("Buff_BuffDefinitionsKey");
                 if (!buffed && !untiered.Success) continue;
                 int buff = buffed ? r.Int("Buff_BuffDefinitionsKey") : 0;
-                var map = new Dictionary<string, int>(StringComparer.Ordinal);
+                var map = new Dictionary<uint, int>();
                 if (buffed)
                 {
                     int[] values = [.. r.Ints("Buff_StatValues")];
-                    string[] keys = [.. buffRows[buff].Ints("StatsKeys").Select(k => statRows[k].Text("Id") ?? "")];
+                    uint[] keys = [.. buffRows[buff].Ints("StatsKeys").Select(k => (uint)k + 1)];
                     for (int i = 0; i < Math.Min(keys.Length, values.Length); i++) map[keys[i]] = values[i];
                 }
                 string type = (r.Text("OTFile") ?? "").Replace(".ot", "", StringComparison.Ordinal);

@@ -1070,11 +1070,11 @@ public static class LabyrinthTrials
             foreach (var set in sets)
             {
                 if (set.Text("Id") != id) continue;
-                var values = set.Ints("ConstantStats").Select(k => names[k])
+                var values = set.Ints("ConstantStats").Select(k => (uint)k + 1)
                     .Zip(set.Ints("ConstantStatsValues"))
                     .ToDictionary(p => p.First, p => p.Second);
-                return (values.GetValueOrDefault("%_of_life_to_deal_as_damage"), values.GetValueOrDefault("%_of_es_to_deal_as_damage"),
-                    values.GetValueOrDefault("damage_+%_vs_players"));
+                return (values.GetValueOrDefault(Stat.PctOfLifeToDealAsDamage), values.GetValueOrDefault(Stat.PctOfEsToDealAsDamage),
+                    values.GetValueOrDefault(Stat.DamagePlusPctVsPlayers));
             }
             return null;
         }
@@ -1365,7 +1365,7 @@ public static class LabyrinthTrials
     /// <c>base_skill_effect_duration</c> (2 s) from the latest hit. Its value is not in the client data: live
     /// (2026-10-31, the original) a character's movement speed went from +19% to −52% under the darts,
     /// (1 − 0.52) / 1.19 ≈ 0.40 of it, so 60% less, final.</summary>
-    public const string ArrowSlowStat = "labyrinth_arrow_movement_speed_+%_final";
+    public const uint ArrowSlowStat = Stat.LabyrinthArrowMovementSpeedPlusPctFinal;
     public const int ArrowSlowPercent = -60;
     public const double ArrowSlowSeconds = 2;
 

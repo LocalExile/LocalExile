@@ -17,10 +17,10 @@ internal static class ArenaHazards
         internal ushort Fear;
         internal int FearValue;
     }
-    internal static int Stat(Player c, int effect, byte level, string name)
+    internal static int Stat(Player c, int effect, byte level, uint name)
     {
         var cat = SkillsFor(c);
-        return Stats.Key(name) is uint key ? cat.EffectStats(effect, cat.MaxLevelAt(effect, level))
+        return name is var key ? cat.EffectStats(effect, cat.MaxLevelAt(effect, level))
             .Where(s => s.Item1 == key).Sum(s => s.Item2) : 0;
     }
     internal static DamagePacket Dot(Player c, int effect, byte level, bool minion)
@@ -28,11 +28,11 @@ internal static class ArenaHazards
         var result = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
         {
-            double value = Stat(c, effect, level, $"base_{type.ToString().ToLowerInvariant()}_damage_to_deal_per_minute") / 60d;
+            double value = Stat(c, effect, level, global::Stat.Of($"base_{type.ToString().ToLowerInvariant()}_damage_to_deal_per_minute")) / 60d;
             if (value > 0) result = result.Add(type, new(value, value));
         }
         return result.Scale(minion ? Math.Max(0, 1 + Stat(c, effect, level,
-            "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d) : 1);
+            global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d) : 1);
     }
     internal static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
     internal static (int X, int Y) Toward((int X, int Y) from, (int X, int Y) to, double distance)
@@ -74,8 +74,8 @@ internal static class ArenaHazards
             {
                 if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
                 var stats = CharacterPlayerStats(p);
-                int Get(string n) => Stats.Key(n) is uint key ? stats.GetValueOrDefault(key) : 0;
-                var raw = p.PlayerLife == 0 || p.Immune || Get("base_cannot_be_damaged") != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
+                int Get(uint key) => stats.GetValueOrDefault(key);
+                var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
                 var immune = PlayerImmunities(p); uint before = p.PlayerLife; double shield = p.EnergyShield.Current;
                 int loss = 0;
                 foreach (var type in DamageTypes.ConversionOrder)
@@ -83,17 +83,17 @@ internal static class ArenaHazards
                     int slot = (int)type;
                     double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
                         : Math.Min(Resistance(p, type), MaxResistance(p, type));
-                    double factor = p.ElementalAilments.DamageTakenFactor(now, Get("base_damage_taken_+%")
-                        + Get(type.ToString().ToLowerInvariant() + "_damage_taken_+%"))
+                    double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
+                        + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
                         * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
                         * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
                     double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
-                    bool chaosBypasses = type == DamageType.Chaos && Get("chaos_damage_does_not_bypass_energy_shield") == 0
-                        && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-                        && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
+                    bool chaosBypasses = type == DamageType.Chaos && Get(global::Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
+                        && Get(global::Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
+                        && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
                             && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
-                        && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0
+                        && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
                             && (long)p.PlayerMana * 2 > p.Pools.Mana);
                     loss += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
                         : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
@@ -105,9 +105,9 @@ internal static class ArenaHazards
                 {
                     if (g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
                     var packet = rawAt(g.Monster.Walk.Position(now), true);
-                    int MinionStat(string n) => Stats.Key(n) is uint key ? g.Player.GetValueOrDefault(key) : 0;
-                    bool elementalImmune = g.Definition.IsGolem && (MinionStat("golem_immunity_to_elemental_damage") != 0
-                        || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat("elemental_golem_immunity_to_elemental_damage") != 0);
+                    int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
+                    bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) != 0
+                        || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) != 0);
                     double amount = e.MinionCarry.GetValueOrDefault(g.Id);
                     foreach (var type in DamageTypes.ConversionOrder)
                     {

@@ -32,11 +32,11 @@ public sealed class GolemState
         public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
-        public Dictionary<string, int> Auras = [], Utility = [];
+        public Dictionary<uint, int> Auras = [], Utility = [];
         public readonly Dictionary<ushort, ushort> UtilityBuffs = [];
         public double RecallUntil, RecallRate, BlockedAt = double.NegativeInfinity;
         public Dictionary<byte, Item> Equipment = [];
-        public Dictionary<string, int> Gear = [];
+        public Dictionary<uint, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
         public double HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];

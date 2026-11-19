@@ -205,20 +205,19 @@ public static partial class Game
         if (owner is null) return;
         var source = SupportedSkill(conn, owner.SkillId);
         if (skillEffect == source.Effect) return;
-        int Value(string stat) => Stats.Key(stat) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
+        int Value(uint key) => source.Stats.GetValueOrDefault(key);
         bool blood = StanceCatalog.SelectionOf(owner) == StanceCatalog.BloodSelection;
-        int damage = Value("blood_sand_stance_melee_skills_area_damage_+%_final")
-            + Value(blood ? "blood_sand_stance_melee_skills_area_damage_+%_final_in_blood_stance"
-                : "blood_sand_stance_melee_skills_area_damage_+%_final_in_sand_stance");
-        int area = Value("blood_sand_stance_melee_skills_area_of_effect_+%_final")
-            + Value(blood ? "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_blood_stance"
-                : "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_sand_stance");
-        double buffEffect = Math.Max(0, 1 + Value("blood_sand_stance_buff_effect_+%") / 100.0);
-        Set("blood_sand_stance_melee_skills_area_damage_+%_final", damage, buffEffect);
-        Set("blood_sand_stance_melee_skills_area_of_effect_+%_final", area, buffEffect);
-        void Set(string target, int value, double scale)
+        int damage = Value(Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal)
+            + Value(blood ? Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInBloodStance
+                : Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInSandStance);
+        int area = Value(Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinal)
+            + Value(blood ? Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinalInBloodStance
+                : Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinalInSandStance);
+        double buffEffect = Math.Max(0, 1 + Value(Stat.BloodSandStanceBuffEffectPlusPct) / 100.0);
+        Set(Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal, damage, buffEffect);
+        Set(Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinal, area, buffEffect);
+        void Set(uint key, int value, double scale)
         {
-            if (Stats.Key(target) is uint key)
                 own[key] = (int)Math.Round(value * scale, MidpointRounding.AwayFromZero);
         }
     }

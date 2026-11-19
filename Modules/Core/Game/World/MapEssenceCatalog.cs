@@ -45,17 +45,17 @@ public static class MapEssenceCatalog
         if (pool.Count == 0) return [];
         // As with ordinary pack density, the official server's base multiplicity/weights are unavailable.
         // Keep this replica distribution explicit rather than treating DropLevel entries as spawn weights.
-        int count = random.Next(1, 4) + Math.Max(0, mods.Get("map_essence_monsters_have_additional_essences"));
-        if (random.Next(100) < mods.Get("map_essence_monsters_have_an_additional_essence_%_chance")) count++;
-        if (random.Next(100) < mods.Get("map_essence_monsters_chance_for_3_additional_essences_%")) count += 3;
+        int count = random.Next(1, 4) + Math.Max(0, mods.Get(Stat.MapEssenceMonstersHaveAdditionalEssences));
+        if (random.Next(100) < mods.Get(Stat.MapEssenceMonstersHaveAnAdditionalEssencePctChance)) count++;
+        if (random.Next(100) < mods.Get(Stat.MapEssenceMonstersChanceFor3AdditionalEssencesPct)) count += 3;
         var chosen = new List<Essence>();
         for (int i = 0; i < count; i++)
         {
             var available = pool.Where(e => !chosen.Any(c => c.Type == e.Type)).ToArray();
             if (available.Length == 0) break;
             var pick = available[random.Next(available.Length)];
-            if (mods.Get("map_essence_monsters_higher_tier") > 0
-                || random.Next(100) < mods.Get("map_essences_are_1_tier_higher_chance_%")) pick = Higher(pick);
+            if (mods.Get(Stat.MapEssenceMonstersHigherTier) > 0
+                || random.Next(100) < mods.Get(Stat.MapEssencesAre1TierHigherChancePct)) pick = Higher(pick);
             chosen.Add(pick);
         }
         return [.. chosen.Select(e => e.Row)];

@@ -14,7 +14,7 @@ public static partial class Game
             && Stat.EnergyShieldRecoveryPerMinute is var shieldKey)
             stats = [.. stats.Select(s => s.Key == lifeKey || s.Key == shieldKey ? (s.Key, 0) : s)];
         var packet = InstanceEntities.StatsUpdate(PlayerId, stats);
-        uint? counterKey = Stats.Key(RecentEnemyHits.Counter), chanceKey = Stats.Key(RecentEnemyHits.VirtualChance);
+        uint? counterKey = (RecentEnemyHits.Counter), chanceKey = (RecentEnemyHits.VirtualChance);
         int? count = null, chance = null;
         foreach (var (key, value) in stats)
         {

@@ -605,7 +605,7 @@ public static partial class Game
                 {
                     CommitProjectileKill(this, contact.Target.Id, target, contact.At,
                         contact.Projectile.RewardRandomSource, playerKill: false);
-                    if (shot.RampageSkill?.Get("explode_on_kill_%_fire_damage_to_deal") is int pct and > 0)
+                    if (shot.RampageSkill?.Get(Stat.ExplodeOnKillPctFireDamageToDeal) is int pct and > 0)
                         Enqueue(() => RampageKillExplosion(Conn, ownedEpoch,
                             contact.Target.Id, target, pct));
                 }
@@ -637,7 +637,7 @@ public static partial class Game
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Conn, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
-                    .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
+                    .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
                         finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
@@ -656,7 +656,7 @@ public static partial class Game
             {
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
-                var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
+                var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects[Stat.AvoidImpalePct]);
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
             }
             uint lifeBefore = target.Life;

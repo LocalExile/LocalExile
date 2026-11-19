@@ -4,8 +4,8 @@ namespace GameServer.Gateway.Tests;
 
 public class PlayerDamageTakenTests
 {
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
-        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+    static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
     static DamagePacket Hit(params (DamageType Type, int Amount)[] parts) =>
         parts.Aggregate(DamagePacket.Empty, (hit, p) => hit.Add(p.Type, new DamageRange(p.Amount, p.Amount)));
@@ -24,7 +24,7 @@ public class PlayerDamageTakenTests
     [Fact]
     public void A_hit_shifts_once_then_avoids_and_takes_flat_increased_blocked_and_mana_damage()
     {
-        Assert.All(PlayerDamageTaken.StatNames, name => Assert.NotNull(Program.Stats.Key(name)));
+        Assert.All(PlayerDamageTaken.StatNames, name => Assert.True(StatCatalog.IsClientId(name)));
 
         var physical = Hit((DamageType.Physical, 100));
         Assert.Same(physical, PlayerDamageTaken.Shift(physical, With()));

@@ -92,7 +92,7 @@ public sealed class ItemCatalog
     {
         // Fixed one-socket base implicits also occur on amulets, belts and quivers.
         public bool HasOneSocket { get; } = Implicits?.Any(mod => mod.Stats.Any(stat =>
-            stat.Id == "local_has_X_sockets" && stat.Min == 1 && stat.Max == 1)) == true;
+            stat.Id == Stat.LocalHasXSockets && stat.Min == 1 && stat.Max == 1)) == true;
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
         /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's

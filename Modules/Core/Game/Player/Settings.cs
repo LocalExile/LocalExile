@@ -84,8 +84,8 @@ public static partial class Game
     // Per character: the ids of worn items whose requirements are not met (CharacterStatSources).
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<uint>> InactiveItems = CharacterEquipmentState.Inactive;
     // The character panel's Spell Suppression chance stats (the client reads the final value).
-    public static readonly uint[] SuppressionChanceKeys = [.. new[] { "spell_suppression_chance_%",
-        "base_spell_suppression_chance_%", "combined_spell_suppression_chance_%" }.Select(n => Stats.Key(n)).OfType<uint>()];
+    public static readonly uint[] SuppressionChanceKeys = [.. new[] { Stat.SpellSuppressionChancePct,
+        Stat.BaseSpellSuppressionChancePct, Stat.CombinedSpellSuppressionChancePct }.Select(n => (n)).OfType<uint>()];
     // Per character: the skill ids of the socketed gems (GemSkillIds), and the ids gem skills may use (after the default
     // attack, the ids below FirstSkillId + 64 that no basic action uses: SkillCatalog.IsGemSkill; 55 in 3.29.3c).
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> GemSkillIdsOf = GemSkillIds.ByCharacter;
@@ -140,12 +140,12 @@ public static partial class Game
     public const string KineticBlastExplosionAo = "Metadata/Effects/Spells/cluster_burst/mini.ao";
     // The presentations check's cadence (Game_PRESENT_VERIFY=1, a debug tool).
     public const int PlayerTickMs = 250;
-    public static readonly (string Stat, int Value)[] GodStats =
+    public static readonly (uint Stat, int Value)[] GodStats =
     [
-        ("attack_speed_+%", 1000), ("base_cast_speed_+%", 1000), ("cast_speed_+%", 1000),
-        ("life_regeneration_rate_per_minute_%", GodLifeRegenPctPerSecond * 60),
-        ("base_mana_regeneration_rate_per_minute", GodRegenPerSecond * 60), ("mana_regeneration_rate_per_minute", GodRegenPerSecond * 60),
-        ("base_skill_area_of_effect_+%", 200),
+        (Stat.AttackSpeedPlusPct, 1000), (Stat.BaseCastSpeedPlusPct, 1000), (Stat.CastSpeedPlusPct, 1000),
+        (Stat.LifeRegenerationRatePerMinutePct, GodLifeRegenPctPerSecond * 60),
+        (Stat.BaseManaRegenerationRatePerMinute, GodRegenPerSecond * 60), (Stat.Of("mana_regeneration_rate_per_minute"), GodRegenPerSecond * 60),
+        (Stat.BaseSkillAreaOfEffectPlusPct, 200),
     ];
 
     public static readonly double ExperienceRange =

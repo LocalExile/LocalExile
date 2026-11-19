@@ -128,7 +128,7 @@ public sealed class ExperienceGain(Player conn, MonsterInfo monster, uint experi
 /// <summary>Stats added to the character, like /god's: the pools (life, mana) are not rebuilt from them. Values of the same stat add up.</summary>
 public sealed class StatSheet(Player conn)
 {
-    readonly Dictionary<string, int> _added = new(StringComparer.Ordinal);
+    readonly Dictionary<uint, int> _added = new();
 
     /// <summary>Whose stats these are.</summary>
     public Player Conn { get; } = conn;
@@ -136,11 +136,11 @@ public sealed class StatSheet(Player conn)
     public IPlayer Player => Program.PlayerOf(Conn);
 
     /// <summary>Adds <paramref name="value"/> to the stat with this <c>Stats.dat</c> id (an unknown id is ignored).</summary>
-    public void Add(string stat, int value) =>
+    public void Add(uint stat, int value) =>
         _added[stat] = (int)Math.Clamp((long)_added.GetValueOrDefault(stat) + value, int.MinValue, int.MaxValue);
 
     /// <summary>What was added so far.</summary>
-    public IReadOnlyDictionary<string, int> Added => _added;
+    public IReadOnlyDictionary<uint, int> Added => _added;
 }
 
 /// <summary>The official league whose Currency Exchange prices are traded at.</summary>

@@ -87,9 +87,9 @@ public static partial class Game
     // whole charges now and the rest kept, up to its maximum with its mods; the changed flasks in one S→C 0xbf, saved with
     // the next save. The character's stats are only worked out when some flask that is not full gains.
     public static async Task GainFlaskCharges(Player conn,
-        Func<InventoryItem, IReadOnlyDictionary<string, int>, double> chargesFor, string why)
+        Func<InventoryItem, IReadOnlyDictionary<uint, int>, double> chargesFor, string why)
     {
-        var gaining = new List<(InventoryItem Flask, IReadOnlyDictionary<string, int> Local, Flasks.Flask Charges, double Gain)>();
+        var gaining = new List<(InventoryItem Flask, IReadOnlyDictionary<uint, int> Local, Flasks.Flask Charges, double Gain)>();
         foreach (var flask in ItemsOf(conn).Items(PlayerInventories.Flask))
         {
             if (ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } baseCharges) continue;
@@ -100,7 +100,7 @@ public static partial class Game
         }
         if (gaining.Count == 0) return;
         var character = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int Get(uint key) => character.GetValueOrDefault(key);
         await ChangeFlaskBar(conn, items =>
         {
             List<InventoryItem> changed = [];
@@ -149,7 +149,7 @@ public static partial class Game
         var bar = CritFlaskBar(conn);
         if (bar.All(f => f.Full)) return;
         var character = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int Get(uint key) => character.GetValueOrDefault(key);
         bool precision;
         lock (conn.Monsters) precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, now, Random.Shared.Next);
@@ -159,7 +159,7 @@ public static partial class Game
 
     // An accepted enemy hit, including a blocked hit: "Gain # Charges when you are Hit by an Enemy" (local_flask_gain_X_charges_when_hit).
     public static Task GainFlaskChargesWhenHit(Player conn) =>
-        GainFlaskCharges(conn, (_, local) => local.GetValueOrDefault("local_flask_gain_X_charges_when_hit"), "hit");
+        GainFlaskCharges(conn, (_, local) => local.GetValueOrDefault(Stat.LocalFlaskGainXChargesWhenHit), "hit");
 
     // "Flasks gain # charges every 3 seconds" (FlaskCharges.PerThreeSeconds: every flask, utility, life, life on low life,
     // mana), every 3 s of the area's frames (a pause holds them) while the player's updates run.
@@ -168,7 +168,7 @@ public static partial class Game
         {
             if (conn.PlayerLife == 0) return Task.CompletedTask;
             var character = CharacterPlayerStats(conn);
-            int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+            int Get(uint key) => character.GetValueOrDefault(key);
             bool lowLife = FlaskRecovery.LowLife(conn.PlayerLife, conn.PlayerMaxLife);
             return GainFlaskCharges(conn, (f, _) => ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t ? 0
                 : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(conn).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(conn).FlaskOf(t)?.ManaPerUse > 0,
@@ -183,7 +183,7 @@ public static partial class Game
         if (Interlocked.Exchange(ref conn.IgnitedCorpsesConsumed, 0) is not (int corpses and > 0)) return;
         Console.WriteLine($"[gateway] {conn.Remote} {corpses} ignited corpse(s) consumed: flask charges");
         await GainFlaskCharges(conn,
-            (_, local) => corpses * local.GetValueOrDefault("local_flask_gain_X_charges_on_consuming_ignited_corpse"),
+            (_, local) => corpses * local.GetValueOrDefault(Stat.LocalFlaskGainXChargesOnConsumingIgnitedCorpse),
             "consumed ignited corpse");
     }
 

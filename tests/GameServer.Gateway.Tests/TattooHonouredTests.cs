@@ -29,7 +29,7 @@ public sealed class TattooHonouredTests
             var mapped = TattooStats.For(name);
             Assert.NotNull(mapped);
             foreach (var (stat, value) in stats)
-                Assert.Contains((Program.Stats.Key(stat)!.Value, value), mapped);
+                Assert.Contains((Stat.Of(stat), value), mapped);
         }
     }
 
@@ -38,7 +38,7 @@ public sealed class TattooHonouredTests
     {
         // "You gain Onslaught for 4 seconds on Hit": the stat starts it on a hit and it never shortens.
         var conn = new Player(new(1, "tattoo-honoured", 10, 10, 1, 1, null, []), 1, 1) { PlayerLife = 100 };
-        Game.ConfigureKillOnslaught(conn, name => name == "gain_onslaught_on_hit_duration_ms" ? 4000 : 0);
+        Game.ConfigureKillOnslaught(conn, name => name == Stat.GainOnslaughtOnHitDurationMs ? 4000 : 0);
         Assert.True(Game.OnslaughtOnHitLocked(conn, 10));
         Assert.Equal(14, Game.KillOnslaughtOf(conn).Until);
         // The next hit refreshes the four seconds; it never shortens a longer running one.
@@ -58,9 +58,9 @@ public sealed class TattooHonouredTests
         Assert.Equal(34, conn.SupportGems.ArcaneSurgeUntil);
 
         // "+1 to Level of all Strength/Dexterity/Intelligence Skill Gems": the attribute a gem colour names.
-        Assert.Equal("strength_skill_gem_level_+", SkillGemLevel.AttributeStat(1));
-        Assert.Equal("dexterity_skill_gem_level_+", SkillGemLevel.AttributeStat(2));
-        Assert.Equal("intelligence_skill_gem_level_+", SkillGemLevel.AttributeStat(3));
+        Assert.Equal(Stat.StrengthSkillGemLevelPlus, SkillGemLevel.AttributeStat(1));
+        Assert.Equal(Stat.DexteritySkillGemLevelPlus, SkillGemLevel.AttributeStat(2));
+        Assert.Equal(Stat.IntelligenceSkillGemLevelPlus, SkillGemLevel.AttributeStat(3));
         Assert.Null(SkillGemLevel.AttributeStat(4));
     }
 }

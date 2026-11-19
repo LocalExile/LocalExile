@@ -22,9 +22,9 @@ public static partial class Game
                 .Select(m => m.Variety!).DistinctBy(v => v.Row).ToArray();
         if (pool.Length == 0 && Monsters.Find("Metadata/Monsters/Zombies/Zombie") is { Supported: true } fallback) pool = [fallback];
         if (pool.Length == 0) return false;
-        int count = Math.Max(1, GolemStat(gem.Stats, "desecrate_number_of_corpses_to_create"));
-        int maximum = Math.Max(count, GolemStat(gem.Stats, "desecrate_maximum_number_of_corpses"));
-        byte level = (byte)Math.Clamp(Math.Min(GolemStat(gem.Stats, "desecrate_corpse_level"), Packs.For(conn.Layout.Id)?.AreaLevel ?? 1), 1, 100);
+        int count = Math.Max(1, GolemStat(gem.Stats, Stat.DesecrateNumberOfCorpsesToCreate));
+        int maximum = Math.Max(count, GolemStat(gem.Stats, Stat.DesecrateMaximumNumberOfCorpses));
+        byte level = (byte)Math.Clamp(Math.Min(GolemStat(gem.Stats, Stat.DesecrateCorpseLevel), Packs.For(conn.Layout.Id)?.AreaLevel ?? 1), 1, 100);
         for (int i = 0; i < count; i++)
         {
             double angle = Math.Tau * i / count;

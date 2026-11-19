@@ -36,7 +36,7 @@ public static partial class Game
     {
         var session = ProjectilesFor(conn);
         var source = SupportedSkill(conn, gem.Id);
-        int Own(string name) => GolemStat(source.Stats, name);
+        int Own(uint name) => GolemStat(source.Stats, name);
         if (CastMs(conn, gem.Effect, gem.Id) is not int cast) return false;
         var lifetime = CombatLifetime;
         double started = AreaTime(conn);
@@ -50,7 +50,7 @@ public static partial class Game
             session.Runtime.Schedule(release, () =>
             {
                 if (!Active() || !current() || !SameTriggerSource(source, SupportedSkill(conn, gem.Id))
-                    || session.WarpCount >= Own("max_number_of_lightning_warp_markers")) return;
+                    || session.WarpCount >= Own(Stat.MaxNumberOfLightningWarpMarkers)) return;
                 double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
                 var origin = session.WarpCount == 0 ? conn.Walk.Position(now) : session.LastWarpDestination;
                 var landing = MovementLanding(conn, gem.Effect, origin, aim);

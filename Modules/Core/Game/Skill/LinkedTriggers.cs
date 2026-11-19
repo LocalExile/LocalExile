@@ -21,8 +21,7 @@ public static partial class Game
         LinkedTriggers.Add(conn, state = new(conn.ProjectileEpoch, CombatLifetime));
         return state;
     }
-    static bool SupportHas(GemSupports.Applied support, string name) => Stats.Key(name) is uint key
-        && support.Stats.Any(s => s.Key == key && s.Value != 0);
+    static bool SupportHas(GemSupports.Applied support, uint key) => support.Stats.Any(s => s.Key == key && s.Value != 0);
     static bool LinkedSourceCurrent(Player conn, LinkedTriggerSource source) => CurrentGameRules
         && source.Epoch == conn.ProjectileEpoch && ReferenceEquals(source.Rules, CombatLifetime)
         && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
@@ -32,11 +31,11 @@ public static partial class Game
     {
         var gem = SupportedSkill(conn, skill);
         if (!SkillsFor(conn).IsAttack(gem.Effect) || gem.SourceGem is null || PlacedKind(gem) is not (false, false)
-            || GolemStat(gem.Stats, "is_totem") != 0 || GolemStat(gem.Stats, "cast_linked_spells_on_attack_crit_%") <= 0) return null;
-        var spells = CaptureLinkedSpells(conn, gem, "cast_linked_spells_on_attack_crit_%", "cast_spell_on_linked_attack_crit");
+            || GolemStat(gem.Stats, Stat.IsTotem) != 0 || GolemStat(gem.Stats, Stat.CastLinkedSpellsOnAttackCritPct) <= 0) return null;
+        var spells = CaptureLinkedSpells(conn, gem, Stat.CastLinkedSpellsOnAttackCritPct, Stat.CastSpellOnLinkedAttackCrit);
         return spells.Length == 0 ? null : new(skill, gem, spells, conn.ProjectileEpoch, CombatLifetime);
     }
-    static LinkedSpell[] CaptureLinkedSpells(Player conn, SupportedGem source, string sourceFlag, string spellFlag) =>
+    static LinkedSpell[] CaptureLinkedSpells(Player conn, SupportedGem source, uint sourceFlag, uint spellFlag) =>
         [.. GemSkillEffects(conn).Select(s => new LinkedSpell(s.Id, SupportedSkill(conn, s.Id)))
             .Where(s => s.Gem.Host == source.Host && s.Gem.Group == source.Group
                 && TriggeredSpellExecutable(conn, s.Skill, s.Gem)
@@ -48,11 +47,11 @@ public static partial class Game
         bool critical, bool hostile, (int X, int Y) aim, double at)
     {
         if (!critical || !hostile || source is null || !LinkedSourceCurrent(conn, source) || !session.Active) return false;
-        return ReleaseLinkedSpell(conn, session, source, "CoC", aim, at, "cast_spell_on_linked_attack_crit");
+        return ReleaseLinkedSpell(conn, session, source, "CoC", aim, at, Stat.CastSpellOnLinkedAttackCrit);
     }
 
     static bool ReleaseLinkedSpell(Player conn, ProjectileSession session, LinkedTriggerSource source,
-        string family, (int X, int Y) aim, double at, string spellFlag)
+        string family, (int X, int Y) aim, double at, uint spellFlag)
     {
         var state = LinkedTriggersOf(conn);
         var key = (source.Gem.Host, source.Gem.Group, family);
@@ -81,9 +80,9 @@ public static partial class Game
             int milliseconds = Math.Max(SkillsFor(conn).CooldownMs(gem.Effect, gem.Level),
                 SkillsFor(conn).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level));
             var player = CharacterPlayerStats(conn);
-            double rate = Math.Max(0, 1 + (GolemStat(player, "virtual_cooldown_speed_+%")
-                + GolemStat(player, "base_spell_cooldown_speed_+%") + GolemStat(gem.Stats, "base_spell_cooldown_speed_+%")
-                + GolemStat(gem.Stats, "base_cooldown_speed_+%") + GolemStat(gem.Stats, "virtual_cooldown_speed_+%")) / 100d);
+            double rate = Math.Max(0, 1 + (GolemStat(player, Stat.VirtualCooldownSpeedPlusPct)
+                + GolemStat(player, Stat.BaseSpellCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)
+                + GolemStat(gem.Stats, Stat.BaseCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.VirtualCooldownSpeedPlusPct)) / 100d);
             state.ReadyAt[gem.Effect] = milliseconds == 0 ? now
                 : rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
             state.Rotation[key] = (source, (index + 1) % source.Spells.Length);

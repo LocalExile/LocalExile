@@ -89,12 +89,12 @@ static partial class SurvivorsRunRules
         int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
         int target = SurvivorsRules.BossGateLife(SurvivorsPoolTop(roster, stage), stage,
             stage * SurvivorsRules.StageSeconds);
-        double factor = (1 + rolled.Effects["monster_life_+%_final_from_rarity"] / 100.0)
-            * (1 + rolled.Effects["monster_life_+%_final_from_rarity_table"] / 100.0);
+        double factor = (1 + rolled.Effects[Stat.MonsterLifePlusPctFinalFromRarity] / 100.0)
+            * (1 + rolled.Effects[Stat.MonsterLifePlusPctFinalFromRarityTable] / 100.0);
         int lifePct = Math.Clamp((int)Math.Round((target / (baseLife * Math.Max(0.01, factor)) - 1) * 100), -99, 1_000_000);
         return rolled with
         {
-            Effects = rolled.Effects.Plus("maximum_life_+%", lifePct).Plus("base_actor_scale_+%", kit.ScalePct),
+            Effects = rolled.Effects.Plus(Stat.MaximumLifePlusPct, lifePct).Plus(Stat.BaseActorScalePlusPct, kit.ScalePct),
         };
     }
 

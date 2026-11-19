@@ -17,8 +17,8 @@ public static partial class Game
 
     public static int UnleashSeals(Player conn, ushort id, SupportedGem source, double now, bool spend = false)
     {
-        int cap = GolemStat(source.Stats, "support_anticipation_rapid_fire_count");
-        int milliseconds = GolemStat(source.Stats, "support_anticipation_charge_gain_interval_ms");
+        int cap = GolemStat(source.Stats, Stat.SupportAnticipationRapidFireCount);
+        int milliseconds = GolemStat(source.Stats, Stat.SupportAnticipationChargeGainIntervalMs);
         if (!source.RequirementsMet || cap <= 0 || milliseconds <= 0)
         {
             if (Seals.TryGetValue(conn, out var old))
@@ -26,8 +26,8 @@ public static partial class Game
             return 0;
         }
         var player = CharacterPlayerStats(conn);
-        cap = (int)Math.Clamp((long)cap + GolemStat(player, "support_anticipation_rapid_fire_count"), 0, int.MaxValue);
-        const string frequency = "support_anticipation_charge_gain_frequency_+%";
+        cap = (int)Math.Clamp((long)cap + GolemStat(player, Stat.SupportAnticipationRapidFireCount), 0, int.MaxValue);
+        const uint frequency = Stat.SupportAnticipationChargeGainFrequencyPlusPct;
         double rate = Math.Max(0, 1 + ((long)GolemStat(player, frequency) + GolemStat(source.Stats, frequency)) / 100d);
         var tracked = Seals.GetOrCreateValue(conn);
         lock (tracked)

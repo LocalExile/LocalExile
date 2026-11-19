@@ -37,10 +37,10 @@ public static partial class Game
     public static MonsterDelayedStrike? StormCallStrikeOf(SkillCatalog catalog, int effect, byte level)
     {
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("base_skill_effect_duration") <= 0) return null;
-        var (loop, impact) = StormCallArt(Get("skill_art_variation"));
-        return new(SkillDurationModifiers.Seconds(Get("base_skill_effect_duration"), _ => 0, Get), loop, impact,
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.BaseSkillEffectDuration) <= 0) return null;
+        var (loop, impact) = StormCallArt(Get(Stat.SkillArtVariation));
+        return new(SkillDurationModifiers.Seconds(Get(Stat.BaseSkillEffectDuration), _ => 0, Get), loop, impact,
             StormCallImpactArtSeconds, StrikesTogether: true);
     }
 
@@ -62,9 +62,9 @@ public static partial class Game
         if (conn.Closed || !TokenCurrent()) return;
         var own = SupportedSkill(conn, skillId).Stats;
         var player = CharacterPlayerStats(conn);
-        int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
-        int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        int Own(uint k) => own.GetValueOrDefault(k);
+        int Player(uint k) => player.GetValueOrDefault(k);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         int radius = SkillRadius(conn, own, spell: true, gem.Effect);
         var (loop, _, variation) = StormCallArt(conn, gem.Gem);
         StormCallMarkers.Marker marker;
@@ -89,7 +89,7 @@ public static partial class Game
             await Send(conn, InstanceProtocol.EnterWakeZone(marker.Object), null);
         }
         // Quality: a chance that lightning strikes the new marker as it is set; the marker stays for its own strike.
-        int chance = Own("storm_call_chance_to_strike_on_cast_%");
+        int chance = Own(Stat.StormCallChanceToStrikeOnCastPct);
         if (chance > 0 && Random.Shared.Next(100) < chance)
         {
             Console.WriteLine($"[gateway] {conn.Remote} storm call strike on cast at marker 0x{marker.Object:x} ({chance}% chance)");

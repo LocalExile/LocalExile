@@ -32,10 +32,10 @@ public static partial class Game
     {
         var caster = new Dictionary<uint, int>(owner);
         // Only owner-only prohibitions are bypassed. Gruthkul's spell prohibition still belongs to the spell.
-        foreach (string name in new[] { "keystone_ancestral_bond", "deal_no_damage_yourself" })
-            if (Stats.Key(name) is uint key) caster.Remove(key);
+        foreach (uint name in new[] { Stat.KeystoneAncestralBond, Stat.DealNoDamageYourself })
+            caster.Remove(name);
         // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
-        if (Stats.Key(ArcaneSurgeSpellMore) is uint arcane) caster.Remove(arcane);
+        if (ArcaneSurgeSpellMore is var arcane) caster.Remove(arcane);
         return caster;
     }
 
@@ -44,14 +44,14 @@ public static partial class Game
         var gem = SupportedSkill(conn, skill);
         if (SkillsFor(conn).IsAttack(gem.Effect)) return TotemAttackSeconds(conn, skill);
         var stats = MergeSkillStats(CharacterPlayerStats(conn), gem.Stats);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         // is_totem describes the placement skill. The proxy casts the underlying spell with its support penalty.
-        int Read(string name) => name == "is_totem" ? 0 : Get(name);
+        int Read(uint name) => name == Stat.IsTotem ? 0 : Get(name);
         // The owner's Arcane Surge cast speed is his buff's, not the totem's.
         var owner = CharacterPlayerStats(conn);
         int speed = FinalCastSpeedPct(Read, () => HoldingFishingRod(conn),
-            CastSpeedPct(owner) - GolemStat(owner, "arcane_surge_cast_speed_+%")
-            + GolemStat(gem.Stats, "base_cast_speed_+%") + Get("totem_skill_cast_speed_+%"));
+            CastSpeedPct(owner) - GolemStat(owner, Stat.ArcaneSurgeCastSpeedPlusPct)
+            + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct) + Get(Stat.TotemSkillCastSpeedPlusPct));
         return SpellCastTiming.ForSkill(SkillsFor(conn), gem.Effect, speed)?.DurationMilliseconds is int ms
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }
@@ -60,12 +60,12 @@ public static partial class Game
     {
         var gem = SupportedSkill(conn, skill);
         var payload = new Dictionary<uint, int>(gem.Stats);
-        foreach (string name in new[] { "is_totem", "base_skill_is_totemified", "skill_is_totemified" })
-            if (Stats.Key(name) is uint key) payload[key] = 0;
-        foreach (var (name, value) in new[] { ("uses_no_mana", 1), ("mana_cost", 0),
-            ("base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)),
-            ("virtual_base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)) })
-            if (Stats.Key(name) is uint key) payload[key] = value;
+        foreach (uint name in new[] { Stat.IsTotem, Stat.BaseSkillIsTotemified, Stat.SkillIsTotemified })
+            payload[name] = 0;
+        foreach (var (name, value) in new[] { (Stat.UsesNoMana, 1), (Stat.ManaCost, 0),
+            (Stat.BaseSpellCastTimeMs, SkillsFor(conn).CastTimeMs(gem.Effect)),
+            (Stat.VirtualBaseSpellCastTimeMs, SkillsFor(conn).CastTimeMs(gem.Effect)) })
+            if (name is var key) payload[key] = value;
         if (!SkillsFor(conn).IsAttack(gem.Effect) && TotemCastSeconds(conn, skill) is double seconds && Stat.CastSpeedPlusPct is var speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(conn).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(conn).IsAttack(gem.Effect))

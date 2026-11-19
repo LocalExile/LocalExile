@@ -4,10 +4,10 @@ using GameServer.Core.World;
 // The coefficients belong to qualified physical sources; the charge session owns their time intervals.
 public sealed class ChargeDegeneration
 {
-    public const string Cold = "cold_damage_taken_per_minute_per_frenzy_charge_while_moving";
-    public const string Fire = "fire_damage_taken_per_minute_per_endurance_charge_if_you_have_been_hit_recently";
-    public const string Lightning = "lightning_damage_taken_per_minute_per_power_charge_if_have_crit_recently";
-    public static readonly string[] Coefficients = [Fire, Cold, Lightning];
+    public const uint Cold = Stat.ColdDamageTakenPerMinutePerFrenzyChargeWhileMoving;
+    public const uint Fire = Stat.FireDamageTakenPerMinutePerEnduranceChargeIfYouHaveBeenHitRecently;
+    public const uint Lightning = Stat.LightningDamageTakenPerMinutePerPowerChargeIfHaveCritRecently;
+    public static readonly uint[] Coefficients = [Fire, Cold, Lightning];
     public static readonly DamageType[] Types = [DamageType.Fire, DamageType.Cold, DamageType.Lightning];
     public double At = double.NaN, HitUntil, CritUntil;
     public readonly double[] Pending = new double[3], TakenCarry = new double[3], BypassCarry = new double[3];
@@ -92,7 +92,7 @@ public static partial class Game
         { state.Clear(now); return 0; }
         if (!state.Active && !state.Pending.Any(p => p > 0)) return 0;
         session.SettleDegeneration(now);
-        int Get(string name) => GolemStat(stats, name);
+        int Get(uint name) => GolemStat(stats, name);
         int total = 0;
         for (int i = 0; i < 3; i++)
         {
@@ -104,7 +104,7 @@ public static partial class Game
             double resistance = Math.Clamp(Resistance(conn, type), -200, MaxResistance(conn, type));
             int damage = IncomingResourceDefences.TakenOverTime(raw * (1 - resistance / 100d), Get, ref state.TakenCarry[i],
                 IncomingResourceDefences.LessTakenPct(conn.Pools, Get),
-                typedIncreasedPct: ActorScale.Saturate((long)Get($"{type.ToString().ToLowerInvariant()}_damage_taken_+%") + Get("elemental_damage_taken_+%")),
+                typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.Of($"{type.ToString().ToLowerInvariant()}_damage_taken_+%")) + Get(Stat.ElementalDamageTakenPlusPct)),
                 reductionPct: ChargeEffects.Reduction(Get).Elemental);
             int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
                 Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry[i]);

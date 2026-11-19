@@ -94,20 +94,9 @@ public static class ShrineManager
             Model = registered?.Model ?? model,
             Before = ShrineRegistry.Before(definition),
             After = ShrineRegistry.After(definition),
-            Stats = registered?.PlayerStats is { } stats ? Resolve(stats, definition.Id) : definition.Stats,
+            Stats = registered?.PlayerStats ?? definition.Stats,
             Duration = registered?.Duration ?? definition.Duration,
         };
-    }
-
-    /// <summary>A registered definition's stats by name, as the client's stat keys. A name the client does not know is
-    /// left out and named in the log rather than silently dropped.</summary>
-    static IReadOnlyList<(uint Key, int Value)> Resolve(IReadOnlyList<(string Stat, int Value)> stats, string shrineId)
-    {
-        var list = new List<(uint Key, int Value)>(stats.Count);
-        foreach (var (stat, value) in stats)
-            if (Stats.Key(stat) is uint key) list.Add((key, value));
-            else Console.WriteLine($"[gateway] shrine {shrineId}: the client has no stat \"{stat}\"; it is not granted");
-        return list;
     }
 
     /// <summary>Creates one shrine object at its cell and registers it for clicks. The Shrines row goes in the object's
@@ -303,12 +292,12 @@ public static class ShrineManager
         var state = Of(conn);
         var definition = shrine.Definition;
         var playerStats = CharacterPlayerStats(conn);
-        int Stat(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
-        int duration = Stat("shrine_effect_duration_+%") + (MapModsOf(conn)?.Get("map_player_shrine_effect_duration_+%") ?? 0);
+        int Stat(uint key) => playerStats.GetValueOrDefault(key);
+        int duration = Stat(global::Stat.ShrineEffectDurationPlusPct) + (MapModsOf(conn)?.Get(global::Stat.MapPlayerShrineEffectDurationPlusPct) ?? 0);
         shrine.Duration = Math.Clamp(shrine.Duration * Math.Max(0L, 100L + duration) / 100, 0, int.MaxValue);
-        int effectPercent = Stat("shrine_buff_effect_on_self_+%") + (MapModsOf(conn)?.Get("map_player_shrine_buff_effect_on_self_+%") ?? 0);
+        int effectPercent = Stat(global::Stat.ShrineBuffEffectOnSelfPlusPct) + (MapModsOf(conn)?.Get(global::Stat.MapPlayerShrineBuffEffectOnSelfPlusPct) ?? 0);
         if (effectPercent != 0 && (definition.Monster is not null || definition.Lesser))
-            shrine.Stats = shrine.Stats.Select(s => (s.Key, Stats.Name(s.Key) is "has_shrine_effect" or "always_crit" or "base_cannot_be_damaged" or "global_knockback" or "extra_gore"
+            shrine.Stats = shrine.Stats.Select(s => (s.Key, s.Key is global::Stat.HasShrineEffect or global::Stat.AlwaysCrit or global::Stat.BaseCannotBeDamaged or global::Stat.GlobalKnockback or global::Stat.ExtraGore
                 ? s.Value : (int)Math.Clamp((long)s.Value * Math.Max(0L, 100L + effectPercent) / 100, int.MinValue, int.MaxValue))).ToArray();
         ActiveBuff? previous;
         lock (conn.Monsters) previous = state.Buffs.GetValueOrDefault(definition.BuffRow);

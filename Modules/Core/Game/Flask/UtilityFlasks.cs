@@ -35,7 +35,7 @@ public static partial class Game
             playerLevel = conn.Pools.Level;
             character = CharacterPlayerStats(conn);
         }
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int Get(uint key) => character.GetValueOrDefault(key);
         var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(utility.Charges, local, Get);
         if (UtilityFlasks.Refusal(conn.PlayerLife == 0, conn.UtilityFlaskEffects.Of(flask.Id), flask.Item, charges,
@@ -89,11 +89,11 @@ public static partial class Game
         _ => null,
     };
 
-    static readonly (string Stat, ChargeType Charge)[] ChargesOnFlaskUse =
+    static readonly (uint Stat, ChargeType Charge)[] ChargesOnFlaskUse =
     [
-        ("local_flask_gain_endurance_charges_on_use", ChargeType.Endurance),
-        ("local_flask_gain_frenzy_charges_on_use", ChargeType.Frenzy),
-        ("local_flask_gain_power_charges_on_use", ChargeType.Power),
+        (Stat.LocalFlaskGainEnduranceChargesOnUse, ChargeType.Endurance),
+        (Stat.LocalFlaskGainFrenzyChargesOnUse, ChargeType.Frenzy),
+        (Stat.LocalFlaskGainPowerChargesOnUse, ChargeType.Power),
     ];
 
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
@@ -102,11 +102,11 @@ public static partial class Game
     public static int IncreasedItemRarity(Player conn, SpawnedMonster? monster = null)
     {
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int player = Get(Stat.BaseItemFoundRarityPlusPct) + Get(Stat.ItemFoundRarityPlusPct);
         return player + (MapModsOf(conn)?.Rarity ?? 0)
-            + (monster?.Effects["base_item_found_rarity_+%"] ?? 0)
-            + (monster?.Effects["from_league_item_rarity_+%_permyriad"] ?? 0) / 100
+            + (monster?.Effects[Stat.BaseItemFoundRarityPlusPct] ?? 0)
+            + (monster?.Effects[Stat.FromLeagueItemRarityPlusPctPermyriad] ?? 0) / 100
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
     }
 
@@ -116,10 +116,10 @@ public static partial class Game
     public static double ItemQuantityFactor(Player conn, SpawnedMonster? monster = null)
     {
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        double player = Math.Max(0, 100 + Get(Stat.BaseItemFoundQuantityPlusPct) + Get(Stat.ItemFoundQuantityPlusPct)) / 100.0;
         return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
-            * Math.Max(0, 1 + (monster?.Effects["base_item_found_quantity_+%"] ?? 0) / 100.0)
+            * Math.Max(0, 1 + (monster?.Effects[Stat.BaseItemFoundQuantityPlusPct] ?? 0) / 100.0)
             * Math.Max(0, 1 + (monster?.Effects[MapSulphite.EnragedQuantity] ?? 0) / 10000.0)
             * (MapModsOf(conn)?.QuantityFactor ?? 1);
     }
@@ -135,7 +135,7 @@ public static partial class Game
             conn.ApplyMovementSpeed();
             conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             var stats = CharacterPlayerStats(conn);
-            int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+            int Get(uint key) => stats.GetValueOrDefault(key);
             conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
             conn.ElementalAilments.Reconcile(Get);
             conn.ApplyMovementSpeed();

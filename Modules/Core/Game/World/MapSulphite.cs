@@ -13,7 +13,7 @@ public static class MapSulphite
 
     public const string Vein = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralVein";
     public const string Chest = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralChest";
-    public const string EnragedQuantity = "from_league_item_quantity_+%_permyriad";
+    public const uint EnragedQuantity = Stat.FromLeagueItemQuantityPlusPctPermyriad;
     public const int FumesQuantity = 5000;
     // The native daemon supplies no radius in its exported skill rows. Keep the server's encounter radius explicit.
     public const int FumesRadius = 60;
@@ -25,15 +25,15 @@ public static class MapSulphite
         return ClientTables.Table("DelveResourcePerLevel").ToDictionary(r => r.Int("AreaLevel"), r => r.Int("Sulphite"));
     }
 
-    public static bool Present(MapMods mods) => mods.Get("map_delve_league") > 0;
-    public static bool Fumes(MapMods mods) => mods.Get("map_enraging_sulphite") > 0;
+    public static bool Present(MapMods mods) => mods.Get(Stat.MapDelveLeague) > 0;
+    public static bool Fumes(MapMods mods) => mods.Get(Stat.MapEnragingSulphite) > 0;
 
     public static int Yield(int level, MapMods mods, bool owner, int nearbyPlayers = 1)
     {
         int count = Math.Max(1, nearbyPlayers);
         decimal party = (100 + 50L * (count - 1)) / (100m * count);
-        decimal bonus = owner ? Math.Max(0, 100L + mods.Get("map_owner_sulphite_gained_+%")) / 100m : 1;
-        decimal mined = Math.Max(0, 100L + mods.Get("map_sulphite_mined_+%")) / 100m;
+        decimal bonus = owner ? Math.Max(0, 100L + mods.Get(Stat.MapOwnerSulphiteGainedPlusPct)) / 100m : 1;
+        decimal mined = Math.Max(0, 100L + mods.Get(Stat.MapSulphiteMinedPlusPct)) / 100m;
         decimal quantity = Math.Max(0, 100L + mods.Quantity) / 100m;
         return (int)Math.Clamp(decimal.Floor(Resources.GetValueOrDefault(level) * quantity * party * bonus * mined), 0, int.MaxValue);
     }

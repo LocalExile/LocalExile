@@ -7,7 +7,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class CullingStrikeReviewTests
 {
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
-        stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
+        stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value);
 
     static Player Player(uint life = 1000, uint mana = 1000) =>
         new Player(new(1, "cull-review", 300, 300, 100, 100, null, []), 1, 1)
@@ -29,7 +29,7 @@ public sealed class CullingStrikeReviewTests
             SpawnedMonster cursed(string label)
             {
                 var m = Target(label);
-                m.Curses.Put(new MonsterCurses.Curse(1, "Enfeeble", 1, 1, 1, 0, 100, false, false, new Dictionary<string, int>()), 1);
+                m.Curses.Put(new MonsterCurses.Curse(1, "Enfeeble", 1, 1, 1, 0, 100, false, false, new Dictionary<uint, int>()), 1);
                 return m;
             }
 

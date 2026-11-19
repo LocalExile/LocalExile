@@ -18,15 +18,15 @@ static class IncomingDamagingAilmentTestCases
     };
 
     static Dictionary<uint, int> Stats(params (string Name, int Value)[] pairs) =>
-        pairs.ToDictionary(p => Program.Stats.Key(p.Name)!.Value, p => p.Value);
+        pairs.ToDictionary(p => Stat.Of(p.Name), p => p.Value);
 
     public static void Monster_applications_use_final_avoidance_and_rolled_damage_ranges()
     {
         var monster = new SpawnedMonster("ailment-source", new(0, 0, 0), 0, 0, 1000)
         {
-            Mods = new([], [], new MonsterModEffects(new Dictionary<string, int>
+            Mods = new([], [], new MonsterModEffects(new Dictionary<uint, int>
             {
-                ["global_bleed_on_hit"] = 1, ["global_poison_on_hit"] = 1,
+                [Stat.GlobalBleedOnHit] = 1, [Stat.GlobalPoisonOnHit] = 1,
             })),
         };
         var range = DamagePacket.Of(DamageType.Physical, 10, 100);
@@ -91,7 +91,7 @@ static class IncomingDamagingAilmentTestCases
         Assert.True(conn.IncomingAilments.ApplyBleed(now + 2, 10, 5));
         Assert.False(conn.IncomingAilments.RemoveOrProtectPoison(now, 2));
         Assert.True(conn.IncomingAilments.ApplyPoison(now, 10, 5));
-        conn.IncomingAilments.Reconcile(name => name == "cannot_be_poisoned" ? 1 : 0);
+        conn.IncomingAilments.Reconcile(name => name == Stat.CannotBePoisoned ? 1 : 0);
         Assert.Equal(0, conn.IncomingAilments.PoisonStacks(now));
 
         conn.IncomingAilments.Clear();

@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Pools and published stats already include effective item ES. Raw bases would count suppressed/converted ES.
-    public static bool PlayerHasEnergyShieldForRecovery(Player conn, Func<string, int> get) =>
+    public static bool PlayerHasEnergyShieldForRecovery(Player conn, Func<uint, int> get) =>
         conn.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
 
     public static PlayerInventories ItemsOf(Player conn)
@@ -19,7 +19,7 @@ public static partial class Game
 
     // Active local item defences retain their base roll, local conversions and final native rounding.
     public static IEnumerable<(byte Row, (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defence)> EquippedArmourDefences(
-        Player conn, Func<string, int>? get = null)
+        Player conn, Func<uint, int>? get = null)
     {
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
@@ -29,7 +29,7 @@ public static partial class Game
             {
                 var (a, e, s) = ItemDefences.Calculate(equipped.Item, defences, catalog.Mods);
                 int percent = row == PlayerInventories.BodyArmour
-                    ? Math.Clamp(get?.Invoke("ward_instead_of_%_body_armour_and_evasion") ?? 0, 0, 100) : 0;
+                    ? Math.Clamp(get?.Invoke(Stat.WardInsteadOfPctBodyArmourAndEvasion) ?? 0, 0, 100) : 0;
                 decimal armourWard = a * percent / 100m, evasionWard = e * percent / 100m;
                 decimal ward = armourWard + evasionWard
                     + ItemDefences.Ward(equipped.Item, defences, catalog.Mods);
@@ -38,7 +38,7 @@ public static partial class Game
     }
 
     // Active item-tooltip values become flat inputs to the character-wide pool calculation.
-    public static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(Player conn, Func<string, int>? get = null)
+    public static (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) EquippedBaseDefences(Player conn, Func<uint, int>? get = null)
     {
         decimal armour = 0, evasion = 0, ward = 0; long energyShield = 0;
         foreach (var (_, defence) in EquippedArmourDefences(conn, get))
@@ -53,13 +53,13 @@ public static partial class Game
 
     // Native 0x14252a660: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
     // The conversion removes all armour-item ES, even when the Life gained is only 50% of its value.
-    public static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(Player conn, Func<string, int> get, int energyShield)
+    public static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(Player conn, Func<uint, int> get, int energyShield)
     {
-        int percent = get("gain_maximum_life_instead_of_maximum_es_from_armour") != 0 ? 100
-            : Math.Max(0, get("gain_maximum_life_instead_of_maximum_es_from_armour_at_x%_of_the_value"));
+        int percent = get(Stat.GainMaximumLifeInsteadOfMaximumEsFromArmour) != 0 ? 100
+            : Math.Max(0, get(Stat.GainMaximumLifeInsteadOfMaximumEsFromArmourAtXPctOfTheValue));
         if (percent == 0) return (0, energyShield);
-        bool shieldExcluded = get("minions_get_shield_stats_instead_of_you") != 0
-            || get("gain_no_defences_from_equipped_shield") != 0;
+        bool shieldExcluded = get(Stat.MinionsGetShieldStatsInsteadOfYou) != 0
+            || get(Stat.GainNoDefencesFromEquippedShield) != 0;
         long life = 0;
         foreach (var (row, defence) in EquippedArmourDefences(conn))
             if (row != PlayerInventories.Offhand1 || !shieldExcluded)
@@ -98,14 +98,14 @@ public static partial class Game
         WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand) is { } weapon && hand is { } active
             ? weapon with { LocalSources = QualifiedHandLocalStats(conn, active.Item, weapon.LocalSources!).ToFrozenDictionary() } : null;
 
-    static Dictionary<string, int> QualifiedHandLocalStats(Player conn, Item item,
-        IReadOnlyDictionary<string, int>? weaponSources = null)
+    static Dictionary<uint, int> QualifiedHandLocalStats(Player conn, Item item,
+        IReadOnlyDictionary<uint, int>? weaponSources = null)
     {
-        var result = new Dictionary<string, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(conn).Mods));
+        var result = new Dictionary<uint, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(conn).Mods));
         var local = ItemModStats.Local(item, ItemsFor(conn).Mods);
-        if (!local.Keys.Any(name => StatConditions.PlainOf(name) is not null)) return result;
+        if (!local.Keys.Any(name => StatConditions.PlainOf(Stats.Name(name)) is not null)) return result;
         var flags = conn.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(conn, ResourceEffectsTime(conn));
-        foreach (string name in local.Keys) result.Remove(name);
+        foreach (uint name in local.Keys) result.Remove(name);
         foreach (var (name, value) in ItemModStats.Local(item, ItemsFor(conn).Mods, new(Flags: flags), Stats.Has))
             result[name] = value;
         return result;
@@ -132,9 +132,9 @@ public static partial class Game
     public static SkillCatalog.Unarmed? OffhandWeaponFor(Player conn) =>
         WeaponIn(conn, ActiveMainHand(conn)) is null ? null : WeaponIn(conn, ActiveOffHand(conn));
 
-    public static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(Player conn)
+    public static (Dictionary<uint, int> Main, Dictionary<uint, int> Off) HandLocalStats(Player conn)
     {
-        Dictionary<string, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
+        Dictionary<uint, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
             ? QualifiedHandLocalStats(conn, active.Item) : [];
         // Weapon swaps exchange the equipment rows; rows 14/15 remain inactive even when an active hand is empty.
         return (Local(ActiveMainHand(conn)), Local(ActiveOffHand(conn)));
@@ -142,7 +142,7 @@ public static partial class Game
 
     // Current attack executors use the main hand. Read only its qualified active item; a shield, an inactive
     // weapon set or an unqualified weapon cannot supply local modifiers to this contact.
-    public static IReadOnlyDictionary<string, int>? MainHandLocalSources(Player conn) =>
+    public static IReadOnlyDictionary<uint, int>? MainHandLocalSources(Player conn) =>
         WeaponFor(conn).LocalSources;
 
     // Current actions and passive weapon conditions use only the hands' active rows. A normal weapon swap trades
@@ -199,9 +199,9 @@ public static partial class Game
             // The main hand's local critical chance and accuracy feed its character calculations. Local attack speed
             // is item metadata here; ItemWeaponStats already includes it in that hand's duration.
             Critical: (main1 ?? main2) is { } main ? AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(main),
-                local.GetValueOrDefault("local_critical_strike_chance"), local.GetValueOrDefault("local_critical_strike_chance_+%")) : 0,
-            LocalAttackSpeedPct: local.GetValueOrDefault("local_attack_speed_+%"),
-            LocalAccuracy: local.GetValueOrDefault("local_accuracy_rating"));
+                local.GetValueOrDefault(Stat.LocalCriticalStrikeChance), local.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct)) : 0,
+            LocalAttackSpeedPct: local.GetValueOrDefault(Stat.LocalAttackSpeedPlusPct),
+            LocalAccuracy: local.GetValueOrDefault(Stat.LocalAccuracyRating));
     }
 
     // Both stored offhands, used only by the explicit inventory-wide profile inspection above.
@@ -296,7 +296,7 @@ public static partial class Game
     public static IEnumerable<(uint Stat, int Value)> CosmeticStats(Player conn)
     {
         var worn = WornCosmetics(conn).Where(w => w.Slot != 49).SelectMany(w => MtxEffects.Of(w.MtxTypeHash) is not { } fx ? [] :
-                fx.Pet != 0 && Stats.Key(w.Slot == 19 ? "pet_slot2" : "pet_slot1") is uint pet ? [.. fx.Stats, (pet, fx.Pet)] : fx.Stats)
+                fx.Pet != 0 ? [.. fx.Stats, (w.Slot == 19 ? Stat.PetSlot2 : Stat.PetSlot1, fx.Pet)] : fx.Stats)
             .GroupBy(s => s.Stat, s => s.Value).Select(g => (Stat: g.Key,
                 Value: ActorScale.IsInput(g.Key) ? ActorScale.Saturate(g.Sum(v => (long)v)) : g.Sum())).ToList();
         return [.. worn, .. CosmeticDerivedStats(conn, worn.ToDictionary(s => s.Stat, s => s.Value))];

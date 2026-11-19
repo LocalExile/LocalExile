@@ -13,8 +13,8 @@ public sealed class GreenSupportMechanicsTests
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
         stats.ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
 
-    static Func<string, int> Stats(params (string Name, int Value)[] stats) =>
-        name => stats.Where(s => s.Name == name).Sum(s => s.Value);
+    static Func<uint, int> Stats(params (string Name, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Name) == name).Sum(s => s.Value);
 
     // Every Next(maxValue) call returns 0, so a chance roll above 0 succeeds deterministically.
     sealed class ZeroRandom : Random
@@ -57,7 +57,7 @@ public sealed class GreenSupportMechanicsTests
         SpawnedMonster Blocker(int block, int overpowered = 0, double until = 0) =>
             new("blocker", new(100, 100, 0), 0, 0, 1000)
             {
-                Mods = new([], [], new(new Dictionary<string, int> { ["monster_base_block_%"] = block })),
+                Mods = new([], [], new(new Dictionary<uint, int> { [Stat.MonsterBaseBlockPct] = block })),
                 OverpoweredPercent = overpowered, OverpoweredUntil = until,
             };
         var always = new ZeroRandom();
@@ -127,7 +127,7 @@ public sealed class GreenSupportMechanicsTests
         Assert.Equal(4, MonsterIgnites.Settings.From([], "main_hand", Stats()).Seconds, 6);
 
         // Greater Chain: "50% more times" on the chain count; PoB keeps the fraction, so one chain no longer gains one.
-        static ProjectileProfile Resolve(Func<string, int> get) =>
+        static ProjectileProfile Resolve(Func<uint, int> get) =>
             GatewayProjectileModifiers.Resolve(new ProjectileProfile("test"), get, attack: true);
         Assert.Equal(1, Resolve(Stats(("number_of_chains", 1), ("support_chain_count_+%_final", 50))).Chain);
         Assert.Equal(3, Resolve(Stats(("number_of_chains", 2), ("support_chain_count_+%_final", 50))).Chain);

@@ -73,7 +73,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
         if (!initialized) await Initialize(c);
         int phase = boss.LifePhases?.Completed ?? 0;
         // TriggerSpawnersYugul1/2/3 add 1, 1 and 2 native turrets cumulatively.
-        int poolCount = Enumerable.Range(0, phase + 1).Sum(n => Stat(c, 2976 + n, boss.Level, "trigger_spawners_max_count"));
+        int poolCount = Enumerable.Range(0, phase + 1).Sum(n => Stat(c, 2976 + n, boss.Level, Stat.TriggerSpawnersMaxCount));
         var placements = new QuestObjectTypes.AreaPlacements(Yugul.Area, c.Seed, []).Of(Root + "SilverPoolTurret");
         while (turrets.Count < Math.Min(poolCount, placements.Count))
         {
@@ -107,7 +107,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
             double interval = .35 / .6; // Native YugulStormBurst: 350 ms, 40% reduced cast speed.
             double end = now + interval * 6;
             channelEnds[id] = end;
-            nextTurret[id] = end + Stat(c, 4858, boss.Level, "base_skill_effect_duration") / 1000d;
+            nextTurret[id] = end + Stat(c, 4858, boss.Level, Stat.BaseSkillEffectDuration) / 1000d;
             await All(id, InstanceProtocol.AnimationUpdate(id, 0, 0, (float)(.166 / interval)), "[Yugul] turret channel");
             var attack = BossKits.AttackFor(c, m.Variety!, boss.Level, 6582, TurretSkill) with { Spell = true, Scripted = true,
                 Ailments = IncomingAilmentSettings(name => Stat(c, 6582, boss.Level, name)) };
@@ -125,7 +125,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
                     {
                         var use = MonsterProjectileUse(session, id, m, attack with { Projectile = projectile }, projectile, m.ActionGeneration, orderedAim: aim);
                         return use with { Payload = ((HostileProjectileOffense)use.Payload!) with { MinionDamageFactor = Math.Max(0,
-                            1 + Stat(p, 6582, boss.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d) },
+                            1 + Stat(p, 6582, boss.Level, Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d) },
                             Profile = use.Profile with { Pierce = int.MaxValue, Range = 150,
                             Lifetime = ProjectileRuntime.Time(Math.Max(.01, end - release)),
                             EndArea = new("Yugul burst", 10.8, Multiplier: 2),
@@ -167,7 +167,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
                 if (p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p) && InPool(p.Walk.Position(now)))
                 {
                     var stats = CharacterPlayerStats(p);
-                    int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
+                    int Get(uint k) => stats.GetValueOrDefault(k);
                     ApplyPlayerAilmentsLocked(p, now, a => a.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
                 }
             }

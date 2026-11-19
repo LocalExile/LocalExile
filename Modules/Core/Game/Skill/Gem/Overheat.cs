@@ -9,9 +9,9 @@ public static partial class Game
     /// support's per-3 value times the whole groups of three consumed (Fortification's 20-stack base maximum caps it at
     /// 36% at level 1 and 48% at level 3, the exceptional gem's top level). A skill without the support stores nothing.
     /// Under the Monsters lock.</summary>
-    public static void OverheatConsumeLocked(Player conn, ushort skillId, Func<string, int> skill, double now)
+    public static void OverheatConsumeLocked(Player conn, ushort skillId, Func<uint, int> skill, double now)
     {
-        int perThree = skill("support_overheat_ailment_damage_+%_final_per_3_fortification_consumed");
+        int perThree = skill(Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed);
         if (perThree <= 0)
         {
             conn.SupportGems.OverheatMore.Remove(skillId);

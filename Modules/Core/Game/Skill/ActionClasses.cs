@@ -32,10 +32,10 @@ public static class ActionClasses
 
     /// <summary>A ground a class leaves: its GroundEffectTypes Id, the stat naming its GroundEffects variation, where it
     /// lies, and the stat its time comes from.</summary>
-    public sealed record GroundSpec(string Type, string? VariationStat, GroundAt At, string DurationStat = "base_skill_effect_duration");
+    public sealed record GroundSpec(string Type, uint? VariationStat, GroundAt At, uint DurationStat = Stat.BaseSkillEffectDuration);
 
     /// <summary>A debuff a class puts on what it hits: its BuffDefinitions Id and the stat its time comes from.</summary>
-    public sealed record DebuffSpec(string Buff, string DurationStat);
+    public sealed record DebuffSpec(string Buff, uint DurationStat);
 
     /// <summary>One action class: see <see cref="ActionClasses"/>.</summary>
     public sealed record ActionClass(string Id)
@@ -43,12 +43,12 @@ public static class ActionClasses
         /// <summary>Added to active_skill_base_area_of_effect_radius before the area modifiers scale it.</summary>
         public int? BaseRadius { get; init; }
         /// <summary>A stat the class reads as its base radius in place of active_skill_base_area_of_effect_radius.</summary>
-        public string? RadiusStat { get; init; }
+        public uint? RadiusStat { get; init; }
         /// <summary>The projectile the class creates, from the skill's stats (by name); null when it names its own row
         /// through the art tables.</summary>
-        public Func<Func<string, int>, string>? Projectile { get; init; }
+        public Func<Func<uint, int>, string>? Projectile { get; init; }
         /// <summary>The farthest the class acts (cells), from the skill's stats; null keeps the spell base's.</summary>
-        public Func<Func<string, int>, int>? ActionDistance { get; init; }
+        public Func<Func<uint, int>, int>? ActionDistance { get; init; }
         public GroundSpec? Ground { get; init; }
         public IReadOnlyList<DebuffSpec> Debuffs { get; init; } = [];
         /// <summary>A class that acts on its user: the BuffDefinitions Id it puts on it, by the skill. Such a skill is a
@@ -73,21 +73,21 @@ public static class ActionClasses
         new("BlastRain") { BaseRadius = 24 },
         new("VaalColdSnap") { BaseRadius = 60 },
         new("TrapGroundFire") { BaseRadius = 16, Ground = new("Fire", null, GroundAt.Trap) },
-        new("TrapBeartrap") { Debuffs = [new("beartrap_debuff", "base_skill_effect_duration")] },
+        new("TrapBeartrap") { Debuffs = [new("beartrap_debuff", Stat.BaseSkillEffectDuration)] },
         new("Wither")
         {
             BaseRadius = 18,
-            Debuffs = [new("hinder", "base_skill_effect_duration"), new("withered", "base_secondary_skill_effect_duration")],
+            Debuffs = [new("hinder", Stat.BaseSkillEffectDuration), new("withered", Stat.BaseSecondarySkillEffectDuration)],
         },
         new("CausticArrow")
         {
-            RadiusStat = "caustic_arrow_explode_on_hit_base_area_of_effect_radius",
-            Ground = new("CausticCloud", "ground_caustic_art_variation", GroundAt.ProjectileEnd),
+            RadiusStat = Stat.CausticArrowExplodeOnHitBaseAreaOfEffectRadius,
+            Ground = new("CausticCloud", Stat.GroundCausticArtVariation, GroundAt.ProjectileEnd),
         },
         new("Desecrate") { Ground = new("Desecration", null, GroundAt.Landing) },
         new("TetheringArrow")
         {
-            Projectile = get => get("skill_art_variation") switch
+            Projectile = get => get(Stat.SkillArtVariation) switch
             {
                 1 => "Metadata/Projectiles/HeistThugEnsnaringTotemArrow",
                 2 or 4 => "Metadata/Projectiles/WebTetheringArrow",
@@ -95,17 +95,17 @@ public static class ActionClasses
                 5 => "Metadata/Projectiles/AncestralSpearProjectile",
                 _ => "Metadata/Projectiles/TetheringArrow",
             },
-            Debuffs = [new("tethered_debuff", "base_skill_effect_duration")],
+            Debuffs = [new("tethered_debuff", Stat.BaseSkillEffectDuration)],
         },
         new("TotemSnipe")
         {
-            Projectile = get => get("totem_art_variation") == 12
+            Projectile = get => get(Stat.TotemArtVariation) == 12
                 ? "Metadata/Projectiles/CrossbowSnipeDemonicArcticProjectile" : "Metadata/Projectiles/CrossbowSnipeProjectile",
         },
         new("Flamethrower")
         {
             ActionDistance = get => SpellDistance(128, get),
-            Projectile = get => get("skill_art_variation") switch
+            Projectile = get => get(Stat.SkillArtVariation) switch
             {
                 1 => "Metadata/Projectiles/FlamethrowerBlue1",
                 2 => "Metadata/Projectiles/IncinerateHoly",
@@ -115,16 +115,16 @@ public static class ActionClasses
             },
         },
         new("BoneLance") { ActionDistance = _ => 90 },
-        new("ShadowProjectiles") { ActionDistance = get => 45 * (100 + get("projectile_speed_+%")) / 100 },
+        new("ShadowProjectiles") { ActionDistance = get => 45 * (100 + get(Stat.ProjectileSpeedPlusPct)) / 100 },
         new("SkeletalChains") { ActionDistance = get => SpellDistance(80, get) },
     }.Concat(ProjectileSpellClasses.Select(id => new ActionClass(id) { ActionDistance = get => SpellDistance(128, get) }))
         .ToDictionary(c => c.Id, StringComparer.Ordinal);
 
-    static int SpellDistance(int basis, Func<string, int> get) => basis * Math.Max(0, 100 + get("spell_maximum_action_distance_+%")) / 100;
+    static int SpellDistance(int basis, Func<uint, int> get) => basis * Math.Max(0, 100 + get(Stat.SpellMaximumActionDistancePlusPct)) / 100;
 
     /// <summary>The farthest a spell acts, in cells: its class's distance, else the spell base's 120, each scaled by
     /// the skill's stats (see <see cref="ActionClasses"/>).</summary>
-    public static int SpellActionDistance(int effect, Func<string, int> get) =>
+    public static int SpellActionDistance(int effect, Func<uint, int> get) =>
         OfEffect(effect)?.ActionDistance?.Invoke(get) ?? SpellDistance(120, get);
 
     /// <summary>The class by its ActionTypes Id; null for one that adds nothing.</summary>
@@ -137,24 +137,25 @@ public static class ActionClasses
     /// form (<c>X_per_rope</c>: tethered_movement_speed_+%_final); a <c>base_{type}_damage_taken_per_minute</c> the
     /// skill's <c>base_{type}_damage_to_deal_per_minute</c>; a flag (is_, on_, no_) 1. A stat the skill gives none of
     /// is left out. Empty for a row the tables do not have.</summary>
-    public static Dictionary<string, int> BuffStats(ushort row, Func<string, int> skill, IEnumerable<string>? skillStats = null)
+    public static Dictionary<uint, int> BuffStats(ushort row, Func<uint, int> skill, IEnumerable<string>? skillStats = null)
     {
-        Dictionary<string, int> result = new(StringComparer.Ordinal);
+        Dictionary<uint, int> result = new();
         if (BuffRows.Of(row) is not { } info) return result;
-        foreach (string name in info.GrantedStats)
+        foreach (uint id in info.GrantedStats)
         {
             // is_moving is the player's own state, which the client keeps: the buff reads it, it grants none.
-            if (name == "is_moving") continue;
-            int value = skill(name);
+            if (id == Stat.IsMoving) continue;
+            string name = Stats.Name(id);
+            int value = skill(id);
             if (value == 0 && skillStats is not null
                 && skillStats.FirstOrDefault(s => s.StartsWith(name + "_per_", StringComparison.Ordinal)) is { } perUnit)
-                value = skill(perUnit);
+                value = skill(Stat.Of(perUnit));
             if (value == 0 && name.EndsWith("_damage_taken_per_minute", StringComparison.Ordinal))
-                value = skill(name.Replace("_damage_taken_per_minute", "_damage_to_deal_per_minute", StringComparison.Ordinal));
+                value = skill(Stat.Of(name.Replace("_damage_taken_per_minute", "_damage_to_deal_per_minute", StringComparison.Ordinal)));
             if (value == 0 && (name.StartsWith("is_", StringComparison.Ordinal) || name.StartsWith("on_", StringComparison.Ordinal)
                 || name.StartsWith("no_", StringComparison.Ordinal)))
                 value = 1;
-            if (value != 0) result[name] = value;
+            if (value != 0) result[id] = value;
         }
         return result;
     }

@@ -59,7 +59,7 @@ public class AbyssJewelTests
             Assert.All(belt.Sockets, s => Assert.Equal(SocketColour.Abyss, s.Colour));
             belt = belt with { Sockets = [belt.Sockets[0] with { Gem = eye }, belt.Sockets[1]] };
             var stats = Game.EquipmentStatSources(conn, [(10, new(105, 0, 0, belt))], [socket], 100).Sources;
-            int effect = ItemModStats.Local(belt, items.Mods)["local_socketed_abyss_jewel_effect_+%"];
+            int effect = ItemModStats.Local(belt, items.Mods)[Stat.LocalSocketedAbyssJewelEffectPlusPct];
             Assert.Equal(10 + RadiusJewelCatalogue.ScaleEffect(10, effect), stats[Stat.BaseFireDamageResistancePct]);
             Assert.Equal(2, stats[Stat.NumberOfMeleeAbyssJewels]);
             Assert.Equal(1, stats[Stat.NumberOfAbyssJewelTypes]);

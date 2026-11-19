@@ -28,13 +28,13 @@ public static partial class Game
         if (MonsterTotemOf(catalog, effect, level) is { } totem) return totem;
         if (SummonData.ForActiveSkill(effect) is not { Corpse: false } definition) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("alternate_minion") != 0 || Monsters.Find(definition.Variety) is not { Supported: true } variety) return null;
-        int ms = Get("base_skill_effect_duration");
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.AlternateMinion) != 0 || Monsters.Find(definition.Variety) is not { Supported: true } variety) return null;
+        int ms = Get(Stat.BaseSkillEffectDuration);
         return new(variety.Row, SummonCount(definition, Get), 0, false, catalog.CastTimeMs(effect) / 1000.0,
             catalog.CooldownMs(effect, catalog.MaxLevelAt(effect, level)) / 1000.0)
         {
-            Limit = definition.LimitStat.Length == 0 ? 0 : Math.Max(0, Get(definition.LimitStat)),
+            Limit = definition.LimitStat == 0 ? 0 : Math.Max(0, Get(definition.LimitStat)),
             Lifetime = definition.Persistent || ms <= 0 ? double.PositiveInfinity : ms / 1000.0,
             AtTarget = true,
         };
@@ -65,21 +65,21 @@ public static partial class Game
     public static SkillCatalog.MonsterSummonInfo? MonsterTotemOf(SkillCatalog catalog, int effect, byte level)
     {
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("is_totem") == 0 && !catalog.HasType(effect, "SummonsTotem")) return null;
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.IsTotem) == 0 && !catalog.HasType(effect, "SummonsTotem")) return null;
         int? skillKey = ClientTables.TableOrNull("GrantedEffects")?.Row(effect)?.IntOrNull("ActiveSkill") is int active
             ? ClientTables.TableOrNull("ActiveSkills")?.Row(active)?.IntOrNull("SkillTotemId") : null;
-        int skin = Get("totem_art_variation");
+        int skin = Get(Stat.TotemArtVariation);
         // As the player's (Totems.Rules: TotemVariety): a spell totem is the intelligence one (3), a ranged attack
         // totem (is_ranged_attack_totem: Ensnaring Arrow's ballista) the dexterity one (2).
         int key = skillKey is int k && TotemSkins.ContainsKey((k, skin)) ? k
-            : catalog.IsSpell(effect) ? 3 : Get("is_ranged_attack_totem") != 0 ? 2 : -1;
+            : catalog.IsSpell(effect) ? 3 : Get(Stat.IsRangedAttackTotem) != 0 ? 2 : -1;
         if (!TotemSkins.TryGetValue((key, skin), out int body) || Monsters.Find(body.ToString()) is not { Supported: true }) return null;
-        double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
-        return new(body, Math.Max(1, Get("number_of_totems_summoned_in_formation")), 0, true, catalog.CastTimeMs(effect) / 1000.0,
+        double seconds = Get(Stat.BaseTotemDuration) / 1000.0 * Math.Max(0, 100 + Get(Stat.TotemDurationPlusPct)) / 100;
+        return new(body, Math.Max(1, Get(Stat.NumberOfTotemsSummonedInFormation)), 0, true, catalog.CastTimeMs(effect) / 1000.0,
             catalog.CooldownMs(effect, catalog.MaxLevelAt(effect, level)) / 1000.0)
         {
-            Limit = MonsterTotemsAllowed + Get("number_of_additional_totems_allowed"),
+            Limit = MonsterTotemsAllowed + Get(Stat.NumberOfAdditionalTotemsAllowed),
             Lifetime = seconds > 0 ? seconds : double.PositiveInfinity,
             Effect = effect,
         };

@@ -74,7 +74,7 @@ sealed class HarbingerCompanionCatalog
             || !data.Grants.TryGetValue(node, out var grant) || _skills.EffectId(grant.Effect) != source.Effect)
             return null;
         var summon = _skills.EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        if (_stats.Key("alternate_minion") is not uint alternate || summon.GetValueOrDefault(alternate) != source.AlternateMinion
+        if (summon.GetValueOrDefault(Stat.AlternateMinion) != source.AlternateMinion
             || !data.LimitStats.TryGetValue(source.MinionType, out uint limitStat) || summon.GetValueOrDefault(limitStat) <= 0)
             return null;
         var monster = _monsters.Find(source.Variety);

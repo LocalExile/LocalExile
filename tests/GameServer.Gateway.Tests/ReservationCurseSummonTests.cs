@@ -25,19 +25,19 @@ public sealed partial class ReservationCurseSummonTests
         Assert.Equal(1100u, PetrifiedBlood.RecoverLife(conn, 1000, 500, ref carry));
         Assert.Empty(AuraCatalog.Restore(["Vitality"], [life with { ManaFlat = 2400 }], pools));
         var curses = new MonsterCurses();
-        var original = new MonsterModEffects(new Dictionary<string, int> { ["base_fire_damage_resistance_%"] = 20 });
+        var original = new MonsterModEffects(new Dictionary<uint, int> { [Stat.BaseFireDamageResistancePct] = 20 });
         MonsterCurses.Curse Curse(uint caster, string effect, int value, double at) => new(caster, effect, 1, 71, (ushort)at, at, 20, false, false,
-            new Dictionary<string, int> { ["base_fire_damage_resistance_%"] = value });
+            new Dictionary<uint, int> { [Stat.BaseFireDamageResistancePct] = value });
         curses.Put(Curse(1, "Flammability", -36, 1), 1);
         Assert.Equal(-16, original.Combine(curses.Stats).Resistance(DamageType.Fire));
         curses.Put(Curse(2, "Flammability", -20, 2), 1);
         Assert.Equal(-16, original.Combine(curses.Stats).Resistance(DamageType.Fire));
         curses.Put(Curse(1, "ElementalWeakness", -30, 3), 1);
         Assert.DoesNotContain((1u, "Flammability"), curses.All.Keys);
-        Assert.Equal(-30, curses["base_fire_damage_resistance_%"]);
+        Assert.Equal(-30, curses[Stat.BaseFireDamageResistancePct]);
         Assert.Single(curses.All);
         curses.Put(Curse(2, "Flammability", -20, 4), 2);
-        Assert.Equal(-50, curses["base_fire_damage_resistance_%"]);
+        Assert.Equal(-50, curses[Stat.BaseFireDamageResistancePct]);
         Assert.Equal(20, original.Resistance(DamageType.Fire));
         curses.Expire(20);
         Assert.Empty(curses.All); Assert.Empty(curses.Stats);

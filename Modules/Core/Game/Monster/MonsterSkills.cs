@@ -115,14 +115,14 @@ public static partial class MonsterSkills
     /// takes (volatile_dead_base_number_of_corpses_to_consume), and a geyser's bursts (Cremation: one every
     /// cremation_base_fires_projectile_every_x_ms for its duration). An orb or a projectile reaches the player from the
     /// corpse; an explosion only its area.</summary>
-    static MonsterSkillUse CorpseUseOf(SkillCatalog skills, int effect, byte level, MonsterSkillShape shape, Dictionary<string, int> stats, double? seconds)
+    static MonsterSkillUse CorpseUseOf(SkillCatalog skills, int effect, byte level, MonsterSkillShape shape, Dictionary<uint, int> stats, double? seconds)
     {
         var raw = GolemData.Skill(skills, effect, level).Stats;
-        int Raw(string name) => Stats.Key(name) is uint key ? raw.GetValueOrDefault(key) : 0;
-        double radius = Raw("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : LandingRadius;
+        int Raw(uint key) => raw.GetValueOrDefault(key);
+        double radius = Raw(Stat.ActiveSkillBaseAreaOfEffectRadius) is > 0 and var r ? r : LandingRadius;
         bool shoots = skills.IsProjectile(effect) || skills.HasType(effect, "Orb");
-        int corpses = Math.Max(1, Raw("volatile_dead_base_number_of_corpses_to_consume"));
-        int every = Raw("cremation_base_fires_projectile_every_x_ms");
+        int corpses = Math.Max(1, Raw(Stat.VolatileDeadBaseNumberOfCorpsesToConsume));
+        int every = Raw(Stat.CremationBaseFiresProjectileEveryXMs);
         int pulses = every > 0 && seconds is > 0 ? Math.Max(1, (int)(seconds.Value * 1000 / every)) : 1;
         return new(shape, 0, seconds ?? 0, stats, shape == MonsterSkillShape.Travel ? TravelMinRange : 0, OnCorpse: true,
             Radius: radius, Reach: shape == MonsterSkillShape.Travel ? radius : shoots ? CorpseShotReach : radius,
@@ -205,9 +205,9 @@ public static partial class MonsterSkills
     }
 
     /// <summary>The auras a monster's skills keep up: their stats together and the BuffDefinitions rows that draw them.</summary>
-    public static (Dictionary<string, int> Stats, List<ushort> Rows) Auras(SkillCatalog skills, MonsterCatalog.Variety variety, byte level)
+    public static (Dictionary<uint, int> Stats, List<ushort> Rows) Auras(SkillCatalog skills, MonsterCatalog.Variety variety, byte level)
     {
-        Dictionary<string, int> stats = [];
+        Dictionary<uint, int> stats = [];
         List<ushort> rows = [];
         foreach (int effect in variety.GrantedEffects ?? [])
         {
@@ -220,18 +220,18 @@ public static partial class MonsterSkills
 
     /// <summary>A skill's stats at the level, renamed to the monster mods' names ("…_granted_from_skill" is the plain
     /// stat), without those that only shape the skill; and its duration (base_skill_effect_duration), if it names one.</summary>
-    static (Dictionary<string, int> Stats, double? Seconds) StatsOf(SkillCatalog skills, int effect, byte level)
+    static (Dictionary<uint, int> Stats, double? Seconds) StatsOf(SkillCatalog skills, int effect, byte level)
     {
-        Dictionary<string, int> stats = [];
+        Dictionary<uint, int> stats = [];
         double? seconds = null;
         foreach (var (key, value) in GolemData.Skill(skills, effect, level).Stats)
         {
             string name = Stats.Name(key);
-            if (name == "base_skill_effect_duration") { seconds = value / 1000.0; continue; }
+            if (key == Stat.BaseSkillEffectDuration) { seconds = value / 1000.0; continue; }
             if (name.StartsWith("active_skill_", StringComparison.Ordinal) || name.Contains("area_of_effect", StringComparison.Ordinal)
                 || name.StartsWith("skill_", StringComparison.Ordinal) || name.StartsWith("display_", StringComparison.Ordinal)) continue;
             name = name.Replace("_granted_from_skill", "", StringComparison.Ordinal);
-            stats[name] = stats.GetValueOrDefault(name) + value;
+            uint id = Stat.Of(name); stats[id] = stats.GetValueOrDefault(id) + value;
         }
         return (stats, seconds);
     }
@@ -414,7 +414,7 @@ public static partial class MonsterSkills
     }
 
     /// <summary>The stat that makes a travel a charge: its user's movement speed while it runs (Shield Charge's).</summary>
-    const string ChargeStat = "base_movement_velocity_+%";
+    const uint ChargeStat = Stat.BaseMovementVelocityPlusPct;
 
     /// <summary>A charge's farthest run and the radius its end hits within (cells; the player's: ShieldCharge.cs).</summary>
     const int ChargeDistance = 75, ChargeEndRadius = 16;
@@ -500,7 +500,7 @@ public static partial class MonsterSkills
         return player;
     }
 
-    sealed class Buffs { public readonly List<(ushort Buff, IReadOnlyDictionary<string, int> Stats, double Until)> Active = []; }
+    sealed class Buffs { public readonly List<(ushort Buff, IReadOnlyDictionary<uint, int> Stats, double Until)> Active = []; }
     static readonly ConditionalWeakTable<SpawnedMonster, Buffs> MonsterBuffs = new();
 
     static async Task BuffSelf(Player conn, uint id, SpawnedMonster m, MonsterSkillUse use)
@@ -533,9 +533,9 @@ public static partial class MonsterSkills
             await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
     }
 
-    static Dictionary<string, int> Sum(IEnumerable<IReadOnlyDictionary<string, int>> all)
+    static Dictionary<uint, int> Sum(IEnumerable<IReadOnlyDictionary<uint, int>> all)
     {
-        Dictionary<string, int> sum = [];
+        Dictionary<uint, int> sum = [];
         foreach (var stats in all)
             foreach (var (name, value) in stats) sum[name] = sum.GetValueOrDefault(name) + value;
         return sum;
@@ -550,11 +550,11 @@ public static partial class MonsterSkills
 
     /// <summary>A curse's stats as the player's: the reductions a curse names for its target are the player's own
     /// (physical_damage_taken_+%, the resistances); the curse's own mechanics without a player stat are left out.</summary>
-    static Dictionary<string, int> Player(IReadOnlyDictionary<string, int> stats)
+    static Dictionary<uint, int> Player(IReadOnlyDictionary<uint, int> stats)
     {
-        Dictionary<string, int> player = [];
+        Dictionary<uint, int> player = [];
         foreach (var (name, value) in stats)
-            if (Stats.Key(name) is not null && !name.StartsWith("curse_", StringComparison.Ordinal)) player[name] = value;
+            if (!Stats.Name(name).StartsWith("curse_", StringComparison.Ordinal)) player[name] = value;
         return player;
     }
 }

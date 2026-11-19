@@ -54,8 +54,8 @@ public static partial class Game
         // the server sends the object.
         bool clientDrawn = conn.ClientDrawnShot == projectileId;
         var character = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
+        int Get(uint key) => character.GetValueOrDefault(key);
+        int RawCritical(uint name) => IsCriticalProhibition(name) ? 0 : Get(name);
         int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
         var weapon = WeaponProfileFor(conn, activeSet: true);
         var sourceWeapon = WeaponFor(conn);
@@ -65,7 +65,7 @@ public static partial class Game
         var captured = OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
             PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
         bool wand = projectileId == OrdinaryRangedAttack.Wand;
-        long additionalBlindedIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint blindedDamageKey
+        long additionalBlindedIncreased = PlayerHitDamage.VsBlindedDamageStat is var blindedDamageKey
             ? character.GetValueOrDefault(blindedDamageKey) : 0;
         var blindedCapture = additionalBlindedIncreased == 0 ? null
             : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
@@ -82,7 +82,7 @@ public static partial class Game
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
-                Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<string, int>(sourceWeapon.LocalSources),
+                Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<uint, int>(sourceWeapon.LocalSources),
                 Bow: !wand),
             SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
@@ -100,11 +100,11 @@ public static partial class Game
                     projectileAttack: true),
                 MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
                     projectileAttack: true)),
-            MaimChance = Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
+            MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             CriticalRoll = criticalRoll, Leech = captured.Leech,
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
-            AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
-            PointBlank = Get("keystone_point_blank") != 0,
+            AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,
+            PointBlank = Get(Stat.KeystonePointBlank) != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindHitInput.Capture(character),
             // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
             Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
@@ -126,7 +126,7 @@ public static partial class Game
     }
 
     // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.
-    static ProjectileProfile OrdinaryRangedProfile(Player conn, string projectileId, bool bow, Func<string, int> get)
+    static ProjectileProfile OrdinaryRangedProfile(Player conn, string projectileId, bool bow, Func<uint, int> get)
     {
         var ranged = SkillsFor(conn).Projectile(projectileId);
         double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, get, _ => 0,
@@ -146,7 +146,7 @@ public static partial class Game
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
         if (!conn.LockstepClient || OrdinaryRangedAttack.ProjectileId(weapon) is not { } projectileId) return [];
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int Get(uint key) => character.GetValueOrDefault(key);
         int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get).Count;
         return weapon.Bow
             ? [(Stat.TotalNumberOfProjectilesToFire, n), (Stat.VirtualTotalNumberOfProjectiles, n),

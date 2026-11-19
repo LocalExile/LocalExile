@@ -168,23 +168,23 @@ public sealed class SkillCatalog
         int gepl = PickLevel(t.PerLevel, effectRow, level);
         if (e.CastTime > 0)
         {
-            Put("base_spell_cast_time_ms", e.CastTime);
+            Put(Stat.BaseSpellCastTimeMs, e.CastTime);
             // what the client reads when it starts the cast (traced live 2026-10-18; 0 = an instant cast)
-            Put("virtual_base_spell_cast_time_ms", e.CastTime);
-            Put("hundred_times_casts_per_second", (int)Math.Round(100_000.0 / e.CastTime));
+            Put(Stat.VirtualBaseSpellCastTimeMs, e.CastTime);
+            Put(Stat.HundredTimesCastsPerSecond, (int)Math.Round(100_000.0 / e.CastTime));
         }
-        if (Value(stats, "volley_additional_projectiles_fire_parallel_x_dist", "greater_volley_additional_projectiles_fire_parallel_x_dist") is int parallelDist and > 0)
-            Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
-        if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
-        if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
-        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
+        if (Value(stats, Stat.VolleyAdditionalProjectilesFireParallelXDist, Stat.GreaterVolleyAdditionalProjectilesFireParallelXDist) is int parallelDist and > 0)
+            Put(Stat.VirtualAdditionalProjectilesFireParallelXDist, parallelDist);
+        if (gepl >= 0 && t.RageCost[gepl] > 0) { Put(Stat.BaseRageCost, t.RageCost[gepl]); Put(Stat.TotalBaseRageCost, t.RageCost[gepl]); }
+        if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put(Stat.BaseManaCost, t.ManaCost[gepl]); Put(Stat.ManaCost, t.ManaCost[gepl]); }
+        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put(Stat.BaseLifeCost, t.LifeCost[gepl]); Put(Stat.LifeCost, t.LifeCost[gepl]); }
         // An Energy Shield cost (CostTypes 2: Energy Blade, Wild Strike of Extremes).
-        if (gepl >= 0 && t.EsCost[gepl] > 0) { Put("base_es_cost", t.EsCost[gepl]); Put("es_cost", t.EsCost[gepl]); }
+        if (gepl >= 0 && t.EsCost[gepl] > 0) { Put(Stat.BaseEsCost, t.EsCost[gepl]); Put(Stat.EsCost, t.EsCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
-        if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
+        if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put(Stat.BaseManaCostPerMinute, t.ManaPerMinute[gepl]); Put(Stat.ManaCostPerMinute, t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
         // ManaPercentPerMinute. Its final mana_cost_per_minute takes the caster's maximum mana (Skills.cs publishes it).
-        if (gepl >= 0 && t.ManaPercentPerMinute[gepl] > 0) Put("base_mana_cost_%_per_minute", t.ManaPercentPerMinute[gepl]);
+        if (gepl >= 0 && t.ManaPercentPerMinute[gepl] > 0) Put(Stat.BaseManaCostPctPerMinute, t.ManaPercentPerMinute[gepl]);
         // A skill with a cooldown (GEPL Cooldown, e.g. Haste's 1200 ms): the client keeps the cooldown only when the skill
         // has uses (virtual_total_cooldown_count, GEPL StoredUses) and a duration in its record (GrantedSkill.CooldownMs).
         // An instant skill (ActiveSkillType Instant: Haste, Righteous Fire) is one by its stat: the client reads
@@ -192,30 +192,30 @@ public sealed class SkillCatalog
         // stayed the player's current action and held back every other skill until a move (Frida, live 2026-10-21).
         if (IsInstant(effectRow))
         {
-            Put("base_skill_is_instant", 1);
-            Put("skill_is_instant", 1);
+            Put(Stat.BaseSkillIsInstant, 1);
+            Put(Stat.SkillIsInstant, 1);
         }
         if (IsAura(effectRow)) stats[OwnAuraRestriction.BaseAura] = 1;
         if (_curseEffects.Contains(effectRow)) stats[OwnAuraRestriction.Curse] = 1;
         if (OwnAuraRestriction.IsAura(stats)) stats[OwnAuraRestriction.Aura] = 1;
         // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
-        Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
+        Put(Stat.CastingSpell, IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
         // The Nova type's flag. The client casts a Nova at the cursor only when this, casting_spell and the caster's
         // nova_spells_cast_at_target_location are all set (FUN_14289d210); otherwise it stays around the caster.
-        if (IsNova(effectRow)) Put("skill_is_nova_skill", 1);
+        if (IsNova(effectRow)) Put(Stat.SkillIsNovaSkill, 1);
         // ActiveSkillType Brand's FlagStat is skill_is_brand_skill. It belongs to this selected skill, not the actor.
-        Put("skill_is_brand_skill", IsBrand(effectRow) ? 1 : 0);
+        Put(Stat.SkillIsBrandSkill, IsBrand(effectRow) ? 1 : 0);
         if (gepl >= 0 && t.Cooldowns[gepl] is { Ms: > 0, Uses: > 0 } cooldown)
         {
-            Put("base_cooldown_count", cooldown.Uses);
-            Put("virtual_total_cooldown_count", cooldown.Uses);
+            Put(Stat.BaseCooldownCount, cooldown.Uses);
+            Put(Stat.VirtualTotalCooldownCount, cooldown.Uses);
         }
         if (quality > 0 && t.Quality.TryGetValue(effectRow, out var perQuality))
             foreach (var (s, permille) in perQuality) stats[(uint)s + 1] = stats.GetValueOrDefault((uint)s + 1) + permille * quality / 1000;
         return [.. stats.Select(kv => (kv.Key, kv.Value))];
 
-        void Put(string name, int value) { if (_stats.Key(name) is uint k) stats[k] = value; }
+        void Put(uint name, int value) { if (name is var k) stats[k] = value; }
     }
 
     /// <summary>
@@ -249,19 +249,19 @@ public sealed class SkillCatalog
                 DamageType.Chaos => "chaos",
                 _ => throw new ArgumentOutOfRangeException(),
             };
-            int min = prefix == "spell" ? Value(stats, $"spell_minimum_base_{slug}_damage{suffix}", $"minimum_base_{slug}_damage{suffix}")
-                : Value(stats, $"{prefix}_minimum_base_{slug}_damage{suffix}");
-            int max = prefix == "spell" ? Value(stats, $"spell_maximum_base_{slug}_damage{suffix}", $"maximum_base_{slug}_damage{suffix}")
-                : Value(stats, $"{prefix}_maximum_base_{slug}_damage{suffix}");
+            int min = prefix == "spell" ? Value(stats, Stat.Of($"spell_minimum_base_{slug}_damage{suffix}"), Stat.Of($"minimum_base_{slug}_damage{suffix}"))
+                : Value(stats, Stat.Of($"{prefix}_minimum_base_{slug}_damage{suffix}"));
+            int max = prefix == "spell" ? Value(stats, Stat.Of($"spell_maximum_base_{slug}_damage{suffix}"), Stat.Of($"maximum_base_{slug}_damage{suffix}"))
+                : Value(stats, Stat.Of($"{prefix}_maximum_base_{slug}_damage{suffix}"));
             if (min > 0 || max > 0) result = result.Add(type, new DamageRange(min, Math.Max(min, max)));
         }
         return result;
     }
 
-    private int Value(Dictionary<uint, int> stats, params string[] names)
+    private static int Value(Dictionary<uint, int> stats, params uint[] keys)
     {
-        foreach (string name in names)
-            if (_stats.Key(name) is uint key && stats.TryGetValue(key, out int value)) return value;
+        foreach (uint key in keys)
+            if (stats.TryGetValue(key, out int value)) return value;
         return 0;
     }
 
@@ -631,8 +631,8 @@ public sealed class SkillCatalog
     public bool IsRangedAttack(int effectRow) => IsAttack(effectRow) && IsProjectile(effectRow) && !IsMelee(effectRow);
 
     /// <summary>Classify the gem's base-item row from GemTags/SkillGems metadata, not its display name.</summary>
-    public bool FamilyStatRaises(string stat, int gemRow) =>
-        _stats.Key(stat) is uint key && _families.Raises((int)key - 1, gemRow);
+    public bool FamilyStatRaises(uint stat, int gemRow) =>
+        stat is var key && _families.Raises((int)key - 1, gemRow);
 
     public bool IsExceptional(int gemRow) => _families.IsExceptional(gemRow);
 
@@ -1256,17 +1256,17 @@ public sealed class SkillCatalog
         if (!projectiles.TryGetValue(effectRow, out var projectile)) return null;
         // Constants of the skill's stat set, so level 1 reads them.
         var stats = EffectStats(effectRow, 1);
-        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
-        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
-            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        int Get(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
+        int count = Get(Stat.NumberOfProjectilesOverride) is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles);
         return projectile with
         {
-            MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
+            MinimumRange = Get(Stat.ProjectileMinimumRange), SpreadRadius = Get(Stat.ProjectileSpreadRadius),
             Count = Math.Max(1, count),
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
-            Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
-                || Get("projectile_ballistic_angle_from_target_distance") != 0,
+            Lobbed = projectile.Variation == 0 || Get(Stat.ProjectileBallisticAngleFromReferenceEvent) != 0
+                || Get(Stat.ProjectileBallisticAngleFromTargetDistance) != 0,
         };
     }
 
@@ -1299,10 +1299,10 @@ public sealed class SkillCatalog
         // 1 to 14), which names no SummonedSpecificMonsters row of theirs: Id 1 is a Rhoa.
         if (ActionTypeId(effectRow)?.StartsWith("SummonSpecificMonsters", StringComparison.Ordinal) != true) return null;
         var stats = EffectStats(effectRow, level);
-        int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
-        if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.TryGetValue(minion, out int variety)) return null;
-        return new(variety, Math.Max(1, Get("number_of_monsters_to_summon")), Get("summon_specific_monsters_in_front_offset"),
-            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
+        int Get(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
+        if (Get(Stat.AlternateMinion) is not (> 0 and var minion) || !_summonedMonsters.TryGetValue(minion, out int variety)) return null;
+        return new(variety, Math.Max(1, Get(Stat.NumberOfMonstersToSummon)), Get(Stat.SummonSpecificMonstersInFrontOffset),
+            Get(Stat.SummonedMonstersNoDropsOrExperience) != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
     }
 
     // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
@@ -1363,7 +1363,7 @@ public sealed class SkillCatalog
             .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon")
             .Select(a => a.i).ToHashSet();
         var effects = ClientTables.Table("GrantedEffects");
-        uint? variationKey = _stats.Key("monster_projectile_variation");
+        uint? variationKey = Stat.MonsterProjectileVariation;
         int row = -1;
         foreach (var e in effects)
         {
@@ -1471,7 +1471,7 @@ public sealed class SkillCatalog
         /// <summary>The equipped item's local typed ranges. Class unarmed records retain their physical fallback.</summary>
         public DamagePacket? LocalDamage { get; init; }
         /// <summary>Raw item-local and weapon-scoped modifiers captured with this weapon, including penetration and impale chance.</summary>
-        public IReadOnlyDictionary<string, int>? LocalSources { get; init; }
+        public IReadOnlyDictionary<uint, int>? LocalSources { get; init; }
         public string? ItemClass { get; init; }
         public static readonly Unarmed Witch = new(833, 2, 5, 8);
 
@@ -1548,7 +1548,7 @@ public sealed class SkillCatalog
         {
             // Arcane Might's wand-only grant follows the weapon held (WieldingWand); every local component takes the
             // transfer once, with the weapon's own melee context.
-            int Get(string name) => Program.Stats.Key(name) is uint key ? player?.GetValueOrDefault(key) ?? 0 : 0;
+            int Get(uint key) => player?.GetValueOrDefault(key) ?? 0;
             return (LocalDamage ?? DamagePacket.Of(DamageType.Physical, new(MinDamage, MaxDamage)).Add(LocalAdded)).Select((type, range) =>
                 DamageStats.IncreaseAttackRange(range, DamageStats.AttackIncrease(Get, type, melee, projectile: projectile, wieldingWand: WieldingWand)));
         }

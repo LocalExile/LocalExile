@@ -20,33 +20,33 @@ public static partial class Game
     }
     /// <summary>A trap's or mine's object type: Metadata/MiscellaneousObjects/RemoteMine, or the SkillTrapVariations row
     /// its trap_variation names (the Rogue Exiles' 12: TrapVisible), LightningTrap without one.</summary>
-    public static string PlacedObjectPath(bool mine, Func<string, int> get) => mine ? "Metadata/MiscellaneousObjects/RemoteMine"
-        : TrapVisuals.GetValueOrDefault(get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
+    public static string PlacedObjectPath(bool mine, Func<uint, int> get) => mine ? "Metadata/MiscellaneousObjects/RemoteMine"
+        : TrapVisuals.GetValueOrDefault(get(Stat.TrapVariation), "Metadata/MiscellaneousObjects/LightningTrap");
 
     /// <summary>How long a thrown trap or a placed mine flies before it lands (trap_throw_arm_time_override, else .975 s
     /// for a trap, .6 s for a mine), and the half second after landing it arms in.</summary>
-    public static double PlacedFlightSeconds(bool mine, Func<string, int> get) =>
-        get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : mine ? .6 : .975;
+    public static double PlacedFlightSeconds(bool mine, Func<uint, int> get) =>
+        get(Stat.TrapThrowArmTimeOverride) is > 0 and var armMs ? armMs / 1000d : mine ? .6 : .975;
     public const double PlacedArmSeconds = .5;
 
     /// <summary>A trap's or mine's lifetime after landing: base_trap_duration (else 4 s) or base_mine_duration (else 5 s)
     /// with trap_duration_+% or mine_duration_+%.</summary>
-    public static double PlacedDurationSeconds(bool mine, Func<string, int> get) =>
-        Math.Max(0, get(mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : mine ? 5 : 4)
-            * Math.Max(.01, 1 + get(mine ? "mine_duration_+%" : "trap_duration_+%") / 100d);
+    public static double PlacedDurationSeconds(bool mine, Func<uint, int> get) =>
+        Math.Max(0, get(mine ? Stat.BaseMineDuration : Stat.BaseTrapDuration) is > 0 and var ms ? ms / 1000d : mine ? 5 : 4)
+            * Math.Max(.01, 1 + get(mine ? Stat.MineDurationPlusPct : Stat.TrapDurationPlusPct) / 100d);
 
     /// <summary>How near an enemy sets a trap off (cells), with trap_trigger_radius_+%. The player's traps have used
     /// 10; Trap.ot and the stats name no base radius.</summary>
-    public static double TrapTriggerRadius(Func<string, int> get) => 10 * Math.Max(0, 1 + get("trap_trigger_radius_+%") / 100d);
+    public static double TrapTriggerRadius(Func<uint, int> get) => 10 * Math.Max(0, 1 + get(Stat.TrapTriggerRadiusPlusPct) / 100d);
 
     /// <summary>The object's stats: one life, no mana, and which kind it is (Trap.ot's is_trap_object), with the
     /// flight it was thrown for.</summary>
     public static List<(uint, int)> PlacedObjectStats(bool mine, double flight)
     {
         var stats = new List<(uint, int)>();
-        foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
-            ("is_trap_object", mine ? 0 : 1), ("is_remote_mine", mine ? 1 : 0) })
-            if (Stats.Key(name) is uint key) stats.Add((key, value));
+        foreach (var (name, value) in new[] { (Stat.MaximumLife, 1), (Stat.UsesNoMana, 1),
+            (Stat.IsTrapObject, mine ? 0 : 1), (Stat.IsRemoteMine, mine ? 1 : 0) })
+            if (name is var key) stats.Add((key, value));
         if (Stat.TrapThrowArmTimeOverride is var armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
         return stats;
     }
@@ -152,16 +152,16 @@ public static partial class Game
     public static int PlacedSkillLimit(Player conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
-        int basis = Get(mine ? "base_number_of_remote_mines_allowed" : "base_number_of_traps_allowed");
+        int Get(uint n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
+        int basis = Get(mine ? Stat.BaseNumberOfRemoteMinesAllowed : Stat.BaseNumberOfTrapsAllowed);
         return Math.Clamp((basis > 0 ? basis : 15)
-            + Get(mine ? "number_of_additional_remote_mines_allowed" : "number_of_additional_traps_allowed"), 0, 200);
+            + Get(mine ? Stat.NumberOfAdditionalRemoteMinesAllowed : Stat.NumberOfAdditionalTrapsAllowed), 0, 200);
     }
 
     public static int PlacedSkillCount(Player conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
-        string additional = mine ? "number_of_additional_mines_to_place" : "number_of_additional_traps_to_throw";
+        uint additional = mine ? Stat.NumberOfAdditionalMinesToPlace : Stat.NumberOfAdditionalTrapsToThrow;
         return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(player, additional), 1, 200);
     }
 
@@ -212,7 +212,7 @@ public static partial class Game
                 var gem = SupportedSkill(conn, admission.Skill);
                 if (!PlacedCastAdmissionCurrentLocked(conn, admission, gem, recovery)) return null;
                 var player = CharacterPlayerStats(conn);
-                int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
+                int Get(uint n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
                 int count = PlacedSkillCount(conn, gem, admission.Mine);
                 int limit = PlacedSkillLimit(conn, gem, admission.Mine);
                 if (count <= 0 || limit <= 0) return null;
@@ -221,8 +221,8 @@ public static partial class Game
                 var offense = CapturePlacedDamage(conn, admission.Skill, gem);
                 var damage = offense?.Normal.Hit ?? SupportedHitFor(conn, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
-                foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
-                    if (Stats.Key(flag) is uint key) payload[key] = 0;
+                foreach (uint flag in new[] { Stat.IsTrap, Stat.IsRemoteMine, Stat.BaseSkillIsTrapped, Stat.BaseSkillIsMined })
+                    payload[flag] = 0;
                 if (Stat.ActiveSkillAreaOfEffectRadius is var radius)
                     payload[radius] = (int)SkillRadius(conn, gem.Stats, true, gem.Effect);
                 if (Stat.ActiveSkillBaseAreaOfEffectRadius is var baseRadius)
@@ -359,23 +359,23 @@ public static partial class Game
         if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
         {
             var playerSources = CharacterPlayerStats(conn);
-            int Get(string n) => GolemStat(placed.Own, n) + GolemStat(playerSources, n);
-            double increased = new[] { "damage_+%", "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
-                "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%" }.Sum(Get);
-            if (Get("spell_damage_modifiers_apply_to_skill_dot") != 0) increased += Get("spell_damage_+%");
+            int Get(uint n) => GolemStat(placed.Own, n) + GolemStat(playerSources, n);
+            double increased = new[] { Stat.DamagePlusPct, Stat.FireDamagePlusPct, Stat.ElementalDamagePlusPct, Stat.DamageOverTimePlusPct,
+                Stat.FireDamageOverTimePlusPct, Stat.BurnDamagePlusPct, Stat.AreaDamagePlusPct }.Sum(Get);
+            if (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += Get(Stat.SpellDamagePlusPct);
             double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
-                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(n) / 100d));
-            double dps = Get("base_fire_damage_to_deal_per_minute") / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get("dot_multiplier_+") + Get("fire_dot_multiplier_+")) / 100d) * groundMore;
+                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
+            double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore;
             var damage = new SkillDamageContext(SkillHitKind.Spell, playerSources)
                 .OverTime(new(DamageType.Fire, dps, 1));
-            double seconds = SkillDurationModifiers.Seconds(Get("base_skill_effect_duration"),
+            double seconds = SkillDurationModifiers.Seconds(Get(Stat.BaseSkillEffectDuration),
                 n => GolemStat(playerSources, n), n => GolemStat(placed.Own, n));
             conn.Placed.Grounds.Add(new(placed.Id, placed.Skill, placed.At, radius, damage.DamagePerSecond, now + seconds, now));
         }
         double more = ReservationAura(conn, "SummonSkitterbots") is { } skitter
-            ? Math.Max(0, 1 + ReservationStat(conn, skitter, "skitterbots_trap_mine_damage_+%_final") / 100d) : 1;
+            ? Math.Max(0, 1 + ReservationStat(conn, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100d) : 1;
         var player = placed.Offense?.Caster ?? CharacterPlayerStats(conn);
         bool spell = placed.Offense?.Spell ?? spellDamage;
         foreach (var (id, m) in conn.Monsters.ToArray())
@@ -397,7 +397,7 @@ public static partial class Game
             {
                 // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
                 var owner = CharacterPlayerStats(conn);
-                int coefficient = Math.Max(0, GolemStat(owner, "mine_damage_leeched_as_life_to_you_permyriad"));
+                int coefficient = Math.Max(0, GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad));
                 if (coefficient > 0)
                 {
                     var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,

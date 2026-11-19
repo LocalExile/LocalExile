@@ -27,14 +27,14 @@ public static partial class Game
             double score = .1;
             foreach (var (key, value) in n.Stats)
             {
-                string name = Stats.Name(key) ?? "";
-                if (name is "base_strength" or "base_dexterity" or "base_intelligence" or "base_all_attributes") score += value * .65;
-                if (name is "maximum_life_+%" or "base_maximum_life") score += value * 2;
-                if (name is "base_resist_all_elements_%") score += value;
-                if (name == "damage_+%" || spell && name is "spell_damage_+%" or "fire_damage_+%"
-                    || !spell && name is "attack_damage_+%" or "physical_damage_+%"
-                    || bow && name == "projectile_damage_+%") score += value;
-                if (name == (spell ? "base_cast_speed_+%" : "attack_speed_+%")) score += value * 2;
+                uint name = key;
+                if (name is Stat.BaseStrength or Stat.BaseDexterity or Stat.BaseIntelligence || name == Stat.Of("base_all_attributes")) score += value * .65;
+                if (name is Stat.MaximumLifePlusPct or Stat.BaseMaximumLife) score += value * 2;
+                if (name is Stat.BaseResistAllElementsPct) score += value;
+                if (name == Stat.DamagePlusPct || spell && name is Stat.SpellDamagePlusPct or Stat.FireDamagePlusPct
+                    || !spell && name is Stat.AttackDamagePlusPct or Stat.PhysicalDamagePlusPct
+                    || bow && name == Stat.ProjectileDamagePlusPct) score += value;
+                if (name == (spell ? Stat.BaseCastSpeedPlusPct : Stat.AttackSpeedPlusPct)) score += value * 2;
             }
             return score;
         }
@@ -49,9 +49,9 @@ public static partial class Game
         }
         OrdinaryPassives.Validate((byte)cls.IntegerId, AscendancyFamily.Normal, nodes);
         var passiveStats = Passives.Stats(nodes);
-        int Attr(string name, int basis) => basis + (Stats.Key(name) is uint key ? passiveStats.GetValueOrDefault(key) : 0)
+        int Attr(uint key, int basis) => basis + passiveStats.GetValueOrDefault(key)
             + (Stats.Key("base_all_attributes") is uint all ? passiveStats.GetValueOrDefault(all) : 0);
-        int str = Attr("base_strength", cls.Strength), dex = Attr("base_dexterity", cls.Dexterity), intel = Attr("base_intelligence", cls.Intelligence);
+        int str = Attr(Stat.BaseStrength, cls.Strength), dex = Attr(Stat.BaseDexterity, cls.Dexterity), intel = Attr(Stat.BaseIntelligence, cls.Intelligence);
         bool Fits(ItemCatalog.BaseType t)
         {
             var req = Items.Requirements(t);

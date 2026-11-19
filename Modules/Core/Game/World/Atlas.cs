@@ -61,16 +61,16 @@ public static partial class Game
     }
 
     /// <summary>The allocated Atlas passives' stats of the active preset, by stat name: what the tree adds to a map's.</summary>
-    public static Dictionary<string, int> AtlasStats(Player conn)
+    public static Dictionary<uint, int> AtlasStats(Player conn)
     {
-        Dictionary<string, int> stats = [];
+        Dictionary<uint, int> stats = [];
         int preset = conn.AtlasPreset is >= 0 and < 3 ? conn.AtlasPreset
             : Enumerable.Range(0, conn.AtlasPassives.Length).MaxBy(p => conn.AtlasPassives[p].Count);
         foreach (ushort graphId in conn.AtlasPassives[preset])
             if (AtlasPassiveNodes.Find(graphId) is { } node)
                 foreach (var (key, value) in node.Stats)
                 {
-                    string name = Stats.Name(key);
+                    uint name = key;
                     stats[name] = stats.GetValueOrDefault(name) + value;
                 }
         return stats;
@@ -78,9 +78,9 @@ public static partial class Game
 
     /// <summary>The stats of the area the player is in that league mechanics read: a map's own (its affixes, scarabs and
     /// fragments) and, in a map, the Atlas passives'. Empty outside a map.</summary>
-    public static Dictionary<string, int> AreaLeagueStats(Player conn)
+    public static Dictionary<uint, int> AreaLeagueStats(Player conn)
     {
-        Dictionary<string, int> stats = [];
+        Dictionary<uint, int> stats = [];
         if (MapModsOf(conn) is { } mods)
             foreach (var (name, value) in mods.Stats) stats[name] = stats.GetValueOrDefault(name) + value;
         if (MapDevices.IsMapArea(conn.Layout.Hash))

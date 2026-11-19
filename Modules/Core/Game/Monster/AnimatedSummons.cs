@@ -31,7 +31,7 @@ public static partial class Game
             if (ActiveMainHand(conn) is not { Type: { } type } hand
                 || WeaponIn(conn, hand) is not { Melee: true }
                 || ItemModStats.LevelRequirement(hand.Item, type.DropLevel, ItemsFor(conn).Mods)
-                    > GolemStat(gem.Stats, "animate_item_maximum_level_requirement")) return null;
+                    > GolemStat(gem.Stats, Stat.AnimateItemMaximumLevelRequirement)) return null;
             return new(0, null, new() { [2] = hand.Item }, guardian);
         }
         if (definition.Family == "Clone")
@@ -68,7 +68,7 @@ public static partial class Game
         var catalog = ItemsFor(conn);
         if (!item.Identified || catalog.ByHash(item.TypeHash) is not { } type
             || ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods)
-                > GolemStat(gem.Stats, "animate_item_maximum_level_requirement")) return 0;
+                > GolemStat(gem.Stats, Stat.AnimateItemMaximumLevelRequirement)) return 0;
         if (WeaponIn(conn, (item, type)) is { } weapon)
         {
             if (definition.Family == "AnimatedGuardian") return weapon.Melee ? (byte)2 : (byte)0;

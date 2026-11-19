@@ -10,8 +10,8 @@ public static partial class Game
 
     /// <summary>How long the player's taunts last: 3 s (wiki Taunt; the Basalt Flask's reminder text), raised by
     /// taunt_duration_+%.</summary>
-    public static double TauntSeconds(Func<string, int> get) =>
-        FlaskGrounds.TauntSeconds * Math.Max(0, 1 + get("taunt_duration_+%") / 100.0);
+    public static double TauntSeconds(Func<uint, int> get) =>
+        FlaskGrounds.TauntSeconds * Math.Max(0, 1 + get(Stat.TauntDurationPlusPct) / 100.0);
 
     /// <summary>Taunts the hostile living monsters within <paramref name="radius"/> cells of <paramref name="at"/> for
     /// <paramref name="seconds"/> (a warcry, a Basalt Flask); a new taunt replaces the player's old one on a monster (wiki
@@ -92,9 +92,9 @@ public static partial class Game
                 int? blindRadius = PassiveBuffAuras.BlindRadius(current);
                 var player = CharacterPlayerStats(conn);
                 // The influenced blind and unique intimidate BuffTemplates use 35 and 25 cells respectively.
-                if (StatOf(player, "virtual_nearby_enemies_are_blinded") > 0)
+                if (StatOf(player, Stat.VirtualNearbyEnemiesAreBlinded) > 0)
                     blindRadius = Math.Max(blindRadius ?? 0, 35);
-                if (StatOf(player, "virtual_nearby_enemies_are_intimidated") > 0)
+                if (StatOf(player, Stat.VirtualNearbyEnemiesAreIntimidated) > 0)
                     auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
@@ -248,7 +248,7 @@ public static partial class Game
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
                 HashSet<uint> inside = radius is int r
                     ? ZoneMembers(conn, conn.PeerId, EnemyAuraZones, BlindZone).Select(e => e.Value)
-                        .Where(id => conn.Monsters.GetValueOrDefault(id) is { } m && m.Effects["cannot_be_blinded"] == 0).ToHashSet()
+                        .Where(id => conn.Monsters.GetValueOrDefault(id) is { } m && m.Effects[Stat.CannotBeBlinded] == 0).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
                 {
@@ -262,7 +262,7 @@ public static partial class Game
                     ? PhysicalAegisRadius(conn, aegis) : 0;
                 HashSet<uint> aegisInside = aegisRadius > 0
                     ? ZoneMembers(conn, conn.PeerId, EnemyAuraZones, AegisBlindZone).Select(e => e.Value)
-                        .Where(id => conn.Monsters.GetValueOrDefault(id) is { } m && m.Effects["cannot_be_blinded"] == 0).ToHashSet()
+                        .Where(id => conn.Monsters.GetValueOrDefault(id) is { } m && m.Effects[Stat.CannotBeBlinded] == 0).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in aegis.Blind.Reconcile(
                     aegisInside, conn.Monsters.ContainsKey, () => conn.NextBuff++))

@@ -5,15 +5,15 @@ namespace GameServer.Gateway.Tests;
 public sealed class HitAndKillRecoveryTests
 {
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
-        stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
+        stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value);
 
-    static readonly Dictionary<string, int> GainRaw = new()
+    static readonly Dictionary<uint, int> GainRaw = new()
     {
-        ["base_life_gain_per_target"] = 44, ["mana_gain_per_target"] = 3, ["energy_shield_gain_per_target"] = 2,
+        [Stat.BaseLifeGainPerTarget] = 44, [Stat.ManaGainPerTarget] = 3, [Stat.EnergyShieldGainPerTarget] = 2,
     };
-    static readonly Dictionary<string, int> GainWeapon = new()
+    static readonly Dictionary<uint, int> GainWeapon = new()
     {
-        ["local_life_gain_per_target"] = 5, ["local_mana_gain_per_target"] = 1, ["local_life_and_mana_gain_per_target"] = 10,
+        [Stat.LocalLifeGainPerTarget] = 5, [Stat.LocalManaGainPerTarget] = 1, [Stat.LocalLifeAndManaGainPerTarget] = 10,
     };
 
     // Culling Strike, gain on hit and Life Recoup: what each source gives, and the hit that applies it.
@@ -52,7 +52,7 @@ public sealed class HitAndKillRecoveryTests
             Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, at, 900, cull).Life);
             Assert.Equal(520u, conn.PlayerLife);   // 2% of 1000 maximum Life
 
-            var immune = Monster(new([], [], new(new Dictionary<string, int> { ["immune_to_culling_strike"] = 1 })));
+            var immune = Monster(new([], [], new(new Dictionary<uint, int> { [Stat.ImmuneToCullingStrike] = 1 })));
             Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, immune, 900, cull).Life);
             Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, Monster(), 900, default).Life);
 
@@ -107,8 +107,8 @@ public sealed class HitAndKillRecoveryTests
         // Life Recoup: a share of each hit's damage taken, raised by the Life recovery rate, recovered evenly over the
         // 4 s after the hit (3 s with Nine Lives); overlapping hits keep their own ends.
         {
-            static Func<string, int> Get(params (string Name, int Value)[] stats) =>
-                name => stats.FirstOrDefault(s => s.Name == name).Value;
+            static Func<uint, int> Get(params (string Name, int Value)[] stats) =>
+                name => stats.FirstOrDefault(s => Stat.Of(s.Name) == name).Value;
             var hit = DamagePacket.Of(DamageType.Fire, 100, 100).Add(DamageType.Physical, new(50, 50));
             const string All = "damage_taken_goes_to_life_over_4_seconds_%";
             Assert.Equal(40, Game.LifeRecoupOf(Get((All, 10), ("fire_damage_taken_goes_to_life_over_4_seconds_%", 20),
@@ -139,21 +139,21 @@ public sealed class HitAndKillRecoveryTests
     public void Kills_recover_and_grant_onslaught_by_their_stats()
     {
         // Kill recovery comes from flat, per-level and percent stats, and from the corpse's ailments.
-        var raw = new Dictionary<string, int>
+        var raw = new Dictionary<uint, int>
         {
-            ["base_life_gained_on_enemy_death"] = 10, ["life_gained_on_enemy_death_per_level"] = 1,
-            ["recover_%_maximum_life_on_kill"] = 3, ["base_mana_gained_on_enemy_death"] = 4,
-            ["recover_%_maximum_mana_on_kill"] = 2, ["maximum_mana_%_gained_on_kill"] = 1,
-            ["base_energy_shield_gained_on_enemy_death"] = 7, ["recover_energy_shield_%_on_kill"] = 5,
-            ["life_gained_on_killing_ignited_enemies"] = 20, ["recover_%_maximum_life_on_killing_chilled_enemy"] = 1,
-            ["gain_X_energy_shield_on_killing_shocked_enemy"] = 9, ["recover_X_mana_on_killing_frozen_enemy"] = 6,
+            [Stat.BaseLifeGainedOnEnemyDeath] = 10, [Stat.LifeGainedOnEnemyDeathPerLevel] = 1,
+            [Stat.RecoverPctMaximumLifeOnKill] = 3, [Stat.BaseManaGainedOnEnemyDeath] = 4,
+            [Stat.RecoverPctMaximumManaOnKill] = 2, [Stat.MaximumManaPctGainedOnKill] = 1,
+            [Stat.BaseEnergyShieldGainedOnEnemyDeath] = 7, [Stat.RecoverEnergyShieldPctOnKill] = 5,
+            [Stat.LifeGainedOnKillingIgnitedEnemies] = 20, [Stat.RecoverPctMaximumLifeOnKillingChilledEnemy] = 1,
+            [Stat.GainXEnergyShieldOnKillingShockedEnemy] = 9, [Stat.RecoverXManaOnKillingFrozenEnemy] = 6,
         };
         var k = KillRecovery.From(raw.GetValueOrDefault, level: 20);
         Assert.Equal(new KillRecovery(30, 3, 4, 3, 7, 5), k.For(false, false, false, false));
         Assert.Equal(new KillRecovery(50, 4, 10, 3, 16, 5), k.For(true, true, true, true));
         Assert.Equal(new KillRecovery(30, 3, 10, 3, 7, 5), k.For(false, false, false, frozen: true));
-        raw["cannot_recover_life"] = 1;
-        raw["cannot_recover_energy_shield"] = 1;
+        raw[Stat.CannotRecoverLife] = 1;
+        raw[Stat.CannotRecoverEnergyShield] = 1;
         Assert.Equal(new KillRecovery(0, 0, 10, 3, 0, 0), KillRecovery.From(raw.GetValueOrDefault, level: 20).For(true, true, true, true));
 
         // A kill recovers at once by the corpse's ailments, and a dead player gains nothing.
@@ -184,13 +184,13 @@ public sealed class HitAndKillRecoveryTests
 
         // Each Onslaught-on-kill stat rolls its own duration, and a gain never shortens a longer one.
         {
-            var rolls = new Dictionary<string, int>
+            var rolls = new Dictionary<uint, int>
             {
-                ["chance_to_gain_onslaught_on_kill_%"] = 10, ["chance_to_gain_onslaught_on_kill_for_10_seconds_%"] = 100,
+                [Stat.ChanceToGainOnslaughtOnKillPct] = 10, [Stat.ChanceToGainOnslaughtOnKillFor10SecondsPct] = 100,
             };
             Assert.Equal([(10, 4.0), (100, 10.0)], KillOnslaught.From(rolls.GetValueOrDefault));
-            rolls["onslaught_time_granted_on_kill_ms"] = 6000;
-            rolls["onslaught_buff_duration_on_kill_ms"] = 8000;       // Maraketh: always, for 8 s
+            rolls[Stat.OnslaughtTimeGrantedOnKillMs] = 6000;
+            rolls[Stat.OnslaughtBuffDurationOnKillMs] = 8000;       // Maraketh: always, for 8 s
             Assert.Equal([(10, 6.0), (100, 8.0), (100, 10.0)], KillOnslaught.From(rolls.GetValueOrDefault));
 
             var o = new KillOnslaught { Rolls = [(100, 4.0)] };
@@ -220,8 +220,8 @@ public sealed class HitAndKillRecoveryTests
             o.Buff = 9;
             Assert.Null(o.Present(now + 1, alive: true, hidden: false));               // nothing new to send
             Assert.Equal(((ushort)9, (double?)null, false), o.Present(now + 1, alive: true, hidden: true)); // a flask's shows
-            var kill = Game.KillOnslaughtSources(conn, name => name == "onslaught_effect_+%" ? 50 : 0).ToList();
-            Assert.Equal(["attack_speed_+%", "base_cast_speed_+%", "base_movement_velocity_+%"], kill.Select(s => s.Stat));
+            var kill = Game.KillOnslaughtSources(conn, name => name == Stat.OnslaughtEffectPlusPct ? 50 : 0).ToList();
+            Assert.Equal(["attack_speed_+%", "base_cast_speed_+%", "base_movement_velocity_+%"], kill.Select(s => Program.Stats.Name(s.Stat)));
             Assert.All(kill, s => Assert.Equal(30, s.Value));      // 20% at 50% increased effect
             // A Silver Flask's Onslaught at 80% more flask effect is the same buff: the stronger counts, once.
             var flask = UtilityFlasks.OnslaughtSources(Program.Items.Onslaught!, 1.8);

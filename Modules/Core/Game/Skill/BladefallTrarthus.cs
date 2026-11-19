@@ -20,7 +20,7 @@ public static partial class Game
         if (BladefallVolleys.BuffRow(BladefallVolleys.CostBuff) is not ushort costRow
             || BladefallVolleys.BuffRow(BladefallVolleys.BladesBuff) is not ushort bladesRow) return false;
         var gem = SupportedSkill(conn, skillId);
-        int Own(string name) => Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
+        int Own(uint k) => gem.Stats.GetValueOrDefault(k);
         (ushort Id, ushort Action)? icon = SkillsFor(conn).ActionHash(gem.Effect) is ushort action ? (skillId, action) : null;
         BladefallTrarthusState state;
         lock (conn.Monsters)
@@ -28,7 +28,7 @@ public static partial class Game
             if (conn.BladefallTrarthus is not null || conn.PlayerLife == 0 || conn.PlayerMana == 0 || conn.Closed || conn.LeavingArea) return false;
             state = new(conn.NextBuff++, conn.NextBuff++, skillId)
             {
-                ManaPerMinute = BladefallVolleys.ManaPerMinute(Own("base_mana_cost_%_per_minute"), conn.Pools.Mana),
+                ManaPerMinute = BladefallVolleys.ManaPerMinute(Own(Stat.BaseManaCostPctPerMinute), conn.Pools.Mana),
                 NextVolley = conn.Clock.Elapsed.TotalSeconds + BladefallVolleySeconds(conn, Own),
             };
             conn.BladefallTrarthus = state;
@@ -44,9 +44,9 @@ public static partial class Game
         return true;
     }
 
-    static double BladefallVolleySeconds(Player conn, Func<string, int> own) =>
-        Math.Max(.05, BladefallVolleys.FrequencyMs(own("bladefall_base_volley_frequency_ms"),
-            own("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana) / 1000.0);
+    static double BladefallVolleySeconds(Player conn, Func<uint, int> own) =>
+        Math.Max(.05, BladefallVolleys.FrequencyMs(own(Stat.BladefallBaseVolleyFrequencyMs),
+            own(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), conn.Pools.Mana) / 1000.0);
 
     static Task SendBladefallManaSpent(Player conn, int perMinute) =>
         Stat.ManaSpentPerMinute is var key
@@ -113,7 +113,7 @@ public static partial class Game
                 {
                     await BladefallVolley(conn, state, bladeRow, random, now, Lands);
                     var own = SupportedSkill(conn, state.Skill).Stats;
-                    double interval = BladefallVolleySeconds(conn, n => Stats.Key(n) is uint k ? own.GetValueOrDefault(k) : 0);
+                    double interval = BladefallVolleySeconds(conn, n => n is var k ? own.GetValueOrDefault(k) : 0);
                     state.NextVolley = Math.Max(now, state.NextVolley + interval);
                 }
                 await Task.Delay(25);
@@ -129,17 +129,17 @@ public static partial class Game
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == state.Skill);
         if (gem.Name is null) { await EndBladefallTrarthus(conn, "the gem is gone"); return; }
         var supported = SupportedSkill(conn, state.Skill);
-        int Own(string name) => Stats.Key(name) is uint k ? supported.Stats.GetValueOrDefault(k) : 0;
+        int Own(uint k) => supported.Stats.GetValueOrDefault(k);
         (int X, int Y) at;
         lock (conn.Monsters) at = conn.Walk.Position(now);
         await AreaSkillHit(conn, state.Skill, gem, at, at, immediate: true);
         if (bladeRow is not uint row) return;
         var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
-        double lasts = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        int Player(uint k) => player.GetValueOrDefault(k);
+        double lasts = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         int radius = Math.Max(1, SkillRadius(conn, supported.Stats, true, supported.Effect));
-        int count = Math.Max(0, Own("bladefall_create_X_lingering_blades_per_volley"));
-        int most = Own("maximum_number_of_blades_left_in_ground") is int m and > 0 ? m : int.MaxValue;
+        int count = Math.Max(0, Own(Stat.BladefallCreateXLingeringBladesPerVolley));
+        int most = Own(Stat.MaximumNumberOfBladesLeftInGround) is int m and > 0 ? m : int.MaxValue;
         var created = new List<(uint Id, GroundBladeObject Blade)>();
         var removed = new List<uint>();
         lock (conn.Monsters)

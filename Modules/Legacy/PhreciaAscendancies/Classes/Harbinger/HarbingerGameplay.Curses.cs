@@ -18,13 +18,13 @@ internal sealed partial class HarbingerGameplay
         }
     }
     HarbingerCurses.Target Target(uint id, SpawnedMonster m) => new(id, m,
-        m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique, curseSources.Get(m, "immune_to_curses") != 0,
-        curseSources.Get(m, "hexproof") != 0, curseSources.Get(m, "reflect_curses") != 0)
+        m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique, curseSources.Get(m, Stat.ImmuneToCurses) != 0,
+        curseSources.Get(m, Stat.Hexproof) != 0, curseSources.Get(m, Stat.ReflectCurses) != 0)
         { Rate = RecipientEffectTime.Rate(5, name => m.Mods.Effects[name], temporalChains: true) };
 
     static void WithSelfCurse(Player conn, State state, Dictionary<uint, int> raw)
     {
-        int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
+        int Get(uint k) => raw.GetValueOrDefault(k);
         var self = state.Curses.SelfStats(Now(conn), conn.PlayerLife > 0, Get);
         if (Stat.TemporalChainsActionSpeedPlusPctFinal is var slow) raw[slow] = raw.GetValueOrDefault(slow) + self.Slow;
         if (Stat.BuffTimePassedPlusPctOtherThanTemporalChains is var other) raw[other] = raw.GetValueOrDefault(other) + self.OtherEffects;
@@ -33,21 +33,21 @@ internal sealed partial class HarbingerGameplay
     {
         if (conn.PlayerLife == 0) { state.Curses.Clear(); state.CurseCast = null; }
         var raw = CharacterStatSources(conn).Stats;
-        int Player(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
+        int Player(uint k) => raw.GetValueOrDefault(k);
         var living = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0)
             .Select(p => Target(p.Key, p.Value)).ToArray();
         HarbingerTemporalChains.Source Source(ushort skill, bool self)
         {
             var own = SupportedSkill(conn, skill).Stats;
-            int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
+            int Own(uint k) => own.GetValueOrDefault(k);
             return HarbingerTemporalChains.From(Player, Own, self);
         }
         int Radius(ushort skill)
         {
             var own = SupportedSkill(conn, skill).Stats;
-            int Get(string name) => Stats.Key(name) is uint k ? Player(name) + own.GetValueOrDefault(k) : 0;
+            int Get(uint k) => Player(k) + own.GetValueOrDefault(k);
             return SkillArea.Radius(OwnAuraRestriction.IsAura(own) ? AuraCatalog.BaseRadius : 16,
-                name => name == SkillArea.BaseIncreased ? Get(name) + Player("curse_area_of_effect_+%") : Get(name), spell: true);
+                name => name == SkillArea.BaseIncreased ? Get(name) + Player(Stat.CurseAreaOfEffectPlusPct) : Get(name), spell: true);
         }
         var changes = new List<HarbingerCurses.Change>();
         ushort? previousSelf = state.PresentedSelf;
@@ -58,7 +58,7 @@ internal sealed partial class HarbingerGameplay
             if (cast.Current() && SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains"
                 && GemSkillInstanceDisabled(conn, gem.Effect, cast.Skill) is null)
                 changes.AddRange(state.Curses.Apply(living.Where(t => Dist(((SpawnedMonster)t.Identity).Walk.Position(now), cast.Aim) <= Radius(cast.Skill)),
-                    cast.Skill, now, Source(cast.Skill, false), Player, () => conn.NextBuff++, Source(cast.Skill, true), Player("reflect_curses") != 0));
+                    cast.Skill, now, Source(cast.Skill, false), Player, () => conn.NextBuff++, Source(cast.Skill, true), Player(Stat.ReflectCurses) != 0));
         }
         var aura = conn.Auras.Values.FirstOrDefault(a => a.EffectId == "TemporalChains");
         if (aura is not null && GemSkillInstanceDisabled(conn, aura.Effect, aura.SkillId) is not null) aura = null;
@@ -68,9 +68,9 @@ internal sealed partial class HarbingerGameplay
         foreach (var change in changes)
         {
             var m = (SpawnedMonster)change.Target.Identity;
-            double oldRate = RecipientEffectTime.Rate(2, name => name == "buff_time_passed_+%_other_than_temporal_chains"
+            double oldRate = RecipientEffectTime.Rate(2, name => name == Stat.BuffTimePassedPlusPctOtherThanTemporalChains
                 ? change.Previous?.OtherEffects ?? 0 : m.Mods.Effects[name]);
-            double newRate = RecipientEffectTime.Rate(2, name => name == "buff_time_passed_+%_other_than_temporal_chains"
+            double newRate = RecipientEffectTime.Rate(2, name => name == Stat.BuffTimePassedPlusPctOtherThanTemporalChains
                 ? change.Current?.OtherEffects ?? 0 : m.Mods.Effects[name]);
             // Keep damage per second and accrued fractions. Only the remaining BASE lifetime changes.
             m.Ignites.SetExpiryRate(now, newRate);
@@ -84,8 +84,8 @@ internal sealed partial class HarbingerGameplay
             m.ReceivedActionFloor = curseSources.Get(m, HarbingerActionSpeed.ActionFloor) != 0;
             if (change.Previous is { } old) bytes.AddRange(InstanceEntities.RemoveBuff(change.Target.Id, old.Instance));
             var native = new List<(uint, int)>();
-            foreach (string name in new[] { "buff_time_passed_+%_other_than_temporal_chains", "temporal_chains_action_speed_+%_final" })
-                if (Stats.Key(name) is uint k) native.Add((k, name == "buff_time_passed_+%_other_than_temporal_chains"
+            foreach (uint name in new[] { Stat.BuffTimePassedPlusPctOtherThanTemporalChains, Stat.TemporalChainsActionSpeedPlusPctFinal })
+                native.Add((name, name == Stat.BuffTimePassedPlusPctOtherThanTemporalChains
                     ? m.Mods.Effects[name] + (change.Current?.OtherEffects ?? 0)
                     : change.Current?.Slow(change.Target.Rare) ?? 0));
             bytes.AddRange(InstanceEntities.StatsUpdate(change.Target.Id, native));

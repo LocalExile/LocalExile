@@ -40,8 +40,8 @@ public sealed class AvatarOfFireRotation
 
 public static partial class Game
 {
-    public const string AvatarRotationStat = "avatar_of_fire_rotation_active";
-    public const string AvatarKeystone = "keystone_avatar_of_fire";
+    public const uint AvatarRotationStat = Stat.AvatarOfFireRotationActive;
+    public const uint AvatarKeystone = Stat.KeystoneAvatarOfFire;
     public const ushort AvatarRotationBuffRow = 1012;
     static readonly Store<Player, AvatarOfFireRotation> AvatarRotations = new();
     public sealed record CarriedAvatar(uint[] Hosts, double Age);
@@ -51,8 +51,7 @@ public static partial class Game
     static Dictionary<string, bool> RequalifyAvatarOfFire(Player conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key
-            ? raw.GetValueOrDefault(key) : 0;
+        int Get(uint key) => raw.GetValueOrDefault(key);
         var equipment = ItemsOf(conn).EquipmentSnapshot();
         var active = activeItems?.ToArray();
         if (conn.LeavingArea) return new(flags)
@@ -84,14 +83,14 @@ public static partial class Game
     {
         bool active = conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_you_have_avatar_of_fire") == true;
         if (!active) return sources;
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (Stats.Key(name) is uint key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+            if (name is var key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         }
-        if (Stats.Key(AvatarKeystone) is uint avatar) sources[avatar] = Math.Max(1, sources.GetValueOrDefault(avatar));
-        foreach (string type in new[] { "physical", "lightning", "cold" }) Add($"base_{type}_damage_%_to_convert_to_fire", 50);
+        if (AvatarKeystone is var avatar) sources[avatar] = Math.Max(1, sources.GetValueOrDefault(avatar));
+        foreach (string type in new[] { "physical", "lightning", "cold" }) Add(Stat.Of($"base_{type}_damage_%_to_convert_to_fire"), 50);
         // Use the existing final-type prohibitions: converted Fire is kept, while unconverted non-Fire is removed.
-        foreach (string type in new[] { "physical", "lightning", "cold", "chaos" }) Add($"base_deal_no_{type}_damage", 1);
+        foreach (string type in new[] { "physical", "lightning", "cold", "chaos" }) Add(Stat.Of($"base_deal_no_{type}_damage"), 1);
         return sources;
     }
 

@@ -110,22 +110,22 @@ public static partial class Game
             RefreshPeerScale(conn, stats.Single(s => s.Item1 == ActorScale.Final).Item2);
         }
         // The ground around a stationary player follows the stats the client was told (the stat presentations).
-        int Sent(string name) => Stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int Sent(uint key) => stats.FirstOrDefault(s => s.Item1 == key).Item2;
         conn.FlaskGrounds.Configure(FlaskGrounds.StationaryRadius(Sent), Sent(FlaskGrounds.LingerStat),
             Sent(FlaskGrounds.ProfaneLingerStat));
         // So do the player's debuffs on monsters (EnemyDebuffsTick): his passives' enemy auras and his taunt's increase.
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
-        conn.EnemyDebuffs = new(Sent("taunted_enemies_damage_taken_+%"));
+        conn.EnemyDebuffs = new(Sent(Stat.TauntedEnemiesDamageTakenPlusPct));
         return stats;
     }
 
-    public const string LowestAttributeDamage = "damage_+%_per_5_of_your_lowest_attribute";
-    public static readonly (string Conditional, string Plain, string Higher, string Lower)[] AttributeAilmentConditions =
+    public const uint LowestAttributeDamage = Stat.DamagePlusPctPer5OfYourLowestAttribute;
+    public static readonly (uint Conditional, uint Plain, uint Higher, uint Lower)[] AttributeAilmentConditions =
     [
-        ("cannot_be_ignited_with_strength_higher_than_dex", "cannot_be_ignited", "strength", "dexterity"),
-        ("cannot_be_frozen_with_dex_higher_than_int", "cannot_be_frozen", "dexterity", "intelligence"),
-        ("cannot_be_shocked_with_int_higher_than_strength", "cannot_be_shocked", "intelligence", "strength"),
+        (Stat.CannotBeIgnitedWithStrengthHigherThanDex, Stat.CannotBeIgnited, Stat.Strength, Stat.Dexterity),
+        (Stat.CannotBeFrozenWithDexHigherThanInt, Stat.CannotBeFrozen, Stat.Dexterity, Stat.Intelligence),
+        (Stat.CannotBeShockedWithIntHigherThanStrength, Stat.CannotBeShocked, Stat.Intelligence, Stat.Strength),
     ];
 
     public static IEnumerable<(uint, int)> FinalPlayerStats(Player conn)
@@ -185,7 +185,7 @@ public static partial class Game
             int offSpeed = list.First(s => s.Item1 == Stat.OffHandAttackSpeedPlusPct).Item2;
             var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(mainHit, weapon.AttackSeconds(stats),
                 offHit, DualWieldPanel.OffHandSeconds(off, offSpeed), damageFactor,
-                OffHandDamageFactor(conn, stats, n => Stats.Key(n) is uint key ? stats.GetValueOrDefault(key) : 0, own: null));
+                OffHandDamageFactor(conn, stats, n => n is var key ? stats.GetValueOrDefault(key) : 0, own: null));
             Put(Stat.DisplayHundredTimesDamagePerSkillUse, perUse);
             Put(Stat.HundredTimesDamagePerSecond, perSecond);
             Put(Stat.HundredTimesAttacksPerSecond, attacksPerSecond);
@@ -202,29 +202,29 @@ public static partial class Game
         void AddHand(GameServer.Core.World.DamagePacket hit, string hand)
         {
             foreach (var (stat, value) in PanelStats.HandDamage(hit, hand))
-                if (Stats.Key(stat) is uint key) Put(key, value);
+                if (stat is var key) Put(key, value);
         }
     }
 
     // The off hand's critical-weighted, hit-chance-weighted damage factor for the dual-wield average, from the Off Hand
     // rows already worked out (OffHandPanelStats; rows: the published ones, or a selected gem's); null when no off hand
     // is swung, so the average falls back to the main hand's factor.
-    public static double? OffHandDamageFactor(Player conn, IReadOnlyDictionary<uint, int> player, Func<string, int> rows,
+    public static double? OffHandDamageFactor(Player conn, IReadOnlyDictionary<uint, int> player, Func<uint, int> rows,
         IReadOnlyDictionary<uint, int>? own)
     {
-        if (rows("skill_uses_off_hand") == 0) return null;
-        return CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(player, attack: true, own) ? 0 : rows("off_hand_critical_strike_chance"),
-            rows("off_hand_critical_strike_multiplier"), CriticalExtraRollsFor(conn, player, own), rows("off_hand_chance_to_hit_%"));
+        if (rows(Stat.SkillUsesOffHand) == 0) return null;
+        return CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(player, attack: true, own) ? 0 : rows(Stat.OffHandCriticalStrikeChance),
+            rows(Stat.OffHandCriticalStrikeMultiplier), CriticalExtraRollsFor(conn, player, own), rows(Stat.OffHandChanceToHitPct));
     }
 
     public static AttackAccuracyProfile OrdinaryAccuracy(Player conn, IReadOnlyDictionary<uint, int> stats,
-        IReadOnlyDictionary<string, int>? local) =>
+        IReadOnlyDictionary<uint, int>? local) =>
         OrdinaryAccuracy(SkillsFor(conn), SkillEffectId(conn, SkillCatalog.FirstSkillId), conn.Pools, stats, local)
             with { Rating = PlayerAccuracy(conn, stats) };
 
     // From the default attack's GrantedEffects Id (SkillEffectId of the first skill) and the pools as read once.
     public static AttackAccuracyProfile OrdinaryAccuracy(SkillCatalog skills, string? attackEffectId, CharacterStats.Pools pools,
-        IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<string, int>? local)
+        IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int>? local)
     {
         int effect = attackEffectId is { } id ? skills.EffectRow(id) : -1;
         var own = skills.EffectStats(effect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2);
@@ -247,22 +247,21 @@ public static partial class Game
     // spell_effective_total_chance_permyriad_for_hit_to_be_critical / _double_critical: the spell chance after the
     // luck policy (CriticalExtraRollsFor) and the Assassin's bifurcation (spell_critical_strikes_bifurcate); zero when
     // critical strikes are prohibited, as the chance row itself is.
-    public static IEnumerable<(string Stat, int Value)> SpellEffectiveCritical(Player conn, IReadOnlyDictionary<uint, int> player,
+    public static IEnumerable<(uint Stat, int Value)> SpellEffectiveCritical(Player conn, IReadOnlyDictionary<uint, int> player,
         int chance, IReadOnlyDictionary<uint, int>? own) =>
         SpellEffectiveCritical(() => CriticalOnLowLife(conn, player), player, chance, own);
 
     // onLowLife: CriticalOnLowLife of the same player stats, asked when the rows are enumerated, as the line above does.
-    public static IEnumerable<(string Stat, int Value)> SpellEffectiveCritical(Func<bool> onLowLife, IReadOnlyDictionary<uint, int> player,
+    public static IEnumerable<(uint Stat, int Value)> SpellEffectiveCritical(Func<bool> onLowLife, IReadOnlyDictionary<uint, int> player,
         int chance, IReadOnlyDictionary<uint, int>? own)
     {
-        bool Flag(string name) => Stats.Key(name) is uint key
-            && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
+        bool Flag(uint key) => (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
         int allowed = CriticalProhibitedBy(player, attack: false, own) ? 0 : chance;
         int extraRolls = CriticalExtraRollsFor(onLowLife(), player, own);
-        bool bifurcate = Flag("spell_critical_strikes_bifurcate");
-        yield return ("spell_effective_total_chance_permyriad_for_hit_to_be_critical",
+        bool bifurcate = Flag(Stat.SpellCriticalStrikesBifurcate);
+        yield return (Stat.SpellEffectiveTotalChancePermyriadForHitToBeCritical,
             CriticalStrikePolicy.EffectiveChance(allowed, extraRolls, bifurcate));
-        yield return ("spell_effective_total_chance_permyriad_for_hit_to_be_double_critical",
+        yield return (Stat.SpellEffectiveTotalChancePermyriadForHitToBeDoubleCritical,
             CriticalStrikePolicy.DoubleCriticalChance(allowed, extraRolls, bifurcate));
     }
 
@@ -314,63 +313,63 @@ public static partial class Game
         int referenceEvasiveEvasion = Monsters.BaseEvasiveEvasion(pools.Level) ?? 0;
         int chanceToHit = DamageModel.AccuracyHitChance(referenceEvasion, pools.Accuracy);
         int evasiveChanceToHit = DamageModel.AccuracyHitChance(referenceEvasiveEvasion, pools.Accuracy);
-        foreach (var (stat, value) in new[] { ("level", pools.Level), ("base_maximum_life", (int)pools.Life), ("maximum_life", (int)pools.Life),
-            ("base_maximum_mana", (int)pools.Mana), ("maximum_mana", (int)pools.Mana), ("accuracy_rating", pools.Accuracy),
-            ("main_hand_accuracy_rating", pools.Accuracy), ("off_hand_accuracy_rating", pools.Accuracy),
-            ("main_hand_chance_to_hit_%", chanceToHit), ("off_hand_chance_to_hit_%", chanceToHit),
-            ("main_hand_chance_to_hit_evasive_monsters_%", evasiveChanceToHit),
-            ("off_hand_chance_to_hit_evasive_monsters_%", evasiveChanceToHit),
-            ("character_sheet_reference_evasion", referenceEvasion),
-            ("character_sheet_reference_high_dex_evasion", referenceEvasiveEvasion),
-            ("physical_damage_reduction_rating", pools.Armour), ("physical_damage_reduction_rating_+%", pools.ArmourPct),
-            ("base_evasion_rating", CharacterStats.BaseEvasion), ("evasion_rating", pools.Evasion), ("evasion_rating_+%", pools.EvasionPct),
-            ("maximum_energy_shield", (int)pools.EnergyShield), ("maximum_energy_shield_+%", pools.EnergyShieldPct), ("melee_physical_damage_+%", pools.MeleePhysicalDamagePct),
-            ("movement_velocity_+%", pools.MovementVelocityPct),
-            ("combined_base_block_%", pools.BlockChanceBase), ("attack_block_%", pools.BlockChance),
+        foreach (var (stat, value) in new[] { (Stat.Level, pools.Level), (Stat.BaseMaximumLife, (int)pools.Life), (Stat.MaximumLife, (int)pools.Life),
+            (Stat.BaseMaximumMana, (int)pools.Mana), (Stat.MaximumMana, (int)pools.Mana), (Stat.AccuracyRating, pools.Accuracy),
+            (Stat.MainHandAccuracyRating, pools.Accuracy), (Stat.OffHandAccuracyRating, pools.Accuracy),
+            (Stat.MainHandChanceToHitPct, chanceToHit), (Stat.OffHandChanceToHitPct, chanceToHit),
+            (Stat.MainHandChanceToHitEvasiveMonstersPct, evasiveChanceToHit),
+            (Stat.OffHandChanceToHitEvasiveMonstersPct, evasiveChanceToHit),
+            (Stat.CharacterSheetReferenceEvasion, referenceEvasion),
+            (Stat.CharacterSheetReferenceHighDexEvasion, referenceEvasiveEvasion),
+            (Stat.PhysicalDamageReductionRating, pools.Armour), (Stat.PhysicalDamageReductionRatingPlusPct, pools.ArmourPct),
+            (Stat.BaseEvasionRating, CharacterStats.BaseEvasion), (Stat.EvasionRating, pools.Evasion), (Stat.EvasionRatingPlusPct, pools.EvasionPct),
+            (Stat.MaximumEnergyShield, (int)pools.EnergyShield), (Stat.MaximumEnergyShieldPlusPct, pools.EnergyShieldPct), (Stat.MeleePhysicalDamagePlusPct, pools.MeleePhysicalDamagePct),
+            (Stat.MovementVelocityPlusPct, pools.MovementVelocityPct),
+            (Stat.CombinedBaseBlockPct, pools.BlockChanceBase), (Stat.AttackBlockPct, pools.BlockChance),
             // The character panel prints attack block as "capped% (uncapped%)"; the client does not derive the second value.
-            ("uncapped_attack_block_%", pools.BlockChanceUncapped),
+            (Stat.UncappedAttackBlockPct, pools.BlockChanceUncapped),
             // A separate spell block row is only drawn when display_spell_block_chance is non-zero.
-            ("spell_block_%", pools.SpellBlockChance), ("display_spell_block_chance", pools.SpellBlockChance),
-            ("base_spell_block_%", 0),
+            (Stat.SpellBlockPct, pools.SpellBlockChance), (Stat.DisplaySpellBlockChance, pools.SpellBlockChance),
+            (Stat.BaseSpellBlockPct, 0),
             // Resistance display: the client shows fire_damage_resistance_% as the capped value and
             // uncapped_fire_damage_resistance_% (and the other three) in parentheses as the overcap. The passives' base
             // resistances are already summed into the pools, so zero the all-elements input to avoid counting it twice. The
             // maximum-resistance passives stay in BaseStats: the client adds them to its own 75 base. Do not send maximum_*
             // here; those keys are additive maximum-resistance modifiers, so sending 75 would count the base twice.
-            ("base_resist_all_elements_%", 0),
-            ("base_fire_damage_resistance_%", pools.FireResistance),
-            ("fire_damage_resistance_%", DamageModel.Capped(pools.FireResistance, pools.FireMaxResistance)),
-            ("uncapped_fire_damage_resistance_%", pools.FireResistance),
-            ("base_cold_damage_resistance_%", pools.ColdResistance),
-            ("cold_damage_resistance_%", DamageModel.Capped(pools.ColdResistance, pools.ColdMaxResistance)),
-            ("uncapped_cold_damage_resistance_%", pools.ColdResistance),
-            ("base_lightning_damage_resistance_%", pools.LightningResistance),
-            ("lightning_damage_resistance_%", DamageModel.Capped(pools.LightningResistance, pools.LightningMaxResistance)),
-            ("uncapped_lightning_damage_resistance_%", pools.LightningResistance),
-            ("base_chaos_damage_resistance_%", pools.ChaosResistance),
-            ("chaos_damage_resistance_%", DamageModel.Capped(pools.ChaosResistance, pools.ChaosMaxResistance)),
-            ("uncapped_chaos_damage_resistance_%", pools.ChaosResistance),
+            (Stat.BaseResistAllElementsPct, 0),
+            (Stat.BaseFireDamageResistancePct, pools.FireResistance),
+            (Stat.FireDamageResistancePct, DamageModel.Capped(pools.FireResistance, pools.FireMaxResistance)),
+            (Stat.UncappedFireDamageResistancePct, pools.FireResistance),
+            (Stat.BaseColdDamageResistancePct, pools.ColdResistance),
+            (Stat.ColdDamageResistancePct, DamageModel.Capped(pools.ColdResistance, pools.ColdMaxResistance)),
+            (Stat.UncappedColdDamageResistancePct, pools.ColdResistance),
+            (Stat.BaseLightningDamageResistancePct, pools.LightningResistance),
+            (Stat.LightningDamageResistancePct, DamageModel.Capped(pools.LightningResistance, pools.LightningMaxResistance)),
+            (Stat.UncappedLightningDamageResistancePct, pools.LightningResistance),
+            (Stat.BaseChaosDamageResistancePct, pools.ChaosResistance),
+            (Stat.ChaosDamageResistancePct, DamageModel.Capped(pools.ChaosResistance, pools.ChaosMaxResistance)),
+            (Stat.UncappedChaosDamageResistancePct, pools.ChaosResistance),
             // The character panel reads the final suppression values, not only the raw passive input.
-            ("spell_suppression_chance_%", pools.SpellSuppressionChance),
-            ("base_spell_suppression_chance_%", pools.SpellSuppressionChance),
-            ("combined_spell_suppression_chance_%", pools.SpellSuppressionChance),
-            ("spell_damage_%_suppressed", pools.SpellSuppressionEffect),
-            ("base_spell_damage_%_suppressed", pools.SpellSuppressionEffect),
+            (Stat.SpellSuppressionChancePct, pools.SpellSuppressionChance),
+            (Stat.BaseSpellSuppressionChancePct, pools.SpellSuppressionChance),
+            (Stat.CombinedSpellSuppressionChancePct, pools.SpellSuppressionChance),
+            (Stat.SpellDamagePctSuppressed, pools.SpellSuppressionEffect),
+            (Stat.BaseSpellDamagePctSuppressed, pools.SpellSuppressionEffect),
             // The Offence panel's crit rows read these final values (permyriad for chance, percent for multiplier).
-            ("main_hand_critical_strike_chance", pools.AttackCriticalStrikeChance),
-            ("main_hand_critical_strike_multiplier", pools.CriticalStrikeMultiplier),
-            ("spell_critical_strike_chance", pools.SpellCriticalStrikeChance),
-            ("spell_critical_strike_multiplier", pools.SpellCriticalStrikeMultiplier) })
-            if (Stats.Key(stat) is uint key) yield return (key, value);
+            (Stat.MainHandCriticalStrikeChance, pools.AttackCriticalStrikeChance),
+            (Stat.MainHandCriticalStrikeMultiplier, pools.CriticalStrikeMultiplier),
+            (Stat.SpellCriticalStrikeChance, pools.SpellCriticalStrikeChance),
+            (Stat.SpellCriticalStrikeMultiplier, pools.SpellCriticalStrikeMultiplier) })
+            if (stat is var key) yield return (key, value);
         // Calculated attributes include legitimate all-zero values. Legacy partial pool records without attributes
         // still fall back to the class's own; record clones preserve the explicit resolved marker.
         var c = Skills.ClassFor(classRow);
         var (str, dex, intel) = pools.AttributesResolved || pools.Strength != 0 || pools.Dexterity != 0 || pools.Intelligence != 0
             ? (pools.Strength, pools.Dexterity, pools.Intelligence) : (c.Strength, c.Dexterity, c.Intelligence);
-        foreach (var (stat, value) in new[] { ("strength", str), ("dexterity", dex), ("intelligence", intel),
-            ("virtual_strength_for_requirements", str), ("virtual_dexterity_for_requirements", dex),
-            ("virtual_intelligence_for_requirements", intel) })
-            if (Stats.Key(stat) is uint key) yield return (key, value);
+        foreach (var (stat, value) in new[] { (Stat.Strength, str), (Stat.Dexterity, dex), (Stat.Intelligence, intel),
+            (Stat.VirtualStrengthForRequirements, str), (Stat.VirtualDexterityForRequirements, dex),
+            (Stat.VirtualIntelligenceForRequirements, intel) })
+            if (stat is var key) yield return (key, value);
     }
 
     // The skills of the gems socketed in the equipped items: each gem's GrantedEffects row at the gem's level with its own stats
@@ -427,13 +426,13 @@ public static partial class Game
             if (Stat.BaseSkillEffectDuration is var baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
                 && Stat.SkillEffectDuration is var durationKey)
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
-                    name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
-                    name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
+                    name => name is var k ? playerStats.GetValueOrDefault(k) : 0,
+                    name => name is var k ? own.GetValueOrDefault(k) : 0));
             // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
             // virtual_self_targeted_skills_target_location_instead, which its calculator (FUN_14289d210) derives from these
             // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).
-            if (new[] { "nova_spells_cast_at_target_location", "casting_spell", "skill_is_nova_skill" }
-                    .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
+            if (new[] { Stat.NovaSpellsCastAtTargetLocation, Stat.CastingSpell, Stat.SkillIsNovaSkill }
+                    .All(n => n is var k && stats.GetValueOrDefault(k) != 0)
                 && Stat.VirtualSelfTargetedSkillsTargetLocationInstead is var novaKey)
                 stats[novaKey] = 1;
             // Parallel volley (0x141bbb460): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
@@ -458,9 +457,9 @@ public static partial class Game
             foreach (var (k, v) in SkillCosmeticDerivedStats(conn, stats)) stats[k] = v;
             // A Crucible weapon's "Flicker Strike and Vigilant Strike's Cooldown can be bypassed by Power Charges": the client
             // reads only the skill's own override (CooldownBypass.FlickerVigilantPowerOverride), so it goes on these skills.
-            if (Stats.Key(CooldownBypass.FlickerVigilantPowerOverride) is uint crucibleKey && playerStats.GetValueOrDefault(crucibleKey) != 0
+            if (CooldownBypass.FlickerVigilantPowerOverride is var crucibleKey && playerStats.GetValueOrDefault(crucibleKey) != 0
                 && CooldownBypass.FlickerVigilantOverride(SkillsFor(conn).EffectId(effect), SkillsFor(conn).CooldownBypassType(effect, level))
-                && Stats.Key(CooldownBypass.PowerOverride) is uint overrideKey)
+                && CooldownBypass.PowerOverride is var overrideKey)
                 stats[overrideKey] = 1;
             // The worn effect's skill_art_variation counts from the skill's own (SkillArtBase: Holy Sweep's is 2).
             if (Stat.SkillArtVariation is var artKey
@@ -486,7 +485,7 @@ public static partial class Game
             }
             // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
             // came with the player's stats.
-            int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+            int Get(uint k) => stats.GetValueOrDefault(k);
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
             if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stat.SpellRepeatCount is var repeatKey)
                 stats[repeatKey] = repeats;
@@ -497,7 +496,7 @@ public static partial class Game
             if (SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect)))
             {
                 // The player's base area is in the panel total already (AreaPlayerStats): only the gem's own counts here.
-                int AreaGet(string name) => name == SkillArea.BaseIncreased ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) : Get(name);
+                int AreaGet(uint name) => name == SkillArea.BaseIncreased ? own.GetValueOrDefault(name) : Get(name);
                 int baseRadius = SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), AreaGet);
                 int increased = SkillArea.Increased(AreaGet, spell: false);
                 int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
@@ -515,10 +514,10 @@ public static partial class Game
             // explosion radius; its StatSet omits active_skill_base_area_of_effect_radius, whose base is 9 (0x141b6baa0).
             else if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(effect)))
             {
-                int AreaGet(string name) => name == SkillArea.BaseIncreased
-                    ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + Get("molten_strike_radius_+%")
+                int AreaGet(uint name) => name == SkillArea.BaseIncreased
+                    ? own.GetValueOrDefault(name) + Get(Stat.MoltenStrikeRadiusPlusPct)
                     : Get(name);
-                int baseRadius = Get("active_skill_base_area_of_effect_radius") is > 0 and var br ? br : 9;
+                int baseRadius = Get(Stat.ActiveSkillBaseAreaOfEffectRadius) is > 0 and var br ? br : 9;
                 int increased = SkillArea.Increased(AreaGet, spell: false);
                 int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
                 int radius = SkillArea.Radius(baseRadius, AreaGet, spell: false);
@@ -528,24 +527,24 @@ public static partial class Game
             }
             // Other area skills: the client's effect builders read the final radius (0x4876) too; without it Ice Nova drew
             // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
-            else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
+            else if (Get(Stat.ActiveSkillBaseAreaOfEffectRadius) > 0 && Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
                 stats[finalRadius] = SkillRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
             // The final secondary radius too (0x4879): Holy Sweep's hammer art scales to it over its base size
             // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
-            if (Get("active_skill_base_secondary_area_of_effect_radius") > 0
+            if (Get(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius) > 0
                 && Stat.ActiveSkillSecondaryAreaOfEffectRadius is var secondaryRadius)
                 stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect));
             // Hammerfalls' controller times its waves by the skill's combined_main_hand_attack_speed_+% (0x141b1a270); with
             // none sent its waves kept 0.7 s whatever the attack speed (live 2026-11-11). The server's waves read the same.
-            if (Get("holy_sweep_hammerfall_rate_ms") > 0 && Stat.CombinedMainHandAttackSpeedPlusPct is var combinedSpeed)
+            if (Get(Stat.HolySweepHammerfallRateMs) > 0 && Stat.CombinedMainHandAttackSpeedPlusPct is var combinedSpeed)
                 stats[combinedSpeed] = SupportedMainHandAttackSpeedPct(conn, id);
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
-            if (!SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0
+            if (!SkillsFor(conn).IsAttack(effect) && Get(Stat.DisplaySkillDealsSecondaryDamage) != 0
                 && SkillsFor(conn).SecondaryHitDamage(effect, supported.Level, supported.Quality) is { IsZero: false } secondaryBase)
             {
                 foreach (var (stat, value) in SecondaryPanelRows(conn, Get, playerStats, supported, secondaryBase))
-                    if (Stats.Key(stat) is uint key)
+                    if (stat is var key)
                         stats[key] = value;
             }
             else if (SkillsFor(conn).IsAttack(effect) || SkillsFor(conn).IsSpell(effect))
@@ -553,7 +552,7 @@ public static partial class Game
                 // One read of the gem's hit inputs serves its hit, its ailment rows and (dual-wielded) the off hand's.
                 // Reap's more damage per Blood Charge held scales the hit itself, as AreaSkillHit does, so the damage
                 // ranges, the ailment rows and the per-use/per-second rows agree.
-                double bloodMore = BloodChargeDamageMore(conn, name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0);
+                double bloodMore = BloodChargeDamageMore(conn, name => name is var k ? own.GetValueOrDefault(k) : 0);
                 // A shield skill's rows are the shield's hit and swing (ShieldWeapon), as its hits are: the gem's own
                 // AttackTime at the off hand's speed, without the main weapon's local attack speed.
                 var shieldWeapon = ShieldWeapon(conn, id);
@@ -577,7 +576,7 @@ public static partial class Game
                     : SpellPanelStats.Compute(finalPlan, supportedHit, 1 / seconds,
                         includeMainHand: true, damageFactor: damageFactor);
                 foreach (var (key, value) in ranges)
-                    if (Stats.Key(key) is uint statKey) stats[statKey] = value;
+                    if (key is var statKey) stats[statKey] = value;
                 if (SkillsFor(conn).IsAttack(effect))
                 {
                     // Additional base time belongs in the duration row, not in an equivalent attack-speed penalty.
@@ -587,11 +586,11 @@ public static partial class Game
                     stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {
-                        ("main_hand_accuracy_rating", accuracy.Rating),
-                        ("main_hand_chance_to_hit_%", accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false)),
-                        ("main_hand_chance_to_hit_evasive_monsters_%", accuracy.Chance(Monsters.BaseEvasiveEvasion(conn.Pools.Level) ?? 0, false, false)),
+                        (Stat.MainHandAccuracyRating, accuracy.Rating),
+                        (Stat.MainHandChanceToHitPct, accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false)),
+                        (Stat.MainHandChanceToHitEvasiveMonstersPct, accuracy.Chance(Monsters.BaseEvasiveEvasion(conn.Pools.Level) ?? 0, false, false)),
                     })
-                        if (Stats.Key(field) is uint key)
+                        if (field is var key)
                             stats[key] = value;
                     // A dual-wielded attack gem swings the off hand too: its own rows, with the same supports, and the
                     // per-use / per-second / attacks-per-second rows average both hands.
@@ -607,33 +606,31 @@ public static partial class Game
                         {
                             int offBaseMs = SkillAttackTiming.BaseMilliseconds(offWeapon.AttackMs, additionalAttackMs);
                             int offSpeed = (int)Math.Round((offBaseMs / (offSeconds * 1000) - 1) * 100);
-                            offHand[offHand.FindIndex(row => row.Stat == "off_hand_attack_speed_+%")] = ("off_hand_attack_speed_+%", offSpeed);
+                            offHand[offHand.FindIndex(row => row.Stat == Stat.OffHandAttackSpeedPlusPct)] = (Stat.OffHandAttackSpeedPlusPct, offSpeed);
                         }
                         var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(supportedHit, seconds, offHit,
                             offSeconds, damageFactor,
                             OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
-                            if (Stats.Key(field) is uint key)
+                            if (field is var key)
                                 stats[key] = value;
                         stats[Stat.DisplayHundredTimesDamagePerSkillUse] = perUse;
                         stats[Stat.HundredTimesDamagePerSecond] = perSecond;
                         stats[Stat.HundredTimesAttacksPerSecond] = attacksPerSecond;
                     }
                 }
-                if (Stats.Key(SkillsFor(conn).IsAttack(effect) ? "main_hand_critical_strike_chance" : "spell_critical_strike_chance") is uint ck)
-                    stats[ck] = criticalChance;
-                if (Stats.Key(SkillsFor(conn).IsAttack(effect) ? "main_hand_critical_strike_multiplier" : "spell_critical_strike_multiplier") is uint cm)
-                    stats[cm] = criticalMultiplier;
+                stats[SkillsFor(conn).IsAttack(effect) ? Stat.MainHandCriticalStrikeChance : Stat.SpellCriticalStrikeChance] = criticalChance;
+                stats[SkillsFor(conn).IsAttack(effect) ? Stat.MainHandCriticalStrikeMultiplier : Stat.SpellCriticalStrikeMultiplier] = criticalMultiplier;
                 if (!SkillsFor(conn).IsAttack(effect))
                     foreach (var (stat, value) in SpellEffectiveCritical(conn, characterInputs, criticalChance, own))
-                        if (Stats.Key(stat) is uint key) stats[key] = value;
+                        if (stat is var key) stats[key] = value;
                 // A spell flagged as dealing secondary damage (Vaal Detonate Dead) fills the secondary rows with its
                 // hit and critical values; the panel then draws those instead of the spell rows.
-                bool secondary = !SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0;
+                bool secondary = !SkillsFor(conn).IsAttack(effect) && Get(Stat.DisplaySkillDealsSecondaryDamage) != 0;
                 if (secondary)
                 {
                     foreach (var (stat, value) in PanelStats.HandDamage(supportedHit, "secondary"))
-                        if (Stats.Key(stat) is uint key) stats[key] = value;
+                        if (stat is var key) stats[key] = value;
                     if (Stat.SecondaryCriticalStrikeChance is var sc) stats[sc] = criticalChance;
                     if (Stat.SecondaryCriticalStrikeMultiplier is var sm) stats[sm] = criticalMultiplier;
                 }
@@ -645,12 +642,12 @@ public static partial class Game
                     ailmentRows.InsertRange(0, AilmentPanelStats.Rows("main_hand").Concat(AilmentPanelStats.Rows("off_hand")).Select(n => (n, 0)));
                 if (offInputs is not null) ailmentRows.AddRange(SupportedAilmentRowsFrom(offInputs, "off_hand"));
                 foreach (var (stat, value) in ailmentRows)
-                    if (Stats.Key(stat) is uint key)
+                    if (stat is var key)
                         stats[key] = value;
             }
             // Movement and other skills whose base flag asks the panel for Damage per Use rather than per second.
             if (Stat.SkillShowAverageDamageInsteadOfDps is var showAverage)
-                stats[showAverage] = Get("base_skill_show_average_damage_instead_of_dps") != 0 ? 1 : 0;
+                stats[showAverage] = Get(Stat.BaseSkillShowAverageDamageInsteadOfDps) != 0 ? 1 : 0;
             stats[OwnAuraRestriction.BaseAura] = own.GetValueOrDefault(OwnAuraRestriction.BaseAura);
             OwnAuraRestriction.PublishSkill(stats, OwnAuraRestrictionValue(conn));
             if (OwnAuraRestriction.IsAura(stats) && SublimeDisables(conn, effect, playerStats))
@@ -660,15 +657,15 @@ public static partial class Game
                 && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
-            int RawPanel(string stat) => Stats.Key(stat) is uint key ? panelSources.Raw.GetValueOrDefault(key) : 0;
-            int OwnPanel(string stat) => Stats.Key(stat) is uint key ? own.GetValueOrDefault(key) : 0;
+            int RawPanel(uint key) => panelSources.Raw.GetValueOrDefault(key);
+            int OwnPanel(uint key) => own.GetValueOrDefault(key);
             bool projectileAttack = SkillsFor(conn).IsAttack(effect) && ResolveProjectilePanelParameters(effect) is not null;
             foreach (var (stat, value) in PanelStats.Selected(RawPanel, OwnPanel, panelSources.PlayerLevel,
                 panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
                 panelSources.MainArmed, panelSources.OffArmed, projectileAttack, projectileAttack && panelSources.OffArmed))
-                if (Stats.Key(stat) is uint key)
+                if (stat is var key)
                     stats[key] = value;
-            if (Stats.Key(VaalSoulCost.Aura) is uint aura)
+            if (VaalSoulCost.Aura is var aura)
                 stats[aura] = VaalSoulInput(conn, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(conn, playerStats, own, stats);
@@ -677,55 +674,55 @@ public static partial class Game
                 PublishVaalRageCost(conn, id, stats);
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.
             // Network stat snapshots do not run the client's stat calculators.
-            void Publish(string stat, int value) { if (Stats.Key(stat) is uint key) stats[key] = value; }
+            void Publish(uint stat, int value) { if (stat is var key) stats[key] = value; }
             // A cost of a share of maximum mana over time (Bladefall of Trarthus): its final, virtual per-minute amount.
-            if (Get("base_mana_cost_%_per_minute") is int costPct and > 0)
-                Publish("mana_cost_per_minute", BladefallVolleys.ManaPerMinute(costPct, conn.Pools.Mana));
+            if (Get(Stat.BaseManaCostPctPerMinute) is int costPct and > 0)
+                Publish(Stat.ManaCostPerMinute, BladefallVolleys.ManaPerMinute(costPct, conn.Pools.Mana));
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
-            if (Get("bladefall_base_volley_frequency_ms") is int volleyMs and > 0)
-                Publish("bladefall_volley_frequency_ms", BladefallVolleys.FrequencyMs(volleyMs,
-                    Get("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana));
-            if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat.Length: > 0 } summon)
-                Publish(summon.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, summon, supported));
+            if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
+                Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,
+                    Get(Stat.BladefallVolleyFrequencyPlusPctPer100MaximumMana), conn.Pools.Mana));
+            if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat: > 0 } summon)
+                Publish(summon.FinalLimitStat, SummonLimit(conn, summon, supported));
             if (SkillsFor(conn).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(conn).EffectId(effect), rarity) is { } sentinel)
-                        Publish(sentinel.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, sentinel, supported));
+                        Publish(sentinel.FinalLimitStat, SummonLimit(conn, sentinel, supported));
             if (SkillsFor(conn).EffectId(effect) is "Absolution" or "AbsolutionAltX" or "VaalAbsolution"
                 or "DominatingBlow" or "DominatingBlowAltX" or "VaalDomination")
             {
-                Publish("skill_behaviour_variation", SkillsFor(conn).BehaviourVariation(effect));
+                Publish(Stat.SkillBehaviourVariation, SkillsFor(conn).BehaviourVariation(effect));
                 bool absolution = SkillsFor(conn).EffectId(effect)!.Contains("Absolution", StringComparison.Ordinal);
                 string family = absolution ? "absolution_sentinels" : "dominated_monsters";
-                string display = absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance";
-                int basis = GolemStat(own, "base_max_number_of_vaal_" + family);
+                uint display = absolution ? Stat.DisplayMaxUpgradedSentinelsOfAbsolution : Stat.DisplayMaxUpgradedSentinelsOfDominance;
+                int basis = GolemStat(own, Stat.Of("base_max_number_of_vaal_" + family));
                 if (basis == 0) basis = GolemStat(own, display);
-                Publish("max_number_of_vaal_" + family, Math.Clamp(basis
-                    + GolemStat(playerStats, "base_max_number_of_vaal_" + family)
-                    + GolemStat(playerStats, "max_number_of_vaal_" + family), 0, 200));
-                foreach (string count in new[] { "number_of_active_absolution_sentinels", "number_of_active_vaal_absolution_sentinels",
-                    "number_of_dominated_monsters", "number_of_dominated_vaal_monsters" }) Publish(count, GolemStat(playerStats, count));
+                Publish(Stat.Of("max_number_of_vaal_" + family), Math.Clamp(basis
+                    + GolemStat(playerStats, Stat.Of("base_max_number_of_vaal_" + family))
+                    + GolemStat(playerStats, Stat.Of("max_number_of_vaal_" + family)), 0, 200));
+                foreach (uint count in new[] { Stat.NumberOfActiveAbsolutionSentinels, Stat.NumberOfActiveVaalAbsolutionSentinels,
+                    Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
-                Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
+                Publish(Stat.NumberOfGolemsAllowed, GolemCatalog.Limit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
                     n => GolemStat(playerStats, n)));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {
                 int limit = PlacedSkillLimit(conn, supported, placed.Mine);
-                Publish(placed.Mine ? "number_of_remote_mines_allowed" : "number_of_traps_allowed", limit);
-                Publish(placed.Mine ? "skill_display_number_of_remote_mines_allowed" : "skill_display_number_of_traps_allowed", limit);
-                Publish(placed.Mine ? "skill_is_mined" : "skill_is_trapped", 1);
-                Publish(placed.Mine ? "number_of_mines_to_place" : "number_of_traps_to_throw",
+                Publish(placed.Mine ? Stat.NumberOfRemoteMinesAllowed : Stat.NumberOfTrapsAllowed, limit);
+                Publish(placed.Mine ? Stat.SkillDisplayNumberOfRemoteMinesAllowed : Stat.SkillDisplayNumberOfTrapsAllowed, limit);
+                Publish(placed.Mine ? Stat.SkillIsMined : Stat.SkillIsTrapped, 1);
+                Publish(placed.Mine ? Stat.NumberOfMinesToPlace : Stat.NumberOfTrapsToThrow,
                     PlacedSkillCount(conn, supported, placed.Mine));
-                Publish("active_skill_base_area_of_effect_radius", SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get));
-                Publish("active_skill_area_of_effect_radius", (int)SkillRadius(conn, own, true, effect));
+                Publish(Stat.ActiveSkillBaseAreaOfEffectRadius, SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get));
+                Publish(Stat.ActiveSkillAreaOfEffectRadius, (int)SkillRadius(conn, own, true, effect));
             }
-            Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
+            Publish(Stat.SkillIsInstant, GolemStat(own, Stat.BaseSkillIsInstant) != 0 ? 1 : 0);
             if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))
             {
-                Publish("active_skill_base_area_of_effect_radius", 22);
-                Publish("active_skill_area_of_effect_radius", CurseRadius(conn, id, OwnAuraRestriction.IsAura(own), supported, playerStats));
+                Publish(Stat.ActiveSkillBaseAreaOfEffectRadius, 22);
+                Publish(Stat.ActiveSkillAreaOfEffectRadius, CurseRadius(conn, id, OwnAuraRestriction.IsAura(own), supported, playerStats));
             }
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
@@ -841,9 +838,9 @@ public static partial class Game
         // (a corrupted level 21 gem keeps level 20's requirement; 0x142476710). The client checks them against
         // virtual_*_for_requirements, which are the attributes unless something overrides them (/set_stat).
         var (str, dex, intel) = GemAttributeRequirements(conn, gem, type, effect);
-        foreach (var (need, attr, has) in new[] { (str, "strength", snapshot?.Strength ?? RequirementAttribute(conn, "strength", conn.Pools.Strength)),
-            (dex, "dexterity", snapshot?.Dexterity ?? RequirementAttribute(conn, "dexterity", conn.Pools.Dexterity)),
-            (intel, "intelligence", snapshot?.Intelligence ?? RequirementAttribute(conn, "intelligence", conn.Pools.Intelligence)) })
+        foreach (var (need, attr, has) in new[] { (str, Stat.Strength, snapshot?.Strength ?? RequirementAttribute(conn, Stat.Strength, conn.Pools.Strength)),
+            (dex, Stat.Dexterity, snapshot?.Dexterity ?? RequirementAttribute(conn, Stat.Dexterity, conn.Pools.Dexterity)),
+            (intel, Stat.Intelligence, snapshot?.Intelligence ?? RequirementAttribute(conn, Stat.Intelligence, conn.Pools.Intelligence)) })
             if (need > 0 && has < need)
                 return $"{name} at level {level} requires {need} {attr} (character has {has})";
         return null;
@@ -877,7 +874,7 @@ public static partial class Game
 
     // The value the client's requirement checks compare (virtual_*_for_requirements, 13-items.md §2d): what /set_stat set,
     // else the character's attribute.
-    public static int RequirementAttribute(Player conn, string attribute, int value)
+    public static int RequirementAttribute(Player conn, uint attribute, int value)
     {
         return value;
     }
@@ -949,7 +946,7 @@ public static partial class Game
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null)
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
-        if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
+        if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (TravelSkillsExceptDashDisabled(conn, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";

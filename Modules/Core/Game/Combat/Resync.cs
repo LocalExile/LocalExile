@@ -110,7 +110,7 @@ public static partial class Game
         string? id = SkillsFor(conn).EffectId(effect);
         if (id is "Dash" or "DashHardMode")
         {
-            const string distanceStat = "skill_travel_distance_+%";
+            const uint distanceStat = Stat.SkillTravelDistancePlusPct;
             int travel = GolemStat(CharacterPlayerStats(conn), distanceStat);
             if (skill != 0) travel += GolemStat(SupportedSkill(conn, skill).Stats, distanceStat);
             return DashLanding(conn.Layout, conn.Barrier, from, aim, travel, (flags & 1) != 0);

@@ -73,7 +73,7 @@ public class DamageTakenTriggerTests
         Game.ReleaseTriggeredNonProjectile(conn, session, curse.Id, origin, () => true).GetAwaiter().GetResult();
         Assert.Single(victim.Curses.All);
         Assert.Empty(friendly.Curses.All);
-        Assert.True(victim.Effects["base_fire_damage_resistance_%"] < 0);
+        Assert.True(victim.Effects[Stat.BaseFireDamageResistancePct] < 0);
         Assert.Equal(action, conn.ActionCount);
     }
     static void VerifyAwakenedCriticalTrigger()

@@ -32,11 +32,11 @@ static class ConditionalOperatorCoreCases
         var ring = new UniqueCatalog(catalog).Create("Mark of the Shaper", new Random(1))!;
         var sourceSubject = new StatConditions.Subject(ItemValue: (_, key) => key == "other_ring_is_elder_item" ? 1 : null);
         var active = ItemModStats.Sum([ring], catalog.Mods, subject: sourceSubject, statExists: n => Program.Stats.Key(n) is not null);
-        Assert.True(active.GetValueOrDefault("spell_damage_+%") > 0);
+        Assert.True(active.GetValueOrDefault(Stat.SpellDamagePlusPct) > 0);
         var absent = ItemModStats.Sum([ring], catalog.Mods,
             subject: sourceSubject with { ItemValue = (_, key) => key == "other_ring_is_elder_item" ? 0 : null },
             statExists: n => Program.Stats.Key(n) is not null);
-        Assert.Equal(0, absent.GetValueOrDefault("spell_damage_+%"));
+        Assert.Equal(0, absent.GetValueOrDefault(Stat.SpellDamagePlusPct));
 
         foreach (string overleech in new[] { "energy_shield_leech_does_not_stop_on_full_energy_shield",
             "energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield" })
@@ -47,7 +47,7 @@ static class ConditionalOperatorCoreCases
             Assert.Equal(StatConditions.State.None, StatConditions.Of(overleech, belowFull));
             Assert.Equal(StatConditions.State.Fails,
                 StatConditions.Of("damage_+%_on_full_energy_shield", belowFull));
-            int Get(string id) => id == overleech && StatConditions.Counts(StatConditions.Of(id, belowFull)) ? 1 : 0;
+            int Get(uint id) => Program.Stats.Name(id) is var name && name == overleech && StatConditions.Counts(StatConditions.Of(name, belowFull)) ? 1 : 0;
             var leech = new LeechSession();
             leech.Configure(0, LeechLimits.Resolve(Get, 1000, 1000, 1000), Get);
             leech.Hit(0, (0, 0, 100), false, false, false, attack: true);

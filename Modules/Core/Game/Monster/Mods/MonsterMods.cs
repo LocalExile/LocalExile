@@ -41,13 +41,13 @@ public static partial class Game
     /// walks it at the same speed), actor_scale_+% for its size and life_regeneration_rate_per_minute_%.</summary>
     public static IEnumerable<(uint Key, int Value)> MonsterModClientStats(MonsterModEffects e, uint maxLife, int baseLife)
     {
-        if (e["monster_life_+%_final_from_rarity"] is int rarity and not 0) yield return (Stat.MonsterLifePlusPctFinalFromRarity, rarity);
-        if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && Stats.Key(MonsterModCatalog.RarityTableLifeStat) is uint tk)
+        if (e[Stat.MonsterLifePlusPctFinalFromRarity] is int rarity and not 0) yield return (Stat.MonsterLifePlusPctFinalFromRarity, rarity);
+        if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && MonsterModCatalog.RarityTableLifeStat is var tk)
             yield return (tk, table);
         if (maxLife != baseLife) yield return (Stat.MaximumLife, (int)maxLife);
         if (e.MovementPct != 0) yield return (Stat.MovementVelocityPlusPct, e.MovementPct);
         if (e.ActorScalePct != 0 && Stat.ActorScalePlusPct is var scale) yield return (scale, e.ActorScalePct);
-        if (e["life_regeneration_rate_per_minute_%"] is int regen and not 0 && Stat.LifeRegenerationRatePerMinutePct is var rk)
+        if (e[Stat.LifeRegenerationRatePerMinutePct] is int regen and not 0 && Stat.LifeRegenerationRatePerMinutePct is var rk)
             yield return (rk, regen);
     }
 
@@ -62,12 +62,12 @@ public static partial class Game
         critical = !cannotCrit && e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
-            ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
+            ? Stat.EnfeebleDamagePlusPctVsRareOrUniqueFinal : Stat.EnfeebleDamagePlusPctFinal] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
         int spiderDamage = m.SpiderWebs.Damage(now);
         if (executioner > 0 || spiderDamage != 0)
         {
-            int increased = e["damage_+%"] + e["physical_damage_+%"];
+            int increased = e[Stat.DamagePlusPct] + e[Stat.PhysicalDamagePlusPct];
             factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage) / (100d + increased) : 0;
         }
         return factor == 1 ? rolled : rolled.Scale(factor);
@@ -110,7 +110,7 @@ public static partial class Game
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
-        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
+        if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
@@ -129,10 +129,10 @@ public static partial class Game
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
-            * (1 + e["physical_damage_taken_+%"] / 100.0);
+            * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs) on those parts.
-        double typed = mitigated[DamageType.Fire].Min * e["fire_damage_taken_+%"] + mitigated[DamageType.Cold].Min * e["cold_damage_taken_+%"]
-            + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
+        double typed = mitigated[DamageType.Fire].Min * e[Stat.FireDamageTakenPlusPct] + mitigated[DamageType.Cold].Min * e[Stat.ColdDamageTakenPlusPct]
+            + mitigated[DamageType.Lightning].Min * e[Stat.LightningDamageTakenPlusPct];
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
     }
@@ -148,12 +148,12 @@ public static partial class Game
     public static int SelfCriticalReduction(Player conn)
     {
         var stats = CharacterPlayerStats(conn);
-        return SelfCriticalReduction(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        return SelfCriticalReduction(name => name is var key ? stats.GetValueOrDefault(key) : 0);
     }
 
-    public static int SelfCriticalReduction(Func<string, int> get) =>
-        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? MonsterModEffects.CriticalMultiplier
-            : get("base_self_critical_strike_multiplier_-%");
+    public static int SelfCriticalReduction(Func<uint, int> get) =>
+        get(Stat.SelfTakeNoExtraDamageFromCriticalStrikes) != 0 ? MonsterModEffects.CriticalMultiplier
+            : get(Stat.BaseSelfCriticalStrikeMultiplierMinusPct);
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
     /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's
@@ -163,12 +163,12 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? skill = null)
     {
         if (spell) return false;
-        int Skill(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
-        int chance = m.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        int Skill(uint name) => skill is not null && name is var k ? skill.GetValueOrDefault(k) : 0;
+        int chance = m.Effects.BlockChance - Math.Max(0, Skill(Stat.SupportReduceEnemyBlockAndSpellBlockPct));
         if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
         if (chance <= 0 || random.Next(100) >= chance) return false;
-        if (Skill("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%") is var overpowered and > 0
-            && Skill("support_overpowered_base_duration_ms") is var duration and > 0)
+        if (Skill(Stat.ApplyOverpoweredOnEnemyBlockReducedBlockAndSpellBlockPct) is var overpowered and > 0
+            && Skill(Stat.SupportOverpoweredBaseDurationMs) is var duration and > 0)
         {
             m.OverpoweredPercent = overpowered;
             m.OverpoweredUntil = Math.Max(m.OverpoweredUntil, now + duration / 1000.0);
@@ -189,7 +189,7 @@ public static partial class Game
     /// extra damage from critical strikes (of Toughness).</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
         IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
-        CriticalHitMultiplier((long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"],
+        CriticalHitMultiplier((long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf],
             noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own));
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
@@ -204,7 +204,7 @@ public static partial class Game
     /// description saying it covers damage over time.</summary>
     public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
-        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
+        if (m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
@@ -213,7 +213,7 @@ public static partial class Game
         // all apply to the physical part only.
         if (type == DamageType.Physical)
             factor *= (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + MaimedPhysicalTaken(m, now) / 100.0)
-                * (1 + m.Effects["physical_damage_taken_+%"] / 100.0);
+                * (1 + m.Effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
         return factor;
     }
 
@@ -223,7 +223,7 @@ public static partial class Game
     public static bool RegenStillCurrent(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, uint life) =>
         monsters.TryGetValue(id, out var m) && !m.Dead && m.Life == life;
 
-    public const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
+    public const uint EnemyRegenerationOnHit = Stat.EnemyLifeRegenerationRatePlusPctFor4SecondsOnHit;
 
     /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
     /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at

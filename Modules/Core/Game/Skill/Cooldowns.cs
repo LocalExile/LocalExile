@@ -30,7 +30,7 @@ public static partial class Game
     public static int TravelSkillCooldownSpeed(SkillCatalog skills, int effect,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
         skills.IsTravel(effect)
-            ? GolemStat(player, "travel_skill_cooldown_speed_+%") + GolemStat(own, "travel_skill_cooldown_speed_+%")
+            ? GolemStat(player, Stat.TravelSkillCooldownSpeedPlusPct) + GolemStat(own, Stat.TravelSkillCooldownSpeedPlusPct)
             : 0;
 
     static SingleUseCooldown? CooldownPlan(Player conn, SupportedGem supported, IReadOnlyDictionary<uint, int> player)
@@ -40,27 +40,27 @@ public static partial class Game
         if (effect < 0) return null;
         var own = supported.Stats;
         if (skills.EffectId(effect) is "Convocation" or "ConvocationOld" && Stat.BaseCooldownSpeedPlusPct is var recovery)
-            own = new(own) { [recovery] = own.GetValueOrDefault(recovery) + GolemStat(player, "convocation_cooldown_speed_+%") };
+            own = new(own) { [recovery] = own.GetValueOrDefault(recovery) + GolemStat(player, Stat.ConvocationCooldownSpeedPlusPct) };
         // Fold both flat Travel recovery and its per-Frenzy coefficient into this skill's own input.
         // The published standard count includes minimum charges and excludes converted Affliction Charges.
         if (skills.IsTravel(effect) && Stat.BaseCooldownSpeedPlusPct is var travelRecovery)
         {
-            long coefficient = (long)GolemStat(player, "travel_skills_cooldown_speed_+%_per_frenzy_charge")
-                + GolemStat(own, "travel_skills_cooldown_speed_+%_per_frenzy_charge");
+            long coefficient = (long)GolemStat(player, Stat.TravelSkillsCooldownSpeedPlusPctPerFrenzyCharge)
+                + GolemStat(own, Stat.TravelSkillsCooldownSpeedPlusPctPerFrenzyCharge);
             long flat = TravelSkillCooldownSpeed(skills, effect, player, own);
             if (coefficient != 0 || flat != 0)
                 own = new(own) { [travelRecovery] = ActorScale.Saturate((long)own.GetValueOrDefault(travelRecovery)
-                    + flat + coefficient * Math.Max(0, GolemStat(player, "current_frenzy_charges"))) };
+                    + flat + coefficient * Math.Max(0, GolemStat(player, Stat.CurrentFrenzyCharges))) };
         }
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, player, own) is not { } plan) return null;
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(conn))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
-                + MadnessSkillValue(conn, "embrace_madness_amount_of_cooldown_to_gain_ms") };
+                + MadnessSkillValue(conn, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };
         int? shared = skills.CooldownGroup(effect, supported.Level) switch
         {
             9 => 9,   // Blink
             10 => 10, // Guard
-            1 when skills.IsWarcry(effect) && GolemStat(player, "warcry_skills_share_cooldowns") != 0 => 1,
+            1 when skills.IsWarcry(effect) && GolemStat(player, Stat.WarcrySkillsShareCooldowns) != 0 => 1,
             _ => null
         };
         return WithMapCooldown(conn, plan with { SharedGroup = shared });

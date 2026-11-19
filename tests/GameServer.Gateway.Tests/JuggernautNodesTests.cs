@@ -30,7 +30,7 @@ public sealed class JuggernautNodesTests
 
         var conn = new Player(new(1, "stun", 1000, 1000, 100, 100, null, []), 1, 1);
         var charges = Game.ChargesOf(conn);
-        Func<string, int> stats = name => name == "chance_to_gain_endurance_charge_when_you_stun_enemy_%" ? 100 : 0;
+        Func<uint, int> stats = name => name == Stat.ChanceToGainEnduranceChargeWhenYouStunEnemyPct ? 100 : 0;
         charges.Observe(stats);
 
         var boss = new SpawnedMonster("boss", new(0, 0, 0), 0, 0, 1000) { Rarity = MonsterRarity.Unique, HitAnimations = [new(0, 2)] };

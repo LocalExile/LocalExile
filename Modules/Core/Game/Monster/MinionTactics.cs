@@ -14,7 +14,7 @@ public static partial class Game
             target = closest.Key; monster = closest.Value;
         }
         ClearPreyLocked(conn);
-        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration"),
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
             n => GolemStat(CharacterPlayerStats(conn), n), n => GolemStat(gem.Stats, n));
         ushort instance = conn.NextBuff++;
         conn.Summons.SignalledPrey = new(target, monster, source, now + duration, instance);
@@ -32,18 +32,18 @@ public static partial class Game
     }
 
     static bool IsPrey(Player conn, GolemState.Golem fighter, uint id, SpawnedMonster monster, double now) =>
-        GolemStat(fighter.Own, "support_minion_use_focussed_target") != 0
+        GolemStat(fighter.Own, Stat.SupportMinionUseFocussedTarget) != 0
         && conn.Summons.SignalledPrey is { } prey && now < prey.Until && prey.Id == id
         && ReferenceEquals(prey.Monster, monster) && conn.Monsters.GetValueOrDefault(id) == monster;
 
     static double MinionTacticsBaseDamage(Player conn, GolemState.Golem fighter, double now)
     {
-        double more = Math.Max(0, 1 + GolemStat(fighter.Own, "deathmark_minion_damage_+%_final") / 100d);
+        double more = Math.Max(0, 1 + GolemStat(fighter.Own, Stat.DeathmarkMinionDamagePlusPctFinal) / 100d);
         if (conn.PlayerLife > 0 && (now < conn.Summons.FeedingFrenzyUntil
-            || GolemStat(fighter.Player, "has_puppet_master") != 0 && conn.Summons.FeedingFrenzyBuff == 0
-            || GolemStat(fighter.Player, "virtual_you_have_feeding_frenzy") != 0))
+            || GolemStat(fighter.Player, Stat.HasPuppetMaster) != 0 && conn.Summons.FeedingFrenzyBuff == 0
+            || GolemStat(fighter.Player, Stat.VirtualYouHaveFeedingFrenzy) != 0))
             more *= 1.1 * Math.Max(0, 1 + GolemStat(fighter.Own,
-                "support_minion_offensive_stance_minion_damage_+%_final_while_you_have_puppet_master") / 100d);
+                Stat.SupportMinionOffensiveStanceMinionDamagePlusPctFinalWhileYouHavePuppetMaster) / 100d);
         return more;
     }
 
@@ -51,15 +51,15 @@ public static partial class Game
     {
         double more = MinionTacticsBaseDamage(conn, fighter, now);
         if (IsPrey(conn, fighter, id, target, now))
-            more *= Math.Max(0, 1 + GolemStat(fighter.Own, "support_minion_focus_fire_damage_+%_final_vs_focussed_target") / 100d);
+            more *= Math.Max(0, 1 + GolemStat(fighter.Own, Stat.SupportMinionFocusFireDamagePlusPctFinalVsFocussedTarget) / 100d);
         return more;
     }
 
     internal static void FeedingFrenzyOnHitLocked(Player conn, GolemState.Golem fighter, double now)
     {
-        int chance = GolemStat(fighter.Own, "minion_grant_puppet_master_buff_to_parent_on_hit_%");
+        int chance = GolemStat(fighter.Own, Stat.MinionGrantPuppetMasterBuffToParentOnHitPct);
         if (conn.PlayerLife == 0 || chance <= 0 || conn.Minions.Random.Next(100) >= chance) return;
-        double duration = GolemStat(fighter.Own, "puppet_master_base_duration_ms") / 1000d;
+        double duration = GolemStat(fighter.Own, Stat.PuppetMasterBaseDurationMs) / 1000d;
         if (duration <= 0) return;
         bool starting = now >= conn.Summons.FeedingFrenzyUntil;
         if (conn.Summons.FeedingFrenzyBuff != 0)

@@ -39,8 +39,8 @@ static class KitavaActFive
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(Player c, int effect, byte level, string name) =>
-        Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
+    static int Stat(Player c, int effect, byte level, uint name) =>
+        name is var key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
     internal static MonsterAttack Attack(Player c, MonsterCatalog.Variety v, byte level, int effect)
     {
         var row = Data(c, effect, level);
@@ -52,19 +52,19 @@ static class KitavaActFive
             foreach (var type in DamageTypes.ConversionOrder)
             {
                 string slug = type.ToString().ToLowerInvariant();
-                int min = Stat(c, effect, level, $"spell_minimum_base_{slug}_damage"), max = Stat(c, effect, level, $"spell_maximum_base_{slug}_damage");
+                int min = Stat(c, effect, level, global::Stat.Of($"spell_minimum_base_{slug}_damage")), max = Stat(c, effect, level, global::Stat.Of($"spell_maximum_base_{slug}_damage"));
                 if (max > 0) damage = damage.Add(type, new(min, max));
             }
         }
         else
         {
             var (min, max) = Monsters.BaseDamage(v, level) ?? (1, 1);
-            damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(row.Multiplier * Math.Max(0, 1 + Stat(c, effect, level, "active_skill_damage_+%_final") / 100d));
-            double fire = Math.Clamp(Stat(c, effect, level, "skill_physical_damage_%_to_convert_to_fire"), 0, 100) / 100d;
+            damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(row.Multiplier * Math.Max(0, 1 + Stat(c, effect, level, global::Stat.ActiveSkillDamagePlusPctFinal) / 100d));
+            double fire = Math.Clamp(Stat(c, effect, level, global::Stat.SkillPhysicalDamagePctToConvertToFire), 0, 100) / 100d;
             if (fire > 0) { var physical = damage[DamageType.Physical]; damage = DamagePacket.Of(DamageType.Physical, physical.Min * (1 - fire), physical.Max * (1 - fire)).Add(DamageType.Fire, physical.Scale(fire)); }
         }
         double seconds = Game.SkillsFor(c).CastTimeMs(effect) / 1000d;
-        seconds /= Math.Max(.01, 1 + Stat(c, effect, level, spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
+        seconds /= Math.Max(.01, 1 + Stat(c, effect, level, spell ? global::Stat.ActiveSkillCastSpeedPlusPctFinal : global::Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
         return new(Skill(effect), Math.Max(.1, seconds), 150, effect is 6619 or 6622 ? DamagePacket.Empty : damage)
         {
             Spell = spell, Scripted = true,
@@ -435,7 +435,7 @@ static class KitavaActFive
             double contact = now + attack.Seconds * (effect is 6590 or 6594 ? .5 : effect is 6636 or 6638 ? .62 : .41);
             if (effect is 6619 or 6622)
             {
-                double duration = Stat(c, effect, body.Level, "base_skill_effect_duration") / 1000d;
+                double duration = Stat(c, effect, body.Level, global::Stat.BaseSkillEffectDuration) / 1000d;
                 patches.Add(new(aim, contact, contact + duration, 18, effect));
                 await Fx(c, aim, Art + "devouring_darkness/devourer_portal/devourer_portal_rig.ao", 0, contact + duration); return;
             }
@@ -490,7 +490,7 @@ static class KitavaActFive
                 {
                     now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
                     if (stopped || !CurrentGameWork || stage is not (1 or 3) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d)) };
+                    var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struckMinions.Add((p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
                     if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struckPlayers.Add(p)) return null;
@@ -513,7 +513,7 @@ static class KitavaActFive
                     var patch = p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p) && stage is 1 or 3
                         ? patches.FirstOrDefault(g => now >= g.From && Distance(g.At, p.Walk.Position(now)) <= g.Radius) : null;
                     double dps = patch is null || p.Immune || PlayerImmunities(p).Contains(DamageType.Physical) ? 0
-                        : Stat(c, patch.Effect, body.Level, "base_physical_damage_to_deal_per_minute") / 60d;
+                        : Stat(c, patch.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
                     p.Degens[e] = dps; e.Dps = dps;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
@@ -521,9 +521,9 @@ static class KitavaActFive
                         if (!GolemCurrent(p, g) || m.Dead || m.Invulnerable || m.Life == 0 || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
                         var ground = stage is 1 or 3 ? patches.FirstOrDefault(h => now >= h.From && Distance(h.At, m.Walk.Position(now)) <= h.Radius) : null;
                         if (ground is null) continue;
-                        double rate = Stat(c, ground.Effect, body.Level, "base_physical_damage_to_deal_per_minute") / 60d;
-                        rate *= Math.Max(0, 1 + Stat(c, ground.Effect, body.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d);
-                        double value = rate * seconds * Math.Max(0, 1 + (m.Effects["base_damage_taken_+%"] + m.Effects["physical_damage_taken_+%"]) / 100d) + carry.GetValueOrDefault((p, g.Id));
+                        double rate = Stat(c, ground.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d;
+                        rate *= Math.Max(0, 1 + Stat(c, ground.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
+                        double value = rate * seconds * Math.Max(0, 1 + (m.Effects[global::Stat.BaseDamageTakenPlusPct] + m.Effects[global::Stat.PhysicalDamageTakenPlusPct]) / 100d) + carry.GetValueOrDefault((p, g.Id));
                         int amount = (int)Math.Floor(value); carry[(p, g.Id)] = value - amount;
                         amount = g.ShieldPool.Damage(amount, bypass: false, now);
                         PublishEnergyShieldLocked(p, g);

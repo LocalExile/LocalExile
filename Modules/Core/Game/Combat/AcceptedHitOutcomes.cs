@@ -13,11 +13,11 @@ public static partial class Game
         if (conn.PlayerLife == 0) return;
         foreach (var e in accepted) TryGainElusiveLocked(conn, e.Critical && !e.KillEvent, e.KillEvent, e.At);
         var session = ChargesOf(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         session.Observe(Get);
         var events = accepted.Select(e => e.KillEvent ? (ChargeEvent)new ChargeEvent.Kill(e.Rarity, e.Frozen)
             : new ChargeEvent.Hit(e.Critical, true, null, e.Rarity, e.Effect,
-                name => Stats.Key(name) is uint key ? e.Skill!.GetValueOrDefault(key) : 0, e.Killed, e.Primary));
+                name => name is var key ? e.Skill!.GetValueOrDefault(key) : 0, e.Killed, e.Primary));
         var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0, Random.Shared);
         foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Remote} {line} (accepted contact)");
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
@@ -63,7 +63,7 @@ public static partial class Game
         if (!conn.FlaskChargeCarry.CritReady(at)) return;
         var bar = CritFlaskBar(conn);
         if (bar.All(f => f.Full)) return;
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, Random.Shared.Next);
         if (gains.Count > 0) conn.Minions.FlaskRewards.Add(new(MonsterRarity.Normal, gains));
@@ -77,7 +77,7 @@ public static partial class Game
             var local = ItemModStats.Local(flask.Item, catalog.Mods);
             int maximum = catalog.ByHash(flask.Item.TypeHash) is { } type && catalog.FlaskChargesOf(type) is { } basis
                 ? FlaskCharges.Of(basis, local).MaxCharges : 0;
-            return (flask.Id, local.GetValueOrDefault("local_recharge_on_crit_%"), flask.Item.Charges >= maximum);
+            return (flask.Id, local.GetValueOrDefault(Stat.LocalRechargeOnCritPct), flask.Item.Charges >= maximum);
         }).ToList();
     }
 }

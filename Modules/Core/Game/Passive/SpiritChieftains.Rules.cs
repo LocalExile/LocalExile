@@ -8,16 +8,16 @@ public static partial class Game
     // The node and tattoo stats that name a Spirit chieftain trigger with an event the server has. The Ascendancy
     // nodes grant their Summon Spirit skills directly; the Loyalty tattoos grant the level 1 ones from
     // PassiveSkillOverrides.Effect and carry the same trigger stat in their TattooStats row.
-    public const string CritByUniqueTrigger = "has_trigger_on_crit_by_unique_enemy",
-        SavageHitFromUniqueTrigger = "has_trigger_on_taking_savage_hit_from_unique",
-        BlockFromUniqueTrigger = "has_trigger_on_block_hit_from_unique",
-        TotemDeathInPresenceOfUniqueTrigger = "has_trigger_on_totem_death_in_presence_of_unique",
-        CritVsMarkedUniqueTrigger = "has_trigger_on_crit_vs_marked_unique",
-        SuppressHitFromUniqueTrigger = "has_trigger_on_suppress_hit_from_unique",
-        MaxRageInPresenceTrigger = "has_trigger_on_reaching_maximum_rage_in_presence_of_unique",
-        TravelSkillInPresenceTrigger = "has_trigger_on_travel_skill_use_in_presence_of_unique",
-        EsRechargeInPresenceTrigger = "has_trigger_on_es_recharge_in_presence_of_unique",
-        LowLifeInPresenceTrigger = "has_trigger_on_reaching_low_life_in_presence_of_unique";
+    public const uint CritByUniqueTrigger = Stat.HasTriggerOnCritByUniqueEnemy,
+        SavageHitFromUniqueTrigger = Stat.HasTriggerOnTakingSavageHitFromUnique,
+        BlockFromUniqueTrigger = Stat.HasTriggerOnBlockHitFromUnique,
+        TotemDeathInPresenceOfUniqueTrigger = Stat.HasTriggerOnTotemDeathInPresenceOfUnique,
+        CritVsMarkedUniqueTrigger = Stat.HasTriggerOnCritVsMarkedUnique,
+        SuppressHitFromUniqueTrigger = Stat.HasTriggerOnSuppressHitFromUnique,
+        MaxRageInPresenceTrigger = Stat.HasTriggerOnReachingMaximumRageInPresenceOfUnique,
+        TravelSkillInPresenceTrigger = Stat.HasTriggerOnTravelSkillUseInPresenceOfUnique,
+        EsRechargeInPresenceTrigger = Stat.HasTriggerOnEsRechargeInPresenceOfUnique,
+        LowLifeInPresenceTrigger = Stat.HasTriggerOnReachingLowLifeInPresenceOfUnique;
 
     /// <summary>"while a Unique Enemy is in your Presence": a living hostile Unique monster within Character.ot's
     /// fixed base_presence_radius (80 cells, the wiki's 8 metres) of the player. Under the Monsters lock.</summary>
@@ -30,7 +30,7 @@ public static partial class Game
 
     // The Presence-gated Loyalty triggers (maximum Rage, Travel Skill, Energy Shield Recharge, Low Life). Under the
     // Monsters lock; false without a Unique in the player's presence.
-    static bool LoyaltyInPresenceTriggerLocked(Player conn, string trigger, double now)
+    static bool LoyaltyInPresenceTriggerLocked(Player conn, uint trigger, double now)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return false;
         return TriggerSpiritChieftainLocked(conn, trigger, CharacterPlayerStats(conn));
@@ -61,12 +61,12 @@ public static partial class Game
             conn.LoyaltyRechargeSeen = conn.LoyaltyLowLifeSeen = false;
             return;
         }
-        int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Stat(uint key) => stats.GetValueOrDefault(key);
         bool recharging = conn.EnergyShield.Recharging;
         if (recharging && !conn.LoyaltyRechargeSeen) LoyaltyInPresenceTriggerLocked(conn, EsRechargeInPresenceTrigger, now);
         conn.LoyaltyRechargeSeen = recharging;
         bool low = LowLife.Is(conn.PlayerLife, conn.PlayerMaxLife,
-            LowLife.Threshold(Stat("low_life_threshold_%_override"), Stat("low_life_threshold_%")));
+            LowLife.Threshold(Stat(global::Stat.LowLifeThresholdPctOverride), Stat(global::Stat.LowLifeThresholdPct)));
         if (low && !conn.LoyaltyLowLifeSeen) LoyaltyInPresenceTriggerLocked(conn, LowLifeInPresenceTrigger, now);
         conn.LoyaltyLowLifeSeen = low;
     }
@@ -103,7 +103,7 @@ public static partial class Game
 
     // The allocated Spirit skill with this trigger, if its shared cooldown is ready: its Leadership for its duration
     // (base_skill_effect_duration with the player's skill effect and minion duration: these skills are CreatesMinion), the cooldown with the player's recovery.
-    static bool TriggerSpiritChieftainLocked(Player conn, string trigger, IReadOnlyDictionary<uint, int> stats)
+    static bool TriggerSpiritChieftainLocked(Player conn, uint trigger, IReadOnlyDictionary<uint, int> stats)
     {
         if (!CurrentGameWork) return false;
         double now = AreaTime(conn);
@@ -112,14 +112,14 @@ public static partial class Game
             var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
             if (SpiritChieftains.LeadershipOf(own) is not { } leadership
                 || SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, grant.Effect, grant.Level, stats, own) is not { } plan) continue;
-            int Player(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-            int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-            double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own, minion: true);
+            int Player(uint key) => stats.GetValueOrDefault(key);
+            int Own(uint key) => own.GetValueOrDefault(key);
+            double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, minion: true);
             if (!conn.SpiritChieftains.TryTrigger(now, plan, leadership.Row, leadership.Stats, seconds)) continue;
             // The chieftain at the player's level up to the skill's maximum (minion_actor_level_is_user_level_up_to_maximum).
             if (leadership.Minion is int minion)
                 conn.SpiritChieftains.Pending = new(grant.EffectId, minion,
-                    (byte)Math.Clamp(Math.Min(conn.Pools.Level, Own("minion_actor_level_is_user_level_up_to_maximum")), 1, 100), now + seconds);
+                    (byte)Math.Clamp(Math.Min(conn.Pools.Level, Own(Stat.MinionActorLevelIsUserLevelUpToMaximum)), 1, 100), now + seconds);
             Console.WriteLine($"[gateway] {CharacterName(conn)}: {grant.EffectId} triggered ({trigger}): buff {leadership.Row} "
                 + $"for {seconds:0.##} s, cooldown {plan.BaseMilliseconds} ms at {plan.RecoveryRate:0.##}x after it");
             return true;
@@ -215,13 +215,13 @@ public static partial class Game
             return;
         }
         var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
+        int Player(uint k) => player.GetValueOrDefault(k);
         // shortcut: the player's minion modifiers are taken at the summon, not followed for its 12 s.
-        var mods = MonsterModSet.None with { Effects = new(new Dictionary<string, int>
+        var mods = MonsterModSet.None with { Effects = new(new Dictionary<uint, int>
         {
-            ["damage_+%"] = Player("minion_damage_+%"),
-            ["attack_speed_+%"] = Player("minion_attack_speed_+%") + Player("minion_attack_and_cast_speed_+%"),
-            ["base_movement_velocity_+%"] = Player("minion_movement_speed_+%"),
+            [Stat.DamagePlusPct] = Player(Stat.MinionDamagePlusPct),
+            [Stat.AttackSpeedPlusPct] = Player(Stat.MinionAttackSpeedPlusPct) + Player(Stat.MinionAttackAndCastSpeedPlusPct),
+            [Stat.BaseMovementVelocityPlusPct] = Player(Stat.MinionMovementSpeedPlusPct),
         }) };
         (int X, int Y) at;
         lock (conn.Monsters) at = NextToPlayer(conn);

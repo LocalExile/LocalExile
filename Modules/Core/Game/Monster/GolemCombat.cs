@@ -24,15 +24,15 @@ public static partial class Game
         double elapsed = Math.Max(0, now - oldLastStep);
         g.Regeneration += Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d;
         g.LastStep = Math.Max(oldLastStep, now);
-        int Own(string n) => GolemStat(g.Own, n);
-        int Player(string n) => GolemStat(g.Player, n);
+        int Own(uint n) => GolemStat(g.Own, n);
+        int Player(uint n) => GolemStat(g.Player, n);
         double regen = (g.Definition.IsGolem ? g.Definition.Kind == "Stone" ? .02 : .01 : 0) +
-            (Player("minion_life_regeneration_rate_per_minute_%") + Own("minion_life_regeneration_rate_per_minute_%")
-                + (g.Definition.IsGolem ? Player("golem_life_regeneration_per_minute_%") : 0)) / 6000.0;
-        g.Regeneration += elapsed * (m.MaxLife * regen + Player("minion_base_life_regeneration_rate_per_minute") / 60.0
-            + Player("minion_life_regeneration_rate_per_second") + m.Mods.Effects["base_life_regeneration_rate_per_minute"] / 60.0
+            (Player(Stat.MinionLifeRegenerationRatePerMinutePct) + Own(Stat.MinionLifeRegenerationRatePerMinutePct)
+                + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
+        g.Regeneration += elapsed * (m.MaxLife * regen + Player(Stat.Of("minion_base_life_regeneration_rate_per_minute")) / 60.0
+            + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
             + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
-            + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects["life_regeneration_rate_per_minute_%_if_blocked_recently"] / 6000d : 0));
+            + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         if (heal > 0 && m.Life < m.MaxLife)
         {
@@ -120,7 +120,7 @@ public static partial class Game
         }
         if (ability.Effect == 10802 && g.Combo >= 3)
             ability = ability with { Attack = ability.Attack with { Seconds = ability.Attack.Seconds / Math.Max(.1,
-                1 + GolemStat(ability.Stats, "bone_golem_attack_speed_+%_final_after_third_combo_index") / 100.0) } };
+                1 + GolemStat(ability.Stats, Stat.BoneGolemAttackSpeedPlusPctFinalAfterThirdComboIndex) / 100.0) } };
         GolemReserveLocked(conn, g, ability, target.Key, target.M, target.At, now);
     }
 
@@ -175,7 +175,7 @@ public static partial class Game
         if (a.Effect is 349 or 2563)
         {
             double speed = g.Monster.Mods.Effects.MovementSpeed(g.Monster.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(g.Monster.SpeedRoll);
-            if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, "cyclone_movement_speed_+%_final") / 100.0;
+            if (a.Effect == 2563) speed *= 1 + GolemStat(a.Stats, Stat.CycloneMovementSpeedPlusPctFinal) / 100.0;
             g.Monster.Walk.SetSpeed(speed, now);
             g.Monster.Walk.Order(pending.Aim.X, pending.Aim.Y, now);
         }
@@ -231,14 +231,14 @@ public static partial class Game
         }
         if (a.Effect is 12032 or 12033) { ReaperConsumedLocked(conn, g, action, now); return; }
         if (a.Effect is 9927 or 9928) HolyRelicRegenerationLocked(conn, g, a, now);
-        if (a.Effect == 5906) { g.WrathUntil = now + GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0; conn.Golems.RefreshAt = 0; return; }
+        if (a.Effect == 5906) { g.WrathUntil = now + GolemStat(a.Stats, Stat.BaseSkillEffectDuration) / 1000.0; conn.Golems.RefreshAt = 0; return; }
         if (a.Effect == 10801) { conn.Minions.OutputQueue.Add(new([], "golem consumes corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life)); return; }
         if (a.Effect is 4336 or 4337)
         {
             var (dps, unitDps, normalIncrease) = GolemHazardDamage(conn, g, now,
-                GolemStat(a.Stats, "base_chaos_damage_to_deal_per_minute") / 60.0, area: true);
+                GolemStat(a.Stats, Stat.BaseChaosDamageToDealPerMinute) / 60.0, area: true);
             (dps, unitDps) = (dps * DoedreSewers.MinionDamageFactor(conn), unitDps * DoedreSewers.MinionDamageFactor(conn));
-            g.Hazards.Add(new(a.Effect, at, now + GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0, a.Radius,
+            g.Hazards.Add(new(a.Effect, at, now + GolemStat(a.Stats, Stat.BaseSkillEffectDuration) / 1000.0, a.Radius,
                 dps, DamageType.Chaos, Follows: true, Wither: a.Effect == 4337,
                 UnitDamagePerSecond: unitDps, NormalDamageIncrease: normalIncrease) { LastAt = now });
             return;
@@ -253,8 +253,8 @@ public static partial class Game
         }
         if (a.Effect == 9511)
         {
-            int count = Math.Clamp(1 + GolemStat(a.Stats, "number_of_additional_arrows")
-                + GolemStat(g.Own, "number_of_additional_arrows") + GolemStat(g.Own, "number_of_additional_projectiles"), 1, 256);
+            int count = Math.Clamp(1 + GolemStat(a.Stats, Stat.NumberOfAdditionalArrows)
+                + GolemStat(g.Own, Stat.NumberOfAdditionalArrows) + GolemStat(g.Own, Stat.NumberOfAdditionalProjectiles), 1, 256);
             var enemies = conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0)
                 .Select(m => ProjectileSession.Vector(m.Walk.Position(now))).ToArray();
             double spread = 24 * a.Radius / 10;
@@ -271,7 +271,7 @@ public static partial class Game
         if (a.Effect is 3347 or 10799 or 10800)
         {
             double dx = action.Aim.X - at.X, dy = action.Aim.Y - at.Y, length = Math.Max(1, Dist(at, action.Aim));
-            int spikes = Math.Clamp(GolemStat(a.Stats, "upheaval_number_of_spikes"), 1, 12);
+            int spikes = Math.Clamp(GolemStat(a.Stats, Stat.UpheavalNumberOfSpikes), 1, 12);
             for (int i = 0; i < spikes; i++)
             {
                 var spikeAt = (at.X + (int)Math.Round(dx / length * (8 + i * 10)), at.Y + (int)Math.Round(dy / length * (8 + i * 10)));
@@ -283,14 +283,14 @@ public static partial class Game
         }
         if (a.Effect is 2563 or 349)
         {
-            double duration = a.Effect == 2563 ? GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0 : Math.Max(.1, g.Monster.BusyUntil - now);
+            double duration = a.Effect == 2563 ? GolemStat(a.Stats, Stat.BaseSkillEffectDuration) / 1000.0 : Math.Max(.1, g.Monster.BusyUntil - now);
             g.Monster.BusyUntil = now + duration;
             g.Pulses.Add(new(a, at, now + duration, a.Effect == 2563 ? Math.Max(.1, a.Attack.Seconds) : .1, Follows: true, Once: a.Effect == 349) { Next = now });
             GolemPulsesLocked(conn, g, now); return;
         }
-        bool area = GolemStat(a.Stats, "is_area_damage") != 0 || a.Effect is 136 or 349 or 2563 or 3347 or 10799 or 10800 or 869 or 4839 or 9927 or 9928;
+        bool area = GolemStat(a.Stats, Stat.IsAreaDamage) != 0 || a.Effect is 136 or 349 or 2563 or 3347 or 10799 or 10800 or 869 or 4839 or 9927 or 9928;
         var centre = a.Effect is 3347 or 10799 or 10800 or 869 or 11994 or 11995 or 11996 or 11997 ? action.Aim : at;
-        if (a.Effect is 9927 or 9928 && GolemStat(g.Own, "holy_relic_targets_nearest_enemy") != 0)
+        if (a.Effect is 9927 or 9928 && GolemStat(g.Own, Stat.HolyRelicTargetsNearestEnemy) != 0)
             centre = action.Victim?.Walk.Position(now) ?? action.Aim;
         if (a.Effect == 869)
         {
@@ -308,7 +308,7 @@ public static partial class Game
             if (area ? Dist(m.Walk.Position(now), centre) > a.Radius + LivingCollision.Size(m)
                 : id != action.Target || Dist(m.Walk.Position(now), at) > a.Attack.Range + LivingCollision.Size(m) + 2) continue;
             bool landed = GolemHitLocked(conn, g, a, id, m, now);
-            int SplashStat(string n) => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n);
+            int SplashStat(uint n) => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n);
             if (landed && !area && MinionMelee(conn, a) && MinionSupportMatches(a.Effect, "SupportMeleeSplash")
                 && MeleeSplash.Settings(SplashStat) is { } splash)
             {
@@ -319,12 +319,12 @@ public static partial class Game
                         && Dist(other.Walk.Position(now), splashAt) <= splash.Radius + LivingCollision.Size(other))
                         GolemHitLocked(conn, g, spread, otherId, other, now);
             }
-            if (a.Effect == 136 && Random.Shared.Next(100) < GolemStat(a.Stats, "chance_to_taunt_on_hit_%")) g.Taunts[id] = now + 3;
+            if (a.Effect == 136 && Random.Shared.Next(100) < GolemStat(a.Stats, Stat.ChanceToTauntOnHitPct)) g.Taunts[id] = now + 3;
         }
         if (a.Effect == 5268)
         {
             var (dps, unitDps, normalIncrease) = GolemHazardDamage(conn, g, now,
-                GolemStat(a.Stats, "base_fire_damage_to_deal_per_minute") / 60.0, area: true);
+                GolemStat(a.Stats, Stat.BaseFireDamageToDealPerMinute) / 60.0, area: true);
             (dps, unitDps) = (dps * DoedreSewers.MinionDamageFactor(conn), unitDps * DoedreSewers.MinionDamageFactor(conn));
             if (dps > 0 || (unitDps > 0 && g.Definition.IsGolem))
                 g.Hazards.Add(new(a.Effect, at, now + 5, a.Radius, dps, DamageType.Fire,
@@ -344,10 +344,10 @@ public static partial class Game
         Player conn, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
     {
         RefreshGolemLocked(conn, g, g.Player, now);
-        int normalIncrease = g.Monster.Mods.Effects["damage_+%"] - GolemRecentDamageIncrease(g, now)
-            + (area ? g.Monster.Mods.Effects["area_damage_+%"] : 0);
-        double more = MinionTacticsBaseDamage(conn, g, now) * Math.Max(0, 1 + GolemStat(g.Own, "active_skill_minion_damage_+%_final") / 100.0)
-            * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_damage_+%_final") / 100.0)
+        int normalIncrease = g.Monster.Mods.Effects[Stat.DamagePlusPct] - GolemRecentDamageIncrease(g, now)
+            + (area ? g.Monster.Mods.Effects[Stat.AreaDamagePlusPct] : 0);
+        double more = MinionTacticsBaseDamage(conn, g, now) * Math.Max(0, 1 + GolemStat(g.Own, Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
+            * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDamagePlusPctFinal) / 100.0)
             * Math.Max(0, 1 + GolemTether(g.Player, "damage") / 100.0);
         double increasedMultiplier = Math.Max(0, 1 + normalIncrease / 100.0);
         double factor = increasedMultiplier * more;
@@ -392,7 +392,7 @@ public static partial class Game
         if (a.Effect == 306)
         {
             var element = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning }
-                .First(type => GolemStat(a.Stats, $"elemental_hit_cannot_roll_{type.ToString().ToLowerInvariant()}_damage") == 0);
+                .First(type => GolemStat(a.Stats, Stat.Of($"elemental_hit_cannot_roll_{type.ToString().ToLowerInvariant()}_damage")) == 0);
             current = GolemAbilities(conn, g.Monster.Variety!, g.Monster.Level, g, currentPlayer, now,
                 prismatic: element).Single(ability => ability.Effect == a.Effect);
         }
@@ -400,7 +400,7 @@ public static partial class Game
         if (!a.Attack.Spell)
         {
             int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
-                + g.Monster.Mods.Effects["accuracy_rating"]);
+                + g.Monster.Mods.Effects[Stat.AccuracyRating]);
             int evasion = UnderBlind(conn, id, target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0));
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
         }
@@ -410,28 +410,28 @@ public static partial class Game
         {
             var here = g.Monster.Walk.Position(now);
             int nearby = conn.Minions.All.Count(m => !conn.Golems.All.ContainsKey(m.Id) && !m.Monster.Dead && Dist(here, m.Monster.Walk.Position(now)) <= 60);
-            factor *= 1 + Math.Min(GolemStat(g.Own, "bone_golem_damage_+%_final_per_non_golem_minion_nearby") * nearby,
-                GolemStat(g.Own, "bone_golem_damage_per_non_golem_minion_nearby_maximum_%")) / 100.0;
-            if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, "bone_golem_damage_+%_final_after_third_combo_index") / 100.0;
+            factor *= 1 + Math.Min(GolemStat(g.Own, Stat.BoneGolemDamagePlusPctFinalPerNonGolemMinionNearby) * nearby,
+                GolemStat(g.Own, Stat.BoneGolemDamagePerNonGolemMinionNearbyMaximumPct)) / 100.0;
+            if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, Stat.BoneGolemDamagePlusPctFinalAfterThirdComboIndex) / 100.0;
         }
         bool prey = IsPrey(conn, g, id, target, now);
         var effects = g.Monster.Mods.Effects;
-        int roll = effects["never_crit"] == 0 && effects["always_crit"] == 0 ? Random.Shared.Next(10_000) : 0;
+        int roll = effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? Random.Shared.Next(10_000) : 0;
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
-            prey ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_chance_+%_vs_focused_target") : 0);
+            prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0);
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
-            (g.Monster.Mods.Effects["base_critical_strike_multiplier_+"] + g.Monster.Mods.Effects["critical_strike_multiplier_+"]
-                + target.Curses["enemy_additional_critical_strike_multiplier_against_self"]
-                + (prey ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_multiplier_+_vs_focused_target") : 0)) / 100.0;
+            (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus] + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
+                + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
+                + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
         var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, Random.Shared);
         bool ignoreElemental = g.Shield > 0
-            && g.Monster.Mods.Effects["hits_ignore_enemy_elemental_resistances_while_has_energy_shield"] != 0;
+            && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
         var resistanceMods = new HitResistances.Mods(
             CriticalIgnoreElemental: 0,
             AttackCriticalIgnoreElemental: 0,
             NonCriticalPenetration: 0,
             UnconditionalIgnoreElemental: ignoreElemental,
-            CannotPenetrateOrIgnore: g.Monster.Mods.Effects["cannot_penetrate_or_ignore_elemental_resistances"] != 0 ? 1 : 0);
+            CannotPenetrateOrIgnore: g.Monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0 ? 1 : 0);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
             type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));
@@ -449,12 +449,12 @@ public static partial class Game
         bool melee = MinionMelee(conn, a);
         double physicalShare = rolled[DamageType.Physical].Min / Math.Max(1, rolled.MinTotal);
         var stun = new StunHit(HitReaction.StunningDamage(damage, physicalShare, melee),
-            g.Monster.Mods.Effects["base_stun_threshold_reduction_+%"], g.Monster.Mods.Effects["base_stun_duration_+%"],
-            Melee: melee, BaseSeconds: GolemStat(a.Stats, "support_ruthless_big_hit_stun_base_duration_override_ms") / 1000d);
+            g.Monster.Mods.Effects[Stat.BaseStunThresholdReductionPlusPct], g.Monster.Mods.Effects[Stat.BaseStunDurationPlusPct],
+            Melee: melee, BaseSeconds: GolemStat(a.Stats, Stat.SupportRuthlessBigHitStunBaseDurationOverrideMs) / 1000d);
         CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun);
         if (!target.Dead)
         {
-            int Golem(string name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
+            int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], Random.Shared);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now);
@@ -468,8 +468,8 @@ public static partial class Game
 
     public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods, int additionalIncrease = 0)
     {
-        long increased = (long)mods.Effects["critical_strike_chance_+%"] + additionalIncrease
-            + (ability.Attack.Spell ? mods.Effects["spell_critical_strike_chance_+%"] : 0);
+        long increased = (long)mods.Effects[Stat.CriticalStrikeChancePlusPct] + additionalIncrease
+            + (ability.Attack.Spell ? mods.Effects[Stat.SpellCriticalStrikeChancePlusPct] : 0);
         double chance = (double)ability.Crit * Math.Max(0, 100L + increased) / 100.0;
         return (int)Math.Clamp(chance, 0, 10_000);
     }
@@ -478,7 +478,7 @@ public static partial class Game
         GamblerModifiers.From(name => effects[name]).ForSkill(_ => 0, spell).RollOutgoingHit(damage, random);
 
     public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0) =>
-        mods.Effects["never_crit"] == 0 && (mods.Effects["always_crit"] != 0 || roll < GolemCriticalChance(ability, mods, additionalIncrease));
+        mods.Effects[Stat.Of("never_crit")] == 0 && (mods.Effects[Stat.AlwaysCrit] != 0 || roll < GolemCriticalChance(ability, mods, additionalIncrease));
 
     static void GolemLaunch(Player conn, GolemState.Golem g,
         GolemState.Ability a, (int X, int Y) aim, double now, bool nova = false)
@@ -489,22 +489,22 @@ public static partial class Game
         double distance = Math.Max(1, (to - from).Length);
         var owner = session.ActorKey(g.Id, g.Monster);
         var mods = g.Monster.Mods.Effects;
-        int SpeedStat(string name) => GolemStat(a.Stats, name)
-            + (name == "support_slower_projectiles_projectile_speed_+%_final" ? mods[name] : 0);
+        int SpeedStat(uint name) => GolemStat(a.Stats, name)
+            + (name == Stat.SupportSlowerProjectilesProjectileSpeedPlusPctFinal ? mods[name] : 0);
         var profile = new ProjectileProfile(p.Metadata)
         {
             Speed = ProjectileSpeed.CellsPerSecond(p.Speed,
-                _ => mods["projectile_speed_+%"] + mods["base_projectile_speed_+%"], SpeedStat), Radius = p.CollisionRadius,
+                _ => mods[Stat.ProjectileSpeedPlusPct] + mods[Stat.BaseProjectileSpeedPlusPct], SpeedStat), Radius = p.CollisionRadius,
             Range = p.Lobbed ? distance : Math.Max(60, distance + 10), Lobbed = p.Lobbed,
             Count = nova ? 14 : Math.Max(1, p.Count), SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
-            Pierce = a.Effect == 2378 || GolemStat(a.Stats, "always_pierce") != 0 ? -1 : 0,
+            Pierce = a.Effect == 2378 || GolemStat(a.Stats, Stat.AlwaysPierce) != 0 ? -1 : 0,
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
         // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
         profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
-            arrows: g.Weapon is { Bow: true }, skillPierce: mods["number_of_additional_projectiles_to_pierce"]);
+            arrows: g.Weapon is { Bow: true }, skillPierce: mods[Stat.Of("number_of_additional_projectiles_to_pierce")]);
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || conn.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
@@ -536,7 +536,7 @@ public static partial class Game
             {
                 activeSeconds = Math.Max(0, Math.Min(through, g.SummonedAt + 8) - Math.Max(from, g.SummonedAt));
                 // Read the current source even when this delayed interval has already crossed the boundary.
-                recentDamageIncrease = GolemStat(g.Player, "golem_damage_+%_if_summoned_in_past_8_seconds");
+                recentDamageIncrease = GolemStat(g.Player, Stat.GolemDamagePlusPctIfSummonedInPast8Seconds);
             }
             double normalMultiplier = Math.Max(0, 1 + hazard.NormalDamageIncrease / 100.0);
             double conditionalMultiplier = Math.Max(0,
@@ -556,7 +556,7 @@ public static partial class Game
                 {
                     m.Withered.RemoveAll(w => w.Until <= now);
                     if (m.Withered.Count >= 15) m.Withered.Remove(m.Withered.MinBy(w => w.Until));
-                    { m.Withered.Add((now + 4, 6 * (1 + GolemStat(g.Own, "minion_withered_effect_+%") / 100.0))); m.PresentationChanged?.Invoke(); }
+                    { m.Withered.Add((now + 4, 6 * (1 + GolemStat(g.Own, Stat.MinionWitheredEffectPlusPct) / 100.0))); m.PresentationChanged?.Invoke(); }
                     hazard.Carry[id] = now + .3;
                 }
                 double raw = hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds;

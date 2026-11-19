@@ -24,12 +24,12 @@ public sealed class OverheatSupportTests
         var session = Game.FortificationOf(conn);
         Assert.True(session.State.GrantExplicitStacks(0, 6, 0));
         Assert.Equal(6, session.Read(0).Current);
-        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(Program.Stats.Key(name)!.Value), 0);
+        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(name), 0);
         Assert.Equal(1.12, conn.SupportGems.OverheatMore[skillId], 6);
         Assert.Equal(0, session.Read(0).Current); // consumed
 
         // A second use with no Fortification replaces the stored value with nothing.
-        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(Program.Stats.Key(name)!.Value), 1);
+        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(name), 1);
         Assert.False(conn.SupportGems.OverheatMore.ContainsKey(skillId));
         Assert.Equal(1, Game.OverheatAilmentMore(conn, skillId));
     }
@@ -45,7 +45,7 @@ public sealed class OverheatSupportTests
         var session = Game.FortificationOf(conn);
         Assert.True(session.State.GrantExplicitStacks(0, 9, 0));
         var skill = new Dictionary<uint, int>(); // no per-3 stat
-        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(Program.Stats.Key(name)!.Value), 0);
+        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(name), 0);
         Assert.False(conn.SupportGems.OverheatMore.ContainsKey(skillId));
         Assert.Equal(1, Game.OverheatAilmentMore(conn, skillId));
         // Fortification is still consumed even without the support (the consume is per use of a supported skill, but
@@ -68,7 +68,7 @@ public sealed class OverheatSupportTests
         {
             [Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed] = 6,
         };
-        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(Program.Stats.Key(name)!.Value), 0);
+        lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(name), 0);
         Assert.False(conn.SupportGems.OverheatMore.ContainsKey(skillId));
         Assert.Equal(1, Game.OverheatAilmentMore(conn, skillId));
     }

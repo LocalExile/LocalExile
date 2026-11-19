@@ -15,7 +15,7 @@ public static partial class Game
         double physical = rolled[DamageType.Physical].Min
             * (critical ? Math.Max(0, sourceCriticalMultiplier) / 100.0 : 1) * Math.Max(0, hitMore);
         var (stored, applied) = target.Impale.OnHit(physical, conn.Clock.Elapsed.TotalSeconds, settings, Random.Shared,
-            target.Mods.Effects["avoid_impale_%"]);
+            target.Mods.Effects[Stat.AvoidImpalePct]);
         return (ImpaleStats.AddReflected(directDamage, MonsterImpaleDamage(target, stored, ProjectileWorldTime(conn))), stored, applied);
     }
 }

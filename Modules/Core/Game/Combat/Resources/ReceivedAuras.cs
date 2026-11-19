@@ -63,7 +63,7 @@ public static partial class Game
         return [.. packets];
     }
 
-    public static Dictionary<string, int> MinionAuraStats(Player conn, GolemState.Golem minion)
+    public static Dictionary<uint, int> MinionAuraStats(Player conn, GolemState.Golem minion)
     {
         // A minion without a body stands with its owner: every aura of his reaches it.
         bool Reaches(uint owner, ushort skill) => minion.Monster is null ? owner == conn.PeerId : SharedAuraReaches(conn, owner, skill, minion.Id);
@@ -76,29 +76,29 @@ public static partial class Game
                 .SelectMany(p => p.Auras.Where(a => Reaches(p.Id, a.Aura.SkillId))
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
-        var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => Stats.Name(p.Key)!, p => p.Value);
+        var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
         if (MinionIntimidatingCryMovement(conn, minion.Monster) is > 0 and var cryMovement)
-            values["base_movement_velocity_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("base_movement_velocity_+%")
+            values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                 + cryMovement);
         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
-            if (values.GetValueOrDefault($"base_immune_to_{ailment}") != 0) values[$"immune_to_{ailment}"] = 1;
+            if (values.GetValueOrDefault(Stat.Of($"base_immune_to_{ailment}")) != 0) values[Stat.Of($"immune_to_{ailment}")] = 1;
         var bonus = AuraCatalog.Bonus(auras, 0, skills, Stats);
-        void Add(string name, decimal raw)
+        void Add(uint name, decimal raw)
         {
             int value = (int)Math.Clamp(raw, int.MinValue, int.MaxValue);
             if (value != 0) values[name] = values.GetValueOrDefault(name) + value;
         }
-        Add("base_fire_damage_resistance_%", bonus.FireResistance);
-        Add("base_cold_damage_resistance_%", bonus.ColdResistance);
-        Add("base_lightning_damage_resistance_%", bonus.LightningResistance);
-        Add("base_maximum_fire_damage_resistance_%", bonus.FireMaxResistance);
-        Add("base_maximum_cold_damage_resistance_%", bonus.ColdMaxResistance);
-        Add("base_maximum_lightning_damage_resistance_%", bonus.LightningMaxResistance);
-        Add("accuracy_rating", bonus.Accuracy); Add("attack_speed_+%", bonus.AttackSpeedPct);
-        Add("base_movement_velocity_+%", bonus.MovementVelocityPct);
-        Add("base_physical_damage_reduction_rating", bonus.Armour);
-        Add("determination_aura_armour_+%_final", bonus.ArmourMorePct);
-        Add("base_evasion_rating", bonus.Evasion); Add("grace_aura_evasion_rating_+%_final", bonus.EvasionMorePct);
+        Add(Stat.BaseFireDamageResistancePct, bonus.FireResistance);
+        Add(Stat.BaseColdDamageResistancePct, bonus.ColdResistance);
+        Add(Stat.BaseLightningDamageResistancePct, bonus.LightningResistance);
+        Add(Stat.BaseMaximumFireDamageResistancePct, bonus.FireMaxResistance);
+        Add(Stat.BaseMaximumColdDamageResistancePct, bonus.ColdMaxResistance);
+        Add(Stat.BaseMaximumLightningDamageResistancePct, bonus.LightningMaxResistance);
+        Add(Stat.AccuracyRating, bonus.Accuracy); Add(Stat.AttackSpeedPlusPct, bonus.AttackSpeedPct);
+        Add(Stat.BaseMovementVelocityPlusPct, bonus.MovementVelocityPct);
+        Add(Stat.BasePhysicalDamageReductionRating, bonus.Armour);
+        Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
+        Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
         return values;
     }
 }

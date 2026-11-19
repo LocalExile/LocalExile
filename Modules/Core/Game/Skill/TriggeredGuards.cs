@@ -76,9 +76,9 @@ public static partial class Game
     }
 
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
-    internal static double GuardDuration(int baseMilliseconds, Func<string, int> player, Func<string, int> own) =>
+    internal static double GuardDuration(int baseMilliseconds, Func<uint, int> player, Func<uint, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds,
-            name => player(name) + (name == SkillDurationModifiers.IncreasedDuration ? player("guard_skill_effect_duration_+%") : 0),
+            name => player(name) + (name == SkillDurationModifiers.IncreasedDuration ? player(Stat.GuardSkillEffectDurationPlusPct) : 0),
             own);
 
     // Called immediately after the trigger's successful payment, under the connection lock.
@@ -87,49 +87,49 @@ public static partial class Game
         var gem = SupportedSkill(conn, skill);
         if (!TriggerGuardReady(conn, now)) return;
         var player = CharacterPlayerStats(conn);
-        int Own(string name) => GolemStat(gem.Stats, name);
-        int Get(string name) => Own(name) + GolemStat(player, name);
+        int Own(uint name) => GolemStat(gem.Stats, name);
+        int Get(uint name) => Own(name) + GolemStat(player, name);
         var guard = TriggeredGuards.GetValue(conn, _ => new(conn.ProjectileEpoch, CombatLifetime));
         guard.Gem = gem; guard.Skill = skill; guard.Session = session;
         guard.Effect = SkillsFor(conn).EffectId(gem.Effect)!;
         guard.Physical = guard.Elemental = 1;
         guard.Percent = guard.Remaining = guard.Absorbed = guard.Armour = guard.Reflection = 0;
-        double duration = GuardDuration(Own("base_skill_effect_duration"), name => GolemStat(player, name), Own);
+        double duration = GuardDuration(Own(Stat.BaseSkillEffectDuration), name => GolemStat(player, name), Own);
         if (guard.Effect == "QuickGuard")
         {
-            guard.Percent = Math.Clamp(Own("quick_guard_damage_absorbed_%"), 0, 100);
-            guard.Remaining = Math.Max(0, Own("quick_guard_damage_absorb_limit"));
+            guard.Percent = Math.Clamp(Own(Stat.QuickGuardDamageAbsorbedPct), 0, 100);
+            guard.Remaining = Math.Max(0, Own(Stat.QuickGuardDamageAbsorbLimit));
         }
         else if (guard.Effect == "ImmortalCall")
         {
             var charges = ChargesOf(conn);
             int removable = charges.Converted(ChargeType.Endurance) ? 0 : Math.Min(5,
                 Math.Max(0, charges.Effective(ChargeType.Endurance) - charges.Limits(ChargeType.Endurance).Minimum));
-            if (!RandomRolls.Chance(Get("immortal_call_%_chance_to_not_consume_endurance_charges"), 100, Random.Shared))
+            if (!RandomRolls.Chance(Get(Stat.ImmortalCallPctChanceToNotConsumeEnduranceCharges), 100, Random.Shared))
                 charges.State.Lose(ChargeType.Endurance, removable, charges.Limits(ChargeType.Endurance));
             guard.Remaining = removable;
-            duration *= Math.Max(0, 1 + removable * Get("buff_effect_duration_+%_per_removable_endurance_charge_limited_to_5") / 100d);
-            guard.Physical = Math.Max(0, 1 + Own("mortal_call_physical_damage_taken_+%_final") / 100d)
-                * Math.Max(0, 1 + removable * Own("mortal_call_physical_damage_taken_per_endurance_charge_consumed_final_permyriad") / 10000d);
-            guard.Elemental = Math.Max(0, 1 + Own("mortal_call_elemental_damage_taken_+%_final") / 100d)
-                * Math.Max(0, 1 + removable * Own("immortal_call_elemental_damage_taken_+%_final_per_endurance_charge_consumed_permyriad") / 10000d);
+            duration *= Math.Max(0, 1 + removable * Get(Stat.BuffEffectDurationPlusPctPerRemovableEnduranceChargeLimitedTo5) / 100d);
+            guard.Physical = Math.Max(0, 1 + Own(Stat.MortalCallPhysicalDamageTakenPlusPctFinal) / 100d)
+                * Math.Max(0, 1 + removable * Own(Stat.MortalCallPhysicalDamageTakenPerEnduranceChargeConsumedFinalPermyriad) / 10000d);
+            guard.Elemental = Math.Max(0, 1 + Own(Stat.MortalCallElementalDamageTakenPlusPctFinal) / 100d)
+                * Math.Max(0, 1 + removable * Own(Stat.ImmortalCallElementalDamageTakenPlusPctFinalPerEnduranceChargeConsumedPermyriad) / 10000d);
             session.PresentCharges();
         }
         else if (guard.Effect == "MoltenShell")
         {
-            guard.Armour = Own("base_physical_damage_reduction_rating");
-            guard.Percent = Math.Clamp(Own("molten_shell_damage_absorbed_%"), 0, 100);
-            guard.Reflection = Own("molten_shell_%_of_absorbed_damage_dealt_as_reflected_fire");
+            guard.Armour = Own(Stat.BasePhysicalDamageReductionRating);
+            guard.Percent = Math.Clamp(Own(Stat.MoltenShellDamageAbsorbedPct), 0, 100);
+            guard.Reflection = Own(Stat.MoltenShellPctOfAbsorbedDamageDealtAsReflectedFire);
         }
         guard.Until = now + duration;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(conn, duration, () => { lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds); });
-        double recovery = Math.Max(0, 1 + Get("virtual_cooldown_speed_+%") / 100d + Own("base_cooldown_speed_+%") / 100d);
+        double recovery = Math.Max(0, 1 + Get(Stat.VirtualCooldownSpeedPlusPct) / 100d + Own(Stat.BaseCooldownSpeedPlusPct) / 100d);
         guard.RecoverySeconds = recovery > 0 ? SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
         if (guard.Effect == "MoltenShell")
-            guard.Remaining = (int)Math.Min(Math.Max(0, Own("molten_shell_max_damage_absorbed")),
-                (long)conn.Pools.Armour * Math.Max(0, Own("molten_shell_damage_absorb_limit_%_of_armour")) / 100);
+            guard.Remaining = (int)Math.Min(Math.Max(0, Own(Stat.MoltenShellMaxDamageAbsorbed)),
+                (long)conn.Pools.Armour * Math.Max(0, Own(Stat.MoltenShellDamageAbsorbLimitPctOfArmour)) / 100);
         guard.Buff = conn.NextBuff++;
         session.Enqueue(() => SendCharacterStats(conn, PlayerStatChange.Sources));
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
@@ -150,13 +150,13 @@ public static partial class Game
     public static Dictionary<uint, int> WithTriggeredGuard(Player conn, Dictionary<uint, int> stats)
     {
         if (CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds) is not { Until: > 0 } guard) return stats;
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            if (name is var key) stats[key] = stats.GetValueOrDefault(key) + value;
         }
-        Add("affected_by_guard_skill", 1);
-        Add("base_physical_damage_reduction_rating", guard.Armour);
-        if (guard.Effect == "QuickGuard") Add("avoid_bleed_%", 100);
+        Add(Stat.AffectedByGuardSkill, 1);
+        Add(Stat.BasePhysicalDamageReductionRating, guard.Armour);
+        if (guard.Effect == "QuickGuard") Add(Stat.AvoidBleedPct, 100);
         return stats;
     }
 

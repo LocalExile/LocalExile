@@ -17,7 +17,7 @@ public static partial class Game
 
     /// <summary>"X% of Damage from Hits is taken from your nearest Totem's Life before you": Forest of Ancestors' 20 and
     /// Kaom's Leadership's 25 add.</summary>
-    public const string TotemRedirectStat = "damage_removed_from_your_nearest_totem_before_life_or_es_%";
+    public const uint TotemRedirectStat = Stat.DamageRemovedFromYourNearestTotemBeforeLifeOrEsPct;
 
     /// <summary>Metadata/Characters/Character.ot: base_number_of_totems_allowed 1 and base_presence_radius 80 (the wiki's
     /// fixed 8 metres "in your presence"). The client has both from the .ot; the server's stats do not carry them.</summary>
@@ -117,7 +117,7 @@ public static partial class Game
                 // through their own clause, so what that clause refuses (Focused Ballista off a bow) stays refused, and
                 // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
                 || SkillsFor(conn).HasType(effect, TotemSkillType) && !NativeProjectileTotem(conn, effect)
-                    && GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0
+                    && GolemStat(SupportedSkill(conn, skill).Stats, Stat.IsRangedAttackTotem) == 0
                     && TotemDoesSomething(conn, effect)
                 || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null
                 || BallistaPathAvailable(conn, skill));
@@ -199,20 +199,20 @@ public static partial class Game
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
         var stats = SupportedStats(conn, skillId);
         var own = SupportedSkill(conn, skillId).Stats;
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        int Get(uint k) => stats.GetValueOrDefault(k);
         int limit = TotemLimit(conn, skillId);
         if (limit < 1) return null;
-        byte level = (byte)Math.Clamp(Get("totem_support_gem_level") is > 0 and var supportLevel
+        byte level = (byte)Math.Clamp(Get(Stat.TotemSupportGemLevel) is > 0 and var supportLevel
             ? supportLevel : SkillsFor(conn).PlayerLevelReq(effect, gemLevel), 1, 100);
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
-        uint life = (uint)Math.Clamp((long)baseLife * (100 + Get("totem_life_+%")) / 100, 1, int.MaxValue);
-        double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
+        uint life = (uint)Math.Clamp((long)baseLife * (100 + Get(Stat.TotemLifePlusPct)) / 100, 1, int.MaxValue);
+        double seconds = Get(Stat.BaseTotemDuration) / 1000.0 * Math.Max(0, 100 + Get(Stat.TotemDurationPlusPct)) / 100;
         TotemState.Aura? aura = null;
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.TryGetValue(id, out var source))
         {
             var area = MergeSkillStats(AreaPlayerStats(conn), own);
-            int Area(string name) => (name == "skill_area_of_effect_+%" ? conn.Pools.AuraAreaPct : 0)
-                + (Stats.Key(name) is uint k ? area.GetValueOrDefault(k) : 0);
+            int Area(uint name) => (name == Stat.SkillAreaOfEffectPlusPct ? conn.Pools.AuraAreaPct : 0)
+                + area.GetValueOrDefault(name);
             var buffStats = TotemBuffStats.GetValueOrDefault(source.Buff) ?? [];
             aura = new(source.Buff, SkillArea.Radius(source.Radius, Area, spell: true),
                 [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)]);
@@ -220,7 +220,7 @@ public static partial class Game
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, conn.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, conn.Layout.GridH - 1)));
         var playerStats = CharacterPlayerStats(conn);
-        bool ballista = BallistaEffect(conn, effect) && GolemStat(own, "is_ranged_attack_totem") != 0;
+        bool ballista = BallistaEffect(conn, effect) && GolemStat(own, Stat.IsRangedAttackTotem) != 0;
         bool spellTotem = (SpellTotemEffect(conn, effect) || ballista || NativeProjectileTotem(conn, effect)) && IsTotemSkill(conn, skillId);
         var sourceGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(conn, skillId) : null;
@@ -244,9 +244,9 @@ public static partial class Game
         }
         ushort grantedId = action is null ? (ushort)0 : TotemActionSkill;
         // Devouring Totem's effect is not a hit: it eats the corpses near it (TotemDevourLocked).
-        int Perk(string name) => Get(name) is var value && value != 0 ? value : GolemStat(own, name);
+        int Perk(uint name) => Get(name) is var value && value != 0 ? value : GolemStat(own, name);
         TotemState.Devour? devour = SkillsFor(conn).EffectId(effect) == "DevouringTotem"
-            ? new(Perk("corpse_consumption_life_to_gain"), Perk("corpse_consumption_mana_to_gain")) : null;
+            ? new(Perk(Stat.CorpseConsumptionLifeToGain), Perk(Stat.CorpseConsumptionManaToGain)) : null;
         bool Valid() => CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && current?.Invoke() != false;
         (int X, int Y) ClearPosition(uint objectId)
         {
@@ -262,8 +262,8 @@ public static partial class Game
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                 SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
-            int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
-                + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
+            int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, Stat.NumberOfAdditionalTotemsAllowed)
+                + (GolemStat(playerStats, Stat.KeystoneAncestralBond) != 0 ? 1 : 0), 0, int.MaxValue);
             placed.Ballista = ballista;
             placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(conn, placed);
@@ -359,7 +359,7 @@ public static partial class Game
     public static (int NonChaos, int Chaos) TotemsTakeHitLocked(Player conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
-        int pct = Stats.Key(TotemRedirectStat) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int pct = TotemRedirectStat is var key ? stats.GetValueOrDefault(key) : 0;
         // The totems live on the connection clock; the hit's world time places the player.
         double clock = conn.Clock.Elapsed.TotalSeconds;
         if (pct <= 0 || conn.Totems.Nearest(conn.Walk.Position(now), clock) is not { } totem) return (nonChaos, chaos);
@@ -498,8 +498,8 @@ public static partial class Game
         bool mana = devour.Mana > 0 && conn.PlayerMana < UnreservedMana(conn);
         if (!life && !mana) return;
         var player = CharacterPlayerStats(conn);
-        life &= GolemStat(player, "cannot_recover_life") == 0;
-        mana &= GolemStat(player, "cannot_recover_mana") == 0;
+        life &= GolemStat(player, Stat.CannotRecoverLife) == 0;
+        mana &= GolemStat(player, Stat.Of("cannot_recover_mana")) == 0;
         if (!life && !mana) return;
         double range = TotemTargetRange(conn, totem.SkillId);
         uint corpseId = 0; SpawnedMonster? corpse = null; (int X, int Y) at = totem.At; double nearest = double.MaxValue;

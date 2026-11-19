@@ -24,7 +24,7 @@ sealed class MonsterAuraEffect : IShrineEffect
             sources.Add(this);
             if (sources.Count > 1) return Task.CompletedTask;
             var stats = buff.Stats.Where(s => s.Key >= 1 && s.Key <= Stats.Names.Count)
-                .GroupBy(s => Stats.Name(s.Key)).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
+                .GroupBy(s => s.Key).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
             Change(ctx.Conn, monster, m, () => m.SetTemporaryStats(Key(buff.BuffRow), stats));
         }
         return Task.CompletedTask;

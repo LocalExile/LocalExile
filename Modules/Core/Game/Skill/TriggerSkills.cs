@@ -21,15 +21,15 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
-        if (GolemStat(gem.Stats, "cast_on_lose_cats_stealth") != 0)
+        if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
             return "this skill can only trigger when Cat's Stealth is lost";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))
             return "this skill can only trigger when damage is taken";
-        if (GolemStat(gem.Stats, "cast_spell_on_linked_attack_crit") != 0)
+        if (GolemStat(gem.Stats, Stat.CastSpellOnLinkedAttackCrit) != 0)
             return "this skill can only trigger on a linked attack critical strike";
-        if (GolemStat(gem.Stats, "cast_spell_while_linked_skill_channelling") != 0)
+        if (GolemStat(gem.Stats, Stat.CastSpellWhileLinkedSkillChannelling) != 0)
             return "this skill can only trigger while a linked skill is channelled";
-        if (GolemStat(gem.Stats, "spell_uncastable_if_triggerable") != 0
+        if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";
         return null;
@@ -74,10 +74,10 @@ public static partial class Game
                     state.Counters[skill.Id] = counter = new(gem);
                 if (TriggerGuardSpell(conn, gem) && !TriggerGuardReady(conn, at)) continue;
                 if (counter.Pending || at < counter.ReadyAt || at < LinkedTriggersOf(conn).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
-                int threshold = GolemStat(gem.Stats, "cast_on_damage_taken_threshold");
+                int threshold = GolemStat(gem.Stats, Stat.CastOnDamageTakenThreshold);
                 if (threshold <= 0) continue;
                 threshold = (int)Math.Clamp((long)threshold * Math.Max(0L, 100L
-                    + GolemStat(gem.Stats, "cast_when_damage_taken_trigger_threshold_+%")) / 100, 1, int.MaxValue);
+                    + GolemStat(gem.Stats, Stat.CastWhenDamageTakenTriggerThresholdPlusPct)) / 100, 1, int.MaxValue);
                 counter.Damage += damage;
                 if (counter.Damage < threshold) continue;
                 if (state.Pending.Count >= 128) continue;

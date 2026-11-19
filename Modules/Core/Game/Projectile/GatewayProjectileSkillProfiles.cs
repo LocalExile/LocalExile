@@ -33,7 +33,7 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
 
-    public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack,
+    public static ProjectileProfile Resolve(string effect, string metadata, Func<uint, int> get, double speed, bool attack,
         bool arrows = false)
     {
         var p = GatewayProjectileDefaults.Create(metadata, get, speed, arrows) with
@@ -43,8 +43,8 @@ public static class GatewayProjectileSkillProfiles
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
-            int count = get("cluster_burst_spawn_amount") is > 0 and var amount ? amount : clustering ? 3 : 4;
-            int areaFinal = get("active_skill_area_damage_+%_final");
+            int count = get(Stat.ClusterBurstSpawnAmount) is > 0 and var amount ? amount : clustering ? 3 : 4;
+            int areaFinal = get(Stat.ActiveSkillAreaDamagePlusPctFinal);
             // Exported normal/compatibility profiles carry -40; the default also supports synthetic inputs.
             double multiplier = 1 + (areaFinal != 0 ? areaFinal : clustering ? 0 : -40) / 100d;
             p = p with
@@ -57,7 +57,7 @@ public static class GatewayProjectileSkillProfiles
                         Delay = ProjectileRuntime.Time(ClusterDelaySeconds),
                         Interval = ProjectileRuntime.Time(ClusterIntervalSeconds),
                         UpdateTimer = true, PlacementAttempts = ClusterPlacementAttempts,
-                        ExtraCountChancePercent = get("kinetic_blast_%_chance_for_additional_blast") },
+                        ExtraCountChancePercent = get(Stat.KineticBlastPctChanceForAdditionalBlast) },
                 EndAreaReasons = NonContactStops, EndAreaOnReturnTurnaround = true
             };
         }
@@ -84,7 +84,7 @@ public static class GatewayProjectileSkillProfiles
                 Lobbed = true, DirectDamage = false, GroundBounceDistance = RollingMagmaBounceCells,
                 EndArea = new("rolling-magma", 0), EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
             };
-        else if (IsLightningArrow(effect) && get("lightning_arrow_maximum_number_of_extra_targets") is > 0 and var extra)
+        else if (IsLightningArrow(effect) && get(Stat.LightningArrowMaximumNumberOfExtraTargets) is > 0 and var extra)
             p = p with
             {
                 ContactTargets = new("lightning-arrow-targets", extra, 18)
@@ -97,43 +97,43 @@ public static class GatewayProjectileSkillProfiles
             {
                 Lobbed = true, DirectDamage = false,
                 CannotPierce = true, CannotFork = true, CannotSplit = true,
-                CannotChain = get("molten_strike_projectiles_chain_when_impacting_ground") == 0,
+                CannotChain = get(Stat.MoltenStrikeProjectilesChainWhenImpactingGround) == 0,
                 EndArea = new("molten-strike", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
         else if (effect == "HolyFlameTotem")
-            p = p with { Count = Math.Max(1, get("base_number_of_projectiles")), Pierce = -1, CannotReturn = true };
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
-        if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0) p = ArrowNovaChildren(p);
+        if (get(Stat.ProjectilesRain) != 0 || get(Stat.SkillIsRainSkill) != 0) p = ArrowNovaChildren(p);
 
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
         {
             "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
-                => get("freezing_pulse_number_of_additional_projectiles"),
+                => get(Stat.FreezingPulseNumberOfAdditionalProjectiles),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
-                => get("frostbolt_number_of_additional_projectiles"),
+                => get(Stat.FrostboltNumberOfAdditionalProjectiles),
             _ => 0
         };
         int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
-            ? get("ice_shot_pierce_+") : 0;
+            ? get(Stat.IceShotPiercePlus) : 0;
         bool nova = effect switch
         {
-            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" => get("spark_projectiles_nova") != 0,
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" => get(Stat.SparkProjectilesNova) != 0,
             "EtherealKnives" or "EtherealKnivesAltX" or "EtherealKnivesAltY" or "EtherealKnivesRoyale"
-                => get("ethereal_knives_projectiles_nova") != 0,
+                => get(Stat.EtherealKnivesProjectilesNova) != 0,
             _ => false
         };
-        if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
+        if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
         if (IsMoltenStrike(effect))
         {
-            bool groundChains = get("molten_strike_projectiles_chain_when_impacting_ground") != 0;
-            int groundChainCount = groundChains ? Math.Max(0, p.Chain + get("molten_strike_chain_count_+")) : 0;
+            bool groundChains = get(Stat.MoltenStrikeProjectilesChainWhenImpactingGround) != 0;
+            int groundChainCount = groundChains ? Math.Max(0, p.Chain + get(Stat.MoltenStrikeChainCountPlus)) : 0;
             p = p with
             {
                 CannotChain = !groundChains,
@@ -141,7 +141,7 @@ public static class GatewayProjectileSkillProfiles
                 GroundChains = groundChainCount,
                 GroundBounceKeepsRange = groundChainCount > 0
             };
-            int countFinal = get("threshold_jewel_molten_strike_damage_projectile_count_+%_final");
+            int countFinal = get(Stat.ThresholdJewelMoltenStrikeDamageProjectileCountPlusPctFinal);
             if (countFinal != 0)
                 p = p with { Count = Math.Max(1, (int)Math.Floor(p.Count * Math.Max(0, 1 + countFinal / 100.0))) };
         }
@@ -193,9 +193,9 @@ public static class GatewayProjectileSkillProfiles
     // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
     // The group is three TornadoShotSecondaryArrow flights around the client's terminal RNG base ray, so both sides
     // fan out the same way (TornadoShotBaseDirection).
-    static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<string, int> get)
+    static ProjectileProfile TornadoShotChildren(ProjectileProfile parent, Func<uint, int> get)
     {
-        int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
+        int count = Math.Clamp(get(Stat.TornadoShotNumOfSecondaryProjectiles) is > 0 and var n ? n : 3, 1, 256);
         var child = parent with
         {
             Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
@@ -289,26 +289,26 @@ public static class GatewayProjectileSkillProfiles
         };
     }
 
-    public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)
+    public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<uint, int> get, bool spell)
     {
-        int Value(string key, int fallback) => get(key) is > 0 and var value ? value : fallback;
+        int Value(uint key, int fallback) => get(key) is > 0 and var value ? value : fallback;
         if (IsKineticBlast(effect) && p.ContactArea is { } contact)
         {
             bool clustering = effect == "KineticBlastAltX";
-            int blast = SkillArea.Radius(Value("active_skill_base_area_of_effect_radius", clustering ? 19 : 14), get, spell);
-            int placement = SkillArea.Radius(Value("active_skill_base_secondary_area_of_effect_radius", clustering ? 28 : 20), get, spell);
+            int blast = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, clustering ? 19 : 14), get, spell);
+            int placement = SkillArea.Radius(Value(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius, clustering ? 28 : 20), get, spell);
             // Centers lie on the scaled placement circle; only the angle is sampled within each sector.
             var area = contact with { Radius = blast, Offset = placement, MinimumOffset = placement };
             return p with { ContactArea = area, EndArea = area };
         }
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)
             return p with { ContactTargets = targets with
-                { Radius = SkillArea.Radius(Value("active_skill_base_area_of_effect_radius", 18), get, spell) } };
+                { Radius = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 18), get, spell) } };
         if (IsMoltenStrike(effect) && p.EndArea is { } moltenArea)
         {
-            int AreaStat(string name) => name == SkillArea.BaseIncreased
-                ? get(name) + get("molten_strike_radius_+%") : get(name);
-            int baseRadius = Value("active_skill_base_area_of_effect_radius", 9);
+            int AreaStat(uint name) => name == SkillArea.BaseIncreased
+                ? get(name) + get(Stat.MoltenStrikeRadiusPlusPct) : get(name);
+            int baseRadius = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 9);
             return p with { EndArea = moltenArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) } };
         }
         if (p.EndArea is { } terminal)

@@ -10,7 +10,7 @@ public static partial class Game
     // Damage converted to Fire Damage" joins it while the monster burns with the player's ignite (<paramref name="stat"/>:
     // the player's merged stats). Call under the Monsters lock.
     public static DamageConversion? EnemyAuraConversionLocked(Player conn, SpawnedMonster m, (int X, int Y) player, double now,
-        Func<string, int>? stat = null)
+        Func<uint, int>? stat = null)
     {
         if (!m.Hostile || conn.PlayerLife == 0) return null;
         var at = m.Walk.Position(now);
@@ -18,7 +18,7 @@ public static partial class Game
         foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], LeagueFor(conn).HardMode, EnemyAuraActs))
             if (aura.Stats.Count > 0 && Dist(at, player) <= aura.Radius)
                 foreach (var (key, value) in aura.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
-        int ignited = stat?.Invoke("enemies_ignited_by_you_have_physical_damage_%_converted_to_fire") ?? 0;
+        int ignited = stat?.Invoke(Stat.EnemiesIgnitedByYouHavePhysicalDamagePctConvertedToFire) ?? 0;
         if (ignited > 0 && m.Ignites.Burning && Stat.BasePhysicalDamagePctToConvertToFire is var fireKey)
         {
             stats[fireKey] = stats.GetValueOrDefault(fireKey) + ignited;
@@ -30,9 +30,9 @@ public static partial class Game
 
     // The sum of one stat of the player's passive enemy auras on this monster at contact, by the radius at that moment
     // (Overwhelm's base_critical_strike_multiplier_+ for its critical strikes on the player). Call under the Monsters lock.
-    public static int EnemyAuraStatLocked(Player conn, SpawnedMonster m, (int X, int Y) player, double now, string stat)
+    public static int EnemyAuraStatLocked(Player conn, SpawnedMonster m, (int X, int Y) player, double now, uint stat)
     {
-        if (!m.Hostile || conn.PlayerLife == 0 || Stats.Key(stat) is not uint key) return 0;
+        if (!m.Hostile || conn.PlayerLife == 0 || !(stat is var key)) return 0;
         var at = m.Walk.Position(now);
         long sum = 0;
         foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], LeagueFor(conn).HardMode, EnemyAuraActs))

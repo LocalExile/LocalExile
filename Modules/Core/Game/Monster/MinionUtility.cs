@@ -40,10 +40,10 @@ static partial class Game
     internal static void RecallMinionsLocked(Player conn, SupportedGem gem, double now)
     {
         var player = CharacterPlayerStats(conn);
-        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration"),
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
             n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
-        double rate = GolemStat(gem.Stats, "life_regeneration_rate_per_minute_%")
-            * Math.Max(0, 1 + GolemStat(player, "convocation_buff_effect_+%") / 100d);
+        double rate = GolemStat(gem.Stats, Stat.LifeRegenerationRatePerMinutePct)
+            * Math.Max(0, 1 + GolemStat(player, Stat.ConvocationBuffEffectPlusPct) / 100d);
         foreach (var minion in conn.Minions.All)
         {
             var m = minion.Monster;
@@ -70,7 +70,7 @@ static partial class Game
         if (first is null || !Usable(first)) first = conn.Monsters.Values.Where(Usable)
             .Where(m => Dist(m.Walk.Position(now), aim) <= 15).MinBy(m => Dist(m.Walk.Position(now), aim));
         var player = CharacterPlayerStats(conn);
-        if (first is null && GolemStat(player, "offering_skills_do_not_require_corpses") == 0) return false;
+        if (first is null && GolemStat(player, Stat.OfferingSkillsDoNotRequireCorpses) == 0) return false;
         var centre = first?.Walk.Position(now) ?? aim;
         var corpses = conn.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
             .OrderBy(p => ReferenceEquals(p.Value, first) ? 0 : 1).ThenBy(p => Dist(p.Value.Walk.Position(now), centre)).Take(5).ToArray();
@@ -83,15 +83,15 @@ static partial class Game
         }
         int extra = Math.Max(0, corpses.Length - 1);
         string kind = effect == "FleshOffering" ? "flesh" : effect == "BoneOffering" ? "bone" : "spirit";
-        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, "base_skill_effect_duration")
-                + extra * GolemStat(gem.Stats, "offering_skill_effect_duration_per_corpse"),
-            n => GolemStat(player, n) + (n == "skill_effect_duration_+%" ? GolemStat(player, "offering_duration_+%")
-                + GolemStat(player, kind + "_offering_duration_+%") : 0), n => GolemStat(gem.Stats, n));
-        int increase = GolemStat(player, "offering_spells_effect_+%")
-            + GolemStat(player, kind + "_offering_effect_+%") + GolemStat(gem.Stats, "offering_spells_effect_+%");
+        double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration)
+                + extra * GolemStat(gem.Stats, Stat.OfferingSkillEffectDurationPerCorpse),
+            n => GolemStat(player, n) + (n == Stat.SkillEffectDurationPlusPct ? GolemStat(player, Stat.OfferingDurationPlusPct)
+                + GolemStat(player, Stat.Of(kind + "_offering_duration_+%")) : 0), n => GolemStat(gem.Stats, n));
+        int increase = GolemStat(player, Stat.OfferingSpellsEffectPlusPct)
+            + GolemStat(player, Stat.Of(kind + "_offering_effect_+%")) + GolemStat(gem.Stats, Stat.OfferingSpellsEffectPlusPct);
         double scale = Math.Max(0, 1 + increase / 100d);
-        Dictionary<string, int> stats = [], baseStats = [];
-        void Add(string to, string from, int bonus = 0)
+        Dictionary<uint, int> stats = [], baseStats = [];
+        void Add(uint to, uint from, int bonus = 0)
         {
             baseStats[to] = GolemStat(gem.Stats, from) + bonus;
             stats[to] = ActorScale.Saturate((long)Math.Floor(baseStats[to] * scale));
@@ -100,37 +100,37 @@ static partial class Game
         if (effect == "FleshOffering")
         {
             buff = 295;
-            Add("attack_speed_+%", "attack_speed_+%_granted_from_skill", GolemStat(player, "flesh_offering_attack_speed_+%"));
-            Add("cast_speed_+%", "cast_speed_+%_granted_from_skill"); Add("base_movement_velocity_+%", "base_movement_velocity_+%");
+            Add(Stat.AttackSpeedPlusPct, Stat.AttackSpeedPlusPctGrantedFromSkill, GolemStat(player, Stat.FleshOfferingAttackSpeedPlusPct));
+            Add(Stat.CastSpeedPlusPct, Stat.CastSpeedPlusPctGrantedFromSkill); Add(Stat.BaseMovementVelocityPlusPct, Stat.BaseMovementVelocityPlusPct);
         }
         else if (effect == "BoneOffering")
         {
             buff = 296;
-            Add("monster_base_block_%", "monster_base_block_%", GolemStat(player, "bone_offering_block_chance_+%"));
-            Add("base_spell_block_%", "base_spell_block_%");
-            Add("life_regeneration_rate_per_minute_%_if_blocked_recently", "minion_life_regeneration_rate_per_minute_%_if_blocked_recently");
+            Add(Stat.MonsterBaseBlockPct, Stat.MonsterBaseBlockPct, GolemStat(player, Stat.BoneOfferingBlockChancePlusPct));
+            Add(Stat.BaseSpellBlockPct, Stat.BaseSpellBlockPct);
+            Add(Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently, Stat.MinionLifeRegenerationRatePerMinutePctIfBlockedRecently);
         }
         else
         {
             buff = 663;
-            Add("critical_strike_chance_+%", "spirit_offering_critical_strike_chance_+%");
-            Add("base_critical_strike_multiplier_+", "spirit_offering_critical_strike_multiplier_+");
+            Add(Stat.CriticalStrikeChancePlusPct, Stat.SpiritOfferingCriticalStrikeChancePlusPct);
+            Add(Stat.BaseCriticalStrikeMultiplierPlus, Stat.SpiritOfferingCriticalStrikeMultiplierPlus);
         }
         foreach (var fighter in UtilityFighters(conn))
             if (fighter.UtilityBuffs.Remove(buff, out var previous))
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(fighter.Id, previous), "Offering renewed"));
         var all = conn.Summons.Offerings;
         all.RemoveAll(o => o.Effect == effect || now >= o.Until);
-        int limit = GolemStat(player, "allow_multiple_offerings") != 0 ? 3 : GolemStat(player, "allow_2_offerings") != 0 ? 2 : 1;
+        int limit = GolemStat(player, Stat.AllowMultipleOfferings) != 0 ? 3 : GolemStat(player, Stat.Allow2Offerings) != 0 ? 2 : 1;
         while (all.Count >= limit) all.RemoveAt(0);
         all.Add(new(effect, now + duration, buff, source, stats, baseStats, increase));
         MinionUtilityTick(conn, now);
         return true;
     }
 
-    static Dictionary<string, int> MinionOfferingStats(Player conn, double now)
+    static Dictionary<uint, int> MinionOfferingStats(Player conn, double now)
     {
-        var stats = new Dictionary<string, int>();
+        var stats = new Dictionary<uint, int>();
         lock (conn.Monsters)
             foreach (var offering in conn.Summons.Offerings.Where(o => o.Until > now))
                 foreach (var (key, value) in offering.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
@@ -144,7 +144,7 @@ static partial class Game
         if (conn.PlayerLife == 0) conn.Summons.Offerings.Clear();
         conn.Summons.Offerings.RemoveAll(o => now >= o.Until);
         var player = CharacterPlayerStats(conn);
-        int limit = GolemStat(player, "allow_multiple_offerings") != 0 ? 3 : GolemStat(player, "allow_2_offerings") != 0 ? 2 : 1;
+        int limit = GolemStat(player, Stat.AllowMultipleOfferings) != 0 ? 3 : GolemStat(player, Stat.Allow2Offerings) != 0 ? 2 : 1;
         while (conn.Summons.Offerings.Count > limit) conn.Summons.Offerings.RemoveAt(0);
         SelfOfferingTick(conn, player, now);
         foreach (var fighter in UtilityFighters(conn))
@@ -178,7 +178,7 @@ static partial class Game
     static void SelfOfferingTick(Player conn, IReadOnlyDictionary<uint, int> player, double now)
     {
         var state = conn.Summons;
-        var active = GolemStat(player, "offerings_also_buff_you") != 0 ? state.Offerings.ToArray() : [];
+        var active = GolemStat(player, Stat.OfferingsAlsoBuffYou) != 0 ? state.Offerings.ToArray() : [];
         foreach (var (row, sent) in state.PlayerOfferingBuffs.ToArray())
             if (!active.Any(o => ReferenceEquals(o, sent.Offering)))
             {
@@ -196,14 +196,14 @@ static partial class Game
         Dictionary<uint, int> next = [];
         foreach (var offering in active)
         {
-            double scale = Math.Max(0, 1 + (offering.EffectIncrease + GolemStat(player, "self_offering_effect_+%")) / 100d);
+            double scale = Math.Max(0, 1 + (offering.EffectIncrease + GolemStat(player, Stat.SelfOfferingEffectPlusPct)) / 100d);
             foreach (var (name, value) in offering.BaseStats)
             {
-                string stat = name;
-                if (stat == "life_regeneration_rate_per_minute_%_if_blocked_recently")
+                uint stat = name;
+                if (stat == Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently)
                 {
                     if (!conn.RecentEvents.Happened(StatConditions.Blocked, now)) continue;
-                    stat = "life_regeneration_rate_per_minute_%";
+                    stat = Stat.LifeRegenerationRatePerMinutePct;
                 }
                 GolemAdd(next, stat, ActorScale.Saturate((long)Math.Floor(value * scale)));
             }

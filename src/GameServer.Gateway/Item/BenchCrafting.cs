@@ -97,12 +97,12 @@ public sealed class BenchCrafting
                 if (catalog.Mods.ByHash(existing.Hash) is { } definition)
                     for (int i = 0; i < definition.Stats.Count && i < existing.Values.Count; i++)
                     {
-                        string stat = definition.Stats[i].Id;
-                        if (stat == "item_generation_can_have_multiple_crafted_mods" && existing.Values[i] > 0) limit = Math.Max(limit, 3);
-                        else if (stat == "local_can_have_additional_crafted_mods") limit += existing.Values[i];
+                        uint stat = definition.Stats[i].Id;
+                        if (stat == Stat.ItemGenerationCanHaveMultipleCraftedMods && existing.Values[i] > 0) limit = Math.Max(limit, 3);
+                        else if (stat == Stat.LocalCanHaveAdditionalCraftedMods) limit += existing.Values[i];
                     }
             if (Enumerable.Range(0, mod.Stats.Count).Any(i =>
-                mod.Stats[i].Id == "item_generation_can_have_multiple_crafted_mods" && mod.RangeAt(i).Min > 0))
+                mod.Stats[i].Id == Stat.ItemGenerationCanHaveMultipleCraftedMods && mod.RangeAt(i).Min > 0))
                 limit = Math.Max(limit, 3);
             bool conflict(ItemMod m) => catalog.Mods.ByHash(m.Hash) is { } other &&
                 (other.Hash == mod.Hash || other.Families.Intersect(mod.Families).Any());

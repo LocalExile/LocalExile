@@ -141,9 +141,9 @@ public static partial class Game
         conn.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(conn), amount);
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state)) return;
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
-        if (gain > 0) conn.Rage.Gain(gain, ResourceEffectsTime(conn), RageStats.Inputs(Get), Get("has_soul_gain_prevention") != 0);
+        if (gain > 0) conn.Rage.Gain(gain, ResourceEffectsTime(conn), RageStats.Inputs(Get), Get(Stat.HasSoulGainPrevention) != 0);
     }
     public static void SettleFullManaLocked(Player conn, double at)
     {

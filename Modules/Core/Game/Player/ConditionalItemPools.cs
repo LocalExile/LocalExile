@@ -113,8 +113,7 @@ public static partial class Game
         flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
         flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
         flags["has_cat_aspect"] = catAspect;
-        flags["cursed_by_vulnerability"] = Stat.CursedByVulnerability is var curseKey
-            && lowLifeSources.GetValueOrDefault(curseKey) != 0;
+        flags["cursed_by_vulnerability"] = lowLifeSources.GetValueOrDefault(Stat.CursedByVulnerability) != 0;
         flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
         flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
         flags["has_cats_stealth"] = catsStealth;
@@ -233,9 +232,9 @@ public static partial class Game
             // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
             bool conditionalEquipment = before is null && current.Worn.Any(w => w.Item.Mods.Any(m =>
                 ItemsFor(conn).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
-                    && (s.Id.Contains("_if_", StringComparison.Ordinal)
-                        || s.Id.Contains("_while_", StringComparison.Ordinal)
-                        || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id)
+                    && (s.Name.Contains("_if_", StringComparison.Ordinal)
+                        || s.Name.Contains("_while_", StringComparison.Ordinal)
+                        || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Name)
                         || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
             bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
                 == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);

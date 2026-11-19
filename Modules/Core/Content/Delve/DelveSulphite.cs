@@ -108,7 +108,7 @@ public sealed partial class DelveModule
         }
         if (encounter.Deposits.Length > 0) await MoveNiko(module, player, encounter, encounter.Deposits[0]);
         await player.Send(DelveData(WorldOf(player)), "Map sulphite and equipment");
-        module.Log($"Sulphite: {encounter.Deposits.Length} deposits in {conn.Layout.Id}/{conn.Seed}, owner {encounter.Owner}, level {encounter.Map.Area.Level}, quantity {encounter.Mods.Quantity}%, owner bonus {encounter.Mods.Get("map_owner_sulphite_gained_+%")}%");
+        module.Log($"Sulphite: {encounter.Deposits.Length} deposits in {conn.Layout.Id}/{conn.Seed}, owner {encounter.Owner}, level {encounter.Map.Area.Level}, quantity {encounter.Mods.Quantity}%, owner bonus {encounter.Mods.Get(Stat.MapOwnerSulphiteGainedPlusPct)}%");
     }
 
     static async Task ShowDeposit(IModuleContext module, IPlayer player, SulphiteEncounter encounter, Deposit deposit, bool replace)
@@ -178,7 +178,7 @@ public sealed partial class DelveModule
             if (MapSulphite.Fumes(encounter.Mods))
                 foreach (var monster in conn.Monsters.Values.Where(m => m.Hostile && m.Life > 0 && MapSulphite.Distance(m.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius))
                 {
-                    var stats = monster.EncounterStats is null ? new Dictionary<string, int>() : new Dictionary<string, int>(monster.EncounterStats);
+                    var stats = monster.EncounterStats is null ? new Dictionary<uint, int>() : new Dictionary<uint, int>(monster.EncounterStats);
                     stats[MapSulphite.EnragedQuantity] = Math.Max(MapSulphite.FumesQuantity, stats.GetValueOrDefault(MapSulphite.EnragedQuantity));
                     monster.EncounterStats = stats;
                 }

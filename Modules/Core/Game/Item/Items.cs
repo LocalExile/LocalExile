@@ -621,10 +621,10 @@ public static partial class Game
     {
         if (ClusterSize(item) is null) return 0;
         var local = ItemModStats.Local(item, Items.Mods);
-        int empty = local.GetValueOrDefault("local_unique_jewel_grants_x_empty_passives");
+        int empty = local.GetValueOrDefault(Stat.LocalUniqueJewelGrantsXEmptyPassives);
         if (empty > 0) return empty + ClusterSocketCount(item);
         if (ClusterSize(item) == 0 && ClusterJewelStats.Keystone(item) is not null) return 1;
-        return Math.Max(0, local.GetValueOrDefault("local_jewel_expansion_passive_node_count"));
+        return Math.Max(0, local.GetValueOrDefault(Stat.LocalJewelExpansionPassiveNodeCount));
     }
 
     /// <summary>The cluster jewel nodes a character can have allocated: the allocatable nodes of every socketed cluster
@@ -641,9 +641,9 @@ public static partial class Game
     {
         int size = ClusterSize(item) ?? -1;
         if (size < 0) return 0;
-        int over = ItemModStats.Local(item, Items.Mods).GetValueOrDefault("local_jewel_expansion_jewels_count_override");
+        int over = ItemModStats.Local(item, Items.Mods).GetValueOrDefault(Stat.LocalJewelExpansionJewelsCountOverride);
         if (over > 0) return over;
-        if (size == 1 && ClusterJewelStats.Entries(item).Any(e => e.Stat == "local_affliction_jewel_display_small_nodes_grant_nothing" && e.Value != 0))
+        if (size == 1 && ClusterJewelStats.Entries(item).Any(e => e.Stat == Stat.LocalAfflictionJewelDisplaySmallNodesGrantNothing && e.Value != 0))
             return 0; // Megalomaniac: one empty small and three notables.
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
@@ -809,7 +809,7 @@ public static partial class Game
             playerLevel = conn.Pools.Level;
             character = CharacterPlayerStats(conn);
         }
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int Get(uint key) => character.GetValueOrDefault(key);
         var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
         var charges = FlaskCharges.Of(use, local, Get);
         if (conn.PlayerLife == 0 || Flasks.Spend(flask.Item, charges) is null)
@@ -824,7 +824,7 @@ public static partial class Game
         {
             recoveryOwner = ResourceEffectsOf(conn);
             r = FlaskRecovery.For(use, flask.Item, local,
-                name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+                name => Get(name) + (name == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
             canRecover = Flasks.CanRecover(use, conn.PlayerLife, LifeCap(conn), conn.PlayerMana, (uint)UnreservedMana(conn))
                 || copyLife && conn.PlayerLife < LifeCap(conn)
@@ -857,7 +857,7 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
+            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct)));
         await SpendFlask(conn, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(conn, slot, spent, type, use, r, copyLife, local, during));
     }

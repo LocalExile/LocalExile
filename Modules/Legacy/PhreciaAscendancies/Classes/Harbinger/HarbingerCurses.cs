@@ -12,8 +12,8 @@ internal sealed class HarbingerCurses
     readonly Dictionary<uint, (Target Target, HarbingerTemporalChains Curse)> monsters = [];
     internal HarbingerTemporalChains? Self { get; private set; }
 
-    internal static bool Allowed(Target target, Func<string, int> player) => !target.Immune
-        && (!target.Hexproof || player("ignore_hexproof") != 0 || player("temporal_chains_ignores_hexproof") != 0);
+    internal static bool Allowed(Target target, Func<uint, int> player) => !target.Immune
+        && (!target.Hexproof || player(Stat.IgnoreHexproof) != 0 || player(Stat.TemporalChainsIgnoresHexproof) != 0);
 
     static HarbingerTemporalChains New(ushort instance, ushort skill, double now,
         HarbingerTemporalChains.Source source, bool aura, double rate = 1) =>
@@ -21,7 +21,7 @@ internal sealed class HarbingerCurses
             source.NormalSlow, source.RareSlow, source.OtherEffects, aura) { Snapshot = source };
 
     internal Change[] Apply(IEnumerable<Target> targets, ushort skill, double now,
-        HarbingerTemporalChains.Source source, Func<string, int> player, Func<ushort> allocate,
+        HarbingerTemporalChains.Source source, Func<uint, int> player, Func<ushort> allocate,
         HarbingerTemporalChains.Source reflectedSource, bool reflectOwn = false)
     {
         var changes = new List<Change>();
@@ -42,7 +42,7 @@ internal sealed class HarbingerCurses
     }
 
     internal Change[] Reconcile(IEnumerable<Target> living, IEnumerable<Target> insideAura, ushort? auraSkill,
-        HarbingerTemporalChains.Source? source, double now, Func<string, int> player, Func<ushort> allocate)
+        HarbingerTemporalChains.Source? source, double now, Func<uint, int> player, Func<ushort> allocate)
     {
         var current = living.ToDictionary(t => t.Id);
         var inside = insideAura.Where(t => Allowed(t, player)).ToDictionary(t => t.Id);
@@ -75,15 +75,15 @@ internal sealed class HarbingerCurses
         monsters.TryGetValue(target.Id, out var entry) && ReferenceEquals(target.Identity, entry.Target.Identity)
             && entry.Curse.Clock.Remaining > 0 && entry.Curse.Clock.Deadline > now ? entry.Curse : null;
 
-    internal (int Slow, int OtherEffects) SelfStats(double now, bool alive, Func<string, int> player)
+    internal (int Slow, int OtherEffects) SelfStats(double now, bool alive, Func<uint, int> player)
     {
         if (Self is not { } curse) return default;
         curse.Clock.ChangeRate(now, HarbingerRecipientClock.RecipientRate(5, player, temporalChains: true));
         if (curse.Clock.Remaining <= 0) { Self = null; return default; }
         // Suppression does not delete the running curse; refund can expose its remaining budget again.
-        return alive && curse.Clock.Remaining > 0 && player("unaffected_by_curses") == 0
-            && player("unaffected_by_temporal_chains") == 0 && player("virtual_unaffected_by_temporal_chains") == 0
-            && player("immune_to_curses") == 0
+        return alive && curse.Clock.Remaining > 0 && player(Stat.UnaffectedByCurses) == 0
+            && player(Stat.UnaffectedByTemporalChains) == 0 && player(Stat.VirtualUnaffectedByTemporalChains) == 0
+            && player(Stat.ImmuneToCurses) == 0
             ? (curse.Slow(false), curse.OtherEffects) : default;
     }
 

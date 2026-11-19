@@ -800,14 +800,14 @@ static partial class SurvivorsRunRules
         double target = SurvivorsPoolTop(roster, stage) * SurvivorsRules.BossLifeRatio(stage)
             * SurvivorsRules.MonsterLifeScale(run.Elapsed) * SurvivorsRules.BossLifeMultiplier;
         // MaxLife applies the rarity's own factor after maximum_life_+%, so solve the percentage for the target.
-        double factor = (1 + rolled.Effects["monster_life_+%_final_from_rarity"] / 100.0)
-            * (1 + rolled.Effects["monster_life_+%_final_from_rarity_table"] / 100.0);
+        double factor = (1 + rolled.Effects[Stat.MonsterLifePlusPctFinalFromRarity] / 100.0)
+            * (1 + rolled.Effects[Stat.MonsterLifePlusPctFinalFromRarityTable] / 100.0);
         int lifePct = (int)Math.Round((target / (baseLife * Math.Max(0.01, factor)) - 1) * 100);
         lifePct = Math.Clamp(lifePct, -99, 1_000_000);
         int damagePct = (int)Math.Round((SurvivorsRules.MonsterDamageScale(run.Elapsed) - 1) * 100);
         return rolled with
         {
-            Effects = rolled.Effects.Plus("maximum_life_+%", lifePct).Plus("damage_+%", damagePct),
+            Effects = rolled.Effects.Plus(Stat.MaximumLifePlusPct, lifePct).Plus(Stat.DamagePlusPct, damagePct),
         };
     }
 
@@ -830,9 +830,9 @@ static partial class SurvivorsRunRules
         if (life <= 0 && damage <= 0) return MonsterModSet.None;
         return MonsterModSet.None with
         {
-            Effects = new MonsterModEffects(new Dictionary<string, int>
+            Effects = new MonsterModEffects(new Dictionary<uint, int>
             {
-                ["maximum_life_+%"] = life, ["damage_+%"] = damage,
+                [Stat.MaximumLifePlusPct] = life, [Stat.DamagePlusPct] = damage,
             }),
         };
     }

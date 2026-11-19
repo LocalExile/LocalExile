@@ -34,9 +34,9 @@ public sealed class KineticBoltTests
         var profile = GatewayProjectileSkillProfiles.Resolve("KineticBolt",
             "Metadata/Projectiles/ZigZagWandProjectile", name => name switch
             {
-                "kinetic_wand_base_number_of_zig_zags" => 2,
-                "kinetic_bolt_forks_apply_to_zig_zags" => 1,
-                "projectiles_return" => 1,
+                Stat.KineticWandBaseNumberOfZigZags => 2,
+                Stat.KineticBoltForksApplyToZigZags => 1,
+                Stat.ProjectilesReturn => 1,
                 _ => 0
             }, 100, attack: true);
         profile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(profile, sequence: 2);
@@ -69,9 +69,9 @@ public sealed class KineticBoltTests
         var hitProfile = GatewayProjectileSkillProfiles.Resolve("KineticBolt",
             "Metadata/Projectiles/ZigZagWandProjectile", name => name switch
             {
-                "kinetic_wand_base_number_of_zig_zags" => 2,
-                "kinetic_bolt_forks_apply_to_zig_zags" => 1,
-                "projectile_number_of_targets_to_pierce" => 1,
+                Stat.KineticWandBaseNumberOfZigZags => 2,
+                Stat.KineticBoltForksApplyToZigZags => 1,
+                Stat.ProjectileNumberOfTargetsToPierce => 1,
                 _ => 0
             }, 100, attack: true);
         hitProfile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(hitProfile, sequence: 3);

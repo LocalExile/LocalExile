@@ -46,8 +46,8 @@ public class LioneyesFallTests
     [Fact]
     public void Bow_damage_follows_a_physical_hit_through_conversion_and_excludes_other_weapons()
     {
-        int Get(string n) => n switch { "physical_bow_damage_+%" => 10, "bow_damage_+%" => 20,
-            "bow_hit_and_ailment_damage_+%" => 30, "bow_elemental_damage_+%" => 40, _ => 0 };
+        int Get(uint n) => n switch { Stat.PhysicalBowDamagePlusPct => 10, Stat.BowDamagePlusPct => 20,
+            Stat.BowHitAndAilmentDamagePlusPct => 30, Stat.BowElementalDamagePlusPct => 40, _ => 0 };
         var packet = DamagePacket.Of(DamageType.Physical, 100, 100);
         var conversion = new DamageConversion();
         conversion.AddSkill(DamageType.Physical, DamageType.Fire, 100);
@@ -58,7 +58,7 @@ public class LioneyesFallTests
         Assert.Equal(100, Hit(true, true));
 
         int Ignite(bool bow) => AilmentPanelStats.Compute(new("main_hand", Spell: false),
-            packet, conversion, n => n == "main_hand_weapon_type" ? WeaponTypeStats.Of(bow ? "Bow" : "Wand") : Get(n)).Single(row => row.Stat == "minimum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage").Value;
+            packet, conversion, n => n == Stat.MainHandWeaponType ? WeaponTypeStats.Of(bow ? "Bow" : "Wand") : Get(n)).Single(row => row.Stat == Stat.MinimumIgniteDamageToDealPerMinuteFromNonCriticalMainHandDamage).Value;
         Assert.Equal(2 * Ignite(false), Ignite(true));
         Assert.True(Ignite(false) > 0);
     }

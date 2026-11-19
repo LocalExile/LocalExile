@@ -70,7 +70,7 @@ public static partial class Game
         int Flat(string bound) => conn.Minions.Owns(id) && Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
             ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
         if (supported is null && Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
-            new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
+            new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects[Stat.DamagePlusPct] / 100.0)));
         int damage = MonsterTakesRolled(t, offense.Roll(random), spell: false, now: now);
         return ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is { } hit ? (hit, damage) : null;
     }

@@ -35,11 +35,11 @@ public static partial class Game
             lock (conn.Monsters) TryGainElusiveLocked(conn, critical: true, kill: false, ProjectileWorldTime(conn));
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
-        Func<string, int>? skill = null;
+        Func<uint, int>? skill = null;
         if (effect >= 0)
         {
             var own = SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-            skill = name => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+            skill = name => name is var key ? own.GetValueOrDefault(key) : 0;
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
             skill, Killed: m.Dead || m.Life == 0, Primary: primary));
@@ -99,8 +99,8 @@ public static partial class Game
     {
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in ChargeEffects.Inherent)
-            if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+            if (stat is var key) stats[key] = stats.GetValueOrDefault(key) + value;
+        int Get(uint k) => stats.GetValueOrDefault(k);
         var session = ChargesOf(conn);
         var limits = new Dictionary<ChargeType, Charges.Limits>();
         var held = new Dictionary<ChargeType, int>();
@@ -121,13 +121,13 @@ public static partial class Game
         }
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
-        int Coefficient(string name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
+        int Coefficient(uint name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
         // Expand is a pure function of the coefficients (the stats), the counts and the conversions: the last
         // expansion is reused while they are the same (every stat snapshot expands twice, idle or not).
         int[] heldNow = [.. Charges.Types.Select(t => held[t])];
         bool[] convertedNow = [.. Charges.Types.Select(t => converted[t])];
         var slot = ChargeExpansions.GetValue(conn, _ => new());
-        Dictionary<string, int> added;
+        Dictionary<uint, int> added;
         if (slot.Last is { } last && last.Held.AsSpan().SequenceEqual(heldNow) && last.Converted.AsSpan().SequenceEqual(convertedNow)
             && SameInOrder(last.Stats, stats))
             added = VerifyStatSnapshotTail ? Verified(last.Added) : last.Added;
@@ -136,7 +136,7 @@ public static partial class Game
             added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
             slot.Last = new(new(stats), heldNow, convertedNow, added);
         }
-        var finalAdded = new Dictionary<string, int>(added, StringComparer.Ordinal);
+        var finalAdded = new Dictionary<uint, int>(added);
         foreach (var (stat, value) in ItemChargeDefences.Expand(Coefficient, t => held[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
         foreach (var (stat, value) in ItemChargeDamage.Expand(Coefficient, t => held[t], t => converted[t]))
@@ -148,7 +148,7 @@ public static partial class Game
         foreach (var (stat, value) in IncomingAilmentEffects.Expand(Coefficient, poisonStacks))
             finalAdded[stat] = finalAdded.GetValueOrDefault(stat) + value;
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
-        Dictionary<string, int> Verified(Dictionary<string, int> reused)
+        Dictionary<uint, int> Verified(Dictionary<uint, int> reused)
         {
             var fresh = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
             if (!SameInOrder(fresh, reused))
@@ -160,27 +160,27 @@ public static partial class Game
         }
         foreach (var (stat, value) in finalAdded.Select(kv => (Stat: kv.Key, kv.Value))
             .Concat(ChargeEffects.Display(t => held[t], t => limits[t], t => converted[t], t => minimumConverted[t])))
-            if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            if (stat is var key) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
 
     // One per connection: the last charge expansion and what it was expanded from. Never changed after it is published.
     sealed record ChargeExpansion(Dictionary<uint, int> Stats, int[] Held, bool[] Converted,
-        Dictionary<string, int> Added);
+        Dictionary<uint, int> Added);
     sealed class ChargeExpansionSlot { public volatile ChargeExpansion? Last; }
     static readonly Store<Player, ChargeExpansionSlot> ChargeExpansions = new();
     static long ChargeReuseMismatches;
 
     // The more multiplier of the charges on a hit (AttackHit, SpellDamage) or a burn, from the final stats.
     public static double ChargeDamageMore(IReadOnlyDictionary<uint, int> stats, bool spell = false) =>
-        ChargeEffects.DamageMore(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell);
+        ChargeEffects.DamageMore(name => name is var key ? stats.GetValueOrDefault(key) : 0, spell);
 
     // The player's additional physical and elemental damage reduction (Endurance Charges, passives) for hits taken.
     public static (int Physical, int Elemental) PlayerDamageReduction(Player conn,
         IReadOnlyDictionary<uint, int>? stats = null)
     {
         stats ??= CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         var reduction = ChargeEffects.Reduction(Get);
         return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)), reduction.Elemental);
     }
@@ -194,7 +194,7 @@ public static partial class Game
             int priorContacts = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
             var stats = CharacterPlayerStats(conn);
             bool relevant = amount > 0 && (type == DamageType.Physical
-                || PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
+                || PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
                     && DamageModel.Mitigate(amount, resistance, maxResistance) > 0);
             var armour = IncomingArmourLocked(conn, relevant, priorContacts, stats);
             return MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, armour.EffectiveArmour, stats);
@@ -210,7 +210,7 @@ public static partial class Game
     public static int MitigateTakenWithArmour(Player conn, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell);
         var reduction = PlayerDamageReduction(conn, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
@@ -250,18 +250,18 @@ public static partial class Game
     {
         if (!SkillsFor(conn).IsWarcry(effect)) return false;
         bool enduring = SkillsFor(conn).EffectId(effect) == "EnduringCry";
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        int per = Own("endurance_charge_granted_per_X_monster_power_during_endurance_warcry");
+        int Own(uint key) => own.GetValueOrDefault(key);
+        int per = Own(Stat.EnduranceChargeGrantedPerXMonsterPowerDuringEnduranceWarcry);
         // The warcry cannot be cancelled before its contact point (cannot_cancel_skill_before_contact_point), so a later
         // action does not stop it. Admission checks the actor restriction before this accepted release is scheduled;
         // changing its source later does not cancel this continuation. Warcry and action speed are taken at the use.
         var player = AreaPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Player(uint key) => player.GetValueOrDefault(key);
         double castSeconds = WarcryCastSeconds(conn, effect, player, own);
         double until = conn.Clock.Elapsed.TotalSeconds + castSeconds;
         int epoch = conn.ProjectileEpoch;
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
-        double buffEffect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("warcry_buff_effect_+%")) / 100d);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
         _ = Task.Run(async () =>
         {
             // The game clock: a pause holds the cry.
@@ -269,7 +269,7 @@ public static partial class Game
             if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) player[k] = v;
-            int radius = SkillArea.Radius(WarcryRadius, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0, spell: false);
+            int radius = SkillArea.Radius(WarcryRadius, name => name is var key ? player.GetValueOrDefault(key) : 0, spell: false);
             double now = conn.Clock.Elapsed.TotalSeconds;
             int power, taunted;
             (int X, int Y) here;
@@ -293,12 +293,12 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
-                power = Player("warcries_have_infinite_power") != 0 ? InfiniteWarcryPower
+                power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
                     : conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), here) <= radius)
                         .Sum(m => WarcryPower(m.Rarity));
                 // The target's stat description caps regeneration at 25 Power. Charge generation retains its own rule.
                 double percentPerMinute = Math.Min(25, power) / 5d
-                    * Own("enduring_cry_life_regeneration_rate_per_minute_%_per_5_power_up_to_cap")
+                    * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
                     * buffEffect;
                 conn.EnduringCryRecovery.Begin(now, duration, conn.PlayerMaxLife * percentPerMinute / 6000d);
                 Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
@@ -373,12 +373,12 @@ public static partial class Game
         var session = ChargesOf(conn);
         try
         {
-            Func<string, int>? stats = null;
+            Func<uint, int>? stats = null;
             WeaponProfile weapon = default;
             if (session.Pending)
             {
                 var final = CharacterPlayerStats(conn);
-                stats = name => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
+                stats = name => name is var key ? final.GetValueOrDefault(key) : 0;
                 weapon = WeaponProfileFor(conn);
             }
             double now = updates.Schedule.Now(conn);
@@ -395,7 +395,7 @@ public static partial class Game
                 {
                     var recipient = CharacterPlayerStats(conn);
                     session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
-                        name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
+                        name => name is var k ? recipient.GetValueOrDefault(k) : 0));
                 }
                 step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
                     inTown: InTown(conn), Random.Shared,

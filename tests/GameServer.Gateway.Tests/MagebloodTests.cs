@@ -27,7 +27,7 @@ public class MagebloodTests
             Item Belt(ModCatalog.Mod flasks) => mageblood with { Mods = [.. mageblood.Mods
                 .Select(m => m.Hash == leftmost.Hash ? flasks.With(m.Section, [2], Random.Shared) : m)] };
 
-            HashSet<string> Applied(Item belt, Func<string, int> character)
+            HashSet<string> Applied(Item belt, Func<uint, int> character)
             {
                 bar.Remove(PlayerInventories.Belt, 310);
                 bar.Put(PlayerInventories.Belt, new(310, 0, 0, belt));
@@ -47,12 +47,12 @@ public class MagebloodTests
             Assert.DoesNotContain(Effect("Granite Flask"), right);
 
             // Increased flask effect scales the permanent effect as it scales a use.
-            int Evasion(Func<string, int> character)
+            int Evasion(Func<uint, int> character)
             {
                 Applied(Belt(leftmost), character);
                 return Game.MagebloodSources(conn, character).Where(s => s.Effect == Effect("Jade Flask")).Max(s => s.Value);
             }
-            Assert.Equal(Evasion(_ => 0) * 3 / 2, Evasion(name => name == "flask_effect_+%" ? 50 : 0));
+            Assert.Equal(Evasion(_ => 0) * 3 / 2, Evasion(name => name == Stat.FlaskEffectPlusPct ? 50 : 0));
         }
         finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
     }

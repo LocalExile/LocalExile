@@ -16,8 +16,8 @@ public static class StrikeTargets
     /// <c>no_spirit_strikes</c>, for a non-melee attack, a non-Strike or a Vaal skill, else
     /// <c>melee_attack_number_of_spirit_strikes</c>. Shortcut: its unarmed term
     /// (<c>unarmed_attack_number_of_spirit_strikes</c>) is left out, no item the server rolls has it.</summary>
-    public static int SpiritStrikes(Func<string, int> stat, bool strike, bool vaal, bool melee) =>
-        stat("no_spirit_strikes") != 0 || !melee || !strike || vaal ? 0 : Math.Max(0, stat("melee_attack_number_of_spirit_strikes"));
+    public static int SpiritStrikes(Func<uint, int> stat, bool strike, bool vaal, bool melee) =>
+        stat(Stat.NoSpiritStrikes) != 0 || !melee || !strike || vaal ? 0 : Math.Max(0, stat(Stat.MeleeAttackNumberOfSpiritStrikes));
 
     /// <summary>The scan radius in cells: (100 + <c>extra_target_targeting_distance_+%</c>) / 100 × 30, truncated
     /// (<c>0x141c9d7c0</c>, f32 arithmetic): 30, or 45 with Ancestral Reach's 50%.</summary>
@@ -57,8 +57,8 @@ public static class StrikeTargets
 
     /// <summary>The client's <c>melee_strike_skill_number_of_previous_locations_to_strike</c> (<c>0x14289ced0</c>):
     /// a melee main hand (its <c>main_hand_weapon_type</c> table), a Strike and the stat.</summary>
-    public static bool StrikesPreviousLocation(Func<string, int> stat, bool strike, bool meleeWeapon) =>
-        meleeWeapon && strike && stat("melee_strike_skill_strike_previous_location") != 0;
+    public static bool StrikesPreviousLocation(Func<uint, int> stat, bool strike, bool meleeWeapon) =>
+        meleeWeapon && strike && stat(Stat.MeleeStrikeSkillStrikePreviousLocation) != 0;
 
     /// <summary>Each Strike skill's last use in this area and life: where the player stood and where its hit landed. The
     /// client keeps them in the <c>skill_location_memory</c> buff (BuffDefinitions 1451, CancelOnDeath), one per skill.

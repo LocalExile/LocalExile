@@ -16,7 +16,7 @@ public static partial class Game
     {
         if (!IsVaalMinion(SkillsFor(conn).EffectId(effect)) || source is not ushort skill) return null;
         var gem = SupportedSkill(conn, skill);
-        return gem.Effect == effect && (GolemStat(gem.Stats, "is_totem") != 0 || PlacedKind(gem) is not (false, false))
+        return gem.Effect == effect && (GolemStat(gem.Stats, Stat.IsTotem) != 0 || PlacedKind(gem) is not (false, false))
             ? "Vaal minion skills through totems, traps or mines are not implemented" : null;
     }
 
@@ -35,10 +35,10 @@ public static partial class Game
             bool absolution = SkillsFor(conn).EffectId(gem.Effect) == "VaalAbsolution";
             string regular = absolution ? "Absolution" : "Dominating";
             string family = absolution ? "VaalAbsolution" : "VaalDomination";
-            int limit = GolemStat(gem.Stats, absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance");
+            int limit = GolemStat(gem.Stats, absolution ? Stat.DisplayMaxUpgradedSentinelsOfAbsolution : Stat.DisplayMaxUpgradedSentinelsOfDominance);
             var player = CharacterPlayerStats(conn);
             string cap = absolution ? "absolution_sentinels" : "dominated_monsters";
-            limit = Math.Clamp(limit + GolemStat(player, "base_max_number_of_vaal_" + cap) + GolemStat(player, "max_number_of_vaal_" + cap), 0, 200);
+            limit = Math.Clamp(limit + GolemStat(player, Stat.Of("base_max_number_of_vaal_" + cap)) + GolemStat(player, Stat.Of("max_number_of_vaal_" + cap)), 0, 200);
             var living = conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0 && SameSummonGem(conn,g,gem)).ToArray();
             var ascended = living.Where(g => g.Definition.Kind == family).ToArray();
             return (living.OrderByDescending(g => g.Id == target).FirstOrDefault(g => absolution ? g.Definition.Kind == regular : g.Definition.Kind.StartsWith(regular,StringComparison.Ordinal)),
@@ -73,13 +73,13 @@ public static partial class Game
         if (!gem.RequirementsMet || !IsVaalMinion(SkillsFor(conn).EffectId(gem.Effect))
             || VaalMinionProxyDisabled(conn, gem.Effect, source) is not null || !Live()) return false;
         double now=AreaTime(conn);
-        double duration=SkillDurationModifiers.Seconds(GolemStat(gem.Stats,"base_skill_effect_duration"),
+        double duration=SkillDurationModifiers.Seconds(GolemStat(gem.Stats,Stat.BaseSkillEffectDuration),
             n=>GolemStat(CharacterPlayerStats(conn),n),n=>GolemStat(gem.Stats,n));
         if (SkillsFor(conn).EffectId(gem.Effect)=="VaalSummonSkeletons")
         {
             var definition=SummonData.Find("VaalSummonSkeletons")!;
             foreach (var (stat,body,variants) in new[] { ("melee","Melee",2), ("archer","Ranged",2), ("mage","Spellcaster",3), ("leader","General",4) })
-                for (int i=0;i<Math.Clamp(GolemStat(gem.Stats,"number_of_"+stat+"_skeletons_to_summon"),0,200)&&Live();i++)
+                for (int i=0;i<Math.Clamp(GolemStat(gem.Stats,Stat.Of("number_of_"+stat+"_skeletons_to_summon")),0,200)&&Live();i++)
                 {
                     string path="Metadata/Monsters/RaisedSkeletons/RaisedSkeleton"+body+Random.Shared.Next(1,variants+1)+"Army";
                     if (await SummonFighter(conn,source,definition,aim,restoredVariety:path,
@@ -104,10 +104,10 @@ public static partial class Game
         var definitionVaal=new SummonCatalog.Definition(SkillsFor(conn).EffectId(regular.Effect)!,plan.Family,
             plan.Family=="VaalAbsolution" ? "Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudgeVaal"
                 : "Metadata/Monsters/Axis/AxisEliteSoldierDominatingBlowVaal",
-            plan.Family=="VaalAbsolution" ? "base_max_number_of_vaal_absolution_sentinels" : "base_max_number_of_vaal_dominated_monsters", "");
+            plan.Family=="VaalAbsolution" ? Stat.BaseMaxNumberOfVaalAbsolutionSentinels : Stat.BaseMaxNumberOfVaalDominatedMonsters, 0);
         var upgrade=new Dictionary<uint,int>();
-        foreach(string name in new[]{"vaal_upgrade_minion_damage_+%_final","vaal_upgrade_minion_damage_taken_+%_final"})
-            if(Stats.Key(name) is uint key) upgrade[key]=GolemStat(gem.Stats,name);
+        foreach(uint name in new[]{Stat.VaalUpgradeMinionDamagePlusPctFinal,Stat.VaalUpgradeMinionDamageTakenPlusPctFinal})
+            upgrade[name]=GolemStat(gem.Stats,name);
         return await SummonFighterCore(conn,old.Source,definitionVaal,old.Monster.Walk.Position(now),
             current:()=>current()&&GolemCurrent(conn,old)&&!old.Monster.Dead&&SameTriggerSource(gem,SupportedSkill(conn,source)),
             remaining:duration,replacingOld:old,triggered:true,

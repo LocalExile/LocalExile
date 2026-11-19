@@ -6,21 +6,21 @@ public static partial class Game
     // PoB other.lua EnemyExplode uses 22 cells. This separate profile has not had its retail radius/art measured;
     // the measured Crusader physical explosion's fixed 25-cell radius does not establish this mechanic's geometry.
     public const int MadnessExplosionBaseRadius = 22;
-    const string MadnessExplosionChance =
-        "explode_enemies_for_25%_life_as_chaos_on_kill_while_affected_by_glorious_madness_chance_%";
+    const uint MadnessExplosionChance =
+        Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillWhileAffectedByGloriousMadnessChancePct;
 
     static void CaptureMadnessExplosionLocked(Player conn, SpawnedMonster corpse)
     {
         if (!corpse.Hostile || conn.PlayerLife == 0 || !CurrentGameRules || !MadnessAt(conn).Active) return;
         using var scope = new PlayerStatScope(conn, fresh: true);
         var player = new Dictionary<uint, int>(CharacterPlayerStats(conn));
-        int Get(string n) => Stats.Key(n) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         if (!RandomRolls.Chance(Get(MadnessExplosionChance), 100, conn.Madness.Random)) return;
         var raw = DamagePacket.Of(DamageType.Chaos, corpse.MaxLife * .25, corpse.MaxLife * .25);
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();
-            raw = raw.Add(type, new(Get($"global_minimum_added_{slug}_damage"), Get($"global_maximum_added_{slug}_damage")));
+            raw = raw.Add(type, new(Get(Stat.Of($"global_minimum_added_{slug}_damage")), Get(Stat.Of($"global_maximum_added_{slug}_damage"))));
         }
         corpse.MadnessExplosion = new(CombatLifetime!, conn, player, raw,
             SkillArea.Radius(MadnessExplosionBaseRadius, Get, spell: false), corpse.Walk.Position(ProjectileWorldTime(conn)));
@@ -48,11 +48,11 @@ public static partial class Game
                 || conn.Monsters.TryGetValue(corpseId, out var replacement) && !ReferenceEquals(replacement, corpse)) continue;
             var at = receipt.At;
             var player = receipt.Player;
-            int Get(string n) => Stats.Key(n) is uint key ? player.GetValueOrDefault(key) : 0;
+            int Get(uint key) => player.GetValueOrDefault(key);
             var conversion = DamageStats.Conversion(player, Stats, attack: null);
             ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
             {
-                int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
+                int TargetStat(uint name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
                 var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion, spell: false, area: true,
@@ -80,8 +80,8 @@ public static partial class Game
                         ? Profile(Blinded(conn, id) ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0,
                             target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target))
                         : Blinded(conn, id) ? blinded : normal;
-                    int critChance = Get("global_cannot_crit") != 0 ? 0
-                        : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get("critical_strike_chance_+%"), Get, _ => 0);
+                    int critChance = Get(Stat.GlobalCannotCrit) != 0 ? 0
+                        : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);
                     bool critical = RandomRolls.Chance(critChance, 10000, conn.Madness.Random);
                     var rolled = GameEvents.WithOutgoingDamage(conn, player, target,
                         gambler.RollOutgoingHit(profile.Hit, conn.Madness.Random));
@@ -91,7 +91,7 @@ public static partial class Game
                         type, MonsterHitResistance(target, type, penetration, now), strike, resistanceMods, invert) / 100)));
                     int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
-                        CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get("base_critical_strike_multiplier_+"),
+                        CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),
                             player), player));
                     if (ApplyMonsterHitLocked(conn, target, damage, player: player) is not { } hit) continue;
                     if (hit.StageStarts)

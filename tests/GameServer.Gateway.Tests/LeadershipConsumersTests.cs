@@ -11,7 +11,7 @@ public sealed class LeadershipConsumersTests
     {
         // The level 1 Spirit of Akoya's Leadership: 300 Rage per minute (5 per second), from the skill's
         // ancestral_buff_base_rage_regeneration_per_minute value, mapped by RageStats.Inputs.
-        var inputs = RageStats.Inputs(name => name == "base_rage_regeneration_per_minute" ? 300 : 0);
+        var inputs = RageStats.Inputs(name => name == Stat.BaseRageRegenerationPerMinute ? 300 : 0);
         Assert.Equal(300, inputs.RegenerationPerMinute);
         var state = new RageState();
         Assert.Equal(0, state.Read(0, inputs).Current);
@@ -79,20 +79,20 @@ public sealed class LeadershipConsumersTests
         {
             Character = "LeadershipConsumers", PlayerLife = 1000,
         };
-        static int Get(string name, int value) => name == "action_speed_-%" ? value : 0;
+        static int Get(uint name, int value) => name == Stat.ActionSpeedMinusPct ? value : 0;
         Assert.Equal(0.5, Game.PlayerActionFactorFrom(conn, name => Get(name, 50)), 6);
-        int SpeedFloor(string name) => name switch
+        int SpeedFloor(uint name) => name switch
         {
-            "action_speed_-%" => 50,
-            "action_speed_+%_minimum_value_from_rakiatas_leadership" => 10,
+            Stat.ActionSpeedMinusPct => 50,
+            Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership => 10,
             _ => 0,
         };
         Assert.Equal(1.1, Game.PlayerActionFactorFrom(conn, SpeedFloor), 6);
         // A frozen (0) action speed stays frozen: the floor only lifts a lowered positive factor.
-        int Frozen(string name) => name switch
+        int Frozen(uint name) => name switch
         {
-            "action_speed_-%" => 100,
-            "action_speed_+%_minimum_value_from_rakiatas_leadership" => 10,
+            Stat.ActionSpeedMinusPct => 100,
+            Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership => 10,
             _ => 0,
         };
         Assert.Equal(0, Game.PlayerActionFactorFrom(conn, Frozen), 6);

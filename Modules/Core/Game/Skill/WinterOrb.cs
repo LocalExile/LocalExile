@@ -71,8 +71,8 @@ static partial class Game
     internal static bool IsWinterOrb(int effect) =>
         Skills.EffectId(effect) is "WinterOrb" or "WinterOrbAltX" or "WinterOrbAltY";
 
-    static int WinterOrbStat(Player conn, ushort skillId, string name) =>
-        Stats.Key(name) is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
+    static int WinterOrbStat(Player conn, ushort skillId, uint name) =>
+        SupportedSkill(conn, skillId).Stats.GetValueOrDefault(name);
 
     /// <summary>
     /// Seconds between the orb's volleys: the base fire interval divided by the frequency increases. Cast speed is
@@ -83,22 +83,22 @@ static partial class Game
     internal static double WinterOrbFireSeconds(Player conn, ushort skillId, int effect, int stages,
         bool channelling = true)
     {
-        int Stat(string name) => WinterOrbStat(conn, skillId, name);
+        int Stat(uint name) => WinterOrbStat(conn, skillId, name);
         double baseSeconds = Math.Max(.05,
-            (Stat("frost_fury_base_fire_interval_ms") is > 0 and var milliseconds ? milliseconds : 1200) / 1000.0);
+            (Stat(global::Stat.FrostFuryBaseFireIntervalMs) is > 0 and var milliseconds ? milliseconds : 1200) / 1000.0);
         double castMs = CastMs(conn, effect, skillId) is int supported and > 0 ? supported : 250;
         double increased = 250.0 / castMs - 1
-            + Stat("frost_fury_fire_speed_+%_per_stage") * Math.Max(0, stages - 1) / 100.0;
+            + Stat(global::Stat.FrostFuryFireSpeedPlusPctPerStage) * Math.Max(0, stages - 1) / 100.0;
         double more = channelling
-            ? Math.Max(.01, 1 + Stat("frost_fury_fire_speed_+%_final_while_channelling") / 100.0) : 1;
+            ? Math.Max(.01, 1 + Stat(global::Stat.FrostFuryFireSpeedPlusPctFinalWhileChannelling) / 100.0) : 1;
         return baseSeconds / (Math.Max(.01, 1 + increased) * more);
     }
 
     /// <summary>The gem's 8 stages plus what quality adds, both from the data rather than from a constant.</summary>
     static int WinterOrbMaxStages(Player conn, ushort skillId)
     {
-        int max = WinterOrbStat(conn, skillId, "frost_fury_max_number_of_stages");
-        int extra = WinterOrbStat(conn, skillId, "frost_fury_additional_max_number_of_stages");
+        int max = WinterOrbStat(conn, skillId, Stat.FrostFuryMaxNumberOfStages);
+        int extra = WinterOrbStat(conn, skillId, Stat.FrostFuryAdditionalMaxNumberOfStages);
         return Math.Clamp((max > 0 ? max : 8) + Math.Max(0, extra), 1, 32);
     }
 
@@ -382,12 +382,12 @@ static partial class Game
     static double WinterOrbDuration(Player conn, WinterOrbRuntime runtime)
     {
         var supported = SupportedSkill(conn, runtime.SkillId);
-        int Own(string name) => Stats.Key(name) is uint key ? supported.Stats.GetValueOrDefault(key) : 0;
+        int Own(uint key) => supported.Stats.GetValueOrDefault(key);
         var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int perStage = Math.Max(0, Own("frost_fury_duration_+%_per_stage"));
+        int Player(uint key) => player.GetValueOrDefault(key);
+        int perStage = Math.Max(0, Own(Stat.FrostFuryDurationPlusPctPerStage));
         int stages = Math.Max(0, runtime.Stages);
-        return Math.Max(.1, SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
+        return Math.Max(.1, SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player,
             name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? perStage * stages : 0)));
     }
 
@@ -430,7 +430,7 @@ static partial class Game
         ushort skillId = runtime.SkillId;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-        int Stat(string name) => WinterOrbStat(conn, skillId, name);
+        int Stat(uint name) => WinterOrbStat(conn, skillId, name);
         (int X, int Y) from;
         List<(uint Id, (int X, int Y) At)> targets;
         lock (conn.Monsters)
@@ -448,9 +448,9 @@ static partial class Game
             if (runtime.Stages <= 0) return;
         }
         var anchor = targets[0].At;
-        int count = Math.Clamp(Stat("base_number_of_projectiles") is > 0 and var baseCount ? baseCount : 1, 1, 16);
+        int count = Math.Clamp(Stat(global::Stat.BaseNumberOfProjectiles) is > 0 and var baseCount ? baseCount : 1, 1, 16);
         // The offset stat is in 1/100 m; cells are 1/10 m (GroundSlamWave.CellsPerSecond).
-        int spacing = Math.Max(0, Stat("additional_projectiles_fired_with_distance_offset") / 10);
+        int spacing = Math.Max(0, Stat(global::Stat.AdditionalProjectilesFiredWithDistanceOffset) / 10);
         double dx = anchor.X - from.X, dy = anchor.Y - from.Y;
         double length = Math.Sqrt(dx * dx + dy * dy);
         // A line across the aim; a target on the caster's own cell has no direction, so the line runs east-west.
@@ -480,8 +480,8 @@ static partial class Game
     {
         var own = SupportedSkill(conn, runtime.SkillId).Stats;
         var player = CharacterPlayerStats(conn);
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Own(uint key) => own.GetValueOrDefault(key);
+        int Player(uint key) => player.GetValueOrDefault(key);
         int units = Skills.ProjectileFor(runtime.Gem.Effect)?.Speed ?? 1500;
         return ProjectileSpeed.CellsPerSecond(units, Player, Own,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));

@@ -15,7 +15,7 @@ public static partial class Game
             && player.GetValueOrDefault(cannotBeDamaged) > 0) return 0;
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state) || conn.LeavingArea) return 0;
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         // Redirect the combined non-chaos hit before Ward, retaining the physical share.
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         var kept = TotemsTakeHitLocked(conn, nonChaos, chaos, at, player);
@@ -38,7 +38,7 @@ public static partial class Game
         RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         CrabPhysicalHitLocked(conn, physical, at, player);
-        bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;
+        bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
         int bypass = Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? conn.EnergyShield.Damage(physical, true, at)
             : IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
@@ -52,7 +52,7 @@ public static partial class Game
         int toMana = protectsMana ? conn.EnergyShield.Damage(fromMana, false, at) : fromMana;
         conn.PlayerMana -= (uint)Math.Min(toMana, conn.PlayerMana);
         if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,
-            (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get("damage_taken_goes_to_mana_%"));
+            (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get(Stat.DamageTakenGoesToManaPct));
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
         return PetrifiedBlood.PreventHitLifeLoss(conn, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at);
     }
@@ -81,7 +81,7 @@ public static partial class Game
     public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(Player conn,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
         conn.Ward.Advance(now);
@@ -89,7 +89,7 @@ public static partial class Game
         int remaining = conn.Ward.Damage(total, now, Get);
         int absorbed = total - remaining;
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
-        int bypass = Math.Clamp(Get("base_damage_bypass_ward_%"), 0, 100);
+        int bypass = Math.Clamp(Get(Stat.BaseDamageBypassWardPct), 0, 100);
         int nonChaosEligible = nonChaos - (int)((long)nonChaos * bypass / 100);
         int nonChaosAbsorbed = Math.Min(nonChaosEligible, absorbed);
         int physicalEligible = physical - (int)((long)physical * bypass / 100);

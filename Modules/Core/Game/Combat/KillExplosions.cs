@@ -13,7 +13,7 @@ public static partial class Game
     internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
         IReadOnlyDictionary<uint, int> player)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         double raw = maximumLife / 10d;
         return PlayerHitDamage.Resolve(DamagePacket.Of(element, raw, raw), Get,
             DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
@@ -57,20 +57,20 @@ public static partial class Game
     public static async Task<bool> ExplodeOnKill(Player conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
         var player = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int generic = Get("enemies_explode_for_%_life_as_physical_damage");
-        int bleedingPercent = Get("bleeding_enemies_explode_for_%_life_as_physical_damage");
+        int Get(uint key) => player.GetValueOrDefault(key);
+        int generic = Get(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage);
+        int bleedingPercent = Get(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage);
         bool bleeding;
         // The killing bleed tick clears the list before the death runs (MonsterIgnites.Clear keeps DiedBurning for this).
         lock (conn.Monsters) bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
         int percent = generic + (bleeding ? bleedingPercent : 0);
-        int chance = Get("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%");
+        int chance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
         int chaosPercent = chance > 0 && Random.Shared.Next(100) < chance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
-        int elementalChance = Get("explode_enemies_for_10%_life_as_random_element_on_kill_chance_%");
+        int elementalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct);
         DamageType? element = elementalChance > 0 && Random.Shared.Next(100) < elementalChance
             ? (DamageType)Random.Shared.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
         int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);

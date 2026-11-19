@@ -64,7 +64,7 @@ public static partial class Game
     {
         var steps = new Action<Player, StatMap, PlayerStepOutputs>[Enum.GetValues<PlayerStatStep>().Length];
         void Step(PlayerStatStep step, Action<Player, StatMap, PlayerStepOutputs> run) => steps[(int)step] = run;
-        static int GetIn(StatMap stats, string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        static int GetIn(StatMap stats, uint name) => stats.GetValueOrDefault(name);
         static void AddTo(StatMap stats, uint key, long value) => stats[key] = ActorScale.Saturate(stats.GetValueOrDefault(key) + value);
 
         // The character's own stats (BaseStats): every stat of the allocated passives and the active items, summed.
@@ -96,13 +96,13 @@ public static partial class Game
         Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
         {
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
-                if (Stats.Key(stat) is uint key) stats[key] = value;
+                if (stat is var key) stats[key] = value;
         });
         Step(PlayerStatStep.God, (conn, stats, _) =>
         {
             if (!conn.God) return;
             foreach (var (stat, value) in GodStats)
-                if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+                if (stat is var key) stats[key] = stats.GetValueOrDefault(key) + value;
             // the final value the client shows: 100% of maximum life per second, per minute
             if (Stats.Key("life_regeneration_rate_per_minute") is uint lr)
                 stats[lr] = (int)Math.Min(int.MaxValue, (long)conn.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
@@ -112,7 +112,7 @@ public static partial class Game
             List<AuraCatalog.Aura> auras;
             lock (conn.Monsters) auras = AffectingAuras(conn);
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
-            int heraldEffectPct = GetIn(stats, "herald_effect_on_self_+%");
+            int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
             foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats,
                          heraldEffectPct).Concat(MinionAuraStats(conn, auras)).ToList())
                 AddTo(stats, k, v);
@@ -128,7 +128,7 @@ public static partial class Game
             IReadOnlyList<(uint Key, int Value)> catPhase;
             lock (conn.Monsters)
                 catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
-                    name => Stats.Key(name) is uint key
+                    name => name is var key
                         ? stats.GetValueOrDefault(key)
                         : 0);
             foreach (var (k, v) in catPhase) AddTo(stats, k, v);
@@ -143,7 +143,7 @@ public static partial class Game
         {
             if (!GameEvents.Stats.Any) return;
             foreach (var (stat, value) in GameEvents.RunStats(conn))
-                if (Stats.Key(stat) is uint key) AddTo(stats, key, value);
+                if (stat is var key) AddTo(stats, key, value);
         });
         // The class's attributes and the pools replace what the sources gave for those ids (the first of a repeated id).
         Step(PlayerStatStep.ClassAttributes, (conn, stats, _) =>
@@ -173,9 +173,9 @@ public static partial class Game
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         Step(PlayerStatStep.UtilityFlasks, (conn, stats, _) =>
         {
-            int FlaskGet(string name) => GetIn(stats, name);
+            int FlaskGet(uint name) => GetIn(stats, name);
             AddItemUtilityFlaskRawStats(stats, UtilityStats(conn, FlaskGet)
-                .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))).ToList(), Stats);
+                .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet(Stat.ConsecratedGroundEffectPlusPct))).ToList(), Stats);
         });
         Step(PlayerStatStep.SelfVulnerability, (conn, stats, _) => AddSelfVulnerabilityStats(conn, stats));
         Step(PlayerStatStep.Onslaught, (conn, stats, _) =>
@@ -197,7 +197,7 @@ public static partial class Game
         // unmodified recovery baseline.
         Step(PlayerStatStep.Recovery, (conn, stats, outputs) =>
         {
-            int Get(string name) => GetIn(stats, name);
+            int Get(uint name) => GetIn(stats, name);
             double statsAt = conn.Clock.Elapsed.TotalSeconds;
             bool moving = conn.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
@@ -223,7 +223,7 @@ public static partial class Game
                 var value = session.Read(now);
                 if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
                 AddFortificationCounts(stats, value);
-                if (Stats.Key(FortificationSession.Regeneration) is uint regen)
+                if (FortificationSession.Regeneration is var regen)
                     stats[regen] = (int)Math.Clamp((long)stats.GetValueOrDefault(regen)
                         + value.LifeRegenerationPerMinutePercent(session.RegenPerStack), int.MinValue, int.MaxValue);
             }
@@ -233,7 +233,7 @@ public static partial class Game
         Step(PlayerStatStep.TailOffence, (conn, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(conn, stats), StatSnapshotStage.Offence));
         Step(PlayerStatStep.TailCritical, (conn, stats, _) =>
         {
-            int Get(string name) => GetIn(stats, name);
+            int Get(uint name) => GetIn(stats, name);
             double now = conn.Clock.Elapsed.TotalSeconds;
             var ailments = conn.ElementalAilments.Snapshot(now);
             if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
@@ -249,9 +249,9 @@ public static partial class Game
         Step(PlayerStatStep.AuraRestriction, (conn, stats, _) => stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(conn));
         Step(PlayerStatStep.AlwaysHit, (_, stats, _) =>
         {
-            if (GetIn(stats, "global_always_hit") == 0) return;
-            foreach (string name in AlwaysHitRows)
-                if (Stats.Key(name) is uint hit) stats[hit] = 100;
+            if (GetIn(stats, Stat.GlobalAlwaysHit) == 0) return;
+            foreach (uint name in AlwaysHitRows)
+                if (name is var hit) stats[hit] = 100;
         });
         Step(PlayerStatStep.RecentHits, (conn, stats, _) => { lock (conn.Monsters) AddRecentEnemyHitStatsLocked(conn, stats); });
         Step(PlayerStatStep.Ward, (conn, stats, _) =>
@@ -270,15 +270,15 @@ public static partial class Game
         return steps;
     }
 
-    static readonly string[] AlwaysHitRows = ["main_hand_chance_to_hit_%", "off_hand_chance_to_hit_%",
-        "main_hand_chance_to_hit_evasive_monsters_%", "off_hand_chance_to_hit_evasive_monsters_%"];
+    static readonly uint[] AlwaysHitRows = [Stat.MainHandChanceToHitPct, Stat.OffHandChanceToHitPct,
+        Stat.MainHandChanceToHitEvasiveMonstersPct, Stat.OffHandChanceToHitEvasiveMonstersPct];
 
     // The tail's inputs as a step reads them: the stats before it and the state it reads.
     static StatSnapshotTailInputs PlayerTailInputs(Player conn, StatMap stats)
     {
         var (mainLocal, offLocal) = HandLocalStats(conn);
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
-            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+            name => name is var key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
         return ReadStatSnapshotTailInputs(conn, stats, mainLocal, offLocal,
             lifeRegenerationToEnergyShield, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds));
     }
@@ -288,7 +288,7 @@ public static partial class Game
         PlayerSteps[(int)step](conn, stats, outputs);
 
     public sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw, int PlayerLevel,
-        IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
+        IReadOnlyDictionary<uint, int> MainHand, IReadOnlyDictionary<uint, int> OffHand, bool MainArmed, bool OffArmed);
 
     public static Dictionary<uint, int> CharacterPlayerStatsCore(Player conn, out double baselineLifePerSecond) =>
         CachedPlayerStats(conn, out baselineLifePerSecond);

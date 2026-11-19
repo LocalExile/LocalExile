@@ -20,24 +20,24 @@ public static partial class Game
         var type = ItemsFor(conn).ByHash(gem.TypeHash);
         if (type is null || ItemsFor(conn).Gem(type) is not { } info)
             return SkillGemLevel.Resolve(intrinsic, supportedBonus, []);
-        string[] stats = info.IsSupport
+        uint[] stats = info.IsSupport
             ? SkillsFor(conn).IsExceptional(type.Row) ? [] : [SkillGemLevel.NonExceptionalSupports]
             : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => SkillsFor(conn).FamilyStatRaises(stat, type.Row)),
-                .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<string>()];
+                .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<uint>()];
         return SkillGemLevel.Resolve(intrinsic, supportedBonus, stats.Select(stat => RawGemStat(conn, stat)));
     }
 
     // The attribute gem-level stat for a SkillGems GemColour (Active gems only: support gems have their own).
-    static string? AttributeStat(int colour) => SkillGemLevel.AttributeStat(colour);
+    static uint? AttributeStat(int colour) => SkillGemLevel.AttributeStat(colour);
 
     // +% quality of all skill gems: active gems only, like the level stat.
     public static int GemQualityBonus(Player conn, GameServer.Core.Protocol.Instance.Item gem) =>
         ItemsFor(conn).ByHash(gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: false }
             ? RawGemStat(conn, SkillGemLevel.AllSkillGemQuality) : 0;
 
-    public static int RawGemStat(Player conn, string stat)
+    public static int RawGemStat(Player conn, uint stat)
     {
-        if (Stats.Key(stat) is not uint key) return 0;
+        if (!(stat is var key)) return 0;
         var scope = GemSources.Value;
         var sources = scope is not null && ReferenceEquals(scope.Conn, conn)
             ? scope.Sources ??= CharacterStatSources(conn).Stats : CharacterStatSources(conn).Stats;

@@ -284,8 +284,8 @@ public static class StatConditions
 
     static string? FoldFromPlain(string statId, Func<string, bool> exists, string? candidate)
     {
-        if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)
-            || IncomingAilmentEffects.Expands(statId)) return null;
+        if (DedicatedConsumers.Contains(statId) || Program.Stats.Key(statId) is uint id
+            && (ChargeEffects.Expands(id) || IncomingAilmentEffects.Expands(id))) return null;
         if (candidate is not { } plain) return null;
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch

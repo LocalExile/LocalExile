@@ -122,10 +122,8 @@ static partial class SurvivorsSkills
     internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(Player conn, SurvivorsSkill skill, int rank)
     {
         var stats = SkillsFor(conn).EffectStats(skill.Effect, rank).ToDictionary(s => s.Item1, s => s.Item2);
-        foreach (var name in new[] { "base_cooldown_count", "virtual_total_cooldown_count" })
-            if (Stats.Key(name) is uint key) stats[key] = 1;
-        foreach (var name in new[] { "base_mana_cost", "mana_cost" })
-            if (Stats.Key(name) is uint key) stats[key] = 0;
+        foreach (var key in new[] { Stat.BaseCooldownCount, Stat.VirtualTotalCooldownCount }) stats[key] = 1;
+        foreach (var key in new[] { Stat.BaseManaCost, Stat.ManaCost }) stats[key] = 0;
         return [.. stats.Select(kv => (kv.Key, kv.Value))];
     }
 
@@ -273,7 +271,7 @@ static partial class SurvivorsSkills
     internal static int SurvivorsCastTimeMs(Player conn, int effect)
     {
         foreach (var (key, value) in SkillsFor(conn).EffectStats(effect, 1))
-            if (Stats.Name(key) == "base_spell_cast_time_ms" && value > 0) return Math.Clamp(value, 200, 3000);
+            if (key == Stat.BaseSpellCastTimeMs && value > 0) return Math.Clamp(value, 200, 3000);
         return 1000;
     }
 
@@ -847,9 +845,9 @@ static partial class SurvivorsSkills
         // The panel's skill_area_of_effect_+% already counts the player's base area (PanelStats); keeping the base key as
         // well would count it twice in SkillArea.Increased.
         playerStats.Remove(SkillArea.BaseIncreased);
-        var merged = new Dictionary<string, int>(playerStats, StringComparer.Ordinal);
+        var merged = new Dictionary<uint, int>(playerStats);
         foreach (var (name, value) in skillStats) merged[name] = merged.GetValueOrDefault(name) + value;
-        int Get(string name) => merged.GetValueOrDefault(name);
+        int Get(uint name) => merged.GetValueOrDefault(name);
         bool spell = !skill.Attack;
         // An attack gem swings the weapon the character actually wears (a unique weapon's local damage, attack speed and
         // type now matter); with no weapon it falls back to the mode's nominal weapon and the gem's cast time.
@@ -857,15 +855,15 @@ static partial class SurvivorsSkills
         bool armedAttack = skill.Attack && weapon.LocalSources is not null;
         var mergedKeys = SurvivorsKeyStats(merged);
         double baseSeconds = armedAttack ? weapon.AttackSeconds(mergedKeys) : skill.CastTimeMs / 1000.0;
-        int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
+        int castSpeed = armedAttack ? 0 : Get(Stat.BaseCastSpeedPlusPct) + Get(Stat.CastSpeedPlusPct) + (spell ? Get(Stat.Of("spell_cast_speed_+%")) : 0);
         double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
         var skillKeys = SurvivorsKeyStats(skillStats);
         var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
-        List<(string Name, int Value)> supportMods = [];
+        List<(uint Id, int Value)> supportMods = [];
         foreach (int index in run.SupportsOf(skillIndex))
             if (index >= 0 && index < supports.Count && supports[index].Effect >= 0)
                 foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
-                    if (Stats.Name(key) is { Length: > 0 } name) supportMods.Add((name, value));
+                    supportMods.Add((key, value));
         if (skill.Kind == SurvivorsSkillKind.Herald)
         {
             // The real gem is a buff, so the run's pulse is synthetic; still resolve it through the same hit pipeline
@@ -877,7 +875,7 @@ static partial class SurvivorsSkills
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
             double radius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + Get("skill_area_of_effect_+%") + Get("base_skill_area_of_effect_+%"));
+                run.AreaIncreasedPercent + Get(Stat.SkillAreaOfEffectPlusPct) + Get(Stat.BaseSkillAreaOfEffectPlusPct));
             return new(interval, skill, rank, 0, null, null, null, false, true,
                 (int)Math.Max(1, pulse.AverageTotal), radius);
         }
@@ -902,7 +900,7 @@ static partial class SurvivorsSkills
             }
             else
             {
-                bool unarmed = Get("flask_throw_charges_used_per_projectile") != 0;
+                bool unarmed = Get(Stat.FlaskThrowChargesUsedPerProjectile) != 0;
                 var nominal = unarmed ? DamagePacket.Empty
                     : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
@@ -922,7 +920,7 @@ static partial class SurvivorsSkills
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
             double pulseRadius = SurvivorsFormulas.AreaRadius(SurvivorsHeraldRadius * SurvivorsRules.SkillRadius(rank),
-                run.AreaIncreasedPercent + Get("skill_area_of_effect_+%") + Get("base_skill_area_of_effect_+%"));
+                run.AreaIncreasedPercent + Get(Stat.SkillAreaOfEffectPlusPct) + Get(Stat.BaseSkillAreaOfEffectPlusPct));
             return new(interval, skill, rank, 0, null, null, null, false, true,
                 (int)Math.Max(1, pulse.AverageTotal), pulseRadius);
         }
@@ -956,14 +954,14 @@ static partial class SurvivorsSkills
             : armedAttack ? WeaponProfileFor(conn, activeSet: true).Critical : 500;
         int crit = spell
             ? SpellCriticalStrike.Chance(baseCrit, _ => 0, Get)
-            : AddedBaseCriticalStrike.Chance(baseCrit, Get("critical_strike_chance_+%"), spell: false, _ => 0, Get);
+            : AddedBaseCriticalStrike.Chance(baseCrit, Get(Stat.CriticalStrikeChancePlusPct), spell: false, _ => 0, Get);
         int? secondForm = null;
-        if (spell && Get("ice_spear_second_form_critical_strike_chance_+%") is > 0 and var secondCrit)
+        if (spell && Get(Stat.IceSpearSecondFormCriticalStrikeChancePlusPct) is > 0 and var secondCrit)
             secondForm = AddedBaseCriticalStrike.Chance(baseCrit,
-                Get("critical_strike_chance_+%") + secondCrit, spell: true, _ => 0, Get);
+                Get(Stat.CriticalStrikeChancePlusPct) + secondCrit, spell: true, _ => 0, Get);
         int multiplier = spell
             ? (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier
-                + skillStats.GetValueOrDefault("base_critical_strike_multiplier_+"), int.MinValue, int.MaxValue)
+                + skillStats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus), int.MinValue, int.MaxValue)
             : AttackCriticalMultiplier(conn, playerKeys, skill.Effect, skillKeys);
         string hand = spell ? "spell" : "main_hand";
         var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell), raw, conversion, Get);
@@ -978,7 +976,7 @@ static partial class SurvivorsSkills
             Penetration = Penetration.Of(playerKeys, Stats, attack: !spell, skillKeys, local),
             ResistanceMods = HitResistMods(playerKeys, skillKeys),
             AccuracyProfile = spell ? null : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, local),
-            AlwaysHits = Get("global_always_hit") != 0,
+            AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
             Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local),
             Leech = LeechSources.From(Get, skill.Attack),
@@ -1034,24 +1032,18 @@ static partial class SurvivorsSkills
     }
 
     /// <summary>A gem's own stats by name at a gem level (the run's rank is the gem level).</summary>
-    internal static Dictionary<string, int> SurvivorsStatsByName(Player conn, int effect, int level)
+    internal static Dictionary<uint, int> SurvivorsStatsByName(Player conn, int effect, int level)
     {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>();
         if (effect < 0) return stats;
         foreach (var (key, value) in SkillsFor(conn).EffectStats(effect, level))
-            if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
+            stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
     }
 
     /// <summary>The character's final stats by name (passives, equipped uniques, flasks): the player side of Path of
     /// Building's damage formula, which a run skill now reads beside its own gem and supports.</summary>
-    internal static Dictionary<string, int> SurvivorsPlayerStats(IReadOnlyDictionary<uint, int> player)
-    {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var (key, value) in player)
-            if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
-        return stats;
-    }
+    internal static Dictionary<uint, int> SurvivorsPlayerStats(IReadOnlyDictionary<uint, int> player) => new(player);
 
     /// <summary>
     /// The skill side of a run cast: its own gem, each linked support at the skill's rank, and the run's blessings as
@@ -1059,40 +1051,34 @@ static partial class SurvivorsSkills
     /// <see cref="SurvivorsCast"/>, so the profile resolver, the damage resolver and the ailment code read one
     /// dictionary and a support cannot mean one thing to the flight and another to the hit.
     /// </summary>
-    internal static Dictionary<string, int> SurvivorsSkillAndSupportStats(Player conn, SurvivorsRun run, SurvivorsSkill skill,
-        int skillIndex, int rank, IReadOnlyList<SurvivorsSupportItem> supports, Dictionary<string, int> own)
+    internal static Dictionary<uint, int> SurvivorsSkillAndSupportStats(Player conn, SurvivorsRun run, SurvivorsSkill skill,
+        int skillIndex, int rank, IReadOnlyList<SurvivorsSupportItem> supports, Dictionary<uint, int> own)
     {
-        var stats = new Dictionary<string, int>(own, StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>(own);
         foreach (int index in run.SupportsOf(skillIndex))
         {
             if (index < 0 || index >= supports.Count || supports[index].Effect < 0) continue;
             foreach (var (key, value) in SkillsFor(conn).EffectStats(supports[index].Effect, rank))
-                if (Stats.Name(key) is { Length: > 0 } name) stats[name] = stats.GetValueOrDefault(name) + value;
+                stats[key] = stats.GetValueOrDefault(key) + value;
         }
-        void Add(string name, int value) { if (value != 0) stats[name] = stats.GetValueOrDefault(name) + value; }
-        Add("damage_+%", run.DamageIncreasedPercent);
-        Add("cast_speed_+%", run.CastSpeedIncreasedPercent);
-        Add("base_skill_area_of_effect_+%", run.AreaIncreasedPercent);
-        Add("additional_base_critical_strike_chance", run.CriticalChanceAddedPermyriad);
-        Add("life_leech_from_any_damage_permyriad", run.LeechPermyriad);
-        Add("base_projectile_speed_+%", run.ProjectileSpeedIncreasedPercent);
+        void Add(uint name, int value) { if (value != 0) stats[name] = stats.GetValueOrDefault(name) + value; }
+        Add(Stat.DamagePlusPct, run.DamageIncreasedPercent);
+        Add(Stat.CastSpeedPlusPct, run.CastSpeedIncreasedPercent);
+        Add(Stat.BaseSkillAreaOfEffectPlusPct, run.AreaIncreasedPercent);
+        Add(Stat.AdditionalBaseCriticalStrikeChance, run.CriticalChanceAddedPermyriad);
+        Add(Stat.LifeLeechFromAnyDamagePermyriad, run.LeechPermyriad);
+        Add(Stat.BaseProjectileSpeedPlusPct, run.ProjectileSpeedIncreasedPercent);
         // Gems whose signature mechanic lives in a stat the generic profile does not read.
-        if (stats.GetValueOrDefault("lightning_arrow_maximum_number_of_extra_targets") is > 0 and var extraTargets)
-            stats["number_of_chains"] = Math.Max(stats.GetValueOrDefault("number_of_chains"), extraTargets);
-        if (stats.GetValueOrDefault("vaal_lightning_arrow_number_of_redirects") is > 0 and var redirects)
-            stats["number_of_chains"] = Math.Max(stats.GetValueOrDefault("number_of_chains"), redirects);
-        if (stats.GetValueOrDefault("base_number_of_projectiles_in_spiral_nova") is > 0 and var spiral)
-            stats["base_number_of_projectiles"] = Math.Min(12, Math.Max(1, spiral / 8));
+        if (stats.GetValueOrDefault(Stat.LightningArrowMaximumNumberOfExtraTargets) is > 0 and var extraTargets)
+            stats[Stat.NumberOfChains] = Math.Max(stats.GetValueOrDefault(Stat.NumberOfChains), extraTargets);
+        if (stats.GetValueOrDefault(Stat.VaalLightningArrowNumberOfRedirects) is > 0 and var redirects)
+            stats[Stat.NumberOfChains] = Math.Max(stats.GetValueOrDefault(Stat.NumberOfChains), redirects);
+        if (stats.GetValueOrDefault(Stat.BaseNumberOfProjectilesInSpiralNova) is > 0 and var spiral)
+            stats[Stat.BaseNumberOfProjectiles] = Math.Min(12, Math.Max(1, spiral / 8));
         return stats;
     }
 
-    internal static Dictionary<uint, int> SurvivorsKeyStats(Dictionary<string, int> stats)
-    {
-        var keys = new Dictionary<uint, int>();
-        foreach (var (name, value) in stats)
-            if (Stats.Key(name) is uint key) keys[key] = keys.GetValueOrDefault(key) + value;
-        return keys;
-    }
+    internal static Dictionary<uint, int> SurvivorsKeyStats(Dictionary<uint, int> stats) => new(stats);
 
     internal static string SurvivorsDamageSlug(DamageType type) => type switch
     {
@@ -1105,12 +1091,12 @@ static partial class SurvivorsSkills
     /// area hits along its flight and Storm Burst's jumping orbs. Everything else (Fireball's explosion, Kinetic
     /// Blast's clusters, Spark's hit window, Tornado Shot's arrows) is part of the resolved profile already.
     /// </summary>
-    internal static ProjectileProfile SurvivorsMechanics(SurvivorsSkill skill, Func<string, int> get, ProjectileProfile profile, bool spell)
+    internal static ProjectileProfile SurvivorsMechanics(SurvivorsSkill skill, Func<uint, int> get, ProjectileProfile profile, bool spell)
     {
         string? effect = Skills.EffectId(skill.Effect);
         if (effect == "IceSpear")
         {
-            double formSpeed = 1 + get("ice_spear_second_form_projectile_speed_+%_final") / 100.0;
+            double formSpeed = 1 + get(Stat.IceSpearSecondFormProjectileSpeedPlusPctFinal) / 100.0;
             profile = profile with { FormChange = new(profile.Range * 0.35, Math.Max(1, formSpeed), -1) };
         }
         if (effect is "BallLightning")
@@ -1121,18 +1107,18 @@ static partial class SurvivorsSkills
         if (effect is "StormBurst")
         {
             int radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell);
-            int ms = Math.Clamp(get("display_storm_burst_jump_time_ms"), 100, 2000);
+            int ms = Math.Clamp(get(Stat.DisplayStormBurstJumpTimeMs), 100, 2000);
             profile = profile with { Pulse = new("storm-burst", radius, ProjectileRuntime.Time(ms / 1000.0)) };
         }
         // A gem whose own duration is the projectile's life (Spark, Vaal Spark, Storm Burst, Static Tether).
         if (effect is ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" or "StormBurst" or "StaticTether")
-            && get("base_skill_effect_duration") is > 0 and var duration)
+            && get(Stat.BaseSkillEffectDuration) is > 0 and var duration)
             profile = profile with { Lifetime = ProjectileRuntime.Time(Math.Clamp(duration / 1000.0, 0.4, 10)) };
         // Spark's signature wander, the client's own seeded legs (SparkLegs): the server flies the same path it draws.
         if (effect is ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark"))
         {
-            double life = get("base_skill_effect_duration") is > 0 and var ms ? ms / 1000.0 : 2.0;
-            int randomDuration = get("spark_random_duration_%");
+            double life = get(Stat.BaseSkillEffectDuration) is > 0 and var ms ? ms / 1000.0 : 2.0;
+            int randomDuration = get(Stat.SparkRandomDurationPct);
             int sparkIndex = 0;
             profile = profile with { Legs = _ => new SparkLegs(0, sparkIndex++, PlayerId, life, randomDuration, profile.Speed) };
         }

@@ -11,7 +11,7 @@ public static class JewelPathEffects
         Starts = LoadStarts();
     }
 
-    public const string EffectStat = "local_jewel_+%_effect_per_passive_between_jewel_and_class_start";
+    public const uint EffectStat = Stat.LocalJewelPlusPctEffectPerPassiveBetweenJewelAndClassStart;
     const int Expansion = 1 << 16;
     static Dictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>> Graphs = default!;
     static Dictionary<int, ushort> Starts = default!;

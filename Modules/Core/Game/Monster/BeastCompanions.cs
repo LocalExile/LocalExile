@@ -130,13 +130,13 @@ public static partial class Game
             || gem.WornGrant is not { } grant
             || BeastKindFor(grant.EffectId) is not { } kind
             || CurrentBeastSourceLocked(conn, grant) is not { } owner) return;
-        int Stat(string name) => Stats.Key(name) is uint key ? gem.Stats.GetValueOrDefault(key) : 0;
-        int level = Stat("base_display_minion_actor_level");
-        int limit = Stat("base_number_of_beast_minions_allowed");
+        int Stat(uint key) => gem.Stats.GetValueOrDefault(key);
+        int level = Stat(global::Stat.BaseDisplayMinionActorLevel);
+        int limit = Stat(global::Stat.BaseNumberOfBeastMinionsAllowed);
         if (level <= 0 || limit <= 0) return;
         conn.Beasts.Pending = new(new(owner), skillId, grant.EffectId, kind.Variety, kind.MinionKind,
             (byte)Math.Clamp(level, 1, 100),
-            Stat("minion_maximum_life_+%"), limit, CombatLifetime, conn.Instance, actionToken)
+            Stat(global::Stat.MinionMaximumLifePlusPct), limit, CombatLifetime, conn.Instance, actionToken)
             { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 

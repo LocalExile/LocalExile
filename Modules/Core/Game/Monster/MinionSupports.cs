@@ -63,26 +63,26 @@ public static partial class Game
     {
         var original = action.Original ?? action.Ability;
         if (!MinionMelee(conn, original)) return original;
-        int Own(string n) => GolemStat(fighter.Own, n);
+        int Own(uint n) => GolemStat(fighter.Own, n);
         if (action.RepeatIndex == 0)
         {
             action.Original = original;
-            action.RepeatsRemaining = Own("disable_attack_repeats") != 0 || Own("disable_skill_repeats") != 0
-                || !MinionSupportMatches(original.Effect, "SupportMultistrike") ? 0 : Math.Clamp(Own("base_melee_attack_repeat_count"), 0, 3);
+            action.RepeatsRemaining = Own(Stat.DisableAttackRepeats) != 0 || Own(Stat.DisableSkillRepeats) != 0
+                || !MinionSupportMatches(original.Effect, "SupportMultistrike") ? 0 : Math.Clamp(Own(Stat.BaseMeleeAttackRepeatCount), 0, 3);
             action.UseDamageMore = MinionSupportMatches(original.Effect, "SupportRuthless")
                 ? RuthlessBlowMore(MinionRuthlessCounts.GetValue(fighter, _ => []), original.Skill, Own) : 1;
             action.UseAilmentMore = action.UseDamageMore == 1 ? 1
-                : Math.Max(0, 1 + Own("support_ruthless_blow_ailment_damage_from_melee_hits_+%_final") / 100d);
+                : Math.Max(0, 1 + Own(Stat.SupportRuthlessBlowAilmentDamageFromMeleeHitsPlusPctFinal) / 100d);
         }
         double more = action.RepeatIndex == 0 ? 1 : Math.Max(0, 1 + Own(action.RepeatIndex switch
         {
-            1 => "multistrike_damage_+%_final_on_first_repeat",
-            2 => "multistrike_damage_+%_final_on_second_repeat",
-            _ => "multistrike_damage_+%_final_on_third_repeat"
+            1 => Stat.MultistrikeDamagePlusPctFinalOnFirstRepeat,
+            2 => Stat.MultistrikeDamagePlusPctFinalOnSecondRepeat,
+            _ => Stat.MultistrikeDamagePlusPctFinalOnThirdRepeat
         }) / 100d);
         IReadOnlyDictionary<uint, int> stats = original.Stats;
         if (action.UseDamageMore != 1 && Stat.SupportRuthlessBigHitStunBaseDurationOverrideMs is var stun)
-            stats = new Dictionary<uint, int>(stats) { [stun] = Own("support_ruthless_big_hit_stun_base_duration_override_ms") };
+            stats = new Dictionary<uint, int>(stats) { [stun] = Own(Stat.SupportRuthlessBigHitStunBaseDurationOverrideMs) };
         return MinionDamageScale(original, action.UseDamageMore * more, action.UseAilmentMore * more, stats);
     }
 
@@ -90,9 +90,9 @@ public static partial class Game
     {
         if (fighter.Repeat is not { } repeat) return false;
         fighter.Repeat = null;
-        int Own(string n) => GolemStat(fighter.Own, n);
+        int Own(uint n) => GolemStat(fighter.Own, n);
         if (repeat.Generation != fighter.Monster.ActionGeneration || repeat.RepeatsRemaining <= 0
-            || Own("base_melee_attack_repeat_count") <= 0 || Own("disable_attack_repeats") != 0 || Own("disable_skill_repeats") != 0) return false;
+            || Own(Stat.BaseMeleeAttackRepeatCount) <= 0 || Own(Stat.DisableAttackRepeats) != 0 || Own(Stat.DisableSkillRepeats) != 0) return false;
         var a = repeat.Original!;
         var at = fighter.Monster.Walk.Position(now);
         var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0

@@ -54,7 +54,7 @@ public static partial class Game
     /// caller's snapshot and the passives/items, and one explicit key keeps the pair from rebuilding the sources.</summary>
     static (bool Melee, bool Kill) RampageSources(Player conn, IReadOnlyDictionary<uint, int>? player = null)
     {
-        uint? meleeKey = Stats.Key(RampageSession.Source), killKey = Stats.Key(RampageSession.KillSource);
+        uint? meleeKey = (RampageSession.Source), killKey = (RampageSession.KillSource);
         var stats = player ?? CharacterStatSources(conn).Stats;
         return (meleeKey is uint m2 && stats.GetValueOrDefault(m2) != 0,
             killKey is uint k2 && stats.GetValueOrDefault(k2) != 0);
@@ -104,21 +104,20 @@ public static partial class Game
         int[] crossed = conn.Rampage.TakeThresholds();
         if (crossed.Length == 0) return;
         var sources = CharacterStatSources(conn).Stats;
-        int Get(string name) => Stats.Key(name) is uint key
-            ? sources.GetValueOrDefault(key) : 0;
-        int heal = Get("recover_%_maximum_life_on_rampage_threshold");
+        int Get(uint key) => sources.GetValueOrDefault(key);
+        int heal = Get(Stat.RecoverPctMaximumLifeOnRampageThreshold);
         if (heal > 0 && conn.PlayerLife > 0)
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
                 (long)conn.PlayerLife + (long)conn.PlayerMaxLife * heal / 100);
         double now = conn.Clock.Elapsed.TotalSeconds;
-        if (Get("gain_physical_damage_immunity_on_rampage_threshold_ms") is int immuneMs and > 0)
+        if (Get(Stat.GainPhysicalDamageImmunityOnRampageThresholdMs) is int immuneMs and > 0)
             conn.PhysicalImmunityUntil = Math.Max(conn.PhysicalImmunityUntil, now + immuneMs / 1000.0);
-        if (Get("phasing_on_rampage_threshold_ms") is int phasingMs and > 0)
+        if (Get(Stat.PhasingOnRampageThresholdMs) is int phasingMs and > 0)
         {
             conn.PhasingUntil = Math.Max(conn.PhasingUntil, now + phasingMs / 1000.0);
             PresentStats(conn);
         }
-        if (Get("dispel_status_ailments_on_rampage_threshold") != 0)
+        if (Get(Stat.DispelStatusAilmentsOnRampageThreshold) != 0)
         {
             var before = conn.ElementalAilments.Snapshot(now);
             conn.ElementalAilments.Clear();
@@ -159,8 +158,8 @@ public static partial class Game
     }
 
     static bool RampageEnabled(IReadOnlyDictionary<uint, int> stats) =>
-        (Stats.Key(RampageSession.Source) is uint meleeKey && stats.GetValueOrDefault(meleeKey) != 0)
-        || (Stats.Key(RampageSession.KillSource) is uint killKey && stats.GetValueOrDefault(killKey) != 0);
+        (RampageSession.Source is var meleeKey && stats.GetValueOrDefault(meleeKey) != 0)
+        || (RampageSession.KillSource is var killKey && stats.GetValueOrDefault(killKey) != 0);
 
     // The streak as the stats allow it (PlayerStatsUpdated): cleared without a source, the movement speed and worker.
     static void ReconcileRampageSource(Player conn, IReadOnlyDictionary<uint, int> stats)
@@ -185,21 +184,21 @@ public static partial class Game
             var value = conn.Rampage.Current;
             if (value.ExpiresAt is not double expires || now >= expires) return;
             StatsChangeAt(expires, () => ProjectileWorldTime(conn));
-            void Add(string name, int amount)
+            void Add(uint name, int amount)
             {
-                if (amount != 0 && Stats.Key(name) is uint key)
+                if (amount != 0 && name is var key)
                     stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + amount, int.MinValue, int.MaxValue);
             }
-            Add("damage_+%", value.DamagePercent);
-            Add("movement_velocity_+%", value.MovementPercent);
+            Add(Stat.DamagePlusPct, value.DamagePercent);
+            Add(Stat.MovementVelocityPlusPct, value.MovementPercent);
             // "1% increased Rarity of Items found per X Rampage Kills": the streak's stack count.
             if (Stats.Key("item_found_rarity_+1%_per_X_rampage_stacks") is uint rarityPerStacks
                 && stats.GetValueOrDefault(rarityPerStacks) is int perKills)
-                Add("base_item_found_rarity_+%", RampageRarity(value.Stacks, perKills));
+                Add(Stat.BaseItemFoundRarityPlusPct, RampageRarity(value.Stacks, perKills));
             // "X% increased Area of Effect per 25 Rampage Kills".
             if (Stat.AreaOfEffectPlusPctPer25RampageStacks is var areaPerStacks
                 && stats.GetValueOrDefault(areaPerStacks) is int areaValue)
-                Add("base_skill_area_of_effect_+%", RampageRarity(value.Stacks, 25) * areaValue);
+                Add(Stat.BaseSkillAreaOfEffectPlusPct, RampageRarity(value.Stacks, 25) * areaValue);
             if (Stat.CurrentRampageStacks is var current) stats[current] = value.Stacks;
             if (Stat.MaxRampageStacks is var maximum) stats[maximum] = RampageState.MaximumStacks;
         }
@@ -257,10 +256,10 @@ public static partial class Game
             // The full stat and skill snapshots are ~39 KB together, so they follow only the changes that reach them
             // (RampageStatSignature). current_rampage_stacks changes every kill and is one small stat update (the buff
             // row reads its count from it).
-            int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-            var signature = RampageStatSignature(value, Stat("item_found_rarity_+1%_per_X_rampage_stacks"),
-                Stat("area_of_effect_+%_per_25_rampage_stacks"),
-                Stat("chain_hook_and_shield_charge_attack_speed_+%_per_10_rampage_stacks"));
+            int Stat(uint key) => stats.GetValueOrDefault(key);
+            var signature = RampageStatSignature(value, Stat(global::Stat.ItemFoundRarityPlus1PctPerXRampageStacks),
+                Stat(global::Stat.AreaOfEffectPlusPctPer25RampageStacks),
+                Stat(global::Stat.ChainHookAndShieldChargeAttackSpeedPlusPctPer10RampageStacks));
             if (signature != conn.SentRampageStat)
             {
                 conn.ApplyMovementSpeed();

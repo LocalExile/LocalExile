@@ -60,7 +60,7 @@ static class WornSkillSourceCases
             var stanced = Game.SupportedSkill(conn, melee.Id).Stats;
             Assert.Equal(plain.GetValueOrDefault(areaKey), stanced.GetValueOrDefault(areaKey));
             Assert.Equal(sand, stanced.GetValueOrDefault(stanceAreaKey));
-            int Get(IReadOnlyDictionary<uint, int> own, string name) => Program.Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+            int Get(IReadOnlyDictionary<uint, int> own, uint name) => own.GetValueOrDefault(name);
             Assert.Equal(SkillArea.Modifier(n => Get(plain, n), false) * (1 + sand / 100.0),
                 SkillArea.Modifier(n => Get(stanced, n), false), 6);
             conn.Auras.Remove(stanceSkill.Id);

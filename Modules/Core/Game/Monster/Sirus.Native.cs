@@ -23,7 +23,7 @@ static partial class Sirus
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
     static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
-    static int Stat(Player c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
+    static int Stat(Player c, int effect, byte level, uint name) => name is var key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;
     static int[] Effects(MonsterCatalog.Variety v) => v.Id == Body ? BodyEffects : v.Id == Apparition ? ApparitionEffects : [];
     static ushort Skill(MonsterCatalog.Variety v, int effect) => (ushort)(0x4000 + Array.IndexOf(Effects(v), effect));
     internal static IReadOnlyList<GrantedSkill>? SkillsFor(Player c, MonsterCatalog.Variety v, byte level) =>
@@ -35,8 +35,8 @@ static partial class Sirus
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();
-            int min = Stat(c, effect, level, $"spell_minimum_base_{slug}_damage"), max = Stat(c, effect, level, $"spell_maximum_base_{slug}_damage");
-            if (max == 0) { min = Stat(c, effect, level, $"minimum_base_{slug}_damage"); max = Stat(c, effect, level, $"maximum_base_{slug}_damage"); }
+            int min = Stat(c, effect, level, global::Stat.Of($"spell_minimum_base_{slug}_damage")), max = Stat(c, effect, level, global::Stat.Of($"spell_maximum_base_{slug}_damage"));
+            if (max == 0) { min = Stat(c, effect, level, global::Stat.Of($"minimum_base_{slug}_damage")); max = Stat(c, effect, level, global::Stat.Of($"maximum_base_{slug}_damage")); }
             if (max > 0) damage = damage.Add(type, new(min, max));
         }
         var physical = damage[DamageType.Physical];
@@ -45,7 +45,7 @@ static partial class Sirus
         foreach (var type in DamageTypes.ConversionOrder.Where(t => t != DamageType.Physical))
         {
             string slug = type.ToString().ToLowerInvariant();
-            double fraction = Math.Min(remaining, Math.Max(0, Stat(c, effect, level, "skill_physical_damage_%_to_convert_to_" + slug) / 100d));
+            double fraction = Math.Min(remaining, Math.Max(0, Stat(c, effect, level, global::Stat.Of("skill_physical_damage_%_to_convert_to_" + slug)) / 100d));
             converted = converted.Add(type, damage[type]).Add(type, physical.Scale(fraction)); remaining -= fraction;
         }
         damage = converted.Add(DamageType.Physical, physical.Scale(remaining));

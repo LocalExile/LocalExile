@@ -30,7 +30,7 @@ public partial class ConditionalItemStatsTests
         var exists = (string name) => Program.Stats.Has(name);
         var wrath = WithMod("WrathIncreasedLightningDamage", 40);
         Assert.Equal(40, ItemModStats.Sum([wrath], Program.Items.Mods,
-            subject: new(Auras: new HashSet<string> { "wrath" }), statExists: exists)["lightning_damage_+%"]);
+            subject: new(Auras: new HashSet<string> { "wrath" }), statExists: exists)[Stat.LightningDamagePlusPct]);
         Assert.Empty(ItemModStats.Sum([wrath], Program.Items.Mods,
             subject: new(Auras: new HashSet<string>()), statExists: exists));
         Assert.Contains("a_herald", StatConditions.AuraSet(["HeraldOfAsh"]));
@@ -41,14 +41,14 @@ public partial class ConditionalItemStatsTests
         {
             var sum = ItemModStats.Sum([threshold], Program.Items.Mods,
                 subject: new(Value: name => name == "strength" ? strength : null), statExists: exists);
-            Assert.Equal(strength >= 200 ? 10 : 0, sum.GetValueOrDefault("chance_to_deal_double_damage_%"));
+            Assert.Equal(strength >= 200 ? 10 : 0, sum.GetValueOrDefault(Stat.ChanceToDealDoubleDamagePct));
         }
         var es = WithMod("LifeRegenerationWith500EnergyShieldUnique__1", 60);
         foreach (int shield in new[] { 499, 500 })
         {
             var sum = ItemModStats.Sum([es], Program.Items.Mods,
                 subject: new(Value: name => name == "energy_shield" ? shield : null), statExists: exists);
-            Assert.Equal(shield >= 500 ? 60 : 0, sum.GetValueOrDefault("base_life_regeneration_rate_per_minute"));
+            Assert.Equal(shield >= 500 ? 60 : 0, sum.GetValueOrDefault(Stat.BaseLifeRegenerationRatePerMinute));
         }
         Assert.Equal("base_movement_velocity_+%", StatConditions.Fold("movement_speed_+%_if_enemy_killed_recently", exists));
         Assert.False(StatConditions.TryRecentEvent("damage_+%_per_enemy_killed_recently", out _, out _));
@@ -62,14 +62,14 @@ public partial class ConditionalItemStatsTests
             new(Recent: new HashSet<string> { StatConditions.BlockedSpell })));
 
         const string coefficient = "base_attack_speed_+%_per_frenzy_charge";
-        var chargeMod = Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == coefficient);
+        var chargeMod = Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Name == coefficient);
         var raw = ItemModStats.Sum([WithMod(chargeMod.Id, 7)], Program.Items.Mods,
             subject: new(Recent: new HashSet<string>()), statExists: exists);
-        Assert.Equal(7, raw[coefficient]);
-        Assert.Equal(0, raw.GetValueOrDefault("attack_speed_+%"));
+        Assert.Equal(7, raw[Stat.Of(coefficient)]);
+        Assert.Equal(0, raw.GetValueOrDefault(Stat.AttackSpeedPlusPct));
         var expanded = ChargeEffects.Expand(name => raw.GetValueOrDefault(name),
             type => type == ChargeType.Frenzy ? 3 : 0);
-        Assert.Equal(21, expanded["attack_speed_+%"]);
+        Assert.Equal(21, expanded[Stat.AttackSpeedPlusPct]);
         var phased = WithMod("MovementSpeedWhilePhasedUnique__1", 20);
         var lowLife = WithMod("SpellBlockPercentageOnLowLifeUniqueShieldStrDex1_", 25);
         foreach (bool active in new[] { false, true })
@@ -80,12 +80,12 @@ public partial class ConditionalItemStatsTests
                 ["_while_at_maximum_power_charges"] = active,
             });
             Assert.Equal(active ? 20 : 0, ItemModStats.Sum([phased], Program.Items.Mods,
-                subject: subject, statExists: exists).GetValueOrDefault("base_movement_velocity_+%"));
+                subject: subject, statExists: exists).GetValueOrDefault(Stat.BaseMovementVelocityPlusPct));
             Assert.Equal(active ? 25 : 0, ItemModStats.Sum([lowLife], Program.Items.Mods,
-                subject: subject, statExists: exists).GetValueOrDefault("base_spell_block_%"));
+                subject: subject, statExists: exists).GetValueOrDefault(Stat.BaseSpellBlockPct));
             var maximum = WithMod("PhysAddedAsChaosWithMaxPowerChargesUnique__1", 15);
             Assert.Equal(active ? 15 : 0, ItemModStats.Sum([maximum], Program.Items.Mods,
-                subject: subject, statExists: exists).GetValueOrDefault("physical_damage_%_to_add_as_chaos"));
+                subject: subject, statExists: exists).GetValueOrDefault(Stat.PhysicalDamagePctToAddAsChaos));
         }
     }
 
@@ -260,19 +260,19 @@ public partial class ConditionalItemStatsTests
         // Battlemage's (ShieldSpellDamageJewel): spell_damage_+%_while_holding_shield. The plain name is a real stat the
         // damage pipeline reads, so a shield folds it there; with no shield nothing counts.
         const string jewel = "ShieldSpellDamageJewel";
-        Assert.Contains(Mod(jewel).Stats, s => s.Id == "spell_damage_+%_while_holding_shield");
+        Assert.Contains(Mod(jewel).Stats, s => s.Id == Stat.SpellDamagePlusPctWhileHoldingShield);
         var item = WithMod(jewel, 20);
         var on = ItemModStats.Sum([item], Program.Items.Mods,
             subject: new StatConditions.Subject(Shield: true), statExists: exists);
-        Assert.Equal(20, on.GetValueOrDefault("spell_damage_+%"));
-        Assert.False(on.ContainsKey("spell_damage_+%_while_holding_shield"));
+        Assert.Equal(20, on.GetValueOrDefault(Stat.SpellDamagePlusPct));
+        Assert.False(on.ContainsKey(Stat.SpellDamagePlusPctWhileHoldingShield));
         var off = ItemModStats.Sum([item], Program.Items.Mods,
             subject: new StatConditions.Subject(Shield: false), statExists: exists);
-        Assert.Equal(0, off.GetValueOrDefault("spell_damage_+%"));
-        Assert.False(off.ContainsKey("spell_damage_+%_while_holding_shield"));
+        Assert.Equal(0, off.GetValueOrDefault(Stat.SpellDamagePlusPct));
+        Assert.False(off.ContainsKey(Stat.SpellDamagePlusPctWhileHoldingShield));
         // Without a subject (every pre-existing caller) the mod keeps its old behaviour: counted on its own id.
         Assert.Equal(20, ItemModStats.Sum([item], Program.Items.Mods)
-            .GetValueOrDefault("spell_damage_+%_while_holding_shield"));
+            .GetValueOrDefault(Stat.SpellDamagePlusPctWhileHoldingShield));
 
         // A shield id that already has a consumer of its own is gated but never folded, or the consumer would double
         // count it. Charging (ShieldAttackSpeedJewel): attack_speed_+%_while_holding_shield, which Progression's
@@ -280,34 +280,34 @@ public partial class ConditionalItemStatsTests
         var dedicated = WithMod("ShieldAttackSpeedJewel", 5);
         var dedicatedOn = ItemModStats.Sum([dedicated], Program.Items.Mods,
             subject: new StatConditions.Subject(Shield: true), statExists: exists);
-        Assert.Equal(5, dedicatedOn.GetValueOrDefault("attack_speed_+%_while_holding_shield"));
-        Assert.Equal(0, dedicatedOn.GetValueOrDefault("attack_speed_+%"));
+        Assert.Equal(5, dedicatedOn.GetValueOrDefault(Stat.AttackSpeedPlusPctWhileHoldingShield));
+        Assert.Equal(0, dedicatedOn.GetValueOrDefault(Stat.AttackSpeedPlusPct));
         Assert.Equal(0, ItemModStats.Sum([dedicated], Program.Items.Mods,
             subject: new StatConditions.Subject(Shield: false), statExists: exists)
-            .GetValueOrDefault("attack_speed_+%_while_holding_shield"));
+            .GetValueOrDefault(Stat.AttackSpeedPlusPctWhileHoldingShield));
     }
 
     void A_held_condition_counts_on_its_plain_stat_and_nothing_changes_without_a_subject()
     {
         // A real jewel roll whose plain name the damage pipeline reads.
         const string id = "SynthesisImplicitSpellDamageWithDualWieldJewel1";
-        Assert.Contains(Mod(id).Stats, s => s.Id == "spell_damage_+%_while_dual_wielding");
+        Assert.Contains(Mod(id).Stats, s => s.Id == Stat.SpellDamagePlusPctWhileDualWielding);
         var item = WithMod(id, 30);
         var exists = (string n) => Program.Stats.Has(n);
 
         // Dual wielding: the value lands on the plain stat; not dual wielding: nothing at all.
         var on = ItemModStats.Sum([item], Program.Items.Mods,
             subject: new StatConditions.Subject(DualWield: true), statExists: exists);
-        Assert.Equal(30, on.GetValueOrDefault("spell_damage_+%"));
-        Assert.False(on.ContainsKey("spell_damage_+%_while_dual_wielding"));
+        Assert.Equal(30, on.GetValueOrDefault(Stat.SpellDamagePlusPct));
+        Assert.False(on.ContainsKey(Stat.SpellDamagePlusPctWhileDualWielding));
         var off = ItemModStats.Sum([item], Program.Items.Mods,
             subject: new StatConditions.Subject(DualWield: false), statExists: exists);
-        Assert.Equal(0, off.GetValueOrDefault("spell_damage_+%"));
+        Assert.Equal(0, off.GetValueOrDefault(Stat.SpellDamagePlusPct));
 
         // A "recently" roll does the same: the plain name while the event is inside the window, nothing outside it.
         const string recentId = "IncreasedDamageIfFrozenRecentlyUnique__1";
         Assert.Equal("damage_+%", StatConditions.PlainOf("damage_+%_if_you_have_frozen_enemy_recently"));
-        Assert.Contains(Mod(recentId).Stats, s => s.Id == "damage_+%_if_you_have_frozen_enemy_recently");
+        Assert.Contains(Mod(recentId).Stats, s => s.Id == Stat.DamagePlusPctIfYouHaveFrozenEnemyRecently);
         var recentItem = WithMod(recentId, 20);
         var froze = StatConditions.Of("damage_+%_if_you_have_frozen_enemy_recently",
             new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.FrozeEnemy }));
@@ -315,18 +315,18 @@ public partial class ConditionalItemStatsTests
 
         // Kintsugi uses "evasion" in its stat id, but Progression's real evasion consumer reads "evasion_rating".
         const string kintsugi = "IncreasedEvasionIfHitRecentlyUnique___1";
-        Assert.Contains(Mod(kintsugi).Stats, s => s.Id == "evasion_+%_if_hit_recently");
+        Assert.Contains(Mod(kintsugi).Stats, s => s.Id == Stat.EvasionPlusPctIfHitRecently);
         Assert.Equal("evasion_rating_+%", StatConditions.Fold("evasion_+%_if_hit_recently", exists));
         var kintsugiItem = WithMod(kintsugi, 100);
         var kintsugiHit = ItemModStats.Sum([kintsugiItem], Program.Items.Mods,
             subject: new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.BeenHit }),
             statExists: exists);
-        Assert.Equal(100, kintsugiHit.GetValueOrDefault("evasion_rating_+%"));
-        Assert.False(kintsugiHit.ContainsKey("evasion_+%_if_hit_recently"));
+        Assert.Equal(100, kintsugiHit.GetValueOrDefault(Stat.EvasionRatingPlusPct));
+        Assert.False(kintsugiHit.ContainsKey(Stat.EvasionPlusPctIfHitRecently));
         var enemyHitOnly = ItemModStats.Sum([kintsugiItem], Program.Items.Mods,
             subject: new StatConditions.Subject(Recent: new HashSet<string> { StatConditions.HitEnemy }),
             statExists: exists);
-        Assert.Equal(0, enemyHitOnly.GetValueOrDefault("evasion_rating_+%"));
+        Assert.Equal(0, enemyHitOnly.GetValueOrDefault(Stat.EvasionRatingPlusPct));
 
         // The synthetic command uses the same accepted-incoming-hit commit as a monster contact. A failed transfer
         // invalidates retired work without forgetting history; an actual lifecycle clear removes it.
@@ -360,16 +360,16 @@ public partial class ConditionalItemStatsTests
         var dedicated = WithMod("BlockWhileDualWieldingUniqueDagger3", 10);
         Assert.Equal(10, ItemModStats.Sum([dedicated], Program.Items.Mods,
             subject: new StatConditions.Subject(DualWield: true), statExists: exists)
-            .GetValueOrDefault("block_while_dual_wielding_%"));
+            .GetValueOrDefault(Stat.BlockWhileDualWieldingPct));
 
         // No subject and no catalog, as every pre-existing caller passes: nothing changes at all.
         Assert.Equal(30, ItemModStats.Sum([item], Program.Items.Mods)
-            .GetValueOrDefault("spell_damage_+%_while_dual_wielding"));
+            .GetValueOrDefault(Stat.SpellDamagePlusPctWhileDualWielding));
         Assert.Equal(10, ItemModStats.Sum([dedicated], Program.Items.Mods)
-            .GetValueOrDefault("block_while_dual_wielding_%"));
+            .GetValueOrDefault(Stat.BlockWhileDualWieldingPct));
 
         // An unconditional mod is untouched by any subject.
-        var plain = WithMod(Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == "base_maximum_life").Id, 42);
+        var plain = WithMod(Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == Stat.BaseMaximumLife).Id, 42);
         foreach (var subject in new[]
                  {
                      StatConditions.Subject.Unknown,
@@ -377,6 +377,6 @@ public partial class ConditionalItemStatsTests
                      new StatConditions.Subject(DualWield: false, Shield: true),
                  })
             Assert.Equal(42, ItemModStats.Sum([plain], Program.Items.Mods, subject: subject)
-                .GetValueOrDefault("base_maximum_life"));
+                .GetValueOrDefault(Stat.BaseMaximumLife));
     }
 }

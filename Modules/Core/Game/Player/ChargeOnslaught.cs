@@ -3,20 +3,19 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    const string MaximumEnduranceOnslaught = "gain_onslaught_while_at_maximum_endurance_charges";
-    static readonly (string Stat, string Condition)[] SourceOnslaughtPredicates =
+    const uint MaximumEnduranceOnslaught = Stat.GainOnslaughtWhileAtMaximumEnduranceCharges;
+    static readonly (uint Stat, string Condition)[] SourceOnslaughtPredicates =
     [
         (MaximumEnduranceOnslaught, "_while_at_maximum_endurance_charges"),
-        ("gain_onslaught_while_on_low_life", "_while_on_low_life"),
-        ("gain_onslaught_while_not_on_low_mana", "_while_not_on_low_mana"),
-        ("gain_onslaught_while_you_have_fortify", "_while_you_have_fortify"),
+        (Stat.GainOnslaughtWhileOnLowLife, "_while_on_low_life"),
+        (Stat.GainOnslaughtWhileNotOnLowMana, "_while_not_on_low_mana"),
+        (Stat.GainOnslaughtWhileYouHaveFortify, "_while_you_have_fortify"),
     ];
 
     static IReadOnlyDictionary<string, bool> RequalifyChargeOnslaught(Player conn,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
-        int Get(string name) => Stats.Key(name) is uint key
-            ? sources.GetValueOrDefault(key) : 0;
+        int Get(uint key) => sources.GetValueOrDefault(key);
         bool source = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
             && SourceOnslaughtPredicates.Any(row => Get(row.Stat) != 0 && captured.GetValueOrDefault(row.Condition));
         bool onslaught = source || captured.GetValueOrDefault("independent_onslaught");
@@ -32,9 +31,9 @@ public static partial class Game
         && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
         && conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("source_onslaught") == true;
 
-    public static IEnumerable<UtilityFlasks.Source> ChargeOnslaughtSources(Player conn, Func<string, int> character) =>
+    public static IEnumerable<UtilityFlasks.Source> ChargeOnslaughtSources(Player conn, Func<uint, int> character) =>
         ChargeOnslaughtActive(conn) && ItemsFor(conn).Onslaught is { } onslaught
-            ? UtilityFlasks.OnslaughtSources(onslaught, Math.Max(0, 1 + character("onslaught_effect_+%") / 100d)) : [];
+            ? UtilityFlasks.OnslaughtSources(onslaught, Math.Max(0, 1 + character(Stat.OnslaughtEffectPlusPct) / 100d)) : [];
 
     sealed class ChargeOnslaughtVisual { public ushort Buff; public bool Active; }
     static readonly Store<Player, ChargeOnslaughtVisual> ChargeOnslaughtVisuals = new();

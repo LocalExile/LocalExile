@@ -19,4 +19,8 @@ public static partial class Stat
     /// that /set_stat can add; the passives' conditional ones are summed into CharacterStats.Pools.AttackSpeedPct by
     /// PassiveBonus.</summary>
     public static readonly uint[] AttackSpeedInputs = [AttackSpeedPlusPct, MeleeAttackSpeedPlusPct, MainHandAttackSpeedPlusPct, UnarmedMeleeAttackSpeedPlusPct];
+
+    /// <summary>The id of a stat name made at run time (a family prefix, a name from data), or a server-only stat the
+    /// client's table does not have (StatCatalog.Id). Resolve it once and keep the id, not per read.</summary>
+    public static uint Of(string name) => Program.Stats.Id(name);
 }

@@ -89,8 +89,8 @@ public static class ClusterJewelLayout
 
         var entries = ClusterJewelStats.Entries(jewel);
         int sockets = Math.Min(Game.ClusterSocketCount(jewel), template.Socket.Length);
-        int notables = entries.Count(e => e.Stat.StartsWith("local_affliction_notable_", StringComparison.Ordinal));
-        int keystones = entries.Count(e => e.Stat.StartsWith("local_jewel_expansion_keystone_", StringComparison.Ordinal));
+        int notables = entries.Count(e => Program.Stats.Name(e.Stat).StartsWith("local_affliction_notable_", StringComparison.Ordinal));
+        int keystones = entries.Count(e => Program.Stats.Name(e.Stat).StartsWith("local_jewel_expansion_keystone_", StringComparison.Ordinal));
         int nodes = Game.ClusterNodeBudget(jewel);
         // Only a large cell (a tree socket) keeps the full 12-slot ring; the expansion cells are compressed onto half
         // of it, whatever the jewel's own size.

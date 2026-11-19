@@ -16,9 +16,9 @@ public static partial class Game
     {
         var arctic = conn.Auras.Values.FirstOrDefault(a => a.EffectId == "ArcticArmour");
         if (arctic is null || conn.Walk.Moving(now) || type is not (DamageType.Physical or DamageType.Fire)) return 1;
-        string name = type == DamageType.Physical ? "new_arctic_armour_physical_damage_taken_when_hit_+%_final"
-            : "new_arctic_armour_fire_damage_taken_when_hit_+%_final";
-        uint? key = Stats.Key(name);
+        uint name = type == DamageType.Physical ? Stat.NewArcticArmourPhysicalDamageTakenWhenHitPlusPctFinal
+            : Stat.NewArcticArmourFireDamageTakenWhenHitPlusPctFinal;
+        uint? key = (name);
         int value = SkillsFor(conn).EffectStats(arctic.Effect, arctic.Level, arctic.Quality).FirstOrDefault(s => s.Item1 == key).Item2;
         return Math.Max(0, 1 + value / 100.0);
     }

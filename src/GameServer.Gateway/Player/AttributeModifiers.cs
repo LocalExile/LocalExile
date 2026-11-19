@@ -6,28 +6,31 @@
 public readonly record struct AttributeModifiers(long Strength = 0, long Dexterity = 0, long Intelligence = 0,
     long StrengthPct = 0, long DexterityPct = 0, long IntelligencePct = 0, bool ZeroIntelligence = false)
 {
-    public static bool IsInput(string name) => name is
-        "base_strength" or "additional_strength" or "base_dexterity" or "additional_dexterity"
-        or "base_intelligence" or "additional_intelligence" or "base_all_attributes" or "additional_all_attributes"
-        or "base_strength_and_dexterity" or "additional_strength_and_dexterity"
-        or "base_strength_and_intelligence" or "additional_strength_and_intelligence"
-        or "base_dexterity_and_intelligence" or "additional_dexterity_and_intelligence"
-        or "strength_+%" or "dexterity_+%" or "intelligence_+%" or "all_attributes_+%" or "intelligence_is_0";
+    // Not in the client's Stats table (a server-only id); items and passives may still name it.
+    static readonly uint BaseAllAttributes = Stat.Of("base_all_attributes");
 
-    public static AttributeModifiers From(Func<string, int> get) => FromWide(name => get(name));
+    public static bool IsInput(uint name) => name == BaseAllAttributes || name is
+        Stat.BaseStrength or Stat.AdditionalStrength or Stat.BaseDexterity or Stat.AdditionalDexterity
+        or Stat.BaseIntelligence or Stat.AdditionalIntelligence or Stat.AdditionalAllAttributes
+        or Stat.BaseStrengthAndDexterity or Stat.AdditionalStrengthAndDexterity
+        or Stat.BaseStrengthAndIntelligence or Stat.AdditionalStrengthAndIntelligence
+        or Stat.BaseDexterityAndIntelligence or Stat.AdditionalDexterityAndIntelligence
+        or Stat.StrengthPlusPct or Stat.DexterityPlusPct or Stat.IntelligencePlusPct or Stat.AllAttributesPlusPct or Stat.IntelligenceIs0;
 
-    public static AttributeModifiers FromWide(Func<string, long> get)
+    public static AttributeModifiers From(Func<uint, int> get) => FromWide(name => get(name));
+
+    public static AttributeModifiers FromWide(Func<uint, long> get)
     {
-        long all = get("base_all_attributes") + get("additional_all_attributes");
-        long strDex = get("base_strength_and_dexterity") + get("additional_strength_and_dexterity");
-        long strInt = get("base_strength_and_intelligence") + get("additional_strength_and_intelligence");
-        long dexInt = get("base_dexterity_and_intelligence") + get("additional_dexterity_and_intelligence");
-        long allPct = get("all_attributes_+%");
+        long all = get(BaseAllAttributes) + get(Stat.AdditionalAllAttributes);
+        long strDex = get(Stat.BaseStrengthAndDexterity) + get(Stat.AdditionalStrengthAndDexterity);
+        long strInt = get(Stat.BaseStrengthAndIntelligence) + get(Stat.AdditionalStrengthAndIntelligence);
+        long dexInt = get(Stat.BaseDexterityAndIntelligence) + get(Stat.AdditionalDexterityAndIntelligence);
+        long allPct = get(Stat.AllAttributesPlusPct);
         return new(
-            get("base_strength") + get("additional_strength") + all + strDex + strInt,
-            get("base_dexterity") + get("additional_dexterity") + all + strDex + dexInt,
-            get("base_intelligence") + get("additional_intelligence") + all + strInt + dexInt,
-            get("strength_+%") + allPct, get("dexterity_+%") + allPct, get("intelligence_+%") + allPct, get("intelligence_is_0") != 0);
+            get(Stat.BaseStrength) + get(Stat.AdditionalStrength) + all + strDex + strInt,
+            get(Stat.BaseDexterity) + get(Stat.AdditionalDexterity) + all + strDex + dexInt,
+            get(Stat.BaseIntelligence) + get(Stat.AdditionalIntelligence) + all + strInt + dexInt,
+            get(Stat.StrengthPlusPct) + allPct, get(Stat.DexterityPlusPct) + allPct, get(Stat.IntelligencePlusPct) + allPct, get(Stat.IntelligenceIs0) != 0);
     }
 
     public static int Signed(decimal value) => (int)Math.Clamp(value, int.MinValue, int.MaxValue);

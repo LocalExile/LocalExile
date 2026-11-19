@@ -31,7 +31,7 @@ public sealed class RecentHitLifeLossState
 
 public static partial class Game
 {
-    public const string LifeLossIfHitRecently = "life_loss_%_per_minute_if_have_been_hit_recently";
+    public const uint LifeLossIfHitRecently = Stat.LifeLossPctPerMinuteIfHaveBeenHitRecently;
     static readonly Store<Player, RecentHitLifeLossState> RecentHitLifeLossStates = new();
     public sealed record CarriedRecentHitLifeLoss(double Pending);
     public static RecentHitLifeLossState RecentHitLifeLossOf(Player conn) => RecentHitLifeLossStates.GetOrCreateValue(conn);

@@ -14,7 +14,7 @@ public static partial class Game
 
     // Ground creation belongs to the accepted charge transaction. Its art receipts and deadline survive
     // replacement, while taunt uses the same accepted character snapshot as the utility effect.
-    static void MakeFlaskGroundsLocked(Player conn, IReadOnlyDictionary<string, int> local, double seconds,
+    static void MakeFlaskGroundsLocked(Player conn, IReadOnlyDictionary<uint, int> local, double seconds,
         double now, IReadOnlyDictionary<uint, int> player)
     {
         var at = conn.Walk.Position(now);
@@ -22,7 +22,7 @@ public static partial class Game
         {
             if (kind == FlaskGrounds.Kind.Taunt)
             {
-                double duration = TauntSeconds(name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+                double duration = TauntSeconds(name => name is var key ? player.GetValueOrDefault(key) : 0);
                 TauntLocked(conn, at, radius, now, duration);
                 continue;
             }
@@ -41,7 +41,7 @@ public static partial class Game
         UtilityFlaskStat(conn, FlaskGrounds.EnemyDamageTakenStat);
 
     /// <summary>The strongest value of a stat the running utility flasks grant (their "during effect" mods).</summary>
-    public static int UtilityFlaskStat(Player conn, string stat) =>
+    public static int UtilityFlaskStat(Player conn, uint stat) =>
         conn.UtilityFlaskEffects.MaximumStat(stat);
 
     public static Task MaybeCreateProfaneGround(Player conn, (int X, int Y) at)
@@ -57,7 +57,7 @@ public static partial class Game
 
     static void MaybeCreateProfaneGroundLocked(Player conn, (int X, int Y) at, IReadOnlyDictionary<uint, int> player)
     {
-        int chance = FlaskGrounds.ProfaneChance(name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+        int chance = FlaskGrounds.ProfaneChance(name => name is var key ? player.GetValueOrDefault(key) : 0);
         if (chance <= 0 || Random.Shared.Next(100) >= chance) return;
         conn.FlaskGrounds.Add(FlaskGrounds.ProfaneGround(at, AreaTime(conn),
             QueueGroundArtLocked(conn, FlaskGrounds.Kind.ProfaneGround, at, FlaskGrounds.ProfaneRadius)));
@@ -117,7 +117,7 @@ public static partial class Game
             SyncFlaskGroundZones(conn);
             foreach (var (id, monster) in conn.Monsters)
             {
-                bool inside = monster.Hostile && !monster.Dead && monster.Life > 0 && monster.Mods.Effects["cannot_be_blinded"] == 0
+                bool inside = monster.Hostile && !monster.Dead && monster.Life > 0 && monster.Mods.Effects[Stat.CannotBeBlinded] == 0
                     && InFlaskGround(conn, FlaskGrounds.Kind.SmokeCloud, id);
                 if (state.SetBlinded(id, inside, () => conn.NextBuff++) is { } change)
                     pending.Packets.Add(new(change.Added

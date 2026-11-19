@@ -16,9 +16,9 @@ public static class MonsterFlee
     /// <summary>A hit's chance as the client's calculators sum it: an attack's main_hand_hit_causes_monster_flee_%
     /// (0x142797260: the global stat plus the main-hand weapon's local one) or a spell's global stat, plus the skill's own
     /// global stat (Chance to Flee Support).</summary>
-    public static int Chance(bool spell, Func<string, int> player, Func<string, int> skill) =>
-        player(spell ? "global_hit_causes_monster_flee_%" : "main_hand_hit_causes_monster_flee_%")
-        + skill("global_hit_causes_monster_flee_%");
+    public static int Chance(bool spell, Func<uint, int> player, Func<uint, int> skill) =>
+        player(spell ? Stat.GlobalHitCausesMonsterFleePct : Stat.MainHandHitCausesMonsterFleePct)
+        + skill(Stat.GlobalHitCausesMonsterFleePct);
 
     /// <summary>One roll per hit at the chance, then the monster's chance not to flee.</summary>
     public static bool Rolls(int chance, int notFlee, Random random) =>

@@ -25,15 +25,15 @@ public sealed class KillOnslaught
     const double RepresentSeconds = 1;
     public bool Applied => double.IsFinite(SentUntil);
 
-    public static IReadOnlyList<(int Chance, double Seconds)> From(Func<string, int> get)
+    public static IReadOnlyList<(int Chance, double Seconds)> From(Func<uint, int> get)
     {
-        int ms = get("onslaught_time_granted_on_kill_ms"), always = get("onslaught_buff_duration_on_kill_ms");
+        int ms = get(Stat.OnslaughtTimeGrantedOnKillMs), always = get(Stat.OnslaughtBuffDurationOnKillMs);
         return [.. new[]
         {
-            (get("chance_to_gain_onslaught_on_kill_%"), ms > 0 ? ms / 1000.0 : 4),
+            (get(Stat.ChanceToGainOnslaughtOnKillPct), ms > 0 ? ms / 1000.0 : 4),
             (always > 0 ? 100 : 0, always / 1000.0),
-            (get("chance_to_gain_onslaught_on_kill_for_4_seconds_%"), 4.0),
-            (get("chance_to_gain_onslaught_on_kill_for_10_seconds_%"), 10.0),
+            (get(Stat.ChanceToGainOnslaughtOnKillFor4SecondsPct), 4.0),
+            (get(Stat.ChanceToGainOnslaughtOnKillFor10SecondsPct), 10.0),
         }.Where(r => r.Item1 > 0)];
     }
 
@@ -84,14 +84,14 @@ public static partial class Game
     public static KillOnslaught KillOnslaughtOf(Player conn) => KillOnslaughts.GetValue(conn, _ => new());
 
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
-    public static void ConfigureKillOnslaught(Player conn, Func<string, int> get)
+    public static void ConfigureKillOnslaught(Player conn, Func<uint, int> get)
     {
         var rolls = KillOnslaught.From(get);
         lock (conn.Monsters)
         {
             var onslaught = KillOnslaughtOf(conn);
             onslaught.Rolls = rolls;
-            onslaught.HitMs = get("gain_onslaught_on_hit_duration_ms");
+            onslaught.HitMs = get(Stat.GainOnslaughtOnHitDurationMs);
         }
     }
 
@@ -121,12 +121,12 @@ public static partial class Game
 
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,
     // the strongest counts once. Its effect is the character's increased Onslaught effect.
-    public static IEnumerable<UtilityFlasks.Source> KillOnslaughtSources(Player conn, Func<string, int> character)
+    public static IEnumerable<UtilityFlasks.Source> KillOnslaughtSources(Player conn, Func<uint, int> character)
     {
         bool applied;
         lock (conn.Monsters) applied = conn.PlayerLife > 0 && KillOnslaughtOf(conn).Applied;
         return applied && ItemsFor(conn).Onslaught is { } onslaught
-            ? UtilityFlasks.OnslaughtSources(onslaught, Math.Max(0, 1 + character("onslaught_effect_+%") / 100.0)) : [];
+            ? UtilityFlasks.OnslaughtSources(onslaught, Math.Max(0, 1 + character(Stat.OnslaughtEffectPlusPct) / 100.0)) : [];
     }
 
     // The kill Onslaught's buff (timed like Adrenaline's) and, when it starts or ends, the pools, walk speed, stats and
@@ -147,7 +147,7 @@ public static partial class Game
             if (seconds is double left)
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, o.Buff = conn.NextBuff++, onslaught!.BuffRow, PlayerId,
                     u68: BitConverter.SingleToUInt32Bits((float)left),
-                    visual: BuffArtVisual(conn, "onslaught_buff", "virtual_onslaught_art_variation")));
+                    visual: BuffArtVisual(conn, "onslaught_buff", Stat.VirtualOnslaughtArtVariation)));
             if (stats)
             {
                 MarkPlayerStats(conn, PlayerStatStep.Onslaught);

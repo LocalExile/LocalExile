@@ -40,9 +40,9 @@ public sealed partial class ReservationCurseSummonTests
             conn.Pools = Game.PoolsFor(conn, 100);
             conn.PlayerLife = conn.Pools.Life;
             conn.PlayerMana = conn.Pools.Mana;
-            int Stat(string name) => Program.Stats.Key(name) is uint key
+            int Stat(uint name) => name is var key
                 ? Game.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
-            int Source(string name) => Program.Stats.Key(name) is uint key
+            int Source(uint name) => name is var key
                 ? Game.CharacterStatSources(conn).Stats.GetValueOrDefault(key) : 0;
             var source = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "AspectOfTheAvian");
             Assert.True(Game.SupportedSkill(conn, source.Id).RequirementsMet);
@@ -50,9 +50,9 @@ public sealed partial class ReservationCurseSummonTests
             var cost = Game.SupportedReservationCost(conn, source.Id)!.Value;
             Assert.Equal(2500, cost.ManaPercent);
             int movementOff = conn.Pools.MovementVelocityPct;
-            int regenOff = Stat("base_life_regeneration_rate_per_minute");
-            int manaRegenOff = Stat("base_mana_regeneration_rate_per_minute");
-            int addedOff = Stat("spell_minimum_added_cold_damage");
+            int regenOff = Stat(global::Stat.BaseLifeRegenerationRatePerMinute);
+            int manaRegenOff = Stat(global::Stat.BaseManaRegenerationRatePerMinute);
+            int addedOff = Stat(global::Stat.SpellMinimumAddedColdDamage);
             var addedBefore = new Dictionary<bool, DamagePacket>
             {
                 [false] = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell: false),
@@ -62,36 +62,36 @@ public sealed partial class ReservationCurseSummonTests
                 source.Id, source.Effect, source.Name, cost, source.Level, source.Quality));
             Assert.Equal(ReservationState.AvianPhase.Might, conn.Reservations.Avian);
             Assert.Equal(1040, conn.Reservations.PresentedAvianRow);
-            Assert.Equal(10, Stat("chance_to_deal_double_damage_%"));
-            Assert.Equal(10, Stat("minion_chance_to_deal_double_damage_%"));
-            Assert.Equal(1, Stat("has_avians_might"));
-            Assert.Equal(0, Stat("has_avians_flight"));
-            Assert.Equal(addedOff, Stat("spell_minimum_added_cold_damage"));
+            Assert.Equal(10, Stat(global::Stat.ChanceToDealDoubleDamagePct));
+            Assert.Equal(10, Stat(global::Stat.MinionChanceToDealDoubleDamagePct));
+            Assert.Equal(1, Stat(global::Stat.HasAviansMight));
+            Assert.Equal(0, Stat(global::Stat.HasAviansFlight));
+            Assert.Equal(addedOff, Stat(global::Stat.SpellMinimumAddedColdDamage));
             foreach (bool spell in new[] { false, true })
             {
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell);
                 foreach (var (element, type) in new[] { ("cold", DamageType.Cold), ("lightning", DamageType.Lightning) })
                 {
-                    Assert.Equal(addedBefore[spell][type].Min + Source($"minimum_added_{element}_damage_while_you_have_avians_might"), added[type].Min);
-                    Assert.Equal(addedBefore[spell][type].Max + Source($"maximum_added_{element}_damage_while_you_have_avians_might"), added[type].Max);
+                    Assert.Equal(addedBefore[spell][type].Min + Source(global::Stat.Of($"minimum_added_{element}_damage_while_you_have_avians_might")), added[type].Min);
+                    Assert.Equal(addedBefore[spell][type].Max + Source(global::Stat.Of($"maximum_added_{element}_damage_while_you_have_avians_might")), added[type].Max);
                 }
             }
             Assert.Equal(movementOff, conn.Pools.MovementVelocityPct);
-            double mightEnd = 100 + (4000 + Source("avians_might_duration_ms_+")) / 1000d;
+            double mightEnd = 100 + (4000 + Source(global::Stat.AviansMightDurationMsPlus)) / 1000d;
             Assert.Equal(mightEnd, conn.Reservations.AvianDeadline, 6);
             var golem = new GolemState.Golem(0xA711, null!,
                 new(0, "", "Stone", "", 0, [], false, false, false), 1);
             var minionMods = Game.GolemModifiers(conn, golem, Game.CharacterPlayerStats(conn));
-            Assert.Equal(10, minionMods.Effects["chance_to_deal_double_damage_%"]);
+            Assert.Equal(10, minionMods.Effects[global::Stat.ChanceToDealDoubleDamagePct]);
             var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
             Assert.Equal(200, Game.GolemRollHit(hit, minionMods.Effects, false, new AspectRoll(9)).MinTotal);
             Assert.Equal(100, Game.GolemRollHit(hit, minionMods.Effects, true, new AspectRoll(10)).MinTotal);
 
             var nest = inventory.Add(PlayerInventories.BodyArmour, 0, 0, uniques.Create("Saqawal's Nest", new Random(504))!);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
-            Assert.Equal(20, Stat("chance_to_deal_double_damage_%"));
+            Assert.Equal(20, Stat(global::Stat.ChanceToDealDoubleDamagePct));
             // The local buff is not scaled by ordinary aura effect.
-            Assert.Equal(100, Source("aspect_of_the_avian_buff_effect_+%"));
+            Assert.Equal(100, Source(global::Stat.AspectOfTheAvianBuffEffectPlusPct));
             schedule.At = mightEnd - .001;
             await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(ReservationState.AvianPhase.Might, conn.Reservations.Avian);
@@ -99,14 +99,14 @@ public sealed partial class ReservationCurseSummonTests
             await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(ReservationState.AvianPhase.Flight, conn.Reservations.Avian);
             Assert.Equal(1041, conn.Reservations.PresentedAvianRow);
-            Assert.Equal(0, Stat("chance_to_deal_double_damage_%"));
-            Assert.Equal(0, Stat("minion_chance_to_deal_double_damage_%"));
-            Assert.Equal(20, Stat("minion_movement_speed_+%"));
-            Assert.Equal(0, Stat("has_avians_might"));
-            Assert.Equal(1, Stat("has_avians_flight"));
-            Assert.Equal(6000 + regenOff, Stat("base_life_regeneration_rate_per_minute"));
-            Assert.Equal(720 + manaRegenOff, Stat("base_mana_regeneration_rate_per_minute"));
-            Assert.Equal(addedOff, Stat("spell_minimum_added_cold_damage"));
+            Assert.Equal(0, Stat(global::Stat.ChanceToDealDoubleDamagePct));
+            Assert.Equal(0, Stat(global::Stat.MinionChanceToDealDoubleDamagePct));
+            Assert.Equal(20, Stat(global::Stat.MinionMovementSpeedPlusPct));
+            Assert.Equal(0, Stat(global::Stat.HasAviansMight));
+            Assert.Equal(1, Stat(global::Stat.HasAviansFlight));
+            Assert.Equal(6000 + regenOff, Stat(global::Stat.BaseLifeRegenerationRatePerMinute));
+            Assert.Equal(720 + manaRegenOff, Stat(global::Stat.BaseManaRegenerationRatePerMinute));
+            Assert.Equal(addedOff, Stat(global::Stat.SpellMinimumAddedColdDamage));
             foreach (bool spell in new[] { false, true })
             {
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell);
@@ -185,7 +185,7 @@ public sealed partial class ReservationCurseSummonTests
             conn.PlayerLife = conn.Pools.Life;
             conn.PlayerMana = conn.Pools.Mana;
             Assert.False(Game.IsInactive(conn, shell.Id));
-            int Stat(string name) => Program.Stats.Key(name) is uint key
+            int Stat(uint name) => name is var key
                 ? Game.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
             var source = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "AspectOfTheCrab");
             Assert.True(await Game.ToggleAura(conn, source.Id, source.Effect,
@@ -203,8 +203,8 @@ public sealed partial class ReservationCurseSummonTests
             await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(10, conn.Reservations.CrabBarriers);
             Assert.Equal(20, Game.PlayerDamageReduction(conn).Physical);
-            Assert.Equal(10, Stat("current_crab_aspect_stacks"));
-            Assert.Equal(15, Stat("max_crab_aspect_stacks"));
+            Assert.Equal(10, Stat(global::Stat.CurrentCrabAspectStacks));
+            Assert.Equal(15, Stat(global::Stat.MaxCrabAspectStacks));
             var stats = Game.CharacterPlayerStats(conn);
             Game.CrabPhysicalHitLocked(conn, 0, schedule.At, stats);
             Assert.Equal(10, conn.Reservations.CrabBarriers);
@@ -228,10 +228,10 @@ public sealed partial class ReservationCurseSummonTests
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Assert.False(Game.IsInactive(conn, tracks.Id));
             Assert.False(Game.IsInactive(conn, shell.Id));
-            Assert.Equal(1, Stat("cannot_be_stunned"));
+            Assert.Equal(1, Stat(global::Stat.CannotBeStunned));
             int blockAt15 = conn.Pools.BlockChance;
             stats = Game.CharacterPlayerStats(conn);
-            int loss = Stat("number_of_crab_charges_lost_when_hit");
+            int loss = Stat(global::Stat.NumberOfCrabChargesLostWhenHit);
             Game.CrabPhysicalHitLocked(conn, 1, schedule.At, stats);
             Assert.Equal(15 - loss, conn.Reservations.CrabBarriers);
             Game.CrabPhysicalHitLocked(conn, 1, schedule.At + 3.999, stats);

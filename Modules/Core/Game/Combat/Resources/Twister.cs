@@ -59,7 +59,7 @@ public static partial class Game
             && SupportedSkill(conn, g.Id).WornGrant == grant);
         if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id, triggered: true) is not null) return null;
         var supported = SupportedSkill(conn, gem.Id);
-        int chance = GolemStat(supported.Stats, "cast_on_gain_avians_flight_or_avians_might_%");
+        int chance = GolemStat(supported.Stats, Stat.CastOnGainAviansFlightOrAviansMightPct);
         if (!RandomRolls.Chance(chance, 100, conn.CriticalRandom)) return null;
         var plan = CooldownFor(conn, gem.Effect, gem.Level, gem.Quality);
         // Unsupported recovery mechanics must not silently fire without their intrinsic cooldown.

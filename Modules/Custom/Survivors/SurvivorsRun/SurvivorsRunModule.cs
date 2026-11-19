@@ -36,14 +36,14 @@ public sealed class SurvivorsRunModule : IModule
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, (conn, sources) =>
         {
             if (StateOf(conn).Survivors is null) return sources;
-            Nerf(sources, "maximum_life_leech_rate_%_per_minute", -SurvivorsRules.LifeLeechRateNerfPermyriadPerMinute);
-            Nerf(sources, "leech_%_is_instant", -SurvivorsRules.InstantLeechNerf);
-            Nerf(sources, "life_leech_%_is_instant", -SurvivorsRules.InstantLeechNerf);
+            Nerf(sources, Stat.MaximumLifeLeechRatePctPerMinute, -SurvivorsRules.LifeLeechRateNerfPermyriadPerMinute);
+            Nerf(sources, Stat.LeechPctIsInstant, -SurvivorsRules.InstantLeechNerf);
+            Nerf(sources, Stat.LifeLeechPctIsInstant, -SurvivorsRules.InstantLeechNerf);
             return sources;
 
-            static void Nerf(Dictionary<uint, int> sources, string name, int value)
+            static void Nerf(Dictionary<uint, int> sources, uint key, int value)
             {
-                if (Stats.Key(name) is uint key) sources[key] = sources.GetValueOrDefault(key) + value;
+                sources[key] = sources.GetValueOrDefault(key) + value;
             }
         });
         GameEvents.TravelRefusal.Add(module.Manifest.Id, SurvivorsRunRules.TravelRefusal);

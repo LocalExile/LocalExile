@@ -10,13 +10,13 @@ using static Game;
 /// </summary>
 public static class Hierophant
 {
-    public const string ManaModifiersToDamage = "additive_mana_modifiers_apply_to_damage_at_30%_value";
-    public const string AreaPerUnreservedMana = "hierophant_area_of_effect_+%_per_50_unreserved_mana_up_to_100%";
-    public const string LifeRegenPerTotem = "you_and_totem_life_regeneration_rate_per_minute_%_per_active_totem";
-    public const string ManaRegenPerTotem = "mana_regeneration_rate_per_minute_%_per_active_totem";
-    public const string MorePerTotem = "hierophant_passive_damage_+%_final_per_totem";
+    public const uint ManaModifiersToDamage = Stat.AdditiveManaModifiersApplyToDamageAt30PctValue;
+    public const uint AreaPerUnreservedMana = Stat.HierophantAreaOfEffectPlusPctPer50UnreservedManaUpTo100Pct;
+    public const uint LifeRegenPerTotem = Stat.YouAndTotemLifeRegenerationRatePerMinutePctPerActiveTotem;
+    public const uint ManaRegenPerTotem = Stat.ManaRegenerationRatePerMinutePctPerActiveTotem;
+    public const uint MorePerTotem = Stat.HierophantPassiveDamagePlusPctFinalPerTotem;
     /// <summary>The count of Summoned Totems the client's per-totem stats read (Stats row 3460), sent by the server.</summary>
-    public const string ActiveTotems = "number_of_active_totems";
+    public const uint ActiveTotems = Stat.NumberOfActiveTotems;
 
     /// <summary>"Increases and Reductions to Maximum Mana also apply to Damage at 30% of their value"
     /// (ReminderTextPsudoKeystoneTransfigurationOfMind).</summary>
@@ -26,8 +26,8 @@ public static class Hierophant
     public const int ManaPerAreaStep = 50, AreaCap = 100;
 
     /// <summary>Divine Guidance: the increased damage from the summed <c>maximum_mana_+%</c>, truncated toward zero.</summary>
-    public static int DamageFromMana(Func<string, int> get) =>
-        get(ManaModifiersToDamage) == 0 ? 0 : (int)((long)get("maximum_mana_+%") * ManaToDamagePct / 100);
+    public static int DamageFromMana(Func<uint, int> get) =>
+        get(ManaModifiersToDamage) == 0 ? 0 : (int)((long)get(Stat.MaximumManaPlusPct) * ManaToDamagePct / 100);
 
     /// <summary>Sanctuary of Thought: X% per whole 50 unreserved maximum mana, the product capped at 100.</summary>
     public static int AreaFromMana(int perStep, int unreservedMana) =>
@@ -51,24 +51,24 @@ public static class Hierophant
     public static long Revision(Player conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
-    static int Raw(Player conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
+    static int Raw(Player conn, uint name) => name is var key && conn.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>GameEvents.PlayerStatSources: per-totem regeneration, the unreserved-mana area and mana-to-damage.</summary>
     public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> stats)
     {
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        void Add(string name, long value)
+        int Get(uint k) => stats.GetValueOrDefault(k);
+        void Add(uint name, long value)
         {
-            if (value != 0 && Stats.Key(name) is uint k)
+            if (value != 0 && name is var k)
                 stats[k] = (int)Math.Clamp(stats.GetValueOrDefault(k) + value, int.MinValue, int.MaxValue);
         }
         // Read before anything below adds to maximum_mana_+% (nothing does) or damage_+%.
-        Add("damage_+%", DamageFromMana(Get));
+        Add(Stat.DamagePlusPct, DamageFromMana(Get));
         if (!States.TryGetValue(conn, out var state)) return stats;
         Add(ActiveTotems, state.Totems);
-        Add("life_regeneration_rate_per_minute_%", (long)Get(LifeRegenPerTotem) * state.Totems);
-        Add("mana_regeneration_rate_per_minute_%", (long)Get(ManaRegenPerTotem) * state.Totems);
+        Add(Stat.LifeRegenerationRatePerMinutePct, (long)Get(LifeRegenPerTotem) * state.Totems);
+        Add(Stat.ManaRegenerationRatePerMinutePct, (long)Get(ManaRegenPerTotem) * state.Totems);
         // Joins the base form, which the panel's total and every skill read (as Impact's and Rampage's do).
         Add(SkillArea.BaseIncreased, state.ManaArea);
         return stats;

@@ -13,10 +13,9 @@ static class UniqueBeltsFeature
         var stats = CharacterPlayerStats(conn);
         var catalog = ItemsFor(conn).Mods;
         double now = conn.Clock.Elapsed.TotalSeconds;
-        if (Stats.Key(StolenMods.SourceStat) is uint belt && stats.GetValueOrDefault(belt) > 0)
+        if (stats.GetValueOrDefault(StolenMods.SourceStat) > 0)
             conn.StolenMods.Steal(m.Mods, catalog, now);
-        if (Stats.Key(StolenMods.RandomSourceStat) is uint jewel)
-            conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(jewel), now, Random.Shared);
+        conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(StolenMods.RandomSourceStat), now, Random.Shared);
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
@@ -26,7 +25,7 @@ static class UniqueBeltsFeature
         if (stolen.Count == 0) return sources;
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in stolen)
-            if (Stats.Key(stat) is uint key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+            stats[stat] = ActorScale.Saturate((long)stats.GetValueOrDefault(stat) + value);
         return stats;
     }
 

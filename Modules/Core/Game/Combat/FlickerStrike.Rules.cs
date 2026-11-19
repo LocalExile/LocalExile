@@ -44,8 +44,8 @@ public static partial class Game
         ushort skillId, (int X, int Y) player, (int X, int Y) aim, uint clicked, double now)
     {
         var stats = SupportedSkill(conn, skillId).Stats;
-        int range = FlickerStrike.Range(GolemStat(stats, "flicker_strike_teleport_range_+%"),
-            GolemStat(stats, "apply_cut_debuff_on_hit") != 0);
+        int range = FlickerStrike.Range(GolemStat(stats, Stat.FlickerStrikeTeleportRangePlusPct),
+            GolemStat(stats, Stat.ApplyCutDebuffOnHit) != 0);
         var monsters = new List<(uint, (int, int), int, bool)>();
         lock (conn.Monsters)
             foreach (var (id, m) in conn.Monsters)
@@ -84,11 +84,11 @@ public static partial class Game
         ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;
-        int percent = GolemStat(own, "flicker_strike_buff_movement_speed_+%");
+        int percent = GolemStat(own, Stat.FlickerStrikeBuffMovementSpeedPlusPct);
         if (percent == 0) return;
         var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        double seconds = SkillDurationModifiers.Seconds(GolemStat(own, "base_skill_effect_duration"), Player,
+        int Player(uint key) => player.GetValueOrDefault(key);
+        double seconds = SkillDurationModifiers.Seconds(GolemStat(own, Stat.BaseSkillEffectDuration), Player,
             name => GolemStat(own, name));
         if (seconds <= 0) return;
         var speed = FlickerSpeeds.GetOrCreateValue(conn);

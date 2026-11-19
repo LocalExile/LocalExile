@@ -4,11 +4,11 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool Has(IReadOnlyDictionary<uint, int> player, string stat) =>
-        Stats.Key(stat) is uint key && player.GetValueOrDefault(key) != 0;
-    public static bool BleedReflected(IReadOnlyDictionary<uint, int> player) => Has(player, "bleeding_reflected_to_self")
-        && !Has(player, "cannot_gain_bleeding") && !Has(player, "virtual_immune_to_bleeding")
-        && !Has(player, "immune_to_bleeding");
+    static bool Has(IReadOnlyDictionary<uint, int> player, uint stat) =>
+        stat is var key && player.GetValueOrDefault(key) != 0;
+    public static bool BleedReflected(IReadOnlyDictionary<uint, int> player) => Has(player, Stat.BleedingReflectedToSelf)
+        && !Has(player, Stat.CannotGainBleeding) && !Has(player, Stat.VirtualImmuneToBleeding)
+        && !Has(player, Stat.ImmuneToBleeding);
 
     /// <summary>The wiki's Bleeding: a moving enemy takes 200% more damage from it (the trial spike traps' bleed too).</summary>
     public const double BleedMovingMore = 3;
@@ -33,41 +33,41 @@ public static partial class Game
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
     /// </summary>
-    public static MonsterIgnites.Settings BleedSettings(IEnumerable<(string Stat, int Value)> rows, string hand,
-        Func<string, int> get, IReadOnlyDictionary<string, int>? local, bool melee, bool bow,
+    public static MonsterIgnites.Settings BleedSettings(IEnumerable<(uint Stat, int Value)> rows, string hand,
+        Func<uint, int> get, IReadOnlyDictionary<uint, int>? local, bool melee, bool bow,
         bool projectileAttack = false)
     {
-        if (get("cannot_cause_bleeding") != 0 || get("never_damaging_ailments") != 0) return MonsterIgnites.Settings.None;
-        double faster = Math.Max(0, 1 + ((double)get("faster_bleed_%") + get("damaging_ailments_deal_damage_+%_faster")) / 100.0);
+        if (get(Stat.CannotCauseBleeding) != 0 || get(Stat.NeverDamagingAilments) != 0) return MonsterIgnites.Settings.None;
+        double faster = Math.Max(0, 1 + ((double)get(Stat.FasterBleedPct) + get(Stat.DamagingAilmentsDealDamagePlusPctFaster)) / 100.0);
         if (faster <= 0) return MonsterIgnites.Settings.None;
         var r = rows.ToDictionary(x => x.Stat, x => x.Value);
         double Row(string bound, string kind) =>
-            r.GetValueOrDefault($"{bound}_bleeding_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
-        int Local(string name) => local?.GetValueOrDefault(name) ?? 0;
+            r.GetValueOrDefault(Stat.Of($"{bound}_bleeding_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
+        int Local(uint name) => local?.GetValueOrDefault(name) ?? 0;
         // The fixed chances are 1 on their mods: "25% chance to cause Bleeding on Hit" is local_chance_to_bleed_on_hit_25%.
         long projectile = projectileAttack
-            ? get("projectile_attacks_chance_to_bleed_on_hit_%_if_you_have_beast_minion") : 0;
-        long chance = get("global_bleed_on_hit") != 0 || Local("local_bleed_on_hit") != 0 ? 100
-            : (long)get("bleed_on_hit_with_attacks_%") + Local("local_chance_to_bleed_on_hit_%")
-                + 25L * Local("local_chance_to_bleed_on_hit_25%") + 50L * Local("local_chance_to_bleed_on_hit_50%")
-                + (melee ? get("bleed_on_melee_attack_chance_%") : 0) + (bow ? get("bleed_on_bow_attack_chance_%") : 0)
+            ? get(Stat.ProjectileAttacksChanceToBleedOnHitPctIfYouHaveBeastMinion) : 0;
+        long chance = get(Stat.GlobalBleedOnHit) != 0 || Local(Stat.LocalBleedOnHit) != 0 ? 100
+            : (long)get(Stat.BleedOnHitWithAttacksPct) + Local(Stat.LocalChanceToBleedOnHitPct)
+                + 25L * Local(Stat.LocalChanceToBleedOnHit25Pct) + 50L * Local(Stat.LocalChanceToBleedOnHit50Pct)
+                + (melee ? get(Stat.BleedOnMeleeAttackChancePct) : 0) + (bow ? get(Stat.BleedOnBowAttackChancePct) : 0)
                 + projectile;
-        long critical = chance + get("bleed_on_crit_%_with_attacks") + Local("local_bleed_on_critical_strike_chance_%")
-            + 50L * Local("local_chance_to_bleed_on_crit_50%")
-            + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
-        double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
-            + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
+        long critical = chance + get(Stat.BleedOnCritPctWithAttacks) + Local(Stat.LocalBleedOnCriticalStrikeChancePct)
+            + 50L * Local(Stat.LocalChanceToBleedOnCrit50Pct)
+            + (melee ? get(Stat.BleedOnMeleeCriticalStrike) != 0 ? 100 : get(Stat.BleedOnMeleeCritChancePct) : 0);
+        double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
+            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
-        bool dance = get("keystone_crimson_dance") != 0;
-        int aggravate = dance ? 0 : get("base_aggravate_bleeding_on_attack_hit_chance_%");
+        bool dance = get(Stat.KeystoneCrimsonDance) != 0;
+        int aggravate = dance ? 0 : get(Stat.BaseAggravateBleedingOnAttackHitChancePct);
         // Rupture Support: a critical strike of the supported skill that inflicts bleeding also ruptures the target.
-        int rupture = get("critical_strikes_that_inflict_bleeding_also_rupture") != 0
-            ? Math.Max(0, get("support_rupture_bleeding_damage_taken_+%_final")) : 0;
+        int rupture = get(Stat.CriticalStrikesThatInflictBleedingAlsoRupture) != 0
+            ? Math.Max(0, get(Stat.SupportRuptureBleedingDamageTakenPlusPctFinal)) : 0;
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
             Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
             dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
-            dance ? 0 : (int)Math.Clamp((long)aggravate + get("aggravate_bleeding_on_attack_crit_chance_%"), 0, 100),
-            !dance && get("aggravate_inflicted_bleeding") != 0, rupture);
+            dance ? 0 : (int)Math.Clamp((long)aggravate + get(Stat.AggravateBleedingOnAttackCritChancePct), 0, 100),
+            !dance && get(Stat.AggravateInflictedBleeding) != 0, rupture);
     }
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
@@ -77,11 +77,11 @@ public static partial class Game
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
     {
         if (spell) return MonsterIgnites.Settings.None;
-        Func<string, int> get;
+        Func<uint, int> get;
         if (capturedInputs is null)
         {
             var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
-            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
         }
         else
             get = capturedInputs.Get;
@@ -96,7 +96,7 @@ public static partial class Game
     public static MonsterIgnites.Settings DefaultAttackBleed(Player conn, IReadOnlyDictionary<uint, int> player,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(conn);
         return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
@@ -122,8 +122,8 @@ public static partial class Game
             target.Bleeds.Aggravate();
         if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, conn.IgniteRandom)) return null;
         var e = target.Mods.Effects;
-        if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
-                e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
+        if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e[Stat.AvoidBleedPct] + e[Stat.BaseAvoidBleedPct],
+                e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,
                 conn.IgniteRandom, out double perSecond)) return null;
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
@@ -136,7 +136,7 @@ public static partial class Game
         {
             var player = CharacterPlayerStats(conn);
             conn.IncomingAilments.ApplyBleed(now, perSecond, settings.Seconds, reflected: true,
-                victim: name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+                victim: name => name is var key ? player.GetValueOrDefault(key) : 0);
         }
         return [.. PresentRupturesLocked(conn, id, target, now), .. ShowDotBuffLocked(conn, id, target.Bleeds, row, now)];
     }

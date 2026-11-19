@@ -7,9 +7,9 @@ public static partial class Game
 {
     // What every warcry does at its release besides its own effect, within its own radius around where it was used: the
     // client's warcry action (0x141abfb30) scans that radius for Chest objects and corpses when Deathrattle's stats are set.
-    public const string CorpseExplosionStat = "nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry",
-        OpenChestsStat = "open_nearby_chests_on_warcry",
-        CorpseLootStat = "corpses_drop_loot_again_on_warcry_chance_%";
+    public const uint CorpseExplosionStat = Stat.NearbyCorpsesExplodeDealingPctMaximumLifePhysicalDamageOnWarcry,
+        OpenChestsStat = Stat.OpenNearbyChestsOnWarcry,
+        CorpseLootStat = Stat.CorpsesDropLootAgainOnWarcryChancePct;
 
     // Path of Building's EnemyExplode radius (skill("radius", 22)), grown by area of effect.
     const int CorpseExplosionRadius = 22;
@@ -28,7 +28,7 @@ public static partial class Game
             conn.RecentEvents.Record(StatConditions.UsedWarcry, ProjectileWorldTime(conn));
         }
         var stats = AreaPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         if (Get(CorpseExplosionStat) is int percent and > 0)
             await ExplodeCorpses(conn, at, radius, epoch, percent, Get,
                 DamageStats.Conversion(stats, Stats, attack: null));
@@ -71,10 +71,10 @@ public static partial class Game
     // The explosion's hit before the target's mitigation: the corpse's maximum Life x percent as physical damage, with the
     // owner's global increases and more multipliers, then his global conversion and gain as extra (poewiki Explode: global,
     // not attack or spell, stats apply). Increases apply before conversion, as for every hit on the server.
-    public static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<string, int> get, DamageConversion conversion)
+    public static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<uint, int> get, DamageConversion conversion)
     {
         double damage = corpseMaxLife * (double)percent / 100;
-        long increased = (long)get("damage_+%") + get("physical_damage_+%") + get("area_damage_+%");
+        long increased = (long)get(Stat.DamagePlusPct) + get(Stat.PhysicalDamagePlusPct) + get(Stat.AreaDamagePlusPct);
         return DamagePacket.Of(DamageType.Physical, damage, damage)
             .Scale(Math.Max(0, 1 + increased / 100.0) * ChargeEffects.DamageMore(get)).Convert(conversion);
     }
@@ -83,7 +83,7 @@ public static partial class Game
     // monsters around its corpse (not an attack or a spell: no block, no evasion; 0% base crit, and flat crit chance and
     // global added damage, which the wiki's Explode page says apply, are not modelled).
     static async Task ExplodeCorpses(Player conn,
-        (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
+        (int X, int Y) at, int radius, int epoch, int percent, Func<uint, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
         var consumed = new List<(uint Id, string Label, (int X, int Y) At)>();

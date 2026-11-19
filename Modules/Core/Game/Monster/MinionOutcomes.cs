@@ -294,7 +294,7 @@ public static partial class Game
                 if (conn.Closed || conn.LeavingArea || state.FlaskRewards.Count == 0 || !ReferenceEquals(state.FlaskRewards[0], reward)) return null;
                 state.FlaskRewards.RemoveAt(0);
                 var player = CharacterPlayerStats(conn);
-                int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+                int Get(uint key) => player.GetValueOrDefault(key);
                 var changed = new List<InventoryItem>();
                 foreach (var flask in items.Items(PlayerInventories.Flask))
                 {

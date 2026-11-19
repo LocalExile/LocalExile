@@ -2,15 +2,13 @@
 public static class ActorScale
 {
     public const uint Base = 720, Final = 1973, Capped = 1974, Limit = 1975, Permyriad = 10778;
-    public static readonly string[] Inputs = ["base_actor_scale_+%", "capped_actor_scale_+%",
-        "actor_scale_+%_limit", "metamorphosis_boss_actor_scale_+%_permyriad"];
+    public static readonly uint[] Inputs = [Stat.BaseActorScalePlusPct, Stat.CappedActorScalePlusPct,
+        Stat.ActorScalePlusPctLimit, Stat.MetamorphosisBossActorScalePlusPctPermyriad];
 
     public static bool IsInput(uint key) => key is Base or Capped or Limit or Permyriad;
-    public static bool IsInput(string name) => Inputs.Contains(name);
     public static int Saturate(long value) => (int)Math.Clamp(value, int.MinValue, int.MaxValue);
     // Saturate size inputs at each source dictionary boundary; unrelated aggregation keeps its existing semantics.
     public static int Add(uint key, int a, int b) => IsInput(key) ? Saturate((long)a + b) : unchecked(a + b);
-    public static int Add(string name, int a, int b) => IsInput(name) ? Saturate((long)a + b) : unchecked(a + b);
 
     public static int Derive(int raw, int capped = 0, int permyriad = 0, int limit = 100)
     {

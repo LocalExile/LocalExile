@@ -232,7 +232,7 @@ public static partial class Game
     {
         if (!conn.PetrifiedBlood.Active || conn.PlayerLife == 0) return false;
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+            name => name is var key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
         uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return (long)conn.PlayerLife + margin >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100);
     }
@@ -432,9 +432,9 @@ public static partial class Game
     /// <summary>A stat of the skill as the client last received it in the skill list (0 when the skill went without it),
     /// null when the skill was not sent. The client times some effects by the skill's stats it holds, not the
     /// character's current ones (Hammerfalls' waves).</summary>
-    public static int? SentSkillStat(Player conn, ushort skillId, string stat)
+    public static int? SentSkillStat(Player conn, ushort skillId, uint stat)
     {
-        if (Stats.Key(stat) is not uint key || !SentSkillLists.TryGetValue(conn, out var sent)) return null;
+        if (!(stat is var key) || !SentSkillLists.TryGetValue(conn, out var sent)) return null;
         lock (sent)
         {
             if (sent.Skills?.FirstOrDefault(s => s.Id == skillId) is not { } skill) return null;

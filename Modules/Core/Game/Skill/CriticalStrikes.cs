@@ -12,8 +12,8 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
             CriticalHitsDealNoExtraDamage(player, own));
 
-    public static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
-        or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
+    public static bool IsCriticalProhibition(uint name) => name is Stat.GlobalCannotCrit
+        or Stat.VirtualGlobalCannotCrit or Stat.CannotCriticalStrikeWithAttacks;
 
     public static (bool LowLife, bool Focused, int ExtraRolls) CriticalContext(Player conn)
     {
@@ -34,12 +34,12 @@ public static partial class Game
 
     static bool CriticalOnLowLife(Func<uint> life, Func<uint> maximumLife, IReadOnlyDictionary<uint, int> player)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && !CountsAsFullLife(life(), maximumLife(), player)
-            || Get("you_count_as_low_life_while_affected_by_vulnerability") != 0
-                && (Get("cursed_by_vulnerability") != 0 || Get("you_are_cursed_with_vulnerability") != 0);
+        int Get(uint key) => player.GetValueOrDefault(key);
+        bool counts = Get(Stat.YouCountAsLowLifeWhileNotOnFullLife) != 0 && !CountsAsFullLife(life(), maximumLife(), player)
+            || Get(Stat.YouCountAsLowLifeWhileAffectedByVulnerability) != 0
+                && (Get(Stat.CursedByVulnerability) != 0 || Get(Stat.YouAreCursedWithVulnerability) != 0);
         return CriticalStrikePolicy.OnLowLife(life(), maximumLife(),
-            Get("low_life_threshold_%_override"), Get("low_life_threshold_%"), counts);
+            Get(Stat.LowLifeThresholdPctOverride), Get(Stat.LowLifeThresholdPct), counts);
     }
 
     public static int CriticalExtraRolls(Player conn, IReadOnlyDictionary<uint, int>? own = null)
@@ -55,13 +55,13 @@ public static partial class Game
     public static int CriticalExtraRollsFor(bool onLowLife, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int Own(string name) => Stats.Key(name) is uint key ? own?.GetValueOrDefault(key) ?? 0 : 0;
-        long Sum(string name) => (long)Player(name) + Own(name);
-        return CriticalStrikePolicy.ExtraRolls(Sum("extra_critical_rolls"),
-            Sum("extra_critical_rolls_while_on_low_life"), onLowLife,
-            Sum("extra_critical_rolls_during_focus"), Player("has_focus") != 0,
-            Player("keystone_sharp_and_brittle") != 0 || Own("keystone_sharp_and_brittle") != 0);
+        int Player(uint key) => player.GetValueOrDefault(key);
+        int Own(uint key) => own?.GetValueOrDefault(key) ?? 0;
+        long Sum(uint name) => (long)Player(name) + Own(name);
+        return CriticalStrikePolicy.ExtraRolls(Sum(Stat.ExtraCriticalRolls),
+            Sum(Stat.ExtraCriticalRollsWhileOnLowLife), onLowLife,
+            Sum(Stat.ExtraCriticalRollsDuringFocus), Player(Stat.HasFocus) != 0,
+            Player(Stat.KeystoneSharpAndBrittle) != 0 || Own(Stat.KeystoneSharpAndBrittle) != 0);
     }
 
     public static bool CriticalProhibited(Player conn, bool attack, IReadOnlyDictionary<uint, int>? own = null)
@@ -70,10 +70,9 @@ public static partial class Game
     public static bool CriticalProhibitedBy(IReadOnlyDictionary<uint, int> player, bool attack,
         IReadOnlyDictionary<uint, int>? own)
     {
-        bool Flag(string name) => Stats.Key(name) is uint key
-            && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
-        return Flag("global_cannot_crit") || Flag("virtual_global_cannot_crit")
-            || attack && Flag("cannot_critical_strike_with_attacks");
+        bool Flag(uint key) => (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
+        return Flag(Stat.GlobalCannotCrit) || Flag(Stat.VirtualGlobalCannotCrit)
+            || attack && Flag(Stat.CannotCriticalStrikeWithAttacks);
     }
 
     // The original per-type damage draws still precede the original critical Next(10000). Conditional luck adds
@@ -85,7 +84,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             player ??= CharacterPlayerStats(conn);
-            if (AlwaysCritical(conn, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0))
+            if (AlwaysCritical(conn, name => name is var key ? player.GetValueOrDefault(key) : 0))
                 return !CriticalProhibitedBy(player, attack, own);
             if (chance <= 0) return false;
             int allowedChance = CriticalProhibitedBy(player, attack, own) ? 0 : chance;
@@ -110,12 +109,12 @@ public static partial class Game
     // without a roll, whatever its base chance; a cannot-crit prohibition still wins (wiki). The client's
     // virtual_always_crit calculator (0x1427625b0) reads the stat only for main_hand_weapon_type 15; PoB: CritChance
     // OVERRIDE 100.
-    static bool AlwaysCritical(Player conn, Func<string, int> get) =>
-        get("always_crit_while_holding_fishing_rod") != 0 && HoldingFishingRod(conn);
+    static bool AlwaysCritical(Player conn, Func<uint, int> get) =>
+        get(Stat.AlwaysCritWhileHoldingFishingRod) != 0 && HoldingFishingRod(conn);
 
     // The chance the panel shows under it: 100% where the hit could crit at all; a 0% base still shows 0 although its
     // hits crit (wiki Baited Breath). Prohibited chances are already 0.
-    static int DisplayedCriticalChance(Player conn, int chance, Func<string, int> get) =>
+    static int DisplayedCriticalChance(Player conn, int chance, Func<uint, int> get) =>
         chance > 0 && AlwaysCritical(conn, get) ? 10_000 : chance;
 
     public static int AttackCriticalMultiplier(Player conn, IReadOnlyDictionary<uint, int> player,
@@ -127,7 +126,7 @@ public static partial class Game
     public static int AttackCriticalMultiplier(CharacterStats.Pools pools, bool unarmed, bool melee, bool spell,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null)
     {
-        uint? key = Stats.Key(CriticalStrikePolicy.UnarmedMeleeMultiplierStat);
+        uint? key = (CriticalStrikePolicy.UnarmedMeleeMultiplierStat);
         long extra = key is uint k ? (long)player.GetValueOrDefault(k) + (own?.GetValueOrDefault(k) ?? 0) : 0;
         return CriticalHitMultiplier(CriticalStrikePolicy.Multiplier(pools.CriticalStrikeMultiplier,
             extra, unarmed, melee, spell), player, own);

@@ -27,7 +27,7 @@ sealed class HarbingerRecipientClock(double duration, double now, double rate = 
 
     // Pinned client 0x141f7fa30: the category masks, additive elapsed inputs and minimum rate are native rules.
     // Temporal Chains excludes its own other-effects term. Cooldowns/resources never call this method.
-    public static double RecipientRate(int category, Func<string, int> get, bool temporalChains = false)
+    public static double RecipientRate(int category, Func<uint, int> get, bool temporalChains = false)
     {
         return RecipientEffectTime.Rate(category, get, temporalChains);
     }

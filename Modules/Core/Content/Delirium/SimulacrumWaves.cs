@@ -26,26 +26,26 @@ public sealed partial class DeliriumModule
         var affixes = new List<ItemMod>();
         var mods = ItemsFor(conn).Mods;
         // Only effects the combat model executes are admitted; do not advertise an affix with no gameplay effect.
-        var supported = new Dictionary<string, string>(StringComparer.Ordinal)
+        var supported = new Dictionary<uint, uint>
         {
-            ["map_monsters_life_+%"] = "maximum_life_+%",
-            ["map_monsters_damage_+%"] = "damage_+%",
-            ["map_monsters_movement_speed_+%"] = "base_movement_velocity_+%",
-            ["map_monsters_attack_speed_+%"] = "attack_speed_+%",
-            ["map_monsters_cast_speed_+%"] = "base_cast_speed_+%",
-            ["map_monsters_%_physical_damage_to_add_as_fire"] = "physical_damage_%_to_add_as_fire",
-            ["map_monsters_%_physical_damage_to_add_as_cold"] = "physical_damage_%_to_add_as_cold",
-            ["map_monsters_%_physical_damage_to_add_as_lightning"] = "physical_damage_%_to_add_as_lightning",
-            ["map_monsters_chaos_damage_%_to_add_as_chaos"] = "non_chaos_damage_to_add_as_chaos_damage_%",
-            ["map_monsters_base_resist_all_elements_%"] = "base_resist_all_elements_%",
-            ["map_monsters_base_chaos_damage_resistance_%"] = "base_chaos_damage_resistance_%",
-            ["map_monsters_additional_physical_damage_reduction_%"] = "base_additional_physical_damage_reduction_%",
-            ["map_monsters_additional_physical_damage_reduction"] = "base_additional_physical_damage_reduction_%",
-            ["map_monsters_additional_fire_resistance"] = "base_fire_damage_resistance_%",
-            ["map_monsters_additional_cold_resistance"] = "base_cold_damage_resistance_%",
-            ["map_monsters_additional_lightning_resistance"] = "base_lightning_damage_resistance_%",
-            ["map_monsters_additional_chaos_resistance"] = "base_chaos_damage_resistance_%",
-            ["map_monsters_movement_speed_cannot_be_reduced_below_base"] = "movement_speed_cannot_be_reduced_below_base",
+            [Stat.MapMonstersLifePlusPct] = Stat.MaximumLifePlusPct,
+            [Stat.MapMonstersDamagePlusPct] = Stat.DamagePlusPct,
+            [Stat.MapMonstersMovementSpeedPlusPct] = Stat.BaseMovementVelocityPlusPct,
+            [Stat.MapMonstersAttackSpeedPlusPct] = Stat.AttackSpeedPlusPct,
+            [Stat.MapMonstersCastSpeedPlusPct] = Stat.BaseCastSpeedPlusPct,
+            [Stat.MapMonstersPctPhysicalDamageToAddAsFire] = Stat.PhysicalDamagePctToAddAsFire,
+            [Stat.MapMonstersPctPhysicalDamageToAddAsCold] = Stat.PhysicalDamagePctToAddAsCold,
+            [Stat.MapMonstersPctPhysicalDamageToAddAsLightning] = Stat.PhysicalDamagePctToAddAsLightning,
+            [Stat.Of("map_monsters_chaos_damage_%_to_add_as_chaos")] = Stat.NonChaosDamageToAddAsChaosDamagePct,
+            [Stat.Of("map_monsters_base_resist_all_elements_%")] = Stat.BaseResistAllElementsPct,
+            [Stat.Of("map_monsters_base_chaos_damage_resistance_%")] = Stat.BaseChaosDamageResistancePct,
+            [Stat.Of("map_monsters_additional_physical_damage_reduction_%")] = Stat.BaseAdditionalPhysicalDamageReductionPct,
+            [Stat.MapMonstersAdditionalPhysicalDamageReduction] = Stat.BaseAdditionalPhysicalDamageReductionPct,
+            [Stat.MapMonstersAdditionalFireResistance] = Stat.BaseFireDamageResistancePct,
+            [Stat.MapMonstersAdditionalColdResistance] = Stat.BaseColdDamageResistancePct,
+            [Stat.MapMonstersAdditionalLightningResistance] = Stat.BaseLightningDamageResistancePct,
+            [Stat.MapMonstersAdditionalChaosResistance] = Stat.BaseChaosDamageResistancePct,
+            [Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase] = Stat.MovementSpeedCannotBeReducedBelowBase,
         };
         var candidates = ClientTables.Table("AfflictionEndgameWaveMods")
             .Where(r => r.Int("__col3") > 0 && wave >= r.Int("__col1") && wave <= r.Int("__col2"))
@@ -64,7 +64,7 @@ public sealed partial class DeliriumModule
             affixes.Add(rolled);
             for (int i = 0; i < mod.Stats.Count; i++)
             {
-                string stat = supported[mod.Stats[i].Id];
+                string stat = Stats.Name(supported[mod.Stats[i].Id]);
                 effects[stat] = effects.GetValueOrDefault(stat) + rolled.Values[i];
             }
             foreach (int family in mod.Families) families.Add(family);
@@ -128,10 +128,10 @@ public sealed partial class DeliriumModule
             // This scales life rather than reducing incoming damage twice; live HP and all hits use the same value.
             int lifeMore = (int)Math.Round((rarity is MonsterRarity.Unique or MonsterRarity.Rare ? 360 : 500) * delirious);
             var rolledMods = MonsterModsFor(conn, variety, level, rarity, null, true);
-            var stats = new Dictionary<string, int>(run.Modifiers, StringComparer.Ordinal);
-            stats["maximum_life_+%"] = stats.GetValueOrDefault("maximum_life_+%")
-                + (int)((100L + rolledMods.Effects["maximum_life_+%"] + stats.GetValueOrDefault("maximum_life_+%")) * lifeMore / 100);
-            stats["monster_rarity_damage_+%_final"] = (int)Math.Round((100 + rolledMods.Effects["monster_rarity_damage_+%_final"]) * .7 * delirious);
+            var stats = run.Modifiers.ToDictionary(p => Stat.Of(p.Key), p => p.Value);
+            stats[Stat.MaximumLifePlusPct] = stats.GetValueOrDefault(Stat.MaximumLifePlusPct)
+                + (int)((100L + rolledMods.Effects[Stat.MaximumLifePlusPct] + stats.GetValueOrDefault(Stat.MaximumLifePlusPct)) * lifeMore / 100);
+            stats[Stat.MonsterRarityDamagePlusPctFinal] = (int)Math.Round((100 + rolledMods.Effects[Stat.MonsterRarityDamagePlusPctFinal]) * .7 * delirious);
             var extra = new MonsterModSet([], [], new MonsterModEffects(stats));
             double angle = run.Spawned * 2.399963229728653;
             int radius = 35 + run.Spawned % 40;

@@ -93,7 +93,7 @@ public sealed class PetrifiedBloodTests
 
         // Instant leech above Low Life: the hit grants 50, but the actual recovery stops at the current pool. The
         // same hit without Petrified Blood reaches 850, proving the 50-point grant.
-        static int InstantOnly(string name) => name == "leech_%_is_instant" ? 100 : 0;
+        static int InstantOnly(uint name) => name == Stat.LeechPctIsInstant ? 100 : 0;
         var plain = Player(800, 1000);
         Game.LeechOf(plain).Configure(0,
             LeechLimits.Resolve(InstantOnly, plain.Pools.Life, plain.Pools.Mana, plain.Pools.EnergyShield),
@@ -115,7 +115,7 @@ public sealed class PetrifiedBloodTests
 
         // A timed instance is retained at Low Life (its own cap is full Life), but its 50-point recovery is still
         // ignored above the boundary by the same rule as regeneration and Recoup.
-        static int NoInstant(string _) => 0;
+        static int NoInstant(uint _) => 0;
         var retained = Player(800, 1000);
         retained.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 9, now: 0);

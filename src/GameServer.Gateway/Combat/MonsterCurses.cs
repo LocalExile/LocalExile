@@ -2,14 +2,14 @@
 public sealed class MonsterCurses(Action? changed = null)
 {
     public sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
-        double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<string, int> Stats);
+        double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<uint, int> Stats);
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];
-    public readonly HashSet<string> PresentedStats = [];
+    public readonly HashSet<uint> PresentedStats = [];
     public int Version, PresentedVersion;
-    Dictionary<string, int> stats = [];
-    public int this[string name] => stats.GetValueOrDefault(name);
-    public IReadOnlyDictionary<string, int> Stats => stats;
+    Dictionary<uint, int> stats = [];
+    public int this[uint stat] => stats.GetValueOrDefault(stat);
+    public IReadOnlyDictionary<uint, int> Stats => stats;
 
     public void Put(Curse curse, int limit)
     {

@@ -7,11 +7,11 @@ public static partial class Game
     // 108 us, under the combat lock). ItemModStats.Sum is a pure function of the items (immutable records), the mod
     // and stat catalogs, the game rules and, for the recent-event form, the events: the sums below are remembered for
     // exactly those inputs. The tables are this module's and empty with it.
-    sealed record ItemSum(ModCatalog Mods, object? Rules, IReadOnlyDictionary<string, int> Sum);
+    sealed record ItemSum(ModCatalog Mods, object? Rules, IReadOnlyDictionary<uint, int> Sum);
     static readonly RuleTable<Item, ItemSum> ItemSums = new();
 
     /// <summary>One item's global mod stats with no subject: <c>ItemModStats.Sum([item], mods)</c>.</summary>
-    static IReadOnlyDictionary<string, int> PlainItemSum(Item item, ModCatalog mods)
+    static IReadOnlyDictionary<uint, int> PlainItemSum(Item item, ModCatalog mods)
     {
         var rules = Program.GameLogicOrNull;
         if (ItemSums.TryGetValue(item, out var known) && ReferenceEquals(known.Mods, mods) && ReferenceEquals(known.Rules, rules))
@@ -22,14 +22,14 @@ public static partial class Game
     }
 
     sealed record WornSum(Item[] Items, ModCatalog Mods, object? Rules, object Stats, HashSet<string>? Recent,
-        IReadOnlyDictionary<string, int> Sum);
+        IReadOnlyDictionary<uint, int> Sum);
     // The callers pass a few different views of the worn items (all, the active ones): one remembered sum for each.
     sealed class WornSums { public readonly WornSum?[] Kept = new WornSum?[4]; public int Next; }
     static readonly Store<Player, WornSums> WornSumsOf = new();
 
     /// <summary>The items' global mod stats together: with no subject, or, given the recent events, with the stats
     /// that depend on them decided and folded onto their plain names (as SelfCurseConditionInputs sums its gear).</summary>
-    static IReadOnlyDictionary<string, int> WornItemSum(Player conn, IEnumerable<Item> items, IReadOnlySet<string>? recent = null)
+    static IReadOnlyDictionary<uint, int> WornItemSum(Player conn, IEnumerable<Item> items, IReadOnlySet<string>? recent = null)
     {
         var list = items as Item[] ?? [.. items];
         var mods = ItemsFor(conn).Mods;

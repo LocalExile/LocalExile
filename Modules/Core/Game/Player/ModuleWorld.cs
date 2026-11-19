@@ -175,7 +175,7 @@ public sealed class ModuleItemCrafting : IItemCrafting
     public IReadOnlySet<string> ModTypes => _modTypes;
 
     public bool HasExplicitStat(Item item, IReadOnlyCollection<string> stats) => item.Mods.Where(m => m.Section == ModSection.Explicit)
-        .Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => stats.Contains(s.Id)) == true);
+        .Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => stats.Contains(s.Name)) == true);
 
     public Item? RollRequiredTag(Item item, ItemRarity rarity, Random rng, string tag) => rolls.RollRequiredTag(item, rarity, rng, tag);
     public Item? RollAffinity(Item item, ItemRarity rarity, Random rng, int percent) => rolls.RollAffinity(item, rarity, rng, percent);

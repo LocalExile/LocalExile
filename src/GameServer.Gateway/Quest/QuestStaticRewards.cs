@@ -19,7 +19,7 @@ public sealed class QuestStaticRewards
         Default = Load();
     }
 
-    public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(string Stat, int Value)> Stats);
+    public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(uint Stat, int Value)> Stats);
 
     readonly Dictionary<string, Reward> byFlag = new(StringComparer.Ordinal);
     public IReadOnlyCollection<Reward> Rewards => byFlag.Values;
@@ -40,9 +40,9 @@ public sealed class QuestStaticRewards
 
     /// <summary>The permanent stats the flags give, summed per stat. Flags every character has (Quests.EveryCharacter, e.g.
     /// EndGameAvailable, whose row is Kitava's Act 10 penalty) are not quest progress and give nothing here.</summary>
-    public Dictionary<string, int> Stats(IEnumerable<string> flags)
+    public Dictionary<uint, int> Stats(IEnumerable<string> flags)
     {
-        var sum = new Dictionary<string, int>(StringComparer.Ordinal);
+        var sum = new Dictionary<uint, int>();
         foreach (var f in flags.Distinct().Where(f => !Quests.EveryCharacter.Contains(f)))
             foreach (var (stat, value) in Find(f)?.Stats ?? [])
                 sum[stat] = sum.GetValueOrDefault(stat) + value;
@@ -67,7 +67,7 @@ public sealed class QuestStaticRewards
             int Int(string name) => (r.IntOrNull(name) ?? 0);
             var keys = r.Ints("StatsKeys");
             var values = r.Ints("StatValues");
-            var statList = keys.Zip(values).Where(p => p.First >= 0 && p.First < stats.Length).Select(p => (stats[p.First], p.Second)).ToList();
+            var statList = keys.Zip(values).Where(p => p.First >= 0 && p.First < stats.Length).Select(p => ((uint)p.First + 1, p.Second)).ToList();
             result.byFlag[flags[f]] = new(flags[f], Int("__col1"), Int("__col5"), Int("__col7"), statList);
         }
         return result;

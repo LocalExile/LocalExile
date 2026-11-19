@@ -55,7 +55,7 @@ public sealed partial class ReservationCurseSummonTests
             conn.Pools = Game.PoolsFor(conn, 100);
             conn.PlayerLife = conn.Pools.Life;
             conn.PlayerMana = conn.Pools.Mana;
-            int Stat(string name) => Game.CharacterPlayerStats(conn).GetValueOrDefault(Program.Stats.Key(name)!.Value);
+            int Stat(uint name) => Game.CharacterPlayerStats(conn).GetValueOrDefault(name);
             async Task<bool> Toggle()
             {
                 var skill = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "EmbraceMadness");
@@ -66,13 +66,13 @@ public sealed partial class ReservationCurseSummonTests
                 uniques.Create("Beacon of Madness (Chaos)", new Random(504))!);
             Reconcile();
             Assert.False(Game.IsInactive(conn, boots.Id));
-            Assert.Equal(0, Stat("all_damage_can_poison"));
+            Assert.Equal(0, Stat(global::Stat.AllDamageCanPoison));
             Assert.True(await Toggle());
             Assert.True(conn.Madness.Active);
             Assert.NotEqual(0, conn.Madness.PresentedBuff);
             Assert.Empty(conn.Auras);
-            Assert.Equal(1, Stat("all_damage_can_poison"));
-            Assert.Equal(100, Stat("base_chance_to_poison_on_hit_%"));
+            Assert.Equal(1, Stat(global::Stat.AllDamageCanPoison));
+            Assert.Equal(100, Stat(global::Stat.BaseChanceToPoisonOnHitPct));
             var source = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "EmbraceMadness");
             Assert.Equal(9000, Game.CooldownFor(conn, source.Effect, 1, 0)!.Value.BaseMilliseconds);
             Assert.False(await Toggle());
@@ -83,36 +83,36 @@ public sealed partial class ReservationCurseSummonTests
             schedule.At = 102;
             Reconcile();
             Assert.Equal(1, conn.Madness.Touches[0]);
-            Assert.Equal(-9, Stat("life_recovery_rate_+%"));
-            Assert.Equal(-9, Stat("energy_shield_recovery_rate_+%"));
+            Assert.Equal(-9, Stat(global::Stat.LifeRecoveryRatePlusPct));
+            Assert.Equal(-9, Stat(global::Stat.EnergyShieldRecoveryRatePlusPct));
             conn.Madness.Random = new AspectRoll(1);
             schedule.At = 104;
             Reconcile();
-            Assert.Equal(6, Stat("action_speed_-%"));
+            Assert.Equal(6, Stat(global::Stat.ActionSpeedMinusPct));
             conn.Madness.Random = new AspectRoll(2);
             schedule.At = 106;
             Reconcile();
-            Assert.Equal(6, Stat("base_damage_taken_+%"));
+            Assert.Equal(6, Stat(global::Stat.BaseDamageTakenPlusPct));
             conn.Madness.Random = new AspectRoll(3);
             schedule.At = 108;
             Reconcile();
-            Assert.Equal(-9, Stat("flask_effect_+%"));
-            Assert.Equal(-9, Stat("charges_gained_+%"));
+            Assert.Equal(-9, Stat(global::Stat.FlaskEffectPlusPct));
+            Assert.Equal(-9, Stat(global::Stat.ChargesGainedPlusPct));
             schedule.At = 122;
             Reconcile();
             Assert.Equal(0, conn.Madness.Touches[0]);
-            Assert.Equal(0, Stat("life_recovery_rate_+%"));
+            Assert.Equal(0, Stat(global::Stat.LifeRecoveryRatePlusPct));
             schedule.At = 144;
             Reconcile();
             Assert.Equal(10, conn.Madness.Touches[3]);
-            Assert.Equal(-90, Stat("flask_effect_+%"));
+            Assert.Equal(-90, Stat(global::Stat.FlaskEffectPlusPct));
             schedule.At += 1000000;
             Reconcile();
             Assert.Equal(10, conn.Madness.Touches[3]);
             Assert.Equal(schedule.At + 20, conn.Madness.Until[3], 6);
 
             var player = Game.CharacterPlayerStats(conn);
-            int Get(string name) => Program.Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+            int Get(uint name) => player.GetValueOrDefault(name);
             var raw = DamagePacket.Of(DamageType.Lightning, 100, 100);
             var conversion = DamageStats.Conversion(player, Program.Stats, attack: null);
             var poison = MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("secondary", false), raw,
@@ -141,7 +141,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.False(conn.Madness.Active);
             Assert.Equal(0, conn.Madness.PresentedBuff);
             Assert.All(conn.Madness.PresentedTouches, buff => Assert.Equal(0, buff));
-            Assert.Equal(0, Stat("all_damage_can_poison"));
+            Assert.Equal(0, Stat(global::Stat.AllDamageCanPoison));
             Assert.Equal(0, conn.Madness.Touches.Sum());
             Assert.Equal(schedule.At + 9, conn.Madness.ReadyAt, 6);
             Assert.Equal(1000, Game.CooldownFor(conn, source.Effect, 1, 0)!.Value.BaseMilliseconds);
@@ -174,25 +174,25 @@ public sealed partial class ReservationCurseSummonTests
                 Assert.False(conn.Madness.Active);
                 schedule.At += 10;
                 Assert.True(await Toggle());
-                Assert.Equal(0, Stat("all_damage_can_poison"));
+                Assert.Equal(0, Stat(global::Stat.AllDamageCanPoison));
                 if (variant == "Physical")
                 {
-                    Assert.Equal(20, Stat("chance_to_deal_double_damage_%"));
-                    Assert.Equal(15, Stat("base_max_fortification"));
-                    Assert.Equal(0, Stat("all_damage_can_ignite"));
+                    Assert.Equal(20, Stat(global::Stat.ChanceToDealDoubleDamagePct));
+                    Assert.Equal(15, Stat(global::Stat.BaseMaxFortification));
+                    Assert.Equal(0, Stat(global::Stat.AllDamageCanIgnite));
                 }
                 else
                 {
-                    Assert.Equal(0, Stat("chance_to_deal_double_damage_%"));
-                    Assert.Equal(1, Stat("all_damage_can_ignite"));
-                    Assert.Equal(1, Stat("all_damage_can_chill"));
-                    Assert.Equal(1, Stat("all_damage_can_shock"));
-                    Assert.Equal(100, Stat("base_chance_to_ignite_%"));
+                    Assert.Equal(0, Stat(global::Stat.ChanceToDealDoubleDamagePct));
+                    Assert.Equal(1, Stat(global::Stat.AllDamageCanIgnite));
+                    Assert.Equal(1, Stat(global::Stat.AllDamageCanChill));
+                    Assert.Equal(1, Stat(global::Stat.AllDamageCanShock));
+                    Assert.Equal(100, Stat(global::Stat.BaseChanceToIgnitePct));
                     foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock" })
-                        Assert.Equal(1, Stat($"base_immune_to_{ailment}"));
-                    Assert.Equal(1, Stat("immune_to_scorch"));
-                    Assert.Equal(1, Stat("immune_to_sap"));
-                    Assert.Equal(1, Stat("cannot_gain_brittle"));
+                        Assert.Equal(1, Stat(global::Stat.Of($"base_immune_to_{ailment}")));
+                    Assert.Equal(1, Stat(global::Stat.ImmuneToScorch));
+                    Assert.Equal(1, Stat(global::Stat.ImmuneToSap));
+                    Assert.Equal(1, Stat(global::Stat.CannotGainBrittle));
                     player = Game.CharacterPlayerStats(conn);
                     var ignite = MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("secondary", false),
                         raw, DamageStats.Conversion(player, Program.Stats, attack: null), Get), "secondary", Get);

@@ -89,8 +89,8 @@ public static partial class Game
     static double SpreadPoisonRecovery(SpawnedMonster monster, double now) =>
         AllySpreadPoisonRegenerations.TryGetValue(monster, out var regeneration) ? regeneration.Recover(now) * PanelStats.LifeRegenerationMultiplier(name => monster.Effects[name]) : 0;
 
-    static int SourceStat(Player conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
-        ? cached.Sources.GetValueOrDefault(key) : 0;
+    static int SourceStat(Player conn, uint name) => conn.StatSourcesCache is { } cached
+        ? cached.Sources.GetValueOrDefault(name) : 0;
 
     /// <summary>Bino's Kitchen Knife (GameEvents.Kill): the player killed a poisoned enemy, so its strongest poison stack
     /// is applied as a new poison (<see cref="SpreadPoisonSeconds"/>) to every living enemy within 3 metres of it, and
@@ -98,8 +98,8 @@ public static partial class Game
     public static void SpreadPoisonOnKill(KillContext kill)
     {
         var conn = kill.Conn;
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !kill.PlayerKill || SourceStat(conn, "unique_spread_poison_to_nearby_enemies_on_kill") <= 0) return;
-        bool regenerates = SourceStat(conn, "unique_spread_poison_to_nearby_allies_as_200_life_regeneration_per_second_on_kill") > 0;
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !kill.PlayerKill || SourceStat(conn, Stat.UniqueSpreadPoisonToNearbyEnemiesOnKill) <= 0) return;
+        bool regenerates = SourceStat(conn, Stat.UniqueSpreadPoisonToNearbyAlliesAs200LifeRegenerationPerSecondOnKill) > 0;
         var dead = kill.Monster;
         int spread = 0;
         double dps, seconds;
@@ -114,8 +114,8 @@ public static partial class Game
             {
                 if (ReferenceEquals(m, dead) || m.Dead || m.Life == 0 || !m.Hostile
                     || Dist(m.Walk.Position(now), kill.At) > PoisonSpreadRadius) continue;
-                if (m.Effects["cannot_be_poisoned"] != 0) continue;
-                int avoid = m.Effects["avoid_poison_%"];
+                if (m.Effects[Stat.CannotBePoisoned] != 0) continue;
+                int avoid = m.Effects[Stat.AvoidPoisonPct];
                 if (avoid > 0 && RandomRolls.Chance(avoid, 100, Random.Shared)) continue;
                 if (m.Poisons.Add(now, dps, seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]))) spread++;
             }
@@ -142,8 +142,8 @@ public static partial class Game
 
     /// <summary>The spread starts a fresh default-duration poison, with global duration modifiers. Its copied DPS
     /// already includes faster-poison modifiers; applying those a second time would shorten the new poison twice.</summary>
-    public static double SpreadPoisonSeconds(Func<string, int> get) => Ailments.PoisonDurationSeconds
-        * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100);
+    public static double SpreadPoisonSeconds(Func<uint, int> get) => Ailments.PoisonDurationSeconds
+        * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100);
 
     /// <summary>The regeneration's Life per minute while it applies (CharacterStatSources).</summary>
     static Dictionary<uint, int> WithSpreadPoisonRegeneration(Player conn, Dictionary<uint, int> sources)

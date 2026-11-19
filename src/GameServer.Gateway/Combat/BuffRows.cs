@@ -10,7 +10,7 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class BuffRows
 {
-    public sealed record Row(ushort Index, string Id, bool IsRecovery, bool HasU82, IReadOnlyList<string> GrantedStats,
+    public sealed record Row(ushort Index, string Id, bool IsRecovery, bool HasU82, IReadOnlyList<uint> GrantedStats,
         int MergeMode, int Limit, bool Invisible)
     {
         /// <summary>Each application is its own instance (MergeMode 1).</summary>
@@ -28,15 +28,14 @@ public static class BuffRows
         foreach (var r in ClientTables.TableOrEmpty("BuffDefinitions"))
         {
             string id = r.Text("Id") ?? "";
-            var granted = r.Ints("GrantedStats").Where(s => s >= 0).Select(s => Program.Stats.Name((uint)s + 1)).ToList();
+            var granted = r.Ints("GrantedStats").Where(s => s >= 0).Select(s => (uint)s + 1).ToList();
             rows.Add(new((ushort)r.Index, id, r.BoolOrNull("IsRecovery") ?? false, r.BoolOrNull("__col44") ?? false, granted,
                 r.IntOrNull("__col7") ?? 0, r.IntOrNull("BuffLimit") ?? 0, r.BoolOrNull("Invisible") ?? false));
             byId.TryAdd(id, (ushort)r.Index);
         }
         (Rows, ById) = (rows, byId);
         FinalMovementKeys = [.. rows.SelectMany(r => r?.GrantedStats ?? []).Distinct()
-            .Where(n => n.EndsWith("movement_speed_+%_final", StringComparison.Ordinal))
-            .Select(n => Program.Stats.Key(n)).OfType<uint>()];
+            .Where(n => Program.Stats.Name(n).EndsWith("movement_speed_+%_final", StringComparison.Ordinal))];
     }
 
     /// <summary>The final movement modifiers buffs grant their target (tethered_movement_speed_+%_final,
@@ -52,7 +51,7 @@ public static class BuffRows
     /// <summary>S→C 0x1c1 for the row on <paramref name="objectId"/>: its GrantedStats values from <paramref name="stats"/>
     /// (0 for one it does not name) when the row is IsRecovery, the +0x82 u16 (0) when it has one, and its time as the
     /// countdown (none: until 0x1c2 ends it).</summary>
-    public static byte[] Add(uint objectId, ushort instance, ushort row, uint source, IReadOnlyDictionary<string, int>? stats,
+    public static byte[] Add(uint objectId, ushort instance, ushort row, uint source, IReadOnlyDictionary<uint, int>? stats,
         double? seconds = null)
     {
         var info = Of(row);

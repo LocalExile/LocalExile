@@ -40,10 +40,10 @@ public static partial class Game
         string? effectId = SkillsFor(conn).EffectId(gem.Effect);
         if (effectId is null || !LinkSkills.Buffs.TryGetValue(effectId, out var rows)) return false;
         var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
-        int Own(string name) => Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
-        double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
-            name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? Player("link_skill_duration_+%") : 0));
+        int Player(uint k) => player.GetValueOrDefault(k);
+        int Own(uint k) => gem.Stats.GetValueOrDefault(k);
+        double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player,
+            name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? Player(Stat.LinkSkillDurationPlusPct) : 0));
         var bytes = new List<byte>();
         LinkSkills.Link link;
         lock (conn.Monsters)
@@ -52,7 +52,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
             if (LinkTargetLocked(conn, targetId, Player, now) is not uint target)
             {
-                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player("link_skill_range_+%"))} cells)");
+                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player(Stat.LinkSkillRangePlusPct))} cells)");
                 return false;
             }
             if (conn.Links.Count == 0) conn.Links.PaidAt = now; // the cost runs from the first link
@@ -60,7 +60,7 @@ public static partial class Game
                 EndLinkLocked(conn, old, bytes);
             link = new(target, skillId, effectId)
             {
-                Until = now + seconds, ManaPerMinute = Own("mana_cost_per_minute"),
+                Until = now + seconds, ManaPerMinute = Own(Stat.ManaCostPerMinute),
                 SourceBuff = conn.NextBuff++, TargetBuff = conn.NextBuff++,
             };
             conn.Links.Add(link);
@@ -77,11 +77,11 @@ public static partial class Game
     // The target a link cast takes. It qualifies as in the client's filter (0x141bfaf20): not the player, within the link
     // range, and, as there is no party play, one of his living minions while he has link_skills_can_target_minions
     // (they carry is_player_minion and is_semantic_minion, and none has cannot_be_damaged).
-    static uint? LinkTargetLocked(Player conn, uint aimed, Func<string, int> player, double now)
+    static uint? LinkTargetLocked(Player conn, uint aimed, Func<uint, int> player, double now)
     {
-        if (player("link_skills_can_target_minions") == 0) return null;
+        if (player(Stat.LinkSkillsCanTargetMinions) == 0) return null;
         var here = conn.Walk.Position(now);
-        int range = LinkSkills.Range(player("link_skill_range_+%"));
+        int range = LinkSkills.Range(player(Stat.LinkSkillRangePlusPct));
         var valid = conn.Minions.All.Where(m => LinkTargetAliveLocked(conn, m.Id)
             && Dist(m.Monster.Walk.Position(now), here) <= range).ToList();
         if (valid.FirstOrDefault(m => m.Id == aimed) is { } chosen) return chosen.Id;
@@ -195,11 +195,11 @@ public static partial class Game
     // ones (flask_effect_+%, magic_utility_flask_effect_+%; PoB's effectIncNonPlayer). A minion target walks at their
     // movement speed (MinionFlaskSpeedLocked); their other stats have nothing to act on (paladin.md).
     static void FlaskToLinkedTargetsLocked(Player conn,
-        Item flask, IReadOnlyDictionary<string, int> local, UtilityFlasks.Utility utility, Func<string, int> character)
+        Item flask, IReadOnlyDictionary<uint, int> local, UtilityFlasks.Utility utility, Func<uint, int> character)
     {
-        if (flask.Rarity == ItemRarity.Unique || character("flasks_apply_to_your_linked_targets") == 0) return;
+        if (flask.Rarity == ItemRarity.Unique || character(Stat.FlasksApplyToYourLinkedTargets) == 0) return;
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask, local,
-            name => name is "flask_effect_+%" or "magic_utility_flask_effect_+%" ? 0 : character(name));
+            name => name is Stat.FlaskEffectPlusPct or Stat.MagicUtilityFlaskEffectPlusPct ? 0 : character(name));
         uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
         var bytes = new List<byte>();
         lock (conn.Monsters)
@@ -226,7 +226,7 @@ public static partial class Game
     {
         if (!conn.Monsters.TryGetValue(target, out var m) || m.Dead || m.Variety is not { } variety) return;
         int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(conn.Links.Flasks.Where(f => f.Target == target)
-            .SelectMany(f => f.Stats)).Where(s => s.Stat == "base_movement_velocity_+%").Sum(s => s.Value);
+            .SelectMany(f => f.Stats)).Where(s => s.Stat == Stat.BaseMovementVelocityPlusPct).Sum(s => s.Value);
         m.Walk.SetSpeed(Math.Max(1, variety.MovementSpeed * Math.Max(0, 100 + pct) / 100.0), now);
         bytes.AddRange(InstanceEntities.StatsUpdate(target, [(Stat.MovementVelocityPlusPct, pct)]));
     }

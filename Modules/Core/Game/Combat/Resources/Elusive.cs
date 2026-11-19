@@ -33,7 +33,7 @@ public readonly record struct ElusiveGrant(int Critical, int Kill, int Effect, i
 
 public static partial class Game
 {
-    public const string ElusiveOnCritical = "gain_elusive_on_crit_%_chance", ElusiveOnKill = "gain_elusive_on_kill_chance_%";
+    public const uint ElusiveOnCritical = Stat.GainElusiveOnCritPctChance, ElusiveOnKill = Stat.GainElusiveOnKillChancePct;
     public const ushort ElusiveBuffRow = 1374;
     static readonly Store<Player, ElusiveState> Elusives = new();
     public static ElusiveState ElusiveOf(Player conn) => Elusives.GetOrCreateValue(conn);
@@ -46,7 +46,7 @@ public static partial class Game
         { ["_while_affected_by_elusive"] = false, ["_while_elusive"] = false, ["_while_you_have_elusive"] = false };
         var state = ElusiveOf(conn);
         bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
-        int Get(string n) => GolemStat(raw, n);
+        int Get(uint n) => GolemStat(raw, n);
         string identity = "";
         if (alive && (Get(ElusiveOnCritical) > 0 || Get(ElusiveOnKill) > 0))
         {
@@ -58,18 +58,18 @@ public static partial class Game
                 .Select(e => e.Item.Id).Order().ToArray();
             identity = string.Join(',', sources) + ":" + Get(ElusiveOnCritical) + ":" + Get(ElusiveOnKill)
                 + ":" + string.Join(',', conn.Passives.Where(n => PassivesFor(conn).Find(n)?.Stats.Any(s =>
-                    Stats.Name(s.Key) is ElusiveOnCritical or ElusiveOnKill) == true).Order());
+                    s.Key is ElusiveOnCritical or ElusiveOnKill) == true).Order());
             ResourceEffectsOf(conn);
         }
         if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch || state.Source != identity)
         {
             state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Source = identity;
         }
-        int Input(string n) => Stats.Key(n) is uint key ? Get(n) : 0;
+        int Input(uint key) => Get(key);
         state.Grant = new(Input(ElusiveOnCritical), Input(ElusiveOnKill),
-            Input("elusive_effect_+%") + Input("elusive_effect_on_self_+%") + Input("buff_effect_on_self_+%"),
-            Input("elusive_effect_on_self_+%_per_power_charge"), Input("lose_a_power_charge_when_you_gain_elusive_%_chance"),
-            Input("elusive_loss_rate_+%"), Input("elusive_minimum_effect_%"), Input("elusive_ticks_up_instead_for_x_ms"));
+            Input(Stat.ElusiveEffectPlusPct) + Input(Stat.ElusiveEffectOnSelfPlusPct) + Input(Stat.BuffEffectOnSelfPlusPct),
+            Input(Stat.ElusiveEffectOnSelfPlusPctPerPowerCharge), Input(Stat.LoseAPowerChargeWhenYouGainElusivePctChance),
+            Input(Stat.ElusiveLossRatePlusPct), Input(Stat.ElusiveMinimumEffectPct), Input(Stat.ElusiveTicksUpInsteadForXMs));
         double now = ResourceEffectsTime(conn);
         bool running = alive && state.Effect(now) > 0;
         conn.ElusiveUntil = running ? now + state.Remaining(now) : 0;
@@ -121,11 +121,11 @@ public static partial class Game
     static Dictionary<uint, int> WithElusive(Player conn, Dictionary<uint, int> sources)
     {
         var (movement, avoid) = ElusivePanelState(conn);
-        void Add(string n, int value)
-        { if (Stats.Key(n) is uint key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value); }
+        void Add(uint n, int value)
+        { if (n is var key) sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value); }
         if (conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("_while_affected_by_elusive") == true)
         {
-            Add("affected_by_elusive", 1); Add("base_movement_velocity_+%", movement);
+            Add(Stat.AffectedByElusive, 1); Add(Stat.BaseMovementVelocityPlusPct, movement);
         }
         return sources;
     }

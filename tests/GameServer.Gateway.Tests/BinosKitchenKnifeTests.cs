@@ -10,10 +10,10 @@ public sealed class BinosKitchenKnifeTests
     [Fact]
     public void Spread_preserves_the_lethal_poison_and_does_not_apply_faster_damage_twice()
     {
-        var global = new Dictionary<string, int>
+        var global = new Dictionary<uint, int>
         {
-            ["poison_duration_+%"] = 50, ["base_all_ailment_duration_+%"] = 25,
-            ["faster_poison_%"] = 100, ["damaging_ailments_deal_damage_+%_faster"] = 50,
+            [Stat.PoisonDurationPlusPct] = 50, [Stat.BaseAllAilmentDurationPlusPct] = 25,
+            [Stat.FasterPoisonPct] = 100, [Stat.DamagingAilmentsDealDamagePlusPctFaster] = 50,
         };
         Assert.Equal(3.5, Game.SpreadPoisonSeconds(global.GetValueOrDefault));
         var poison = new MonsterPoisons();

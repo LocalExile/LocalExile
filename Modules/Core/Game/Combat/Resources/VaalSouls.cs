@@ -10,13 +10,12 @@ public static partial class Game
 
     // Only the proved native getter inputs are projected. Explicit development values win, including zero.
     public static int VaalSoulInput(Player conn, IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int> own, string name)
+        IReadOnlyDictionary<uint, int> own, uint key)
     {
-        if (Stats.Key(name) is not uint key) return 0;
         lock (conn.Monsters)
         {
                         // The selector describes this skill, not the caster. Only an explicit developer replacement is global.
-            if (name == VaalSoulCost.Aura) return own.GetValueOrDefault(key);
+            if (key == VaalSoulCost.Aura) return own.GetValueOrDefault(key);
             return (int)Math.Clamp((long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key), int.MinValue, int.MaxValue);
         }
     }
@@ -24,8 +23,7 @@ public static partial class Game
     public static void PublishVaalSoulInputs(Player conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own, Dictionary<uint, int> stats)
     {
-        foreach (string name in VaalSoulCost.Inputs)
-            if (Stats.Key(name) is uint key) stats[key] = VaalSoulInput(conn, player, own, name);
+        foreach (uint key in VaalSoulCost.Inputs) stats[key] = VaalSoulInput(conn, player, own, key);
     }
 
     // Reconcile before an await as well as at the send gate: a queued removal must lose its balance even if readded
@@ -48,7 +46,7 @@ public static partial class Game
                 int required = VaalSoulCost.Required(definition.BaseCost,
                     name => VaalSoulInput(conn, player, own, name));
                 if (SkillsFor(conn).IsAttack(gem.Effect)
-                    && VaalSoulInput(conn, player, own, "vaal_attack_rage_cost_instead_of_souls_per_use") != 0)
+                    && VaalSoulInput(conn, player, own, Stat.VaalAttackRageCostInsteadOfSoulsPerUse) != 0)
                     required = 0;
                 sources.Add((definition.ActiveSkillsRow, VaalSoulCost.Capacity(required, definition.StoredUses)));
             }
@@ -77,14 +75,14 @@ public static partial class Game
             if (Dist(monster.Walk.Position(now), conn.Walk.Position(now)) > ExperienceRange) return false;
             RefreshVaalSouls(conn);
             var stats = CharacterPlayerStats(conn);
-            if (RageStat(stats, "has_soul_gain_prevention") != 0)
+            if (RageStat(stats, Stat.HasSoulGainPrevention) != 0)
             {
                 Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: soul gain prevention (t={VaalResourceTime(conn):0.000})");
                 return false;
             }
             if (!conn.VaalSouls.Gain()) return false;
             // "Kills grant an additional Vaal Soul if you have Rampaged Recently".
-            if (RageStat(stats, "gain_an_additional_vaal_soul_on_kill_if_have_rampaged_recently") != 0
+            if (RageStat(stats, Stat.GainAnAdditionalVaalSoulOnKillIfHaveRampagedRecently) != 0
                 && conn.Rampage.Current.Active)
                 conn.VaalSouls.Gain();
             return true;

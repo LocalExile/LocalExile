@@ -26,9 +26,11 @@ public sealed class ModCatalog
 
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
-    public sealed record ModStat(string Id, int Min, int Max, bool Local = false)
+    public sealed record ModStat(uint Id, int Min, int Max, bool Local = false)
     {
         public bool Scalable { get; init; } = true;
+        /// <summary>The stat's Stats.dat Id (for text and logs).</summary>
+        public string Name => Program.Stats.Name(Id);
     }
 
     /// <summary>A Mods.dat row. GenerationType 1 prefix, 2 suffix, 3 unique / base implicit, 10 enchantment …;
@@ -158,7 +160,8 @@ public sealed class ModCatalog
             {
                 if (r.IntOrNull($"StatsKey{i}") is not int k) break;
                 int key = k;
-                var (statId, local, scalable) = key >= 0 && key < stats.Count ? stats[key] : ($"#{key}", false, true);
+                var (_, local, scalable) = key >= 0 && key < stats.Count ? stats[key] : ("", false, true);
+                uint statId = key >= 0 && key < stats.Count ? (uint)key + 1 : Stat.Of($"#{key}");
                 // Explicit zero is meaningful (for example disabled boss rarity bonuses); it must not fall back.
                 modStats.Add(new(statId, r.Int($"Stat{i}Min{suffix}"), r.Int($"Stat{i}Max{suffix}"), local)
                 { Scalable = scalable });

@@ -93,27 +93,27 @@ public static partial class Game
         if (g.Monster.Dead || g.Monster.Life == 0) return false;
         var m = g.Monster; var effects = m.Effects;
         var random = conn.IncomingHitRandom;
-        int Player(string name) => GolemStat(g.Player, name);
+        int Player(uint name) => GolemStat(g.Player, name);
         if (!attack.Spell)
         {
-            int evasion = (int)Math.Max(0, effects.Evasion((Monsters.BaseEvasion(m.Level) ?? 0) + effects["base_evasion_rating"])
-                * (1 + effects["grace_aura_evasion_rating_+%_final"] / 100.0));
+            int evasion = (int)Math.Max(0, effects.Evasion((Monsters.BaseEvasion(m.Level) ?? 0) + effects[Stat.BaseEvasionRating])
+                * (1 + effects[Stat.GraceAuraEvasionRatingPlusPctFinal] / 100.0));
             int accuracy = source.Effects.Accuracy(Monsters.BaseAccuracy(source.Level) ?? 0);
             if (random.Next(100) >= DamageModel.AccuracyHitChance(evasion, accuracy)) return false;
         }
-        int block = attack.Spell ? Player("minion_additional_spell_block_%") + effects["base_spell_block_%"]
-            : Player("minion_block_%") + effects["monster_base_block_%"];
+        int block = attack.Spell ? Player(Stat.MinionAdditionalSpellBlockPct) + effects[Stat.BaseSpellBlockPct]
+            : Player(Stat.MinionBlockPct) + effects[Stat.MonsterBaseBlockPct];
         if (random.Next(100) < Math.Clamp(block, 0, 75))
         {
             g.BlockedAt = now;
-            m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player("minion_recover_%_of_maximum_life_on_block") / 100
-                + Player("minion_recover_X_life_on_block"));
+            m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player(Stat.MinionRecoverPctOfMaximumLifeOnBlock) / 100
+                + Player(Stat.MinionRecoverXLifeOnBlock));
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
         var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical, now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack));
         bool elementalImmune = GolemElementalImmune(g);
-        bool chaosNoBypass = effects["chaos_damage_does_not_bypass_energy_shield"] != 0;
+        bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         long damage = 0;
         foreach (var (type, range) in rolled.Components)
         {
@@ -121,29 +121,29 @@ public static partial class Game
             var resistance = MonsterHitResistance(m, type, default);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
-                    + effects[$"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%"], 0, 90) };
+                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
-                double armour = Math.Max(0, Player("minion_physical_damage_reduction_rating")
-                    + (g.Definition.IsGolem ? Player("golem_physical_damage_reduction_rating") : 0)
-                    + effects["base_physical_damage_reduction_rating"])
-                    * Math.Max(0, 1 + effects["determination_aura_armour_+%_final"] / 100.0);
+                double armour = Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
+                    + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
+                    + effects[Stat.BasePhysicalDamageReductionRating])
+                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
             value = (int)Math.Round(value * effects.DamageTaken(attack.Spell)
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
-                * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_defensive_stance_minion_damage_taken_+%_final") / 100.0)
-                * Math.Max(0, 1 + GolemStat(g.Own, "vaal_upgrade_minion_damage_taken_+%_final") / 100d)
-                * (area ? Math.Max(0, 1 + effects["damage_taken_+%_from_area_hits"] / 100.0) : 1));
+                * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
+                * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
+                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
             if (value > 0)
                 damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
         }
         PublishEnergyShieldLocked(conn, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
-            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == "never_freeze" && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
+            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0) GolemHostileAilmentsLocked(conn, g, attacker, source, rolled, critical, !attack.Spell, now);
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
             flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m, WorldId: attacker));
@@ -191,7 +191,7 @@ public static partial class Game
     {
         if (damage <= 0) return damage;
         var candidates = conn.Golems.All.Values.Where(g => !g.Monster.Dead && g.Definition.Kind == "Stone" && g.Definition.Special)
-            .Select(g => (G: g, Pct: GolemStat(g.OwnerBuff, "melee_damage_removed_from_stone_golem_before_life_or_es_%"))).ToArray();
+            .Select(g => (G: g, Pct: GolemStat(g.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct))).ToArray();
         if (candidates.Length == 0) return damage;
         int total = Math.Min(damage, (int)((long)damage * Math.Clamp(candidates.Max(g => g.Pct), 0, 100) / 100));
         int left = total;

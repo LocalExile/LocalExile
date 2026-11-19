@@ -14,8 +14,7 @@ public static partial class Game
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
         var flags = new Dictionary<string, bool>(captured);
-        int Get(string name) => Stats.Key(name) is uint key
-            ? sources.GetValueOrDefault(key) : 0;
+        int Get(uint key) => sources.GetValueOrDefault(key);
         var state = ChargesOf(conn).State;
         foreach (var type in Charges.Types)
         {

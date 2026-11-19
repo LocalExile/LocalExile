@@ -137,8 +137,8 @@ public static partial class Game
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return Task.CompletedTask;
         var initialStats = SupportedSkill(conn, skillId).Stats;
-        int InitialStat(string name) => Stats.Key(name) is uint k ? initialStats.GetValueOrDefault(k) : 0;
-        if (InitialStat("base_deal_no_damage") != 0) return Task.CompletedTask;
+        int InitialStat(uint k) => initialStats.GetValueOrDefault(k);
+        if (InitialStat(Stat.BaseDealNoDamage) != 0) return Task.CompletedTask;
 
         double ruthless = RuthlessBlowMore(conn, skillId, InitialStat);
         int meleeRepeats = MeleeAttackRepeats(conn, skillId);
@@ -146,8 +146,8 @@ public static partial class Game
         double repeatInterval = meleeRepeats > 0 ? attackSeconds : 0;
         double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         var roll = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
-        bool hasFifthMechanic = InitialStat("molten_strike_every_5th_attack_fire_X_additional_projectiles") > 0
-            || InitialStat("molten_strike_every_5th_attack_projectiles_damage_+%_final") != 0;
+        bool hasFifthMechanic = InitialStat(Stat.MoltenStrikeEvery5thAttackFireXAdditionalProjectiles) > 0
+            || InitialStat(Stat.MoltenStrikeEvery5thAttackProjectilesDamagePlusPctFinal) != 0;
         bool fifthAttack = false;
         ushort armFifthBuff = 0;
         if (hasFifthMechanic)
@@ -266,8 +266,8 @@ public static partial class Game
             var playerAt = conn.Walk.Position(now);
             var weapon = WeaponFor(conn);
             var skillStats = SupportedSkill(conn, skillId).Stats;
-            int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
-            if (Stat("base_deal_no_damage") != 0) return;
+            int Stat(uint k) => skillStats.GetValueOrDefault(k);
+            if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
 
             var targets = new List<(uint Id, SpawnedMonster Monster, bool IsStrikeTarget)>();
             var struck = new HashSet<uint>();
@@ -295,7 +295,7 @@ public static partial class Game
 
             var splashMore = new Dictionary<uint, double>();
             var merged = SupportedStats(conn, skillId);
-            int SplashStat(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
+            int SplashStat(uint k) => merged.GetValueOrDefault(k);
             if (targets.Count > 0 && MeleeSplash.Settings(SplashStat) is { } splash)
                 foreach (var (_, strikeMonster, _) in targets.ToArray())
                 {
@@ -478,15 +478,15 @@ public static partial class Game
         }
         var own = SupportedSkill(conn, skillId).Stats;
         var merged = MergeSkillStats(CharacterPlayerStats(conn), own);
-        int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
+        int Merged(uint k) => merged.GetValueOrDefault(k);
 
         int totalCount = baseUse.Profile.Count;
         var shot = (ProjectileOffense)baseUse.Payload!;
         double damageScale = repeatMore;
         if (fifthAttack)
         {
-            int fifthExtra = Math.Max(0, Merged("molten_strike_every_5th_attack_fire_X_additional_projectiles"));
-            int fifthMorePct = Merged("molten_strike_every_5th_attack_projectiles_damage_+%_final");
+            int fifthExtra = Math.Max(0, Merged(Stat.MoltenStrikeEvery5thAttackFireXAdditionalProjectiles));
+            int fifthMorePct = Merged(Stat.MoltenStrikeEvery5thAttackProjectilesDamagePlusPctFinal);
             totalCount += fifthExtra;
             if (fifthMorePct != 0) damageScale *= Math.Max(0, 1 + fifthMorePct / 100.0);
         }
@@ -496,15 +496,15 @@ public static partial class Game
                 Poison = RepeatAilment(shot.Poison, damageScale) };
 
         var areaStats = MergeSkillStats(AreaPlayerStats(conn), own);
-        int AreaGet(string name) => name == SkillArea.BaseIncreased
-            ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + (Stat.MoltenStrikeRadiusPlusPct is var mk ? areaStats.GetValueOrDefault(mk) : 0)
-            : Stats.Key(name) is uint ak ? areaStats.GetValueOrDefault(ak) : 0;
+        int AreaGet(uint name) => name == SkillArea.BaseIncreased
+            ? own.GetValueOrDefault(name) + areaStats.GetValueOrDefault(Stat.MoltenStrikeRadiusPlusPct)
+            : areaStats.GetValueOrDefault(name);
         int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
-        var (minDist, maxDist) = MoltenStrikeGeometry.DistanceBounds(radiusPercent, Merged("projectile_speed_+%"), Merged("chaining_range_+%"));
+        var (minDist, maxDist) = MoltenStrikeGeometry.DistanceBounds(radiusPercent, Merged(Stat.ProjectileSpeedPlusPct), Merged(Stat.ChainingRangePlusPct));
         double clipSeconds = (SkillsFor(conn).Clips(baseUse.Profile.Id)?.Flight?.Ms ?? 633) / 1000.0;
         // Client 0x141b6b3cf..0x141b6b411 adds 10 * base projectile count (before Zenith's 5th-attack +5) to molten_strike_projectile_animation_speed_+%.
         int animSpeedPct = MoltenStrikeGeometry.EffectiveAnimationSpeedPct(
-            Merged("molten_strike_projectile_animation_speed_+%"), baseUse.Profile.Count);
+            Merged(Stat.MoltenStrikeProjectileAnimationSpeedPlusPct), baseUse.Profile.Count);
         int[] counts = MoltenStrikeGeometry.DistributeCount(totalCount, hitOrigins.Count);
         var playerVec = ProjectileSession.Vector(playerAt);
         var aimVec = ProjectileSession.Vector(aim);

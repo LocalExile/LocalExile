@@ -111,23 +111,23 @@ public static partial class Game
     public static void ApplyIntimidatingCryLocked(Player conn, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> player, double now)
     {
-        int Own(string n) => GolemStat(own, n);
-        int Player(string n) => GolemStat(player, n);
+        int Own(uint n) => GolemStat(own, n);
+        int Player(uint n) => GolemStat(player, n);
         var at = conn.Walk.Position(now);
         int radius = SkillArea.Radius(WarcryRadius, n => ActorScale.Saturate((long)Player(n) + Own(n)), spell: false);
         var enemies = conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0
             && Dist(m.Walk.Position(now), at) <= radius).ToArray();
-        int power = Player("warcries_have_infinite_power") != 0 ? InfiniteWarcryPower
+        int power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
             : enemies.Sum(m => WarcryPower(m.Rarity));
         double taunt = TauntSeconds(Player);
         TauntLocked(conn, at, radius, now, taunt);
-        if (Own("enemies_taunted_by_your_warcies_are_intimidated") != 0 && taunt > 0)
+        if (Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0 && taunt > 0)
             foreach (var m in enemies)
                 { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate); m.PresentationChanged?.Invoke(); }
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
-        double effect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("skill_buff_effect_+%")) / 100d);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);
         int movement = (int)Math.Clamp(Math.Floor(Math.Min(30, power) / 5d)
-            * Own("intimidating_cry_movement_speed_+%_per_5_power_up_to_cap") * effect, 0, int.MaxValue);
+            * Own(Stat.IntimidatingCryMovementSpeedPlusPctPer5PowerUpToCap) * effect, 0, int.MaxValue);
         var gift = new CryGift(conn.Instance.Presence, now + duration, movement);
         if (duration > 0)
         {
@@ -145,7 +145,7 @@ public static partial class Game
                          && Dist(m.Walk.Position(now), at) <= radius))
                 MinionCryGifts.GetOrCreateValue(m).Add(gift);
         }
-        CryOf(conn).Exerts = Math.Max(0, Own("skill_empowers_next_x_melee_attacks"));
+        CryOf(conn).Exerts = Math.Max(0, Own(Stat.SkillEmpowersNextXMeleeAttacks));
         conn.RecentEvents.Record(StatConditions.UsedWarcry, now);
         conn.AuraStatsDirty = true;
         Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={enemies.Length} movement={movement} "

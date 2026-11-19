@@ -21,8 +21,8 @@ public static class ClusterJewels
     }
 
     public const string PassivesMod = "JewelExpansionPassiveNodes";
-    public const string ThemeStat = "local_jewel_expansion_passive_node_index";
-    public const string CountStat = "local_jewel_expansion_passive_node_count";
+    public const uint ThemeStat = Stat.LocalJewelExpansionPassiveNodeIndex;
+    public const uint CountStat = Stat.LocalJewelExpansionPassiveNodeCount;
 
     /// <summary>What a cluster jewel's small passives are: a <c>PassiveTreeExpansionSkills</c> row.</summary>
     /// <param name="Size">0 small, 1 medium, 2 large: the jewels the theme is for.</param>

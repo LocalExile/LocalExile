@@ -16,15 +16,15 @@ public static partial class Game
         var caster = TotemCasterStats(CharacterPlayerStats(conn));
         var blind = BlindHitInput.Capture(caster, skill.Stats);
         var stats = MergeSkillStats(caster, skill.Stats);
-        int Get(string name) => GolemStat(stats, name);
+        int Get(uint name) => GolemStat(stats, name);
         var inputs = SupportedHitInputsFor(conn, totem.SkillId, area: false, totem: true);
         if (inputs is null) return;
         var hit = new SkillDamageContext(SkillHitKind.Spell, caster).Hit(SupportedHitFrom(inputs, suppress: false));
         var criticalRoll = CaptureSkillCriticalRoll(conn, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
-        int range = Get("arc_chain_distance");
-        int chains = Math.Max(0, Get("number_of_chains"));
+        int range = Get(Stat.ArcChainDistance);
+        int chains = Math.Max(0, Get(Stat.NumberOfChains));
         var mainTargets = new HashSet<uint>();
         uint current = first, previous = 0;
 
@@ -32,7 +32,7 @@ public static partial class Game
         {
             var m = conn.Monsters[id];
             if (m.Invulnerable || MonsterBlocks(m, Random.Shared, spell: true)) return;
-            double more = Math.Max(0, 1 + remaining * (Get("arc_damage_+%_final_for_each_remaining_chain") / 100d));
+            double more = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
             var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(conn, caster, m, hit.Scale(more).Roll(Random.Shared)), now);
             int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),

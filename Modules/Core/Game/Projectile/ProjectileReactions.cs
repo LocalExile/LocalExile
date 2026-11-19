@@ -65,7 +65,7 @@ public static partial class Game
         if (charges.Pending)
         {
             var final = CharacterPlayerStats(conn);
-            int Get(string name) => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
+            int Get(uint key) => final.GetValueOrDefault(key);
             var step = charges.Step(now, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0,
                 conn.Walk.Moving(now), InTown(conn), random);
             if (ChargePresentationPending(charges)) session.PresentCharges();
@@ -230,14 +230,14 @@ public static partial class Game
             wake: true);
 
     public static void CommitProjectileFlaskGain(ProjectileSession session,
-        Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)
+        Func<InventoryItem, IReadOnlyDictionary<uint, int>, double> gain)
     {
         var conn = session.Conn;
         if (HardcoreProgressBlocked(conn)) return;
         // Built only for a flask that can still gain: a full flask bar (the common case in a pack fight) needs no stats,
         // and every kill of an explosion asked for the full snapshot under the lock.
         Dictionary<uint, int>? stats = null;
-        int Get(string name) => Stats.Key(name) is uint key ? (stats ??= CharacterPlayerStats(conn)).GetValueOrDefault(key) : 0;
+        int Get(uint key) => (stats ??= CharacterPlayerStats(conn)).GetValueOrDefault(key);
         var items = ItemsOf(conn);
         var changed = new List<InventoryItem>();
         foreach (var flask in items.Items(PlayerInventories.Flask))
@@ -260,11 +260,11 @@ public static partial class Game
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;
         var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
+            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault(Stat.LocalRechargeOnCritPct),
             Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } basis
                 || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, random.Next);
         if (gains.Count > 0) CommitProjectileFlaskGain(session, (f, _) => gains.GetValueOrDefault(f.Id));

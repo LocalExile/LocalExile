@@ -87,11 +87,11 @@ public static partial class Game
     static Dictionary<uint, int> PetrifiedBloodEffectStats(Player conn, int effect, int level, int quality) =>
         SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
 
-    static int Get(IReadOnlyDictionary<uint, int> stats, string name) =>
-        Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+    static int Get(IReadOnlyDictionary<uint, int> stats, uint name) =>
+        name is var key ? stats.GetValueOrDefault(key) : 0;
 
     internal static int LowLifeThresholdPct(IReadOnlyDictionary<uint, int> stats) =>
-        LowLife.Threshold(Get(stats, "low_life_threshold_%_override"), Get(stats, "low_life_threshold_%"));
+        LowLife.Threshold(Get(stats, Stat.LowLifeThresholdPctOverride), Get(stats, Stat.LowLifeThresholdPct));
 
     // The invisible slow_life_loss_from_hit_damage buff (BuffDefinitions 1796) draws the dark deferred-loss overlay
     // on the life orb. Its single value is the current deferred life loss per minute; the duration is the last

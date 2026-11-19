@@ -17,8 +17,8 @@ public static class ImpossibleEscapeCatalogue
     }
 
     const string ModId = "JewelUniqueAllocateDisconnectedPassivesAroundKeystone";
-    const string KeystoneStat = "local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash";
-    const string RadiusStat = "local_jewel_effect_base_radius";
+    const uint KeystoneStat = Stat.LocalUniqueJewelDisconnectedPassivesCanBeAllocatedAroundKeystoneHash;
+    const uint RadiusStat = Stat.LocalJewelEffectBaseRadius;
     // Path of Building 3_16's Small radius is 960 (the client's PassiveJewelRadii row is the 800 display/base
     // value). Impossible Escape's keystone ring follows the 3_16 effect radius.
     const int Radius = 960;

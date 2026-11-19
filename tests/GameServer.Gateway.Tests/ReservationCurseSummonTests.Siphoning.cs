@@ -47,13 +47,13 @@ public sealed partial class ReservationCurseSummonTests
             var staff = inventory.Add(PlayerInventories.Weapon1, 0, 0, item);
             conn.Pools = Game.PoolsFor(conn, 100);
             conn.PlayerLife = conn.Pools.Life; conn.PlayerMana = conn.Pools.Mana;
-            int Stat(string n) => Program.Stats.Key(n) is uint key ? Game.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
-            Assert.Equal(1, Stat("virtual_maximum_siphoning_charges")); // A dual-influenced item counts once.
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            int Stat(uint n) => n is var key ? Game.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+            Assert.Equal(1, Stat(global::Stat.VirtualMaximumSiphoningCharges)); // A dual-influenced item counts once.
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             Game.SiphoningSkillUsedLocked(conn, 100, new AspectRoll(99));
             Assert.Equal(0, conn.Siphoning.Held);
             Game.SiphoningSkillUsedLocked(conn, 100, new AspectRoll(0));
-            Assert.Equal(1, Stat("current_siphoning_charges"));
+            Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges));
             Assert.Equal(110, conn.Siphoning.Until);
             foreach (bool spell in new[] { false, true })
             {
@@ -66,7 +66,7 @@ public sealed partial class ReservationCurseSummonTests
                 .Convert(DamageStats.Conversion(final, Program.Stats, attack: true))[DamageType.Chaos].Min);
             Assert.Equal(20, Game.HitLeechSources(final, attack: true).Life[DamageType.Physical].Min);
             Assert.Equal(2, Game.PlayerDamageReduction(conn, final).Physical);
-            Assert.Equal(0, ChargeEffects.Reduction(n => Program.Stats.Key(n) is uint key ? final.GetValueOrDefault(key) : 0).Physical);
+            Assert.Equal(0, ChargeEffects.Reduction(n => final.GetValueOrDefault(n)).Physical);
             uint before = conn.PlayerLife;
             schedule.At = 102;
             Assert.Equal(300, Game.AdvanceSiphoningDamageLocked(conn, schedule.At, final));
@@ -75,7 +75,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(300, Game.AdvanceSiphoningDamageLocked(conn, schedule.At, final));
             schedule.At = 105;
             Assert.Equal(0, Game.AdvanceSiphoningDamageLocked(conn, schedule.At, final));
-            Assert.Equal(1, Stat("current_siphoning_charges")); // Charges outlive the four-second degeneration window.
+            Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges)); // Charges outlive the four-second degeneration window.
             Game.SiphoningSkillUsedLocked(conn, 105, new AspectRoll(99));
             Assert.True(Game.SiphoningDegenerationActive(conn)); // A failed gain still refreshes skill recency.
             uint recoveryKey = global::Stat.LifeRecoveryPerMinute;
@@ -89,14 +89,14 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(850u, conn.EnergyShield.Current); // Hit-only reduction and armour do not reduce this DoT.
             var ring = inventory.Add(6, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring1")!)
                 with { Influences = ItemInfluence.Elder });
-            Assert.Equal(2, Stat("virtual_maximum_siphoning_charges"));
+            Assert.Equal(2, Stat(global::Stat.VirtualMaximumSiphoningCharges));
             Game.SiphoningSkillUsedLocked(conn, 106, new AspectRoll(0));
-            Assert.Equal(2, Stat("current_siphoning_charges"));
+            Assert.Equal(2, Stat(global::Stat.CurrentSiphoningCharges));
             inventory.Remove(6, ring.Id);
-            Assert.Equal(1, Stat("virtual_maximum_siphoning_charges"));
-            Assert.Equal(1, Stat("current_siphoning_charges"));
+            Assert.Equal(1, Stat(global::Stat.VirtualMaximumSiphoningCharges));
+            Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges));
             schedule.At = 116;
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             Assert.False(Game.SiphoningDegenerationActive(conn));
             Assert.Equal(InstanceEntities.StatsUpdate(Program.PlayerId, [(recoveryKey, 600)]),
                 Game.PlayerStatsUpdateAtGate(conn, [(recoveryKey, 600)]));
@@ -105,15 +105,15 @@ public sealed partial class ReservationCurseSummonTests
             var owner = Assert.IsType<ResourceEffectsState>(conn.ResourceEffectsState);
             owner.Freeze(116);
             conn.LeavingArea = true; conn.ProjectileEpoch++;
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             owner.Resume(116); conn.LeavingArea = false;
-            Assert.Equal(1, Stat("current_siphoning_charges")); // A refused transition cannot erase the frozen charge.
+            Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges)); // A refused transition cannot erase the frozen charge.
             schedule.At = 117;
             owner.Freeze(117);
             Game.CarryResourceEffects(conn, conn.Ticket);
             Game.RestoreResourceEffects(conn);
             schedule.At = 200;
-            Assert.Equal(1, Stat("current_siphoning_charges")); // Loading cannot consume remaining duration.
+            Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges)); // Loading cannot consume remaining duration.
             Game.ActivateResourceEffects(conn, 200);
             Assert.Equal(209, conn.Siphoning.Until);
             Assert.Equal(203, conn.Siphoning.UsedUntil);
@@ -128,18 +128,18 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(300, Game.AdvanceSiphoningDamageLocked(conn, schedule.At, final));
             Assert.False(Game.SiphoningDegenerationActive(conn));
             conn.ProjectileEpoch++;
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             Assert.False(Game.SiphoningDegenerationActive(conn));
             Game.SiphoningSkillUsedLocked(conn, 203.5, new AspectRoll(0));
             Game.ChargesOnDeath(conn);
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             Game.SiphoningSkillUsedLocked(conn, 203.5, new AspectRoll(0));
             conn.Siphoning.Rules = new object();
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             Game.SiphoningSkillUsedLocked(conn, 203.5, new AspectRoll(0));
             inventory.Remove(PlayerInventories.Weapon1, staff.Id);
-            Assert.Equal(0, Stat("current_siphoning_charges"));
-            Assert.Equal(0, Stat("virtual_maximum_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
+            Assert.Equal(0, Stat(global::Stat.VirtualMaximumSiphoningCharges));
             schedule.At = 204;
             Assert.Equal(0, Game.AdvanceSiphoningDamageLocked(conn, 204, Game.CharacterPlayerStats(conn)));
             inventory.Add(PlayerInventories.Weapon1, 0, 0, item);
@@ -149,7 +149,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.False(Game.CompleteResourceRecoveryLocked(conn, 204, 205, Game.CharacterPlayerStats(conn),
                 0, conn.PlayerMana, conn.Pools.Mana, ref manaCarry));
             Assert.Equal(0u, conn.PlayerLife);
-            Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             Assert.False(Game.SiphoningDegenerationActive(conn));
 
             foreach (var equipped in inventory.Items(PlayerInventories.Weapon1)) inventory.Remove(PlayerInventories.Weapon1, equipped.Id);
@@ -161,11 +161,11 @@ public sealed partial class ReservationCurseSummonTests
             var canonicalStaff = inventory.Add(PlayerInventories.Weapon1, 0, 0, canonical with { Influences = ItemInfluence.Elder | ItemInfluence.Shaper });
             conn.Pools = Game.PoolsFor(conn, 100); conn.PlayerLife = conn.Pools.Life; schedule.At = 300;
             Assert.False(Game.IsInactive(conn, canonicalStaff.Id));
-            int physicalMin = Stat("attack_and_spell_minimum_added_physical_damage_per_siphoning_charge");
-            int physicalMax = Stat("attack_and_spell_maximum_added_physical_damage_per_siphoning_charge");
+            int physicalMin = Stat(global::Stat.AttackAndSpellMinimumAddedPhysicalDamagePerSiphoningCharge);
+            int physicalMax = Stat(global::Stat.AttackAndSpellMaximumAddedPhysicalDamagePerSiphoningCharge);
             Assert.InRange(physicalMin, 20, 24); Assert.InRange(physicalMax, 26, 32);
             Game.SiphoningSkillUsedLocked(conn, 300, new AspectRoll(0));
-            Assert.Equal(1, Stat("current_siphoning_charges"));
+            Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges));
             foreach (bool spell in new[] { false, true })
             {
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell)[DamageType.Physical];
@@ -175,11 +175,11 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(150, Game.AdvanceSiphoningDamageLocked(conn, 301, Game.CharacterPlayerStats(conn)));
             Assert.Equal(before - 150, conn.PlayerLife);
             conn.Experience = CharacterStats.ExperienceFor(1); conn.Pools = Game.PoolsFor(conn, 1);
-            Assert.True(Game.IsInactive(conn, canonicalStaff.Id)); Assert.Equal(0, Stat("current_siphoning_charges"));
+            Assert.True(Game.IsInactive(conn, canonicalStaff.Id)); Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges));
             conn.Experience = CharacterStats.ExperienceFor(100); conn.Pools = Game.PoolsFor(conn, 100);
-            Game.SiphoningSkillUsedLocked(conn, 301, new AspectRoll(0)); Assert.Equal(1, Stat("current_siphoning_charges"));
+            Game.SiphoningSkillUsedLocked(conn, 301, new AspectRoll(0)); Assert.Equal(1, Stat(global::Stat.CurrentSiphoningCharges));
             inventory.Remove(PlayerInventories.Weapon1, canonicalStaff.Id);
-            Assert.Equal(0, Stat("current_siphoning_charges")); Assert.Equal(0, Stat("virtual_maximum_siphoning_charges"));
+            Assert.Equal(0, Stat(global::Stat.CurrentSiphoningCharges)); Assert.Equal(0, Stat(global::Stat.VirtualMaximumSiphoningCharges));
         }
         finally
         {

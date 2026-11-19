@@ -10,8 +10,8 @@ public static partial class Game
 
     // The increases the wiki's Ignite lists (Damage, Damage over Time, Elemental, Fire, Burning, Ignite Damage) and
     // ailment damage; hit-only ones (spell, area, attack, melee damage) never reach an ailment.
-    static readonly string[] IgniteIncreases = ["damage_+%", "damage_over_time_+%", "elemental_damage_+%", "fire_damage_+%",
-        "fire_damage_over_time_+%", "burn_damage_+%", "ignite_damage_+%", "base_ailment_damage_+%"];
+    static readonly uint[] IgniteIncreases = [Stat.DamagePlusPct, Stat.DamageOverTimePlusPct, Stat.ElementalDamagePlusPct, Stat.FireDamagePlusPct,
+        Stat.FireDamageOverTimePlusPct, Stat.BurnDamagePlusPct, Stat.IgniteDamagePlusPct, Stat.BaseAilmentDamagePlusPct];
 
     /// <summary>
     /// The ignite a granted skill's hit inflicts on <paramref name="m"/>, or null (wiki Ignite), for a hit without the
@@ -24,20 +24,20 @@ public static partial class Game
     /// ignite duration × the monster's base_self_ignite_duration_-%; the "faster" stats as in
     /// <see cref="MonsterIgnites.Settings.From"/>. <paramref name="attacker"/> gives the player's and the skill's stats.
     /// </summary>
-    public static DamageOverTime? IgniteFromHit(double baseFire, bool critical, Func<string, int> attacker, double more,
+    public static DamageOverTime? IgniteFromHit(double baseFire, bool critical, Func<uint, int> attacker, double more,
         SpawnedMonster m, Random random)
     {
         if (baseFire <= 0 || MonsterElementalAilments.CannotInflict("ignite", attacker)
-            || attacker("never_damaging_ailments") != 0) return null;
-        int chance = attacker("base_chance_to_ignite_%") + attacker("chance_to_ignite_%") + attacker("chance_to_freeze_shock_ignite_%")
-            + (attacker("always_ignite") != 0 ? 100 : 0);
+            || attacker(Stat.NeverDamagingAilments) != 0) return null;
+        int chance = attacker(Stat.BaseChanceToIgnitePct) + attacker(Stat.ChanceToIgnitePct) + attacker(Stat.ChanceToFreezeShockIgnitePct)
+            + (attacker(Stat.AlwaysIgnite) != 0 ? 100 : 0);
         if (!critical && !RandomRolls.Chance(chance, 100, random)) return null;
-        double multiplier = 1 + (attacker("dot_multiplier_+") + attacker("fire_dot_multiplier_+") + attacker("ignite_dot_multiplier_+")
-            + (critical ? attacker("critical_ailment_dot_multiplier_+") : 0)) / 100.0;
+        double multiplier = 1 + (attacker(Stat.DotMultiplierPlus) + attacker(Stat.FireDotMultiplierPlus) + attacker(Stat.IgniteDotMultiplierPlus)
+            + (critical ? attacker(Stat.CriticalAilmentDotMultiplierPlus) : 0)) / 100.0;
         var ignite = GameServer.Core.World.Ailments.Ignite(DamagePacket.Of(DamageType.Fire, baseFire, baseFire),
             IgniteIncreases.Sum(attacker), more * multiplier);
         double faster = MonsterIgnites.Faster(attacker);
-        double seconds = faster > 0 ? ignite.RemainingSeconds * Math.Max(0, 1 + attacker("ignite_duration_+%") / 100.0)
+        double seconds = faster > 0 ? ignite.RemainingSeconds * Math.Max(0, 1 + attacker(Stat.IgniteDurationPlusPct) / 100.0)
             * MonsterIgnites.SelfDuration(name => m.Mods.Effects[name]) / faster : 0;
         return ignite.DamagePerSecond > 0 && seconds > 0
             ? ignite with { DamagePerSecond = ignite.DamagePerSecond * faster, RemainingSeconds = seconds } : null;
@@ -71,8 +71,8 @@ public static partial class Game
     // names for it. The value is that of the skill that last worked out its ailments (a worn Skill Gem Effect's
     // ignite_art_variation …, or gloves that restyle ailments), kept per connection. The buff names its BuffVisuals row,
     // as every buff whose art follows a variation does (11-skills.md §12); 0 keeps the buff's own art.
-    static readonly (string Buff, string Stat)[] AilmentArtStats =
-        [("ignite", "virtual_ignite_visual_override"), ("poison", "virtual_poison_art_variation"), ("bleed", "virtual_bleed_art_variation")];
+    static readonly (string Buff, uint Stat)[] AilmentArtStats =
+        [("ignite", Stat.VirtualIgniteVisualOverride), ("poison", Stat.VirtualPoisonArtVariation), ("bleed", Stat.VirtualBleedArtVariation)];
 
     static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
 
@@ -89,7 +89,7 @@ public static partial class Game
         var derived = SkillCosmeticDerivedStats(conn, worn).ToDictionary(s => s.Stat, s => s.Value);
         var noted = AilmentArt.GetOrCreateValue(conn);
         foreach (var (buff, stat) in AilmentArtStats)
-            noted[buff] = Stats.Key(stat) is uint key ? derived.GetValueOrDefault(key) : 0;
+            noted[buff] = stat is var key ? derived.GetValueOrDefault(key) : 0;
     }
 
     /// <summary>The settings as given, with the skill's ignite art noted (for an object initializer).</summary>
@@ -111,11 +111,11 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null)
     {
-        Func<string, int> get;
+        Func<uint, int> get;
         if (capturedInputs is null)
         {
             var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
-            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
         }
         else
             get = capturedInputs.Get;
@@ -126,10 +126,10 @@ public static partial class Game
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         var settings = MonsterIgnites.Settings.From(rows, hand, get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
-        int per = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final");
+        int per = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         if (per > 0)
         {
-            int cap = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum");
+            int cap = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
             int recent = RecentlyIgnitedCount(conn, ProjectileWorldTime(conn));
             long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
             double more = Math.Max(0, 1 + added / 100.0);
@@ -145,12 +145,12 @@ public static partial class Game
     /// Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, the larger of its two sources). The client
     /// has no virtual_ignite_proliferation_radius, so this follows the shock calculator's "largest source" rule (not
     /// verified for ignite).</summary>
-    public static int IgniteProliferationRadius(Func<string, int> get, string hand) => Math.Max(0, new[]
+    public static int IgniteProliferationRadius(Func<uint, int> get, string hand) => Math.Max(0, new[]
     {
-        get("support_ignite_proliferation_radius"), get("ignite_proliferation_radius"),
-        get("gloves_ignite_proliferation_radius"), get("passive_notable_ignite_proliferation_radius"),
-        get("flask_ignite_proliferation_radius"), hand == "main_hand" ? get("main_hand_ignite_proliferation_radius") : 0,
-        get("elemental_status_effect_aura_radius"), get("elementalist_elemental_status_effect_aura_radius"),
+        get(Stat.SupportIgniteProliferationRadius), get(Stat.IgniteProliferationRadius),
+        get(Stat.GlovesIgniteProliferationRadius), get(Stat.PassiveNotableIgniteProliferationRadius),
+        get(Stat.FlaskIgniteProliferationRadius), hand == "main_hand" ? get(Stat.MainHandIgniteProliferationRadius) : 0,
+        get(Stat.ElementalStatusEffectAuraRadius), get(Stat.ElementalistElementalStatusEffectAuraRadius),
     }.Max());
 
     /// <summary>Settings with their ignite's spread: <see cref="IgniteProliferationRadius"/> from the player's and the
@@ -160,8 +160,8 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand)
     {
         if (settings.Seconds <= 0) return settings;
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        int Player(uint key) => player.GetValueOrDefault(key);
+        int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int radius = IgniteProliferationRadius(name => Player(name) + Skill(name), hand);
         if (radius <= 0) return settings;
         double area = AilmentArea(Player, Skill, spell);
@@ -180,7 +180,7 @@ public static partial class Game
     public static MonsterIgnites.Settings DefaultAttackIgnite(Player conn, IReadOnlyDictionary<uint, int> player,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(conn);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
@@ -202,8 +202,8 @@ public static partial class Game
         if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
-        if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
-                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom,
+        if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
+                e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, conn.IgniteRandom,
                 UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)

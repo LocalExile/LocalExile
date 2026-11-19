@@ -47,7 +47,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
         && (effect == "TemporalChains" || Catalog(conn).ForNodes(conn.MainAscendancy.Allocated).Any(s => SkillsFor(conn).EffectId(s.SummonEffect) == effect));
     static HarbingerSession.Frame Frame(Player conn, IReadOnlyDictionary<uint, int> raw)
     {
-        int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
+        int Get(uint k) => raw.GetValueOrDefault(k);
         var receipt = conn.PaidChannel;
         return new(conn.ProjectileEpoch, conn.PlayerLife > 0, conn.Paused, conn.Closed || conn.LeavingArea,
             !InTown(conn), conn.MainAscendancy.Allocated.ToArray(), HarbingerRecipientClock.RecipientRate(1, Get),
@@ -118,8 +118,8 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
                 if (change.Previous is { } old)
                     conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(change.Target.Id, old.Instance), "curse retired"));
                 var clear = new List<(uint, int)>();
-                foreach (string name in new[] { "buff_time_passed_+%_other_than_temporal_chains", "temporal_chains_action_speed_+%_final" })
-                    if (Stats.Key(name) is uint k) clear.Add((k, monster.Mods.Effects[name]));
+                foreach (uint name in new[] { Stat.BuffTimePassedPlusPctOtherThanTemporalChains, Stat.TemporalChainsActionSpeedPlusPctFinal })
+                    clear.Add((name, monster.Mods.Effects[name]));
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(change.Target.Id, clear), "curse recipient retired"));
             }
             if (state.PresentedSelf is ushort self)

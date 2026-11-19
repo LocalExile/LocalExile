@@ -42,9 +42,9 @@ public static partial class Game
             return;
         }
         var skillStats = SupportedSkill(conn, skillId).Stats;
-        int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
-        int percent = Math.Max(0, Stat("skeletal_chains_aoe_%_health_dealt_as_chaos_damage"));
-        int chains = Math.Max(0, Stat("number_of_chains"));
+        int Stat(uint k) => skillStats.GetValueOrDefault(k);
+        int percent = Math.Max(0, Stat(global::Stat.SkeletalChainsAoePctHealthDealtAsChaosDamage));
+        int chains = Math.Max(0, Stat(global::Stat.NumberOfChains));
         var blasts = new List<((int X, int Y) At, int Sacrificed, uint Skeleton)>();
         bool self = false;
         int epoch = conn.ProjectileEpoch;
@@ -81,7 +81,7 @@ public static partial class Game
             {
                 lock (conn.Monsters) return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
             });
-        double more = self ? Math.Max(0, 1 + Stat("skeletal_chains_no_minions_damage_+%_final") / 100.0) : 1;
+        double more = self ? Math.Max(0, 1 + Stat(global::Stat.SkeletalChainsNoMinionsDamagePlusPctFinal) / 100.0) : 1;
         int radius = SkillRadius(conn, skillStats, true, gem.Effect);
         string ao = self ? DarkBargainPlayerAo : DarkBargainSkeletonAo;
         Console.WriteLine($"[gateway] {conn.Remote} dark bargain: {(self ? "own life" : $"{blasts.Count} skeleton(s)")}, "

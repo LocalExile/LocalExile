@@ -134,13 +134,13 @@ public static partial class Game
         foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
             foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
                 worn[stat] = worn.GetValueOrDefault(stat) + value;
-        int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
-        int index = Of("mtx_tencent_lunar_set_polymorph") == 4
-                ? Of("mtx_tencent_lunar_back_attachment") switch { 1 => 19, 2 => 20, _ => 18 }
-            : Of("tencent_wuzhiqi_set_polymorph") == 10 ? 27
-            : Of("mtx_goblin_morph") is 1 or 2 ? 27 + Of("mtx_goblin_morph")
-            : Of("mtx_skeleton_body_paint") == 1 ? 30
-            : Of("mtx_marionettes_revenge_skin_variation") is >= 1 and <= 4 ? 30 + Of("mtx_marionettes_revenge_skin_variation")
+        int Of(uint key) => worn.GetValueOrDefault(key);
+        int index = Of(Stat.MtxTencentLunarSetPolymorph) == 4
+                ? Of(Stat.MtxTencentLunarBackAttachment) switch { 1 => 19, 2 => 20, _ => 18 }
+            : Of(Stat.TencentWuzhiqiSetPolymorph) == 10 ? 27
+            : Of(Stat.MtxGoblinMorph) is 1 or 2 ? 27 + Of(Stat.MtxGoblinMorph)
+            : Of(Stat.MtxSkeletonBodyPaint) == 1 ? 30
+            : Of(Stat.MtxMarionettesRevengeSkinVariation) is >= 1 and <= 4 ? 30 + Of(Stat.MtxMarionettesRevengeSkinVariation)
             : 0;
         return Morphs.GetValueOrDefault(index);
     }
@@ -149,80 +149,80 @@ public static partial class Game
     // BuffVisualsArtVariations' variants of endurance_charge, frenzy_charge and power_charge), and its inputs in the
     // order the client's calculators test them (3.29.3c 0x1428ed890, 0x1428edd70, 0x1428ee4e0). The first is the
     // Alternate Charge Skin's own stat, whose value is the variant; each of the others gives a fixed one.
-    static readonly (string Output, string Skin, (string Input, int Variant)[] Sources)[] ChargeArt =
+    static readonly (uint Output, uint Skin, (uint Input, int Variant)[] Sources)[] ChargeArt =
     [
-        ("virtual_endurance_charge_art_variation", "mtx_endurance_charge_art_variation",
-            [("charge_elder_art_variation", 1000), ("charge_predator_farruls_art_variation", 1001),
-             ("endurance_charge_flame_charged_helmet", 1002), ("mtx_druidic_gloves_alt_endurance_charge", 1003)]),
-        ("virtual_frenzy_charge_art_variation", "mtx_frenzy_charge_art_variation",
-            [("frenzy_charge_frenzy_scaling_helmet_art_variation", 1000), ("charge_elder_art_variation", 1001),
-             ("frenzy_charge_blood_dance_art_variation", 1002), ("charge_predator_farruls_art_variation", 1003),
-             ("frenzy_charge_flame_charged_helmet", 1004), ("mtx_druidic_gloves_alt_frenzy_charge", 1006),
-             ("mtx_darkray_vectors_alt_frenzy_charge", 1007)]),
-        ("virtual_power_charge_art_variation", "mtx_power_charge_art_variation",
-            [("power_charge_eldritch_void_battery_art_variation", 1000), ("charge_elder_art_variation", 1001),
-             ("power_charge_art_variation_aylardex", 1002), ("charge_predator_farruls_art_variation", 1003),
-             ("power_charge_flame_charged_helmet", 1004), ("mtx_druidic_gloves_alt_power_charge", 1005)]),
+        (Stat.VirtualEnduranceChargeArtVariation, Stat.MtxEnduranceChargeArtVariation,
+            [(Stat.ChargeElderArtVariation, 1000), (Stat.ChargePredatorFarrulsArtVariation, 1001),
+             (Stat.EnduranceChargeFlameChargedHelmet, 1002), (Stat.MtxDruidicGlovesAltEnduranceCharge, 1003)]),
+        (Stat.VirtualFrenzyChargeArtVariation, Stat.MtxFrenzyChargeArtVariation,
+            [(Stat.FrenzyChargeFrenzyScalingHelmetArtVariation, 1000), (Stat.ChargeElderArtVariation, 1001),
+             (Stat.FrenzyChargeBloodDanceArtVariation, 1002), (Stat.ChargePredatorFarrulsArtVariation, 1003),
+             (Stat.FrenzyChargeFlameChargedHelmet, 1004), (Stat.MtxDruidicGlovesAltFrenzyCharge, 1006),
+             (Stat.MtxDarkrayVectorsAltFrenzyCharge, 1007)]),
+        (Stat.VirtualPowerChargeArtVariation, Stat.MtxPowerChargeArtVariation,
+            [(Stat.PowerChargeEldritchVoidBatteryArtVariation, 1000), (Stat.ChargeElderArtVariation, 1001),
+             (Stat.PowerChargeArtVariationAylardex, 1002), (Stat.ChargePredatorFarrulsArtVariation, 1003),
+             (Stat.PowerChargeFlameChargedHelmet, 1004), (Stat.MtxDruidicGlovesAltPowerCharge, 1005)]),
     ];
 
     // Derived stats that are a choice of art: the first input that is not 0 gives its number, else the fallback stat's
     // own value is the result. The rules are the client's calculators'; inputs that are not a cosmetic's are left out
     // (a unique item's alternate art).
-    static readonly (string Output, (string Input, int Value)[] Sources, string? Fallback)[] DerivedArt =
+    static readonly (uint Output, (uint Input, int Value)[] Sources, uint? Fallback)[] DerivedArt =
     [
-        ("mtx_has_chest_effect", [("mtx_angry_chest_bees", 1), ("mtx_chest_fish", 1), ("mtx_verdant_chest_wisps", 1)], null),
-        ("level_up_sound_disabled", [("mtx_ring_black_star_level_up_effect", 1), ("mtx_skeleton_level_up_effect", 1)], null),
-        ("virtual_has_item_drop_visual_replacement_stat", [("mtx_hellfire_replace_currency_with_fire_spirits", 1),
-            ("mtx_chaos_orb_armour_entity", 1), ("mtx_card_oracle_armour_replace_divination_card_drop_visuals", 1)], null),
-        ("is_floating", [], "mtx_cosmic_armour_flying_player"),
-        ("virtual_onslaught_art_variation", [("mtx_thrillsteel_alt_onslaught", 2), ("mtx_void_emperor_onslaught_ring", 1)], null),
-        ("virtual_arcane_surge_art_variation", [("mtx_madcap_arcane_surge_ring", 1)], null),
-        ("virtual_fortify_art_variation", [("mtx_myrmidon_fortify_ring", 1)], null),
-        ("virtual_mtx_breach_art_variation", [("mtx_ritual_breach_art_variation", 1)], null),
-        ("virtual_covered_in_ash_art_variation", [("mtx_polaric_devastation_alternate_covered_in_ash_and_frost", 1)], null),
-        ("virtual_ignite_visual_override", [("mtx_alternate_ailments_gloves_demonic_ignite_scorch", 28)], "ignite_art_variation"),
-        ("virtual_shock_art_variation", [("mtx_alternate_ailments_gloves_void_shock_sap", 11), ("mtx_voidforge_alternate_shock_ailment", 14),
-            ("mtx_starforge_alternate_shock_ailment", 15)], "shock_art_variation"),
-        ("virtual_chill_art_variation", [("mtx_hyrris_ire_alternate_arrow_visuals", 2),
-            ("mtx_alternate_ailments_gloves_crystalline_chill_freeze_brittle", 4), ("mtx_spirit_chains_gloves_freeze", 6),
-            ("mtx_spirit_chains_gloves_freeze_vines", 7), ("mtx_spirit_chains_gloves_freeze_tentacles", 8)], "chill_art_variation"),
-        ("virtual_freeze_art_variation", [("mtx_alternate_ailments_gloves_crystalline_chill_freeze_brittle", 3),
-            ("mtx_spirit_chains_gloves_freeze", 5), ("mtx_spirit_chains_gloves_freeze_vines", 6),
-            ("mtx_spirit_chains_gloves_freeze_tentacles", 7)], "freeze_art_variation"),
-        ("virtual_poison_art_variation", [("mtx_alternate_ailments_gloves_black_tar_poison", 2), ("mtx_illusionist_cobra_lash_poison", 3)],
-            "poison_art_variation"),
-        ("virtual_bleed_art_variation", [("mtx_alternate_ailments_gloves_voodoo_bleed", 3)], "bleed_art_variation"),
-        ("virtual_mine_art_variation", [("corrupted_emperor_mine_art_variation", 1)], "mine_art_variation"),
-        ("virtual_ancestral_call_art_variation", [], "ancestral_call_art_variation"),
-        ("virtual_triggered_summon_spider_variation", [("alternate_arakaali_spiders_demonic", 1)], null),
-        ("virtual_skill_surge_type_override", [], "skill_surge_type_override"),
-        ("virtual_damage_hit_effect_index", [], "damage_hit_effect_index"),
-        ("virtual_main_hand_damage_hit_effect_index", [("main_hand_mtx_cold_iron_point_hit_effect_variation", 66),
-            ("mtx_cordycep_bow_hit_effect_variation", 82)], "damage_hit_effect_index"),
-        ("virtual_off_hand_damage_hit_effect_index", [("off_hand_mtx_cold_iron_point_hit_effect_variation", 66)], "damage_hit_effect_index"),
+        (Stat.MtxHasChestEffect, [(Stat.MtxAngryChestBees, 1), (Stat.MtxChestFish, 1), (Stat.MtxVerdantChestWisps, 1)], null),
+        (Stat.LevelUpSoundDisabled, [(Stat.MtxRingBlackStarLevelUpEffect, 1), (Stat.MtxSkeletonLevelUpEffect, 1)], null),
+        (Stat.VirtualHasItemDropVisualReplacementStat, [(Stat.MtxHellfireReplaceCurrencyWithFireSpirits, 1),
+            (Stat.MtxChaosOrbArmourEntity, 1), (Stat.MtxCardOracleArmourReplaceDivinationCardDropVisuals, 1)], null),
+        (Stat.IsFloating, [], Stat.MtxCosmicArmourFlyingPlayer),
+        (Stat.VirtualOnslaughtArtVariation, [(Stat.MtxThrillsteelAltOnslaught, 2), (Stat.MtxVoidEmperorOnslaughtRing, 1)], null),
+        (Stat.VirtualArcaneSurgeArtVariation, [(Stat.MtxMadcapArcaneSurgeRing, 1)], null),
+        (Stat.VirtualFortifyArtVariation, [(Stat.MtxMyrmidonFortifyRing, 1)], null),
+        (Stat.VirtualMtxBreachArtVariation, [(Stat.MtxRitualBreachArtVariation, 1)], null),
+        (Stat.VirtualCoveredInAshArtVariation, [(Stat.MtxPolaricDevastationAlternateCoveredInAshAndFrost, 1)], null),
+        (Stat.VirtualIgniteVisualOverride, [(Stat.MtxAlternateAilmentsGlovesDemonicIgniteScorch, 28)], Stat.IgniteArtVariation),
+        (Stat.VirtualShockArtVariation, [(Stat.MtxAlternateAilmentsGlovesVoidShockSap, 11), (Stat.MtxVoidforgeAlternateShockAilment, 14),
+            (Stat.MtxStarforgeAlternateShockAilment, 15)], Stat.ShockArtVariation),
+        (Stat.VirtualChillArtVariation, [(Stat.MtxHyrrisIreAlternateArrowVisuals, 2),
+            (Stat.MtxAlternateAilmentsGlovesCrystallineChillFreezeBrittle, 4), (Stat.MtxSpiritChainsGlovesFreeze, 6),
+            (Stat.MtxSpiritChainsGlovesFreezeVines, 7), (Stat.MtxSpiritChainsGlovesFreezeTentacles, 8)], Stat.ChillArtVariation),
+        (Stat.VirtualFreezeArtVariation, [(Stat.MtxAlternateAilmentsGlovesCrystallineChillFreezeBrittle, 3),
+            (Stat.MtxSpiritChainsGlovesFreeze, 5), (Stat.MtxSpiritChainsGlovesFreezeVines, 6),
+            (Stat.MtxSpiritChainsGlovesFreezeTentacles, 7)], Stat.FreezeArtVariation),
+        (Stat.VirtualPoisonArtVariation, [(Stat.MtxAlternateAilmentsGlovesBlackTarPoison, 2), (Stat.MtxIllusionistCobraLashPoison, 3)],
+            Stat.PoisonArtVariation),
+        (Stat.VirtualBleedArtVariation, [(Stat.MtxAlternateAilmentsGlovesVoodooBleed, 3)], Stat.BleedArtVariation),
+        (Stat.VirtualMineArtVariation, [(Stat.CorruptedEmperorMineArtVariation, 1)], Stat.MineArtVariation),
+        (Stat.VirtualAncestralCallArtVariation, [], Stat.AncestralCallArtVariation),
+        (Stat.VirtualTriggeredSummonSpiderVariation, [(Stat.AlternateArakaaliSpidersDemonic, 1)], null),
+        (Stat.VirtualSkillSurgeTypeOverride, [], Stat.SkillSurgeTypeOverride),
+        (Stat.VirtualDamageHitEffectIndex, [], Stat.DamageHitEffectIndex),
+        (Stat.VirtualMainHandDamageHitEffectIndex, [(Stat.MainHandMtxColdIronPointHitEffectVariation, 66),
+            (Stat.MtxCordycepBowHitEffectVariation, 82)], Stat.DamageHitEffectIndex),
+        (Stat.VirtualOffHandDamageHitEffectIndex, [(Stat.OffHandMtxColdIronPointHitEffectVariation, 66)], Stat.DamageHitEffectIndex),
     ];
 
-    static readonly (string Input, int Value)[] MinionSurges = [("mtx_dark_assembly_summon_minion_effect", 39),
-        ("mtx_summoning_ring_ritual", 108), ("mtx_summoning_ring_stygian", 109), ("mtx_summoning_ring_necrotic", 110),
-        ("mtx_summoning_ring_divine", 111)];
+    static readonly (uint Input, int Value)[] MinionSurges = [(Stat.MtxDarkAssemblySummonMinionEffect, 39),
+        (Stat.MtxSummoningRingRitual, 108), (Stat.MtxSummoningRingStygian, 109), (Stat.MtxSummoningRingNecrotic, 110),
+        (Stat.MtxSummoningRingDivine, 111)];
 
     // The outputs of DerivedArt that belong to the character alone: a skill does not carry them.
-    static readonly HashSet<string> CharacterArt = ["mtx_has_chest_effect", "level_up_sound_disabled",
-        "virtual_has_item_drop_visual_replacement_stat", "is_floating", "virtual_onslaught_art_variation",
-        "virtual_arcane_surge_art_variation", "virtual_fortify_art_variation", "virtual_mtx_breach_art_variation",
-        "virtual_covered_in_ash_art_variation"];
+    static readonly HashSet<uint> CharacterArt = [Stat.MtxHasChestEffect, Stat.LevelUpSoundDisabled,
+        Stat.VirtualHasItemDropVisualReplacementStat, Stat.IsFloating, Stat.VirtualOnslaughtArtVariation,
+        Stat.VirtualArcaneSurgeArtVariation, Stat.VirtualFortifyArtVariation, Stat.VirtualMtxBreachArtVariation,
+        Stat.VirtualCoveredInAshArtVariation];
 
-    static IEnumerable<(uint Stat, int Value)> DerivedArtStats(Func<string, int> of, bool skill = false)
+    static IEnumerable<(uint Stat, int Value)> DerivedArtStats(Func<uint, int> of, bool skill = false)
     {
         foreach (var (output, sources, fallback) in DerivedArt)
         {
             if (skill && CharacterArt.Contains(output)) continue;
             int value = sources.FirstOrDefault(s => of(s.Input) != 0).Value;
             // A skill that creates minions takes Dark Assembly's and the summoning rings' surge before its own.
-            if (output == "virtual_skill_surge_type_override" && of("skill_creates_minions") != 0)
+            if (output == Stat.VirtualSkillSurgeTypeOverride && of(Stat.SkillCreatesMinions) != 0)
                 value = MinionSurges.FirstOrDefault(s => of(s.Input) != 0).Value;
-            if (value == 0 && fallback is not null) value = of(fallback);
-            if (value != 0 && Stats.Key(output) is uint key) yield return (key, value);
+            if (value == 0 && fallback is uint f) value = of(f);
+            if (value != 0 && output is var key) yield return (key, value);
         }
     }
 
@@ -237,7 +237,7 @@ public static partial class Game
         foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
             foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
                 worn[stat] = worn.GetValueOrDefault(stat) + value;
-        return DerivedArtStats(name => Stats.Key(name) is not uint key ? 0 : skill.TryGetValue(key, out int own) ? own : worn.GetValueOrDefault(key),
+        return DerivedArtStats(name => !(name is var key) ? 0 : skill.TryGetValue(key, out int own) ? own : worn.GetValueOrDefault(key),
             skill: true);
     }
 
@@ -249,13 +249,13 @@ public static partial class Game
     /// </summary>
     public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(Player conn, IReadOnlyDictionary<uint, int> worn)
     {
-        int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
+        int Of(uint key) => worn.GetValueOrDefault(key);
         if (WornMorph(conn) is { } morph && Stat.MtxVirtualMorphArtVariationIndex is var morphKey)
             yield return (morphKey, morph.Index);
         foreach (var (output, skin, sources) in ChargeArt)
         {
             int variant = Of(skin) != 0 ? Of(skin) : sources.FirstOrDefault(s => Of(s.Input) != 0).Variant;
-            if (variant != 0 && Stats.Key(output) is uint key) yield return (key, variant);
+            if (variant != 0 && output is var key) yield return (key, variant);
         }
         foreach (var derived in DerivedArtStats(Of)) yield return derived;
     }
@@ -277,8 +277,8 @@ public static partial class Game
 
     // The BuffVisuals row one of the player's own buffs shows when a worn cosmetic restyles it: BuffVisualsArtVariations'
     // row ("onslaught_buff", "fortify_buff", "arcane_surge") at the derived stat's value (the rings), null for its own.
-    public static ushort? BuffArtVisual(Player conn, string buff, string stat) =>
-        Stats.Key(stat) is uint key && CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value is int variation and not 0
+    public static ushort? BuffArtVisual(Player conn, string buff, uint stat) =>
+        stat is var key && CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value is int variation and not 0
             ? Art.BuffVisual(buff, variation) : null;
 
     // The morph to the client again after a pick changed it: the stat goes with the player's stats (CosmeticStats); the

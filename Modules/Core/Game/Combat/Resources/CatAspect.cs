@@ -2,23 +2,23 @@ public static partial class Game
 {
     public const string CatAspectFamily = "CatAspect";
     public const ushort CatAspectRootRow = 1036, CatsStealthRow = 1037, CatsAgilityRow = 1038;
-    const string CatBuffEffect = "aspect_of_the_cat_buff_effect_+%";
-    const string CatStealthDuration = "cats_stealth_duration_ms_+";
-    const string CatAgilityDuration = "aspect_of_the_cat_base_secondary_duration";
-    const string CatStealthCharges = "gain_maximum_frenzy_and_power_charges_when_you_gain_cats_stealth";
-    const string CatAgilityCharges = "gain_maximum_frenzy_and_endurance_charges_when_you_gain_cats_agility";
-    const string CatOnslaught = "gain_onslaught_while_you_have_cats_agility";
-    const string CatStealthPhasing = "gain_phasing_while_you_have_cats_stealth";
-    const string CatCrit = "critical_strike_chance_+%";
-    const string CatAvoid = "avoid_damage_%";
-    const string CatStealth = "stealth_+%";
-    const string CatAttackSpeed = "attack_speed_+%";
-    const string CatCastSpeed = "base_cast_speed_+%";
+    const uint CatBuffEffect = Stat.AspectOfTheCatBuffEffectPlusPct;
+    const uint CatStealthDuration = Stat.CatsStealthDurationMsPlus;
+    const uint CatAgilityDuration = Stat.AspectOfTheCatBaseSecondaryDuration;
+    const uint CatStealthCharges = Stat.GainMaximumFrenzyAndPowerChargesWhenYouGainCatsStealth;
+    const uint CatAgilityCharges = Stat.GainMaximumFrenzyAndEnduranceChargesWhenYouGainCatsAgility;
+    const uint CatOnslaught = Stat.GainOnslaughtWhileYouHaveCatsAgility;
+    const uint CatStealthPhasing = Stat.GainPhasingWhileYouHaveCatsStealth;
+    const uint CatCrit = Stat.CriticalStrikeChancePlusPct;
+    const uint CatAvoid = Stat.AvoidDamagePct;
+    const uint CatStealth = Stat.StealthPlusPct;
+    const uint CatAttackSpeed = Stat.AttackSpeedPlusPct;
+    const uint CatCastSpeed = Stat.BaseCastSpeedPlusPct;
 
     public readonly record struct CatAspectPhaseStats(int CriticalStrikeChancePct, int AvoidDamagePct,
         int StealthPct, int AttackSpeedPct, int CastSpeedPct)
     {
-        public int Value(string stat) => stat switch
+        public int Value(uint stat) => stat switch
         {
             CatCrit => CriticalStrikeChancePct,
             CatAvoid => AvoidDamagePct,
@@ -99,20 +99,17 @@ public static partial class Game
     {
         IReadOnlyList<(uint Key, int Value)> rows = root.SkillStats
             ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
-        int Skill(string name) => Stats.Key(name) is uint key
-            ? rows.FirstOrDefault(row => row.Key == key).Value : 0;
-        int Raw(string name) => Stats.Key(name) is uint key
-            ? rawSources.GetValueOrDefault(key)
-            : 0;
-        int durationPct = Skill("skill_effect_duration_+%") + Raw("skill_effect_duration_+%");
+        int Skill(uint key) => rows.FirstOrDefault(row => row.Key == key).Value;
+        int Raw(uint key) => rawSources.GetValueOrDefault(key);
+        int durationPct = Skill(Stat.SkillEffectDurationPlusPct) + Raw(Stat.SkillEffectDurationPlusPct);
         double Scale(int ms) => Math.Max(0, ms) / 1000.0
             * Math.Max(0, 1 + durationPct / 100.0)
-            * Math.Max(0, 1 + (Skill("support_increased_duration_skill_effect_duration_+%_final")
-                + Raw("support_increased_duration_skill_effect_duration_+%_final")) / 100.0)
-            * Math.Max(0, 1 + (Skill("support_reduced_duration_skill_effect_duration_+%_final")
-                + Raw("support_reduced_duration_skill_effect_duration_+%_final")) / 100.0);
-        int primary = Skill("base_skill_effect_duration");
-        int secondary = Skill("base_secondary_skill_effect_duration");
+            * Math.Max(0, 1 + (Skill(Stat.Of("support_increased_duration_skill_effect_duration_+%_final"))
+                + Raw(Stat.Of("support_increased_duration_skill_effect_duration_+%_final"))) / 100.0)
+            * Math.Max(0, 1 + (Skill(Stat.SupportReducedDurationSkillEffectDurationPlusPctFinal)
+                + Raw(Stat.SupportReducedDurationSkillEffectDurationPlusPctFinal)) / 100.0);
+        int primary = Skill(Stat.BaseSkillEffectDuration);
+        int secondary = Skill(Stat.BaseSecondarySkillEffectDuration);
         // Each Fur modifier extends its own base phase before duration scaling. Replica Fur's modifier is additive
         // seconds on the exported Agility base, not a replacement duration.
         primary = Math.Max(0, (primary > 0 ? primary : 4000) + Raw(CatStealthDuration));
@@ -314,9 +311,9 @@ public static partial class Game
         return changed;
     }
 
-    static int CatQualifiedEquipmentValue(Player conn, StatSourcesResult? sources, string stat)
+    static int CatQualifiedEquipmentValue(Player conn, StatSourcesResult? sources, uint stat)
     {
-        if (Stats.Key(stat) is not uint key) return 0;
+        if (!(stat is var key)) return 0;
                 sources ??= conn.StatSourcesCache;
         if (sources is null) return 0;
         var active = sources.Worn.Where(w => !sources.Inactive.Contains(w.Id)).Select(w => w.Item);
@@ -327,9 +324,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> rawSources, IReadOnlyList<ChargeType> types, string source, string entryName)
     {
         var session = ChargesOf(conn);
-        int Get(string name) => Stats.Key(name) is uint key
-            ? rawSources.GetValueOrDefault(key)
-            : 0;
+        int Get(uint key) => rawSources.GetValueOrDefault(key);
         session.Observe(Get);
         var grants = types.Select(type =>
             new ChargeEvent.Grant(type, session.Limits(type).Maximum, source)).ToArray();
@@ -357,34 +352,33 @@ public static partial class Game
         conn.PlayerLife > 0 && CatAspectRootActiveLocked(conn)
         && conn.Reservations.Cat == ReservationState.CatPhase.Agility && conn.Reservations.CatOnslaughtQualified;
 
-    public static IEnumerable<UtilityFlasks.Source> CatOnslaughtSources(Player conn, Func<string, int> character) =>
+    public static IEnumerable<UtilityFlasks.Source> CatOnslaughtSources(Player conn, Func<uint, int> character) =>
         CatOnslaughtActiveLocked(conn) && ItemsFor(conn).Onslaught is { } onslaught
             ? UtilityFlasks.OnslaughtSources(onslaught,
-                Math.Max(0, 1 + character("onslaught_effect_+%") / 100.0)) : [];
+                Math.Max(0, 1 + character(Stat.OnslaughtEffectPlusPct) / 100.0)) : [];
 
     public static CatAspectPhaseStats CatAspectPhaseStatsLocked(Player conn, int auraEffectPct,
-        Func<string, int> raw)
+        Func<uint, int> raw)
     {
         if (!CatAspectRootActiveLocked(conn) || CatAspectRootLocked(conn) is not { } root)
             return default;
         IReadOnlyList<(uint Key, int Value)> rows = root.SkillStats
             ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
-        int Source(string name) => Stats.Key(name) is uint key
-            ? rows.FirstOrDefault(row => row.Key == key).Value : 0;
+        int Source(uint key) => rows.FirstOrDefault(row => row.Key == key).Value;
         // Aspect of the Cat is a buff skill with the HasReservation type, not an ActiveSkillType Aura. Cat's own
         // increased buff effect always scales it; ordinary aura effect and support aura effect only do when the actual
         // skill catalog says the skill is an aura.
         int effectPct = raw(CatBuffEffect);
         if (SkillsFor(conn).IsAura(root.Effect))
             effectPct += auraEffectPct + root.SupportEffectPct;
-        int Scaled(string source) => (int)Math.Round(Source(source) * Math.Max(0, 100 + effectPct) / 100.0,
+        int Scaled(uint source) => (int)Math.Round(Source(source) * Math.Max(0, 100 + effectPct) / 100.0,
             MidpointRounding.AwayFromZero);
         return conn.Reservations.Cat switch
         {
-            ReservationState.CatPhase.Stealth => new(Scaled("skill_buff_grants_critical_strike_chance_+%"),
+            ReservationState.CatPhase.Stealth => new(Scaled(Stat.SkillBuffGrantsCriticalStrikeChancePlusPct),
                 Scaled(CatAvoid), Scaled(CatStealth), 0, 0),
             ReservationState.CatPhase.Agility => new(0, 0, 0,
-                Scaled("attack_speed_+%_granted_from_skill"), Scaled("cast_speed_+%_granted_from_skill")),
+                Scaled(Stat.AttackSpeedPlusPctGrantedFromSkill), Scaled(Stat.CastSpeedPlusPctGrantedFromSkill)),
             _ => default,
         };
     }
@@ -401,25 +395,25 @@ public static partial class Game
     };
 
     public static IReadOnlyList<(uint Key, int Value)> CatAspectRawStatsLocked(Player conn, int auraEffectPct,
-        Func<string, int> raw)
+        Func<uint, int> raw)
     {
         var phase = CatAspectPhaseStatsLocked(conn, auraEffectPct, raw);
         bool active = CatAspectRootActiveLocked(conn);
         var result = new List<(uint, int)>(8);
-        foreach (string stat in new[] { CatCrit, CatAvoid, CatStealth, CatAttackSpeed, CatCastSpeed })
-            if (Stats.Key(stat) is uint key && phase.Value(stat) is var value && value != 0)
+        foreach (uint stat in new[] { CatCrit, CatAvoid, CatStealth, CatAttackSpeed, CatCastSpeed })
+            if (stat is var key && phase.Value(stat) is var value && value != 0)
                 result.Add((key, value));
-        foreach (string flag in new[] { "has_cat_aspect", "has_cats_stealth", "has_cats_agility" })
-            if (Stats.Key(flag) is uint key)
+        foreach (uint flag in new[] { Stat.HasCatAspect, Stat.HasCatsStealth, Stat.HasCatsAgility })
+            if (flag is var key)
                 result.Add((key, active && flag switch
                 {
-                    "has_cats_stealth" => conn.Reservations.Cat == ReservationState.CatPhase.Stealth,
-                    "has_cats_agility" => conn.Reservations.Cat == ReservationState.CatPhase.Agility,
+                    Stat.HasCatsStealth => conn.Reservations.Cat == ReservationState.CatPhase.Stealth,
+                    Stat.HasCatsAgility => conn.Reservations.Cat == ReservationState.CatPhase.Agility,
                     _ => true,
                 } ? 1 : 0));
         if (conn.Reservations.CatPhasing)
-            foreach (string stat in new[] { "phase_through_objects", "virtual_phase_through_objects" })
-                if (Stats.Key(stat) is uint key) result.Add((key, 1));
+            foreach (uint stat in new[] { Stat.PhaseThroughObjects, Stat.VirtualPhaseThroughObjects })
+                if (stat is var key) result.Add((key, 1));
         return result;
     }
 }

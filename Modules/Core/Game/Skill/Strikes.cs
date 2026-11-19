@@ -19,11 +19,11 @@ public static partial class Game
         var skills = SkillsFor(conn);
         if (effect < 0 || !skills.IsStrike(effect)) return ([], null, null);
         var stats = MergeSkillStats(CharacterPlayerStats(conn), ownStats);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int count = StrikeTargets.SpiritStrikes(Get, strike: true, skills.IsVaal(effect), MeleeAttack(conn, effect));
         var spirit = StrikeTargets.Pick(conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
                 .Select(e => new StrikeTargets.Candidate(e.Key, e.Value.Walk.Position(now), LivingCollision.Size(e.Value))),
-            player, StrikeTargets.Range(Get("extra_target_targeting_distance_+%")), count, sequence, PlayerId,
+            player, StrikeTargets.Range(Get(Stat.ExtraTargetTargetingDistancePlusPct)), count, sequence, PlayerId,
             mainTarget == 0 ? new HashSet<uint>() : [mainTarget]);
         if (!StrikeTargets.StrikesPreviousLocation(Get, strike: true, WeaponProfileFor(conn, activeSet: true).Melee))
             return (spirit, null, null);

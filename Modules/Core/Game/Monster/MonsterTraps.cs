@@ -23,8 +23,8 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats)
     {
         var payload = new Dictionary<uint, int>(stats);
-        foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
-            if (Stats.Key(flag) is uint key) payload[key] = 0;
+        foreach (uint flag in new[] { Stat.IsTrap, Stat.IsRemoteMine, Stat.BaseSkillIsTrapped, Stat.BaseSkillIsMined })
+            payload[flag] = 0;
         var catalog = SkillsFor(conn);
         return catalog.FindByRow(0x4000, effect, catalog.MaxLevelAt(effect, level), [.. payload.Select(p => (p.Key, p.Value))]) is { } skill
             ? skill with { Parent = (owner, a.SkillId) } : null;
@@ -37,9 +37,9 @@ public static partial class Game
     {
         if (a.Effect is not int effect) return;
         var stats = GolemData.Skill(SkillsFor(conn), effect, m.Level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int count = Math.Clamp(1 + Get("number_of_additional_traps_to_throw"), 1, 20);
-        int limit = Math.Max(1, MonsterTrapsAllowed + Get("number_of_additional_traps_allowed"));
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int count = Math.Clamp(1 + Get(Stat.NumberOfAdditionalTrapsToThrow), 1, 20);
+        int limit = Math.Max(1, MonsterTrapsAllowed + Get(Stat.NumberOfAdditionalTrapsAllowed));
         double flight = PlacedFlightSeconds(false, Get);
         string path = PlacedObjectPath(false, Get);
         if (MonsterTrapSkill(conn, id, a, effect, m.Level, stats) is not { } skill) return;

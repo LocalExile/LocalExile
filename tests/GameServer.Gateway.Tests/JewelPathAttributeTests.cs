@@ -6,7 +6,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class JewelPathAttributeTests
 {
     static ItemMod Mod(string stat, int value) => new(ModSection.Explicit,
-        Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Id == stat).Hash, [value]);
+        Program.Items.Mods.All.First(m => m.Stats.Count == 1 && m.Stats[0].Name == stat).Hash, [value]);
 
     static Player Character(string name, params InventoryItem[] jewels)
     {
@@ -48,7 +48,7 @@ public sealed class JewelPathAttributeTests
         var medium = ClusterJewels.Create(items.Find("Medium Cluster Jewel")!, null, 5, 1)!;
         medium = medium with { Mods = [.. medium.Mods, Mod("local_affliction_notable_overwhelming_malice", 1)] };
         var split = ItemCatalog.Create(items.Find("Crimson Jewel")!) with { Rarity = ItemRarity.Unique, RequiredLevel = 85,
-            Mods = [Mod(JewelPathEffects.EffectStat, 25), Mod("additional_intelligence", 5)] };
+            Mods = [Mod(Program.Stats.Name(JewelPathEffects.EffectStat), 25), Mod("additional_intelligence", 5)] };
         InventoryItem[] jewels = [new(1, 12, 0, large), new(2, 27, 0, medium), new(3, 29, 0, split), new(4, 30, 0, split)];
         var conn = Character(name, jewels);
         try
@@ -86,9 +86,9 @@ public sealed class JewelPathAttributeTests
             Assert.Equal(first + second, resolved.Sources[intelligence]);
             Assert.All(resolved.Worn.Where(w => w.Id is 3 or 4), w => Assert.Equal(85, w.Item.RequiredLevel));
             Assert.All(inventory.Items(PlayerInventories.PassiveJewels).Where(i => i.Id is 3 or 4), i =>
-                Assert.Equal(5, ItemModStats.RawAttributes([i.Item], items.Mods)["additional_intelligence"]));
+                Assert.Equal(5, ItemModStats.RawAttributes([i.Item], items.Mods)[Stat.AdditionalIntelligence]));
             inventory.ChangeUnsaved(PlayerInventories.PassiveJewels, 3, item => item with
-                { Mods = [Mod(JewelPathEffects.EffectStat, 25), Mod("additional_intelligence", 8)] });
+                { Mods = [Mod(Program.Stats.Name(JewelPathEffects.EffectStat), 25), Mod("additional_intelligence", 8)] });
             Assert.Equal(Roll(8, counts[29]) + second,
                 Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot()).Sources[intelligence]);
             conn.ClusterPassives.Remove((ushort)(outer.Base + 8)); // Both routes now meet an unallocated bridge.

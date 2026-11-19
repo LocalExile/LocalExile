@@ -107,11 +107,11 @@ public static class DepravedTrinity
             return new(row.Level, row.Stats, row.Multiplier);
         });
     }
-    static int Stat(Player c, int effect, int level, string name)
+    static int Stat(Player c, int effect, int level, uint name)
     {
         var catalog = Game.SkillsFor(c);
         var values = CachedStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), p => catalog.EffectStats(p.Effect, p.Level).ToDictionary(s => s.Item1, s => s.Item2));
-        return Stats.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
+        return name is var key ? values.GetValueOrDefault(key) : 0;
     }
     sealed class Exposure
     {
@@ -123,9 +123,9 @@ public static class DepravedTrinity
     public static Dictionary<uint, int> PlayerStats(Player c, Dictionary<uint, int> stats)
     {
         if (!Exposures.TryGetValue(c, out var e)) return stats;
-        void Add(string name, int amount) { if (amount != 0 && Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + amount; }
-        Add("base_damage_taken_+%", 10 * e.Red.Count);
-        Add("action_speed_-%", 7 * e.Purple.Count);
+        void Add(uint name, int amount) { if (amount != 0 && name is var key) stats[key] = stats.GetValueOrDefault(key) + amount; }
+        Add(global::Stat.BaseDamageTakenPlusPct, 10 * e.Red.Count);
+        Add(global::Stat.ActionSpeedMinusPct, 7 * e.Purple.Count);
         return stats;
     }
     static async Task ExposureUpdate(Player c, bool red, bool purple, double now, bool clear = false)
@@ -135,7 +135,7 @@ public static class DepravedTrinity
         e.Red.RemoveAll(end => clear || end <= now); e.Purple.RemoveAll(end => clear || end <= now);
         if (!clear && now >= e.NextStack && (red || purple))
         {
-            double duration = Stat(c, 8729, 1, "base_skill_effect_duration") / 1000d;
+            double duration = Stat(c, 8729, 1, global::Stat.BaseSkillEffectDuration) / 1000d;
             if (red && e.Red.Count < 10) e.Red.Add(now + duration);
             if (purple && e.Purple.Count < 10) e.Purple.Add(now + duration);
             e.NextStack = now + 1;
@@ -261,24 +261,24 @@ public static class DepravedTrinity
     public static MonsterAttack Attack(Player c, MonsterCatalog.Variety variety, byte level, int effect)
     {
         var catalog = Game.SkillsFor(c); var native = Native(c, effect, level); int l = native.Level;
-        int Raw(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
+        int Raw(uint key) => native.Stats.GetValueOrDefault(key);
         bool spell = effect is not (406 or 209 or 5606 or 5607);
         var damage = DamagePacket.Empty;
         if (spell)
             foreach (var type in DamageTypes.ConversionOrder)
             {
                 string slug = type.ToString().ToLowerInvariant();
-                int min = Raw($"spell_minimum_base_{slug}_damage"), max = Raw($"spell_maximum_base_{slug}_damage");
+                int min = Raw(global::Stat.Of($"spell_minimum_base_{slug}_damage")), max = Raw(global::Stat.Of($"spell_maximum_base_{slug}_damage"));
                 if (max > 0) damage = damage.Add(type, new(min, max));
             }
         if (!spell)
         {
             var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
-            int more = Stat(c, effect, l, "active_skill_damage_+%_final");
+            int more = Stat(c, effect, l, global::Stat.ActiveSkillDamagePlusPctFinal);
             damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(native.Multiplier * Math.Max(0, 1 + more / 100d));
         }
         double seconds = (spell ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
-            / Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
+            / Math.Max(.01, 1 + Raw(spell ? global::Stat.ActiveSkillCastSpeedPlusPctFinal : global::Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
         return new(Skill(effect), Math.Max(.25, seconds), 110, effect is 8546 or 8479 or 8480 ? DamagePacket.Empty : damage)
         { Spell = spell, Scripted = true, Projectile = effect is 5573 or 5574
             ? new(effect == 5573 ? "Metadata/Projectiles/TrioMortarRed" : "Metadata/Projectiles/TrioMortarPurple", 750, true, 2)
@@ -501,10 +501,10 @@ public static class DepravedTrinity
             releases.Add((generation, now + attack.Seconds * .6));
             if (effect is 8479 or 8480)
             {
-                int hitEffect = effect == 8479 ? 1490 : 3101, count = Stat(c, effect, 1, "trigger_cascade_number_of_spikes"), arms = Stat(c, effect, 1, "trigger_cascade_number_of_arms");
-                double interval = Stat(c, effect, 1, "trigger_cascade_ms_between_spikes") / 1000d;
-                double between = Stat(c, effect, 1, "trigger_cascade_angle_between_arms") * Math.PI / 180;
-                double turn = Stat(c, effect, 1, "trigger_cascade_angle") * Math.PI / 180;
+                int hitEffect = effect == 8479 ? 1490 : 3101, count = Stat(c, effect, 1, global::Stat.TriggerCascadeNumberOfSpikes), arms = Stat(c, effect, 1, global::Stat.TriggerCascadeNumberOfArms);
+                double interval = Stat(c, effect, 1, global::Stat.TriggerCascadeMsBetweenSpikes) / 1000d;
+                double between = Stat(c, effect, 1, global::Stat.TriggerCascadeAngleBetweenArms) * Math.PI / 180;
+                double turn = Stat(c, effect, 1, global::Stat.TriggerCascadeAngle) * Math.PI / 180;
                 double facing = Math.Atan2(aim.Y - from.Y, aim.X - from.X);
                 for (int arm = 0; arm < arms; arm++) for (int step = 0; step < count; step++)
                 { double angle = facing + arm * between + step * turn; var at = c.Layout.Near((from.X + (int)(Math.Cos(angle) * (step + 1) * 5), from.Y + (int)(Math.Sin(angle) * (step + 1) * 5)));
@@ -533,7 +533,7 @@ public static class DepravedTrinity
                     hits.Add(new(landing, effect, at, 9, effect == 4995
                         ? "Metadata/Effects/Spells/monsters_effects/act8/Doedre/room_red/bubble1.ao"
                         : Art + "Boss/sludge_mortar/pool_" + (effect == 5574 ? "purple" : "red") + ".ao",
-                        effect == 4995 ? 0 : Stat(c, effect == 5573 ? 8729 : 8730, 1, "base_secondary_skill_effect_duration") / 1000d,
+                        effect == 4995 ? 0 : Stat(c, effect == 5573 ? 8729 : 8730, 1, global::Stat.BaseSecondarySkillEffectDuration) / 1000d,
                         effect == 5574 ? 1 : 0, generation, VisualSeconds: effect == 4995 ? 2 : 1));
                     if (effect == 4995) hits.Add(new(landing + 2, 6446, at, 13,
                         "Metadata/Effects/Spells/monsters_effects/act8/Doedre/kinetic_blast/bubble/explosion_aoe.ao", Generation: generation)); }
@@ -560,7 +560,7 @@ public static class DepravedTrinity
                     bool Inside((int X, int Y) at) => Distance(at, hit.Aim) <= hit.Radius && (hit.Facing is not { } facing
                         || (long)(at.X - hit.Aim.X) * (facing.X - hit.Aim.X) + (long)(at.Y - hit.Aim.Y) * (facing.Y - hit.Aim.Y) >= 0);
                     var minionAttack = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect,
-                        Game.SkillsFor(p).MaxLevelAt(hit.Effect, boss.Level), "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d)) };
+                        Game.SkillsFor(p).MaxLevelAt(hit.Effect, boss.Level), global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
                     foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
                         if (!minion.Monster.Dead && Inside(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
                     if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now))) return null;

@@ -14,11 +14,10 @@ public static partial class Game
         if (conn.Instance?.KeptAreaStats is not { Count: > 0 } stats) return run.Mods;
         return MapModsByStats.GetValue(stats, s =>
         {
-            var names = Stats.Names;
-            var byName = new Dictionary<string, int>(StringComparer.Ordinal);
+            var byId = new Dictionary<uint, int>();
             foreach (var (key, value) in s)
-                if (key >= 1 && key <= names.Count) byName[names[(int)key - 1]] = byName.GetValueOrDefault(names[(int)key - 1]) + value;
-            return new MapMods(byName, run.Mods.Quality);
+                if (key >= 1 && key <= Stats.Names.Count) byId[key] = byId.GetValueOrDefault(key) + value;
+            return new MapMods(byId, run.Mods.Quality);
         });
     }
 
@@ -27,49 +26,53 @@ public static partial class Game
     /// <summary>The vital and deadly Atlas keystones' more monster life and damage (Wellspring of Creation, Dance of
     /// Destruction): the area's map_ stat becomes the monster stat of the same name, which acts as a more modifier on
     /// the monster's life or hit (handed over to MonsterModEffects.HandOverMore in GameModule.Load).</summary>
-    internal static readonly string[] AtlasMoreLife = ["monster_life_+%_final_from_vital_atlas", "monster_life_+%_final_from_deadly_atlas"],
-        AtlasMoreDamage = ["monster_damage_+%_final_from_vital_atlas", "monster_damage_+%_final_from_deadly_atlas"];
+    internal static readonly uint[] AtlasMoreLife = [Stat.MonsterLifePlusPctFinalFromVitalAtlas, Stat.MonsterLifePlusPctFinalFromDeadlyAtlas],
+        AtlasMoreDamage = [Stat.MonsterDamagePlusPctFinalFromVitalAtlas, Stat.MonsterDamagePlusPctFinalFromDeadlyAtlas];
 
-    public static Dictionary<string, int> MapMonsterEffects(MapMods mods)
+    // Each atlas monster stat with the area's map_ stat of the same name.
+    static readonly (uint Map, uint Monster)[] AtlasPairs =
+        [.. AtlasMoreLife.Concat(AtlasMoreDamage).Select(m => (Stat.Of("map_" + Stats.Name(m)), m))];
+
+    public static Dictionary<uint, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
-        foreach (string atlas in AtlasMoreLife.Concat(AtlasMoreDamage))
-            if (mods.Get("map_" + atlas) is int more and not 0) extra[atlas] = more;
-        if (mods.Get("map_monsters_cannot_be_stunned") != 0)
-            extra["base_cannot_be_stunned"] = 1;
-        void Gain(string mapId, string monsterId)
+        foreach (var (map, atlas) in AtlasPairs)
+            if (mods.Get(map) is int more and not 0) extra[atlas] = more;
+        if (mods.Get(Stat.MapMonstersCannotBeStunned) != 0)
+            extra[Stat.BaseCannotBeStunned] = 1;
+        void Gain(uint mapId, uint monsterId)
         {
             if (mods.Get(mapId) is int value and not 0)
                 extra[monsterId] = extra.GetValueOrDefault(monsterId) + value;
         }
-        Gain("map_monsters_%_physical_damage_to_add_as_fire", "physical_damage_%_to_add_as_fire");
-        Gain("map_monsters_%_physical_damage_to_add_as_cold", "physical_damage_%_to_add_as_cold");
-        Gain("map_monsters_%_physical_damage_to_add_as_lightning", "physical_damage_%_to_add_as_lightning");
-        Gain("map_monsters_base_bleed_duration_+%", "base_bleed_duration_+%");
+        Gain(Stat.MapMonstersPctPhysicalDamageToAddAsFire, Stat.PhysicalDamagePctToAddAsFire);
+        Gain(Stat.MapMonstersPctPhysicalDamageToAddAsCold, Stat.PhysicalDamagePctToAddAsCold);
+        Gain(Stat.MapMonstersPctPhysicalDamageToAddAsLightning, Stat.PhysicalDamagePctToAddAsLightning);
+        Gain(Stat.MapMonstersBaseBleedDurationPlusPct, Stat.BaseBleedDurationPlusPct);
         // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
         // MapPoisoning: map_monsters_poison_on_hit=1;
         // MapUberModPoison: the same plus all_damage_can_poison and +100% poison duration.
-        if (mods.Get("map_monsters_poison_on_hit") != 0)
-            extra["base_chance_to_poison_on_hit_%"] =
-                extra.GetValueOrDefault("base_chance_to_poison_on_hit_%") + 100;
-        Gain("map_monsters_base_poison_duration_+%", "base_poison_duration_+%");
-        Gain("map_monsters_all_damage_can_poison", "all_damage_can_poison");
+        if (mods.Get(Stat.MapMonstersPoisonOnHit) != 0)
+            extra[Stat.BaseChanceToPoisonOnHitPct] =
+                extra.GetValueOrDefault(Stat.BaseChanceToPoisonOnHitPct) + 100;
+        Gain(Stat.MapMonstersBasePoisonDurationPlusPct, Stat.BasePoisonDurationPlusPct);
+        Gain(Stat.MapMonstersAllDamageCanPoison, Stat.AllDamageCanPoison);
         return extra;
     }
 
-    public static IReadOnlyDictionary<string, int> MapBossEffects(MapMods mods) => new Dictionary<string, int>
+    public static IReadOnlyDictionary<uint, int> MapBossEffects(MapMods mods) => new Dictionary<uint, int>
     {
-        ["maximum_life_+%"] = mods.Get("map_boss_maximum_life_+%"),
-        ["damage_+%"] = mods.Get("map_boss_damage_+%"),
-        ["attack_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
-        ["base_cast_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
-        ["base_item_found_quantity_+%"] = mods.Get("map_boss_dropped_item_quantity_+%"),
-        ["base_item_found_rarity_+%"] = mods.Get("map_boss_item_rarity_+%"),
+        [Stat.MaximumLifePlusPct] = mods.Get(Stat.MapBossMaximumLifePlusPct),
+        [Stat.DamagePlusPct] = mods.Get(Stat.MapBossDamagePlusPct),
+        [Stat.AttackSpeedPlusPct] = mods.Get(Stat.MapBossAttackAndCastSpeedPlusPct),
+        [Stat.BaseCastSpeedPlusPct] = mods.Get(Stat.MapBossAttackAndCastSpeedPlusPct),
+        [Stat.BaseItemFoundQuantityPlusPct] = mods.Get(Stat.MapBossDroppedItemQuantityPlusPct),
+        [Stat.BaseItemFoundRarityPlusPct] = mods.Get(Stat.MapBossItemRarityPlusPct),
     };
 
     static IEnumerable<AreaPopulation.Spawn> WithTwinBosses(IEnumerable<AreaPopulation.Spawn> spawns, MapMods? mods)
     {
-        if ((mods?.Get("map_spawn_two_bosses") ?? 0) == 0) return spawns;
+        if ((mods?.Get(Stat.MapSpawnTwoBosses) ?? 0) == 0) return spawns;
         var list = spawns.ToList();
         foreach (var boss in list.Where(s => s.Rarity == MonsterRarity.Unique).ToList())
             list.Add(boss with { X = boss.X + 6, Pack = boss.Pack + "-twin" });
@@ -86,20 +89,20 @@ public static partial class Game
         var drops = DropsFor(conn);
         if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel) is { } packCard)
             yield return packCard;
-        double card = MapDropFactor(mods, "map_divination_card_drop_chance_+%", "map_divination_card_drop_chance_+%_final_from_quality",
-            "map_divination_card_drop_chance_+%_final_from_faridun_wish");
+        double card = MapDropFactor(mods, Stat.MapDivinationCardDropChancePlusPct, Stat.MapDivinationCardDropChancePlusPctFinalFromQuality,
+            Stat.MapDivinationCardDropChancePlusPctFinalFromFaridunWish);
         if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel) is { } extraCard)
             yield return extraCard;
-        double scarab = MapDropFactor(mods, "map_scarab_drop_chance_+%_final_from_uber_mod",
-            "map_unscaled_scarab_drop_chance_+%_final_from_uber_mod", "map_scarab_drop_chance_+%_final_from_faridun_wish");
+        double scarab = MapDropFactor(mods, Stat.MapScarabDropChancePlusPctFinalFromUberMod,
+            Stat.MapUnscaledScarabDropChancePlusPctFinalFromUberMod, Stat.MapScarabDropChancePlusPctFinalFromFaridunWish);
         if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel) is { } extraScarab)
             yield return extraScarab;
     }
 
-    static double MapDropFactor(MapMods mods, params string[] ids)
+    static double MapDropFactor(MapMods mods, params uint[] ids)
     {
         double factor = 1.0;
-        foreach (string id in ids) factor *= Math.Max(0, 100 + mods.Get(id)) / 100.0;
+        foreach (uint id in ids) factor *= Math.Max(0, 100 + mods.Get(id)) / 100.0;
         return factor;
     }
 
@@ -109,7 +112,7 @@ public static partial class Game
     static SingleUseCooldown? WithMapCooldown(Player conn, SingleUseCooldown? plan)
     {
         if (plan is not { } cooldown) return plan;
-        int more = MapModsOf(conn)?.Get("map_player_cooldown_speed_+%_final") ?? 0;
+        int more = MapModsOf(conn)?.Get(Stat.MapPlayerCooldownSpeedPlusPctFinal) ?? 0;
         if (more == 0) return cooldown;
         double rate = cooldown.RecoveryRate * Math.Max(0, 1 + more / 100.0);
         return cooldown with { RecoveryPercent = (int)Math.Round((rate - 1) * 100) };

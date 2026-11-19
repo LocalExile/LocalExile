@@ -52,7 +52,7 @@ public static partial class Game
     /// keeping its buff with <paramref name="stats"/> on the player standing in it. A kind without art (Art "") sends no
     /// object: the skill's own action draws that ground.</summary>
     public static async Task PlaceHostileGround(Player conn, uint owner, GroundKind kind,
-        IReadOnlyDictionary<string, int> stats, (int X, int Y) at, double radius, double seconds)
+        IReadOnlyDictionary<uint, int> stats, (int X, int Y) at, double radius, double seconds)
     {
         if (radius <= 0 || seconds <= 0) return;
         uint placed = 0;
@@ -130,5 +130,5 @@ public static partial class Game
 
     // A ground's strength: its damage a minute of every type (the grounds of one kind name one type).
     static long Strength(MonsterPlacedObjects.Ground ground) =>
-        ground.Stats.Where(s => s.Key.EndsWith("_damage_taken_per_minute", StringComparison.Ordinal)).Sum(s => (long)s.Value);
+        ground.Stats.Where(s => Stats.Name(s.Key).EndsWith("_damage_taken_per_minute", StringComparison.Ordinal)).Sum(s => (long)s.Value);
 }

@@ -30,10 +30,10 @@ public static class BossMods
     public const string SlowFloor = "CannotBeSlowedBelowValueBosses";
 
     /// <summary>An act boss cannot be stunned again for this long after a stun ends (2000 ms in its row).</summary>
-    const string StunImmunityStat = "cannot_be_stunned_for_ms_after_stun_finished";
+    const uint StunImmunityStat = Stat.CannotBeStunnedForMsAfterStunFinished;
 
     /// <summary>The action-speed floor a row states, as a signed percentage (the bosses' -50%) — how far slows may take it.</summary>
-    const string SlowFloorStat = "hellscape_boots_action_speed_+%_minimum_value";
+    const uint SlowFloorStat = Stat.HellscapeBootsActionSpeedPlusPctMinimumValue;
 
     /// <summary>What a monster's own rows say about it: the mod ids, the repeat-stun immunity the mods' stats give, and the
     /// floor they put under its action speed (0 when the rows state none).</summary>
@@ -90,8 +90,8 @@ public static class BossMods
         var modIds = mods.Select(r => r.TextOrNull("Id") ?? "").ToList();
         var statNames = stats?.Select(r => r.TextOrNull("Id") ?? "").ToList();
         // Per mod: the repeat-stun immunity and the action-speed floor its stats give, if it has those stats at all.
-        var modStunMs = new Dictionary<string, int>(StringComparer.Ordinal);
-        var modSlowFloor = new Dictionary<string, int>(StringComparer.Ordinal);
+        var modStunMs = new Dictionary<string, int>();
+        var modSlowFloor = new Dictionary<string, int>();
         if (statNames is not null)
             foreach (var mod in mods)
             {
@@ -100,12 +100,12 @@ public static class BossMods
                 for (int slot = 1; slot <= 8; slot++)
                 {
                     if (mod.IntOrNull($"StatsKey{slot}") is not int key || key < 0 || key >= statNames.Count) continue;
-                    if (statNames[key] == StunImmunityStat)
+                    if ((uint)key + 1 == StunImmunityStat)
                     {
                         int ms = Math.Max(0, mod.IntOrNull($"Stat{slot}Min") ?? 0);
                         if (ms > 0) modStunMs[id] = Math.Max(ms, modStunMs.GetValueOrDefault(id));
                     }
-                    else if (statNames[key] == SlowFloorStat)
+                    else if ((uint)key + 1 == SlowFloorStat)
                     {
                         int pct = Math.Min(0, mod.IntOrNull($"Stat{slot}Min") ?? 0);
                         modSlowFloor[id] = Math.Min(pct, modSlowFloor.GetValueOrDefault(id));

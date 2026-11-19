@@ -19,7 +19,7 @@ public static partial class Game
 {
     /// <summary>One debuff on the player: its 0x1c1 instance, row, the object it came from, its stats, when it ends
     /// (connection clock seconds; infinity while held) and its holder (null for a timed one).</summary>
-    public sealed record PlayerDebuff(ushort Instance, ushort Row, uint Caster, IReadOnlyDictionary<string, int> Stats,
+    public sealed record PlayerDebuff(ushort Instance, ushort Row, uint Caster, IReadOnlyDictionary<uint, int> Stats,
         double Until, object? Holder);
 
     sealed class PlayerDebuffSet
@@ -31,12 +31,12 @@ public static partial class Game
     static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
 
     /// <summary>A debuff for its time (seconds): a curse, Withered, an immobilise.</summary>
-    public static Task AddPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<string, int> stats,
+    public static Task AddPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds) => ApplyPlayerDebuff(conn, row, caster, stats, seconds, null);
 
     /// <summary>A debuff kept until <see cref="ReleasePlayerDebuff"/> with the same holder (a ground's, while the player
     /// stands in it). Holding the same row with the same stats again changes nothing.</summary>
-    public static Task HoldPlayerDebuff(Player conn, object holder, ushort row, uint caster, IReadOnlyDictionary<string, int> stats) =>
+    public static Task HoldPlayerDebuff(Player conn, object holder, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats) =>
         ApplyPlayerDebuff(conn, row, caster, stats, double.PositiveInfinity, holder);
 
     /// <summary>Ends the debuffs <paramref name="holder"/> keeps.</summary>
@@ -64,7 +64,7 @@ public static partial class Game
         }
     }
 
-    static async Task ApplyPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<string, int> stats,
+    static async Task ApplyPlayerDebuff(Player conn, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds, object? holder)
     {
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn) || seconds <= 0) return;
@@ -109,9 +109,6 @@ public static partial class Game
                 $"0x01c1 the player gets {info?.Id ?? row.ToString()} from 0x{caster:x}" + (holder is null ? $" for {seconds:0.#} s" : " while in it"));
         await RefreshDebuffedPlayer(conn);
     }
-
-    static bool SameStats(IReadOnlyDictionary<string, int> a, IReadOnlyDictionary<string, int> b) =>
-        a.Count == b.Count && a.All(p => b.TryGetValue(p.Key, out int v) && v == p.Value);
 
     /// <summary>Each AI step: the debuffs whose time is up end; after an area change the old area's are dropped (the new
     /// instance has none of their looks to remove).</summary>
@@ -168,7 +165,7 @@ public static partial class Game
         var immune = PlayerImmunities(conn);
         foreach (var type in new[] { DamageType.Physical, DamageType.Fire, DamageType.Cold, DamageType.Lightning, DamageType.Chaos })
         {
-            string stat = $"base_{type.ToString().ToLowerInvariant()}_damage_taken_per_minute";
+            uint stat = Stat.Of($"base_{type.ToString().ToLowerInvariant()}_damage_taken_per_minute");
             double perMinute = set.Active.Where(d => d.Until > now).Sum(d => (double)d.Stats.GetValueOrDefault(stat));
             if (perMinute <= 0 || immune.Contains(type)) continue;
             double resisted = type == DamageType.Physical ? 0 : Math.Min(MaxResistance(conn, type), Resistance(conn, type));
@@ -184,7 +181,7 @@ public static partial class Game
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var debuff in set.Active.Where(d => d.Until > now))
             foreach (var (name, value) in debuff.Stats)
-                if (Stats.Key(name) is uint key) sources[key] = sources.GetValueOrDefault(key) + value;
+                sources[name] = sources.GetValueOrDefault(name) + value;
         return sources;
     }
 }

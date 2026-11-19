@@ -18,10 +18,10 @@ public static partial class Game
     {
         ChannelTriggers.Remove(conn);
         var gem = SupportedSkill(conn, skill);
-        int milliseconds = GolemStat(gem.Stats, "cast_while_channelling_time_ms");
+        int milliseconds = GolemStat(gem.Stats, Stat.CastWhileChannellingTimeMs);
         if (milliseconds <= 0 || Supports.Of(gem.Effect)?.Types.Contains(47) != true
-            || PlacedKind(gem) is not (false, false) || GolemStat(gem.Stats, "is_totem") != 0) return;
-        var spells = CaptureLinkedSpells(conn, gem, "cast_while_channelling_time_ms", "cast_spell_while_linked_skill_channelling");
+            || PlacedKind(gem) is not (false, false) || GolemStat(gem.Stats, Stat.IsTotem) != 0) return;
+        var spells = CaptureLinkedSpells(conn, gem, Stat.CastWhileChannellingTimeMs, Stat.CastSpellWhileLinkedSkillChannelling);
         if (spells.Length == 0 || !session.Active) return;
         ChannelTriggers.Add(conn, new(new(skill, gem, spells, conn.ProjectileEpoch, CombatLifetime),
             action, generation, milliseconds / 1000d, at, aim));
@@ -47,7 +47,7 @@ public static partial class Game
             // At most one release per pump after a late tick; retain the admission-anchored phase without a burst.
             state.NextAt += (Math.Floor((at - state.NextAt) / state.Interval) + 1) * state.Interval;
             ReleaseLinkedSpell(conn, session, state.Source, "CwC", state.Aim, at,
-                "cast_spell_while_linked_skill_channelling");
+                Stat.CastSpellWhileLinkedSkillChannelling);
         }
     }
 }

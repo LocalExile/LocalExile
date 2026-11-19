@@ -42,8 +42,8 @@ static partial class Sirus
     {
         if (Exposures.TryGetValue(c, out var e) && e.BeamUntil > c.Clock.Elapsed.TotalSeconds)
         {
-            foreach (var (name, value) in new[] { ("action_speed_-%", e.BeamStacks * 6), ("base_damage_taken_+%", e.BeamStacks * 10) })
-                if (Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            foreach (var (name, value) in new[] { (global::Stat.ActionSpeedMinusPct, e.BeamStacks * 6), (global::Stat.BaseDamageTakenPlusPct, e.BeamStacks * 10) })
+                if (name is var key) stats[key] = stats.GetValueOrDefault(key) + value;
         }
         return stats;
     }
@@ -242,7 +242,7 @@ static partial class Sirus
         {
             await Voice(5667); var at = Position(now); await Cast(c, id, 10973, at, now);
             double start = now + Attack(c, body!.Variety!, body.Level, 10973).Seconds;
-            double until = start + Stat(c, 10973, body.Level, "base_skill_effect_duration") / 1000d;
+            double until = start + Stat(c, 10973, body.Level, global::Stat.BaseSkillEffectDuration) / 1000d;
             await Fx(c, at, Art + "beam_core.ao", until, clip: null);
             quads.Add(new(at, start, until, Random.Shared.NextDouble() * Math.Tau));
             for (int i = 0; i < 4; i++)
@@ -354,7 +354,7 @@ static partial class Sirus
                     {
                         var e = Exposures.GetValue(p, _ => new());
                         if (e.NextBeam > now) continue;
-                        int duration = Stat(c, 10973, body!.Level, "base_secondary_skill_effect_duration");
+                        int duration = Stat(c, 10973, body!.Level, global::Stat.BaseSecondarySkillEffectDuration);
                         e.BeamStacks = e.BeamUntil > now ? Math.Min(8, e.BeamStacks + 1) : 1; e.BeamUntil = now + duration / 1000d; e.NextBeam = now + .5;
                         if (e.BeamBuff != 0) await SendWorldRecord(p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.BeamBuff), null);
                         e.BeamBuff = p.NextBuff++;
@@ -385,7 +385,7 @@ static partial class Sirus
                     double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
                     if (stopped || !CurrentGameWork || stage != 4 || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
                     var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level,
-                        "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d)) };
+                        global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id)))
                             GolemTakeHitLocked(p, g, actor, caster, ma, now, area: true);

@@ -7,11 +7,14 @@ using GameServer.Core.World;
 /// </summary>
 public static class PlayerHitDamage
 {
-    public const string VsBlindedDamageStat = "hit_and_ailment_damage_+%_vs_blinded_enemies";
+    public const uint VsBlindedDamageStat = Stat.HitAndAilmentDamagePlusPctVsBlindedEnemies;
 
-    public static DamagePacket Resolve(DamagePacket raw, Func<string, int> get, DamageConversion conversion,
+    // Each damage type's increased stat ({type}_damage_+%), by DamageType.
+    static readonly uint[] TypedIncreased = [.. Enum.GetValues<DamageType>().Select(t => Stat.Of($"{t.ToString().ToLowerInvariant()}_damage_+%"))];
+
+    public static DamagePacket Resolve(DamagePacket raw, Func<uint, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,
-        IEnumerable<(string Name, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
+        IEnumerable<(uint Id, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
         bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
@@ -27,28 +30,28 @@ public static class PlayerHitDamage
         supportTypes.Remove(19);
         if (!secondary) supportTypes.Add(spell ? 1 : 0);
         if (melee) supportTypes.Add(19);
-        double common = (double)get("damage_+%") + (secondary ? 0 : get(spell ? "spell_damage_+%" : "attack_damage_+%"))
-            + (melee ? get("melee_damage_+%") : 0) + (area ? get("area_damage_+%") : 0)
-            + (projectile ? get("projectile_damage_+%") : 0)
+        double common = (double)get(Stat.DamagePlusPct) + (secondary ? 0 : get(spell ? Stat.SpellDamagePlusPct : Stat.AttackDamagePlusPct))
+            + (melee ? get(Stat.MeleeDamagePlusPct) : 0) + (area ? get(Stat.AreaDamagePlusPct) : 0)
+            + (projectile ? get(Stat.ProjectileDamagePlusPct) : 0)
             + (spell || secondary ? 0 : DamageStats.SpellAttackIncrease(get, wieldingWand, retaliation))
             + additionalIncreased;
         // Iron Will: Strength's damage bonus applies to spell damage.
         double strength = DamageStats.StrengthDamageBonus(get);
-        if (spell && get("strong_casting") != 0) common += strength;
-        bool lifeLeech = get("is_life_leeching") != 0, manaLeech = get("is_mana_leeching") != 0,
-            shieldLeech = get("is_es_leeching") != 0, fullShield = get("on_full_energy_shield") != 0;
+        if (spell && get(Stat.StrongCasting) != 0) common += strength;
+        bool lifeLeech = get(Stat.IsLifeLeeching) != 0, manaLeech = get(Stat.IsManaLeeching) != 0,
+            shieldLeech = get(Stat.IsEsLeeching) != 0, fullShield = get(Stat.OnFullEnergyShield) != 0;
         bool anyLeech = lifeLeech || manaLeech || shieldLeech;
-        common += (anyLeech ? (double)get("damage_+%_while_leeching") + (spell || secondary ? 0 : get("attack_damage_+%_while_leeching")) : 0)
-            + (lifeLeech ? get("damage_+%_while_life_leeching") : 0)
-            + (manaLeech ? get("damage_+%_while_mana_leeching") : 0)
-            + (shieldLeech ? get("damage_+%_while_es_leeching") : 0)
-            + (fullShield ? get("damage_+%_on_full_energy_shield") : 0);
+        common += (anyLeech ? (double)get(Stat.DamagePlusPctWhileLeeching) + (spell || secondary ? 0 : get(Stat.AttackDamagePlusPctWhileLeeching)) : 0)
+            + (lifeLeech ? get(Stat.DamagePlusPctWhileLifeLeeching) : 0)
+            + (manaLeech ? get(Stat.DamagePlusPctWhileManaLeeching) : 0)
+            + (shieldLeech ? get(Stat.DamagePlusPctWhileEsLeeching) : 0)
+            + (fullShield ? get(Stat.DamagePlusPctOnFullEnergyShield) : 0);
         bool bowAttack = wieldingBow && !spell && !secondary;
-        if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_hit_and_ailment_damage_+%");
+        if (bowAttack) common += (double)get(Stat.BowDamagePlusPct) + get(Stat.BowHitAndAilmentDamagePlusPct);
         var typed = DamageTypes.ConversionOrder.Select(type =>
-            (History: DamageTypes.HistoryOf(type), Increased: get($"{type.ToString().ToLowerInvariant()}_damage_+%"))).ToArray();
-        int elemental = get("elemental_damage_+%")
-            + (!spell && !secondary ? get("elemental_damage_with_attack_skills_+%") : 0), meleePhysical = melee ? get("melee_physical_damage_+%") : 0;
+            (History: DamageTypes.HistoryOf(type), Increased: get(TypedIncreased[(int)type]))).ToArray();
+        int elemental = get(Stat.ElementalDamagePlusPct)
+            + (!spell && !secondary ? get(Stat.ElementalDamageWithAttackSkillsPlusPct) : 0), meleePhysical = melee ? get(Stat.MeleePhysicalDamagePlusPct) : 0;
         double charges = ChargeEffects.DamageMore(get, spell);
         var result = DamagePacket.Empty;
         foreach (var path in conversion.Trace(raw))
@@ -57,15 +60,15 @@ public static class PlayerHitDamage
             if (DamageStats.Prohibited(path.Type, get, attack: !spell && !secondary)
                 || GemSupportDamage.Prohibited(path.Type, modifiers)) continue;
             double increased = common;
-            if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get("physical_bow_damage_+%");
-            if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get("bow_elemental_damage_+%");
+            if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get(Stat.PhysicalBowDamagePlusPct);
+            if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get(Stat.BowElementalDamagePlusPct);
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
             if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental;
             if ((path.History & DamageTypeHistory.Physical) != 0)
                 increased += meleePhysical
-                    + (!melee && !spell && projectile && get("keystone_strong_bowman") != 0 ? strength : 0)
-                    + (lifeLeech ? (double)get("physical_damage_+%_while_life_leeching") : 0);
+                    + (!melee && !spell && projectile && get(Stat.KeystoneStrongBowman) != 0 ? strength : 0)
+                    + (lifeLeech ? (double)get(Stat.PhysicalDamagePlusPctWhileLifeLeeching) : 0);
 
             // Preserve the existing attack multiply-before-divide projection and spell factor construction.
             // Clamp the complete increased bucket once: a negative original-type subtotal must survive until here.
@@ -75,32 +78,32 @@ public static class PlayerHitDamage
             var support = GemSupportDamage.Multipliers(path.History, modifiers, supportTypes, fullShield, shieldLeech);
             range = range.Scale(support.GeneralOrPhysical).Scale(support.ElementalOrChaos);
             if ((path.History & DamageTypeHistory.Physical) != 0)
-                range = range.Scale(Math.Max(0, 1 + get("herald_of_purity_physical_damage_+%_final") / 100.0));
+                range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
             if (melee && area)
-                range = range.Scale(Math.Max(0, 1 + get(get("in_sand_stance") != 0
-                    ? "blood_sand_stance_melee_skills_area_damage_+%_final_in_sand_stance"
-                    : "blood_sand_stance_melee_skills_area_damage_+%_final_in_blood_stance") / 100.0));
+                range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0
+                    ? Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInSandStance
+                    : Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInBloodStance) / 100.0));
             result = result.Add(path.Type, range);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
         // their existing aura/charge factor grouping before support scaling; attack packets receive the common
         // multiplier here. Both routes apply it once. Rage remains outside this resolver in the attack caller.
         if (skillTypes?.Contains(32) == true || skillTypes?.Contains(35) == true)
-            result = result.Scale(Math.Max(0, 1 + get("skitterbots_trap_mine_damage_+%_final") / 100.0));
+            result = result.Scale(Math.Max(0, 1 + get(Stat.SkitterbotsTrapMineDamagePlusPctFinal) / 100.0));
         // Ritual of Awakening: "3% more Damage per Summoned Totem", the count the server sends (Hierophant). Here, not
         // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
-        if (get("hierophant_passive_damage_+%_final_per_totem") is var perTotem and not 0)
-            result = result.Scale(Math.Max(0, 1 + (double)perTotem * get("number_of_active_totems") / 100));
+        if (get(Stat.HierophantPassiveDamagePlusPctFinalPerTotem) is var perTotem and not 0)
+            result = result.Scale(Math.Max(0, 1 + (double)perTotem * get(Stat.NumberOfActiveTotems) / 100));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
-    static double SpellMore(Func<string, int> get, DamageTypeHistory history) =>
-        Math.Max(0, 1 + get("spell_damage_aura_spell_damage_+%_final") / 100.0)
-        * Math.Max(0, 1 + get("righteous_fire_spell_damage_+%_final") / 100.0)
+    static double SpellMore(Func<uint, int> get, DamageTypeHistory history) =>
+        Math.Max(0, 1 + get(Stat.SpellDamageAuraSpellDamagePlusPctFinal) / 100.0)
+        * Math.Max(0, 1 + get(Stat.RighteousFireSpellDamagePlusPctFinal) / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
-        * Math.Max(0, 1 + get("spell_damage_+%_final_from_arcane_surge") / 100.0)
+        * Math.Max(0, 1 + get(Stat.SpellDamagePlusPctFinalFromArcaneSurge) / 100.0)
         * ((history & DamageTypeHistory.Lightning) != 0
-            ? Math.Max(0, 1 + get("wrath_aura_spell_lightning_damage_+%_final") / 100.0) : 1);
+            ? Math.Max(0, 1 + get(Stat.WrathAuraSpellLightningDamagePlusPctFinal) / 100.0) : 1);
 
     static IReadOnlySet<int> ContextTypes(bool spell, bool melee, bool area, bool projectile)
     {

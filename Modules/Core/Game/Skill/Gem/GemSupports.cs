@@ -61,8 +61,8 @@ public sealed class GemSupports
             // level stat even when the mod also grants a secondary active effect. Non-level pseudo-supports
             // (for example socketed attack damage) retain their native fixed granted-effect row.
             var levelStats = mod.Stats.Select((stat, index) => (stat.Id, Index: index))
-                .Where(s => s.Id.StartsWith("local_display_", StringComparison.Ordinal)
-                    && s.Id.Contains("level", StringComparison.Ordinal) && s.Index < itemMod.Values.Count).ToArray();
+                .Where(s => Stats.Name(s.Id).StartsWith("local_display_", StringComparison.Ordinal)
+                    && Stats.Name(s.Id).Contains("level", StringComparison.Ordinal) && s.Index < itemMod.Values.Count).ToArray();
             foreach (var grant in grants)
             {
                 int level = grant.Level;

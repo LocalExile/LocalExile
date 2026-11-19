@@ -10,15 +10,15 @@ using System.Runtime.CompilerServices;
 /// carries over.</summary>
 public sealed class PreventedDamageRecovery
 {
-    const string Stat = "gain_%_total_phys_damage_prevented_in_the_past_10_sec_as_life_regen_per_sec";
+    const uint RegenStat = global::Stat.GainPctTotalPhysDamagePreventedInThePast10SecAsLifeRegenPerSec;
     const double WindowSeconds = 10;
 
     readonly Queue<(double At, double Amount)> hits = new();
 
     /// <summary>The share of the window's damage regenerated per second: a regeneration, so its increases and
     /// prohibitions apply (PoB's pseudo recoup scales it by them).</summary>
-    public static double PerSecond(Func<string, int> get) =>
-        get(Stat) / 1000.0 * PanelStats.LifeRegenerationMultiplier(get);
+    public static double PerSecond(Func<uint, int> get) =>
+        get(RegenStat) / 1000.0 * PanelStats.LifeRegenerationMultiplier(get);
 
     public void Add(double now, double amount)
     {

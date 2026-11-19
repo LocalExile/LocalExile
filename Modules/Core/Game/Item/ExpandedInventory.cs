@@ -2,12 +2,12 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
-    internal const string ExpandedInventoryStat = "primalist_ascendancy_expanded_main_inventory";
+    internal const uint ExpandedInventoryStat = Stat.PrimalistAscendancyExpandedMainInventory;
 
     // The grant is the real source value, never the presentation-only recovery flag below.
     internal static bool ExpandedInventoryGranted(Player conn)
     {
-        if (Stats.Key(ExpandedInventoryStat) is not uint key) return false;
+        if (!(ExpandedInventoryStat is var key)) return false;
         long value = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
         if (GameEvents.Stats.Any)
             foreach (var (name, amount) in GameEvents.RunStats(conn))
@@ -23,7 +23,7 @@ static partial class Game
     // Keep saved contents accessible after a mod unload/removal. This does not grant permission to deposit.
     internal static void KeepExpandedInventoryVisible(Player conn, IDictionary<uint, int> stats)
     {
-        if (Stats.Key(ExpandedInventoryStat) is uint key
+        if (ExpandedInventoryStat is var key
             && ItemsOf(conn).Items(PlayerInventories.ExpandedInventory).Count > 0
             && (!stats.TryGetValue(key, out int value) || value <= 0)) stats[key] = 1;
     }
@@ -34,7 +34,7 @@ static partial class Game
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
         int mode = ExpandedInventoryMode(conn);
         if (conn.ExpandedInventoryMode == mode) return;
-        if (Stats.Key(ExpandedInventoryStat) is not uint key) return;
+        if (!(ExpandedInventoryStat is var key)) return;
         await Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)

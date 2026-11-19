@@ -135,7 +135,7 @@ public static class CharacterStats
     /// <summary>Strength, dexterity and intelligence from attribute stats: the single ones, all attributes and the
     /// pairs, each in its base_ and additional_ form, then the percentage modifiers (individual and all-attributes)
     /// applied to the summed flat value.</summary>
-    public static (int Strength, int Dexterity, int Intelligence) Attributes(Func<string, int> get)
+    public static (int Strength, int Dexterity, int Intelligence) Attributes(Func<uint, int> get)
         => AttributeModifiers.From(get).Flat;
 
     static int Percent(int value, int percent) =>

@@ -10,13 +10,13 @@ public sealed class BowProjectileCountTests
     [Fact]
     public void Bow_attacks_add_generic_and_arrow_projectiles()
     {
-        var stats = new Dictionary<string, int>
+        var stats = new Dictionary<uint, int>
         {
-            ["base_number_of_projectiles"] = 1,
-            ["number_of_additional_projectiles"] = 1,
-            ["number_of_additional_arrows"] = 1,
+            [Stat.BaseNumberOfProjectiles] = 1,
+            [Stat.NumberOfAdditionalProjectiles] = 1,
+            [Stat.NumberOfAdditionalArrows] = 1,
         };
-        int Get(string name) => stats.GetValueOrDefault(name);
+        int Get(uint name) => stats.GetValueOrDefault(name);
 
         var bow = GatewayProjectileDefaults.Resolve("Metadata/Projectiles/DefaultArrow", Get, 1000, attack: true, arrows: true);
         Assert.Equal(3, bow.Count);
@@ -24,14 +24,14 @@ public sealed class BowProjectileCountTests
             arrows: false);
         Assert.Equal(2, wand.Count);   // the bow-only arrow term is absent
 
-        stats["base_number_of_arrows"] = 2;
-        stats["number_of_additional_projectiles"] = 0;
-        stats["number_of_additional_arrows"] = 0;
+        stats[Stat.BaseNumberOfArrows] = 2;
+        stats[Stat.NumberOfAdditionalProjectiles] = 0;
+        stats[Stat.NumberOfAdditionalArrows] = 0;
         Assert.Equal(3, GatewayProjectileDefaults.Resolve("Metadata/Projectiles/DefaultArrow", Get, 1000,
             attack: true, arrows: true).Count);
 
-        stats["main_hand_accuracy_rating"] = 3000;
-        stats["number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more"] = 1;
+        stats[Stat.MainHandAccuracyRating] = 3000;
+        stats[Stat.NumberOfAdditionalArrowsWhileMainHandAccuracyIs3000OrMore] = 1;
         Assert.Equal(4, GatewayProjectileDefaults.Resolve("Metadata/Projectiles/DefaultArrow", Get, 1000,
             attack: true, arrows: true).Count);
 
@@ -100,7 +100,7 @@ public sealed class BowProjectileCountTests
             Assert.Null(meleeConn.ClientDrawnShot);
             // A drawn shot collides on the client's contact (the row's radii: DefaultArrow 1, WandProjectile 2 cells, plus
             // the target's size), not the server's 4-cell stand-in, and flies the client's 150 cells.
-            int None(string _) => 0;
+            int None(uint _) => 0;
             var drawn = Game.ClientDrawnProfile(bowConn, new(OrdinaryRangedAttack.Arrow), None, 0x8001, new(1, 0));
             Assert.Equal((1, 150d), (drawn.ContactCells, drawn.Range));
             Assert.Equal(2, Game.ClientDrawnProfile(wandConn, new(OrdinaryRangedAttack.Wand), None, 0x8001, new(1, 0)).ContactCells);
@@ -147,7 +147,7 @@ public sealed class BowProjectileCountTests
         Assert.Equal(0.001, Game.PrimaryRange("TornadoShot", 150, 0), 6);
         Assert.Equal(150, Game.PrimaryRange("Fireball", 150, 45), 6);
 
-        static int Get(string _) => 0;
+        static int Get(uint _) => 0;
         var fan = Game.NativeVolley(new ProjectileProfile("fan") { Count = 3 }, Get);
         Assert.NotNull(fan.NativeVolley);
         Assert.Equal(0, fan.NativeVolley!.Angle(1, 3, 100), 6);

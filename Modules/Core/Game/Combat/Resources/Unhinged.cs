@@ -7,10 +7,10 @@ public static partial class Game
 {
     public const string UnhingeEffect = "Unhinge";
     public const string UnhingeGrant = "GrantsUnhingeUnique__1";
-    public const string UnhingedCriticalFinal = "critical_strike_chance_+%_final_while_unhinged";
-    public const string SaneDamageFinal = "physical_and_chaos_damage_taken_+%_final_while_not_unhinged";
-    public const string SaneHitRecovery = "regenerate_%_life_over_1_second_when_hit_while_not_unhinged";
-    public const string UnhingedCorpseDestroy = "enemies_explode_on_kill_while_unhinged";
+    public const uint UnhingedCriticalFinal = Stat.CriticalStrikeChancePlusPctFinalWhileUnhinged;
+    public const uint SaneDamageFinal = Stat.PhysicalAndChaosDamageTakenPlusPctFinalWhileNotUnhinged;
+    public const uint SaneHitRecovery = Stat.RegeneratePctLifeOver1SecondWhenHitWhileNotUnhinged;
+    public const uint UnhingedCorpseDestroy = Stat.EnemiesExplodeOnKillWhileUnhinged;
     public const ushort UnhingedBuffRow = 1723;
 
     /// <summary>
@@ -62,11 +62,11 @@ public static partial class Game
     }
 
     /// <summary>The exact raw sane Damage Taken final for one component. It has no effect on elemental damage.</summary>
-    public static int UnhingedPhysicalChaosTakenPct(DamageType type, Func<string, int> get) =>
+    public static int UnhingedPhysicalChaosTakenPct(DamageType type, Func<uint, int> get) =>
         type is DamageType.Physical or DamageType.Chaos ? get(SaneDamageFinal) : 0;
 
     /// <summary>Apply the sane physical/chaos final once, after ordinary mitigation/increased taken.</summary>
-    public static int ApplyUnhingedTaken(int damage, DamageType type, Func<string, int> get) =>
+    public static int ApplyUnhingedTaken(int damage, DamageType type, Func<uint, int> get) =>
         (int)Math.Clamp((long)Math.Max(0, damage) * Math.Max(0L, 100L + UnhingedPhysicalChaosTakenPct(type, get)) / 100,
             0, int.MaxValue);
 
@@ -79,7 +79,7 @@ public static partial class Game
         if (conn.PlayerLife == 0) return;
         var state = UnhingedAt(conn, now);
         if (!state.Exists || state.Enabled) return;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int percent = Get(SaneHitRecovery);
         if (percent <= 0) return;
         double perSecond = conn.PlayerMaxLife * (double)percent / 100
@@ -91,7 +91,7 @@ public static partial class Game
     {
         if (!Unhinged(conn)) return false;
         var stats = CharacterPlayerStats(conn);
-        return Stats.Key(UnhingedCorpseDestroy) is uint key && stats.GetValueOrDefault(key) != 0;
+        return UnhingedCorpseDestroy is var key && stats.GetValueOrDefault(key) != 0;
     }
 
     /// <summary>Freeze the item decision as part of the lethal hit mutation, before hit notifications can yield.</summary>

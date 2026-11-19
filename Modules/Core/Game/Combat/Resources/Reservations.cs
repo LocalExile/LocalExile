@@ -24,32 +24,32 @@ public static partial class Game
     {
         var gem = SupportedSkill(conn, skill);
         var player = CharacterStatSources(conn).Stats;
-        int Own(string n) => GolemStat(gem.Stats, n);
-        int Get(string n) => Own(n) + (Stats.Key(n) is uint key
+        int Own(uint n) => GolemStat(gem.Stats, n);
+        int Get(uint n) => Own(n) + (n is var key
             ? player.GetValueOrDefault(key) : 0);
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
         bool life = SkillsFor(conn).LifeReservation(gem.Effect, gem.Level)
-            || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0
-            || curse && Get("curse_aura_skills_reserve_life") != 0
-            || Supports.Of(gem.Effect)?.Types.Contains(35) == true && Get("skills_that_throw_mines_reserve_life") != 0;
+            || Get(Stat.BaseSkillReserveLifeInsteadOfMana) != 0 || Get(Stat.SkillReserveLifeInsteadOfMana) != 0
+            || curse && Get(Stat.CurseAuraSkillsReserveLife) != 0
+            || Supports.Of(gem.Effect)?.Types.Contains(35) == true && Get(Stat.SkillsThatThrowMinesReserveLife) != 0;
         string resource = life ? "life" : "mana";
         // Global efficiency is already in Pools. Add skill-local/support and family modifiers only.
-        int efficiency = Own("base_reservation_efficiency_+%") + Own("reservation_efficiency_+%")
-            + Own($"base_{resource}_reservation_efficiency_+%") + Own($"{resource}_reservation_efficiency_+%");
+        int efficiency = Own(Stat.BaseReservationEfficiencyPlusPct) + Own(Stat.ReservationEfficiencyPlusPct)
+            + Own(Stat.Of($"base_{resource}_reservation_efficiency_+%")) + Own(Stat.Of($"{resource}_reservation_efficiency_+%"));
         string effect = AuraCatalog.Family(SkillsFor(conn).EffectId(gem.Effect) ?? "");
         string name = ReservationStatName(effect);
         if (!life)
         {
-            efficiency += Get(name + "_mana_reservation_efficiency_+%")
-                - 2 * Get(name + "_mana_reservation_efficiency_-2%_per_1");
+            efficiency += Get(Stat.Of(name + "_mana_reservation_efficiency_+%"))
+                - 2 * Get(Stat.Of(name + "_mana_reservation_efficiency_-2%_per_1"));
             if (effect.StartsWith("HeraldOf", StringComparison.Ordinal))
-                efficiency += Get("herald_skills_mana_reservation_efficiency_+%")
-                    - 2 * Get("herald_skills_mana_reservation_efficiency_-2%_per_1");
-            if (curse) efficiency += Get("curse_aura_skills_mana_reservation_efficiency_+%")
-                - 2 * Get("curse_aura_skills_mana_reservation_efficiency_-2%_per_1");
+                efficiency += Get(Stat.HeraldSkillsManaReservationEfficiencyPlusPct)
+                    - 2 * Get(Stat.HeraldSkillsManaReservationEfficiencyMinus2PctPer1);
+            if (curse) efficiency += Get(Stat.CurseAuraSkillsManaReservationEfficiencyPlusPct)
+                - 2 * Get(Stat.CurseAuraSkillsManaReservationEfficiencyMinus2PctPer1);
         }
-        if (!life && AuraCatalog.IsStance(effect)) efficiency += Get("stance_skills_mana_reservation_efficiency_+%");
-        if (curse) efficiency += Get("curse_aura_skills_reservation_efficiency_+%");
+        if (!life && AuraCatalog.IsStance(effect)) efficiency += Get(Stat.StanceSkillsManaReservationEfficiencyPlusPct);
+        if (curse) efficiency += Get(Stat.CurseAuraSkillsReservationEfficiencyPlusPct);
         return (life, efficiency);
     }
 

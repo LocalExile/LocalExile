@@ -12,8 +12,8 @@ public static partial class Game
     // "Effects cannot be removed": nothing in the server removes a running flask effect besides expiry, death and the
     // flask leaving the bar, which the game does too, so there is nothing to guard yet.
     public const uint MagebloodWord = 3562871479;
-    public const string MagebloodLeftmostStat = "num_magic_utility_flasks_always_apply";
-    public const string MagebloodRightmostStat = "num_magic_utility_flasks_always_apply_rightmost";
+    public const uint MagebloodLeftmostStat = Stat.NumMagicUtilityFlasksAlwaysApply;
+    public const uint MagebloodRightmostStat = Stat.NumMagicUtilityFlasksAlwaysApplyRightmost;
 
     /// <summary>The Mageblood the character wears (belt row 10), or null when it is not worn or its requirements are unmet.</summary>
     public static Item? MagebloodBelt(Player conn)
@@ -62,7 +62,7 @@ public static partial class Game
 
     /// <summary>The sources of the magic utility flasks Mageblood keeps applied, or none when it is not worn. The flasks'
     /// own effect mods count; <paramref name="character"/> is the character's stats for increased flask effect/duration.</summary>
-    public static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(Player conn, Func<string, int> character,
+    public static IReadOnlyList<UtilityFlasks.Source> MagebloodSources(Player conn, Func<uint, int> character,
         int? playerLevel = null)
     {
         if (MagebloodBelt(conn) is not { } belt) return [];
@@ -79,13 +79,13 @@ public static partial class Game
     /// <summary>A running flask and Mageblood's permanent one can be the same effect: combine both source sets before
     /// one strongest-per-(effect, stat) pass, so the effect counts once (a Granite Flask gives 1500 armour, not 3000)
     /// while different effects still stack.</summary>
-    public static IReadOnlyList<(string Stat, int Value)> CombineUtilitySources(
+    public static IReadOnlyList<(uint Stat, int Value)> CombineUtilitySources(
         IEnumerable<UtilityFlasks.Source> running, IEnumerable<UtilityFlasks.Source> permanent) =>
         UtilityFlasks.Strongest(running.Concat(permanent));
 
     /// <summary>The utility flask stats that count now: the running effects deduplicated against Mageblood's permanent
     /// ones. Callers apply this once, not the two sets separately.</summary>
-    public static IReadOnlyList<(string Stat, int Value)> UtilityStats(Player conn, Func<string, int> character,
+    public static IReadOnlyList<(uint Stat, int Value)> UtilityStats(Player conn, Func<uint, int> character,
         int? playerLevel = null) =>
         CombineUtilitySources(conn.UtilityFlaskEffects.Sources()
             .Concat(KillOnslaughtSources(conn, character))

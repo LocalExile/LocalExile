@@ -68,7 +68,7 @@ public sealed class MonsterPlacedObjects
     /// <summary>A ground a monster's skill left (Game.HostileGrounds): its object, its owner, the BuffDefinitions row it
     /// keeps on the player standing in it with that buff's stats, where it lies, how far it reaches (cells), when it ends
     /// (area time), the area it lies in, and whether it has an object of its own (not when the skill's action draws it).</summary>
-    public sealed record Ground(uint Id, uint Owner, ushort BuffRow, IReadOnlyDictionary<string, int> Stats, (int X, int Y) At,
+    public sealed record Ground(uint Id, uint Owner, ushort BuffRow, IReadOnlyDictionary<uint, int> Stats, (int X, int Y) At,
         double Radius, double Until, object Area, bool Drawn);
     public readonly Dictionary<uint, Ground> Grounds = [];
 }
@@ -92,7 +92,7 @@ public enum MonsterSkillShape
 /// A skill on corpses (<paramref name="OnCorpse"/>: Bodyswap's travel, every <see cref="MonsterSkillShape.Corpse"/>) takes
 /// up to <paramref name="Corpses"/> within <paramref name="Radius"/> of the first, hits within <paramref name="Reach"/> of
 /// each, <paramref name="Pulses"/> times <paramref name="PulseSeconds"/> apart.</summary>
-public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<string, int> Stats,
+public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<uint, int> Stats,
     double MinRange = 0, bool OnCorpse = false, double Radius = 0, double Reach = 0, int Corpses = 1, int Pulses = 1,
     double PulseSeconds = 0);
 
@@ -100,12 +100,12 @@ public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, do
 /// (<c>ground_*_art_variation</c>), the stats its buff gives whoever stands in it, how far it reaches (cells) and for how
 /// long. <paramref name="ClientDrawn"/>: the skill's own action draws it (a Fire Trap's burning ground, on the trap), so the
 /// server sends no object of its own and keeps the drawing object while it lasts.</summary>
-public sealed record MonsterGroundSpec(string Type, int ArtVariation, IReadOnlyDictionary<string, int> Stats, double Radius,
+public sealed record MonsterGroundSpec(string Type, int ArtVariation, IReadOnlyDictionary<uint, int> Stats, double Radius,
     double Seconds, bool ClientDrawn = false);
 
 /// <summary>A debuff a monster skill puts on the player it hits (Game.PlayerDebuffs): a BuffDefinitions row, the stats it
 /// gives the player and how long it lasts.</summary>
-public sealed record MonsterDebuffSpec(ushort Row, IReadOnlyDictionary<string, int> Stats, double Seconds);
+public sealed record MonsterDebuffSpec(ushort Row, IReadOnlyDictionary<uint, int> Stats, double Seconds);
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
@@ -359,15 +359,15 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     MonsterCurses? curses;
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
-    public IReadOnlyDictionary<string, int>? EncounterStats { get => encounterStats; set { encounterStats = value; MarkStats(EncounterLayer); } }
-    IReadOnlyDictionary<string, int>? encounterStats;
+    public IReadOnlyDictionary<uint, int>? EncounterStats { get => encounterStats; set { encounterStats = value; MarkStats(EncounterLayer); } }
+    IReadOnlyDictionary<uint, int>? encounterStats;
     /// <summary>What its own buffs grant while they last (MonsterSkills.cs: a war cry's, a buff skill's).</summary>
-    public IReadOnlyDictionary<string, int>? BuffStats { get => buffStats; set { buffStats = value; MarkStats(BuffLayer); } }
-    IReadOnlyDictionary<string, int>? buffStats;
+    public IReadOnlyDictionary<uint, int>? BuffStats { get => buffStats; set { buffStats = value; MarkStats(BuffLayer); } }
+    IReadOnlyDictionary<uint, int>? buffStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
-    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats => temporaryStats;
-    readonly Dictionary<string, IReadOnlyDictionary<string, int>> temporaryStats = new(StringComparer.Ordinal);
-    public void SetTemporaryStats(string key, IReadOnlyDictionary<string, int> stats)
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<uint, int>> TemporaryStats => temporaryStats;
+    readonly Dictionary<string, IReadOnlyDictionary<uint, int>> temporaryStats = new(StringComparer.Ordinal);
+    public void SetTemporaryStats(string key, IReadOnlyDictionary<uint, int> stats)
     {
         temporaryStats[key] = stats;
         MarkStats(TemporaryLayer(key));
@@ -399,13 +399,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
             return statGraph = g;
         }
     }
-    static void AddStats(StatWriter into, IReadOnlyDictionary<string, int> stats)
-    {
-        foreach (var (name, value) in stats) if (value != 0) into.Add(Program.Stats.Id(name), value);
-    }
     static void AddStats(StatWriter into, IReadOnlyDictionary<uint, int> stats)
     {
-        foreach (var (id, value) in stats) into.Add(id, value);
+        foreach (var (id, value) in stats) if (value != 0) into.Add(id, value);
     }
     int TemporaryLayer(string key)
     {

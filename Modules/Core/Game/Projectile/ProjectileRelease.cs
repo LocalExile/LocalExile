@@ -24,18 +24,18 @@ public static partial class Game
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
     /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
-    public static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
+    public static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<uint, int> get)
     {
-        if (get("support_parallel_projectile_number_of_points_per_side") != 0) return profile;
+        if (get(Stat.SupportParallelProjectileNumberOfPointsPerSide) != 0) return profile;
         return profile with
         {
             NativeVolley = new()
             {
-                Width = get("total_projectile_spread_angle_override") is > 0 and var width
+                Width = get(Stat.TotalProjectileSpreadAngleOverride) is > 0 and var width
                     ? width / 10.869565 : 60 / 10.869565,
-                FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
-                SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
-                Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
+                FixedDegrees = get(Stat.ProjectileRemoveDefaultSpread) != 0 ? -1 : get(Stat.FixedProjectileSpread),
+                SpreadPercent = get(Stat.MultipleProjectilesProjectileSpreadPlusPct),
+                Nova = profile.NativeVolley?.Nova == true || get(Stat.ProjectilesNova) != 0
             }
         };
     }
@@ -62,7 +62,7 @@ public static partial class Game
             if (gem.Name is null || !SkillHitPlan.ForSkill(SkillsFor(conn), effect, gem.Level, gem.Quality).CanHit)
                 throw new InvalidOperationException("no supported projectile damage plan");
             var resolved = MergeSkillStats(CharacterPlayerStats(conn), SupportedSkill(conn, skillId).Stats);
-            int Get(string name) => Stats.Key(name) is uint key ? resolved.GetValueOrDefault(key) : 0;
+            int Get(uint key) => resolved.GetValueOrDefault(key);
             _ = definition.Parameters.Resolve(Get, 1, ArrowsFor(conn, effect));
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
@@ -121,9 +121,9 @@ public static partial class Game
                 var own = SupportedSkill(conn, skillId).Stats;
                 // The default profile substitutes one shot for a missing base count. Vaal Spark
                 // already supplies that base as its hundred-shot stream; quality adds to the stream.
-                int extra = use.Profile.Count - (GolemStat(own, "base_number_of_projectiles") > 0 ? 0 : 1);
-                int count = Math.Clamp(GolemStat(own, "base_number_of_projectiles_in_spiral_nova") + extra, 1, 256);
-                long interval = ProjectileRuntime.Time(GolemStat(own, "projectile_spiral_nova_time_ms") / (1000d * count));
+                int extra = use.Profile.Count - (GolemStat(own, Stat.BaseNumberOfProjectiles) > 0 ? 0 : 1);
+                int count = Math.Clamp(GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova) + extra, 1, 256);
+                long interval = ProjectileRuntime.Time(GolemStat(own, Stat.ProjectileSpiralNovaTimeMs) / (1000d * count));
                 var profile = use.Profile with { Count = count, SequentialDelay = interval, ShareSequentialHits = true };
                 use = ClientDrawnVolley(conn, session, skillId, gem, use with { Profile = profile }, sequence, 0);
                 var angles = RandomVolleyAngles(sequence, count, use.Emitter.Id, use.Aim - use.Origin);
@@ -137,9 +137,9 @@ public static partial class Game
             if (conn.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
                 return Task.CompletedTask;
             var own = SupportedSkill(conn, skillId).Stats;
-            int count = GolemStat(own, "base_number_of_projectiles_in_spiral_nova");
-            int span = GolemStat(own, "projectile_spiral_nova_time_ms");
-            int degrees = GolemStat(own, "projectile_spiral_nova_angle");
+            int count = GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova);
+            int span = GolemStat(own, Stat.ProjectileSpiralNovaTimeMs);
+            int degrees = GolemStat(own, Stat.ProjectileSpiralNovaAngle);
             // Capture once at the cast contact. Walking after release cannot interrupt a paid spiral.
             ProjectileUse? captured = null;
             for (int i = 0; i < count; i++)
@@ -182,9 +182,9 @@ public static partial class Game
         if (use.Payload is not ProjectileOffense { ClientPredicted: true }) return use;
         var player = CharacterPlayerStats(conn);
         var own = SupportedSkill(conn, skillId).Stats;
-        int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
-        int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
-        int Get(string key) => Player(key) + Own(key);
+        int Player(uint k) => player.GetValueOrDefault(k);
+        int Own(uint k) => own.GetValueOrDefault(k);
+        int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
         if (use.Emitter.Id != PlayerId && NativeProjectileTotem(conn, gem.Effect)
             && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(conn).Clips(use.Profile.Id) is { Flight: not null } clips)
@@ -216,8 +216,8 @@ public static partial class Game
             return use;
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" or "Twister")) return use;
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
-        double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
-        int randomDuration = Get("spark_random_duration_%");
+        double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)) / 1000;
+        int randomDuration = Get(Stat.SparkRandomDurationPct);
         var sparkOrigin = use.Emitter.Id == PlayerId
             ? ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
             : use.Origin;
@@ -249,15 +249,15 @@ public static partial class Game
     // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
     // shortcut: parallel keeps the server's fan until it is ported.
-    public static ProjectileProfile ClientDrawnProfile(Player conn, ProjectileProfile profile, Func<string, int> get,
+    public static ProjectileProfile ClientDrawnProfile(Player conn, ProjectileProfile profile, Func<uint, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
-        double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
-            : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
+        double range = get(Stat.ProjectileMaximumRangeOverride) is > 0 and var maximum ? maximum
+            : get(Stat.ReclaimedMalevolenceNotableAbyssSearching) != 0 ? 50 : 150;
         profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(conn).ProjectileContactCells(profile.Id) };
         if (profile.ReturnChancePercent is > 0 and < 100)
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
-        if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
+        if (get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0 && get(Stat.RandomProjectileDirection) != 0)
             return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, emitter ?? PlayerId, aim, repeatsLeft) } };
         // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
         return NativeVolley(profile, get);
@@ -307,9 +307,9 @@ public static partial class Game
         var admittedGem = SupportedSkill(conn, skillId);
         var own = admittedGem.Stats;
         var merged = MergeSkillStats(player, own);
-        int Get(string key) => Stats.Key(key) is uint k ? merged.GetValueOrDefault(k) : 0;
-        int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
-        int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
+        int Get(uint k) => merged.GetValueOrDefault(k);
+        int Player(uint k) => player.GetValueOrDefault(k);
+        int Own(uint k) => own.GetValueOrDefault(k);
         var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)) ? GroundArrow : null)
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
@@ -327,7 +327,7 @@ public static partial class Game
         bool spell = !SkillsFor(conn).IsAttack(gem.Effect);
         // Arrow Nova fires one payload arrow to the aim, then the skill's arrows in a circle from there.
         bool rain = SkillsFor(conn).IsAttack(gem.Effect)
-            && (Get("projectiles_rain") != 0 || Get("skill_is_rain_skill") != 0);
+            && (Get(Stat.ProjectilesRain) != 0 || Get(Stat.SkillIsRainSkill) != 0);
         // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
         // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
         // inside the body at the ground instead of at the bow.
@@ -381,14 +381,14 @@ public static partial class Game
             SpiderArea = areaHitInputs is null ? null : CaptureSpiderDamage(conn, areaHitInputs,
                 AddedEffectiveness(conn, gem.Effect, gem.Level), local: local,
                 bow: !spell && WeaponProfileFor(conn, activeSet: true).Bow),
-            MirageSource = totem is null && Own("support_mirage_archer_base_duration") > 0 ? SupportedSkill(conn, skillId) : null,
+            MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(conn, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId),
             Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
             Leech = HitLeechSources(player, !spell, own, local),
-            ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
+            ImpaleChance = spell ? 0 : Get(Stat.ImpaleOnHitPctChance),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = WithOverheat(conn, skillId, NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand))),
             Poison = WithOverheat(conn, skillId, MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
@@ -407,11 +407,11 @@ public static partial class Game
                     : WithOverheat(conn, skillId, BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
                         bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true)),
                 WithOverheat(conn, skillId, MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: !spell))),
-            MaimChance = spell ? 0 : Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
+            MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
-            AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
-            PointBlank = Get("keystone_point_blank") != 0,
+            AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,
+            PointBlank = Get(Stat.KeystonePointBlank) != 0,
             ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindHitInput.Capture(player, own),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ec47e0 from the action at 0x141e9a160): a server object for them was a second fireball.
@@ -461,7 +461,7 @@ public static partial class Game
         }
         if (totem is not null || reoccurrenceMore != 1)
         {
-            double totemMore = reoccurrenceMore * (totem is null ? 1 : Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d));
+            double totemMore = reoccurrenceMore * (totem is null ? 1 : Math.Max(0, 1 + Get(Stat.SupportTotemDamagePlusPctFinal) / 100d));
             shot = shot with { Hit = shot.Hit.Scale(totemMore), AreaHit = shot.AreaHit?.Scale(totemMore),
                 HitProfileMore = shot.HitProfileMore * totemMore, AilmentProfileMore = totemMore,
                 Ignite = shot.Ignite with { Min = shot.Ignite.Min * totemMore, Max = shot.Ignite.Max * totemMore,

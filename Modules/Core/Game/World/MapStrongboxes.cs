@@ -9,7 +9,8 @@ using static Program;
 /// <summary>Instance-owned strongboxes: interaction starts their guards; rewards follow the last guard's death.</summary>
 public static class MapStrongboxes
 {
-    public const string Content = "Ambush", CountStat = "map_num_extra_strongboxes";
+    public const string Content = "Ambush";
+    public const uint CountStat = Stat.MapNumExtraStrongboxes;
     public const string Reopen = "Ambush.HiddenCompartments", Discernment = "Ambush.Discernment", Containment = "Ambush.Containment";
     const string SaveKey = "Ambush/boxes";
 
@@ -165,7 +166,7 @@ public static class MapStrongboxes
             && p.Pack.Entries.All(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToList();
         if (pool.Count == 0) return [];
         var values = ItemModStats.Sum([new Item(0, [], 0) { Mods = type.Mods }], Items.Mods);
-        int count = values.GetValueOrDefault("number_of_packs_to_summon", 3);
+        int count = values.GetValueOrDefault(Stat.NumberOfPacksToSummon, 3);
         var random = new Random(unchecked((int)conn.Seed ^ box.Index * 397 ^ box.Cycle * 7919));
         var plans = new List<(PackCatalog.Pack, int, int, MonsterRarity)>();
         for (int i = 0; i < count; i++)
@@ -217,7 +218,7 @@ public static class MapStrongboxes
                 Keep(conn, area);
                 foreach (var member in Members(conn)) await Present(member, opened, true);
                 await Rewards(conn, opened);
-                if (ClosesAgain(MapModsOf(conn)?.Get("map_strongbox_close_after_opening_chance_%") ?? 0, Random.Shared))
+                if (ClosesAgain(MapModsOf(conn)?.Get(Stat.MapStrongboxCloseAfterOpeningChancePct) ?? 0, Random.Shared))
                 {
                     var closed = opened with { Phase = 0, Cycle = opened.Cycle + 1, Guards = [] };
                     area.Boxes[prior.Index] = closed;

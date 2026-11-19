@@ -14,7 +14,6 @@ public sealed partial class DelveModule : IModule
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadDelveModuleData()
     {
-        StatIds = LoadStatIds();
     }
 
     /// <summary>The Azurite Mine Encampment (<c>WorldAreas</c> Delve_Hub).</summary>
@@ -55,15 +54,6 @@ public sealed partial class DelveModule : IModule
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
-    static string?[] StatIds = default!;
-
-    static string?[] LoadStatIds()
-    {
-        if (!ClientTables.Has("Stats")) return [];
-        var doc = ClientTables.Table("Stats");
-        return [.. doc.Select(r => r.Text("Id"))];
-    }
-
     /// <summary>The account's equipment, in the league.</summary>
     public static DelveProgress Equipment(ISavedData account) =>
         account.Get(EquipmentKey) is { } text ? JsonSerializer.Deserialize<DelveProgress>(text, Json) ?? new() : new();
@@ -118,8 +108,7 @@ public sealed partial class DelveModule : IModule
         GameEvents.Stats.Add(module.Manifest.Id, sheet =>
         {
             foreach (var (key, value) in DelveEquipment.Stats(Equipment(WorldOf(sheet.Player).AccountData)))
-                if (key >= 1 && key <= StatIds.Length && StatIds[key - 1] is { } id
-                    && (id == "delve_sulphite_capacity" || sheet.Player.AreaId.StartsWith("Delve", StringComparison.Ordinal))) sheet.Add(id, value);
+                if (key == Stat.DelveSulphiteCapacity || sheet.Player.AreaId.StartsWith("Delve", StringComparison.Ordinal)) sheet.Add(key, value);
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, start => !start.Layout.Id.StartsWith("Delve", StringComparison.Ordinal) ? null : async (conn, _) =>
         {

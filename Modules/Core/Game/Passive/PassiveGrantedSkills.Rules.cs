@@ -20,9 +20,8 @@ public static partial class Game
     /// (<c>has_trigger_on_crit_by_unique_enemy</c> and the like; the level row's AdditionalFlags name the same trigger).
     /// A tattoo that replaces such a node (the Loyalty summons) is a grant of its own: its
     /// PassiveSkillOverrides.Effect and the has_trigger_on_* stat from TattooStats. Call under the Monsters lock.</summary>
-    static IEnumerable<PassiveGrantedSkills.Grant> TriggeredGrantsLocked(Player conn, string trigger)
+    static IEnumerable<PassiveGrantedSkills.Grant> TriggeredGrantsLocked(Player conn, uint key)
     {
-        if (Stats.Key(trigger) is not uint key) return [];
         var passives = PassivesFor(conn);
         var passiveGrants = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills)
             .For([.. conn.Passives, .. conn.MainAscendancy.Allocated])
@@ -235,7 +234,7 @@ public static partial class Game
     {
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, SkillsFor(conn).EffectStats(effect, level).ToDictionary(v => v.Item1, v => v.Item2));
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        int Get(uint k) => stats.GetValueOrDefault(k);
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), effect, level);
         var context = new SkillDamageContext(plan.Kind, caster);
         if (!plan.CanHit) return (DamagePacket.Empty, DamagePacket.Empty, stats, context);
@@ -262,7 +261,7 @@ public static partial class Game
         var own = SkillsFor(conn).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
         var area = MergeSkillStats(AreaPlayerStats(conn), own);
         int radius = SkillArea.Radius(PassiveGrantedSkills.FootstepExplosionRadius,
-            name => Stats.Key(name) is uint k ? area.GetValueOrDefault(k) : 0, spell: true);
+            name => name is var k ? area.GetValueOrDefault(k) : 0, spell: true);
         string? art = Art.Animated(PassiveGrantedSkills.ExplosionArtVariation, 0);
         (int X, int Y) at;
         uint? effectObject = null;
@@ -296,10 +295,10 @@ public static partial class Game
                 || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused || !FootstepSkills(conn, ProjectileWorldTime(conn)).Contains(skill)) return;
             using var statScope = new PlayerStatScope(conn, fresh: true);
             var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
-            int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
-            int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
+            int Player(uint k) => player.GetValueOrDefault(k);
+            int Own(uint k) => own.GetValueOrDefault(k);
             var merged = MergeSkillStats(player, own);
-            int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
+            int Merged(uint k) => merged.GetValueOrDefault(k);
             var plan = SkillHitPlan.ForSkill(SkillsFor(conn), skill.Effect, skill.Level);
             if (!plan.CanHit) return;
             var context = new SkillDamageContext(plan.Kind, player);
@@ -307,14 +306,14 @@ public static partial class Game
                 effectiveness: AddedEffectiveness(conn, skill.Effect, skill.Level));
             var conversion = DamageStats.Conversion(merged, Stats, attack: false);
             var types = Supports.Of(skill.Effect)?.Types.ToHashSet();
-            long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint damageKey
+            long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var damageKey
                 ? (long)player.GetValueOrDefault(damageKey) + own.GetValueOrDefault(damageKey) : 0;
             AreaSkillDamageProfile Profile(long increased, int webs = 0)
             {
                 increased += SpiderDamageIncrease(Merged, webs);
                 var woven = SpiderRawDamage(raw, Merged, webs, AddedEffectiveness(conn, skill.Effect, skill.Level));
                 var hit = context.Hit(PlayerHitDamage.Resolve(woven, Merged, conversion, spell: true,
-                    area: Merged("is_area_damage") != 0, skillTypes: types, additionalIncreased: increased));
+                    area: Merged(Stat.IsAreaDamage) != 0, skillTypes: types, additionalIncreased: increased));
                 var rows = AilmentPanelStats.Compute(new("spell", Spell: true), woven, conversion, Merged, increased);
                 var ignite = MonsterIgnites.Settings.From(rows, "spell", Merged);
                 var poison = MonsterPoisons.Settings.From(rows, "spell", Merged);
@@ -331,7 +330,7 @@ public static partial class Game
             var blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
             var pen = Penetration.Of(player, Stats, attack: false, own);
             var mods = HitResistMods(player, own);
-            int baseChance = (SkillsFor(conn).SpellCritChance(skill.Effect, skill.Level) ?? 0) + Own("additional_base_critical_strike_chance");
+            int baseChance = (SkillsFor(conn).SpellCritChance(skill.Effect, skill.Level) ?? 0) + Own(Stat.AdditionalBaseCriticalStrikeChance);
             int chance = SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
             int? vsBlinded = Player(VsBlindedCriticalStat) is not 0 and var extra
                 ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
@@ -339,7 +338,7 @@ public static partial class Game
                 extra => SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extra),
                 Player(VsBlindedCriticalStat));
             int multiplier = CriticalHitMultiplier((long)conn.Pools.SpellCriticalStrikeMultiplier
-                + Own("base_critical_strike_multiplier_+"), player, own);
+                + Own(Stat.BaseCriticalStrikeMultiplierPlus), player, own);
             var gambler = GamblerFor(player);
             bool rageGranted = false;
             var deaths = new List<(uint Id, SpawnedMonster M)>();

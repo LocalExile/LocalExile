@@ -10,17 +10,16 @@ public static partial class Game
     {
         if (conn.Closed || conn.LeavingArea || InTown(conn) || !AvianActive(conn) || AvianRoot(conn) is not { } root) return [];
         var raw = CharacterStatSources(conn).Stats;
-        int Get(string n) => AspectInput(conn, raw, n);
-        if (Get("aspect_of_the_avian_grants_avians_might_and_avians_flight_to_nearby_allies") == 0) return [];
+        int Get(uint n) => AspectInput(conn, raw, n);
+        if (Get(Stat.AspectOfTheAvianGrantsAviansMightAndAviansFlightToNearbyAllies) == 0) return [];
         bool might = conn.Reservations.Avian == ReservationState.AvianPhase.Might;
         var rows = root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
-        var names = might ? new[] { "chance_to_deal_double_damage_%", "minion_chance_to_deal_double_damage_%" }
-            : new[] { "base_movement_velocity_+%", "minion_movement_speed_+%" };
-        var frozen = names.Where(n => Stats.Key(n) is not null).Select(n =>
+        var names = might ? new[] { Stat.ChanceToDealDoubleDamagePct, Stat.MinionChanceToDealDoubleDamagePct }
+            : new[] { Stat.BaseMovementVelocityPlusPct, Stat.MinionMovementSpeedPlusPct };
+        var frozen = names.Select(key =>
         {
-            uint key = Stats.Key(n)!.Value;
             int value = rows.FirstOrDefault(s => s.Key == key).Value;
-            return (Key: key, Value: (int)Math.Round(value * Math.Max(0, 1 + Get("aspect_of_the_avian_buff_effect_+%") / 100d),
+            return (Key: key, Value: (int)Math.Round(value * Math.Max(0, 1 + Get(Stat.AspectOfTheAvianBuffEffectPlusPct) / 100d),
                 MidpointRounding.AwayFromZero));
         }).ToArray();
         // Phase and sender effect are frozen in the immutable peer snapshot; observers never read another simulation.
@@ -35,8 +34,8 @@ public static partial class Game
         && conn.Reservations.AvianOwner == new ReservationState.CatAspectOwner(root.SkillId, root.Buff)
         && conn.Reservations.Avian != ReservationState.AvianPhase.None;
 
-    static int AspectInput(Player conn, IReadOnlyDictionary<uint, int> raw, string name) =>
-        Stats.Key(name) is uint key ? raw.GetValueOrDefault(key) : 0;
+    static int AspectInput(Player conn, IReadOnlyDictionary<uint, int> raw, uint name) =>
+        name is var key ? raw.GetValueOrDefault(key) : 0;
 
     static void EndAvianAspectLocked(Player conn, AuraCatalog.Aura root)
     {
@@ -63,13 +62,13 @@ public static partial class Game
             return true;
         }
         raw ??= CharacterStatSources(conn).Stats;
-        int Get(string name) => AspectInput(conn, raw, name);
+        int Get(uint name) => AspectInput(conn, raw, name);
         var rows = root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
-        int Own(string name) => Stats.Key(name) is uint key ? rows.FirstOrDefault(p => p.Key == key).Value : 0;
-        double Duration(string source, string modifier) => Math.Max(.001,
+        int Own(uint key) => rows.FirstOrDefault(p => p.Key == key).Value;
+        double Duration(uint source, uint modifier) => Math.Max(.001,
             SkillDurationModifiers.Seconds(Math.Max(0, Own(source) + Get(modifier)), Get, Own));
-        double might = Duration("base_skill_effect_duration", "avians_might_duration_ms_+");
-        double flight = Duration("base_secondary_skill_effect_duration", "avians_flight_duration_ms_+");
+        double might = Duration(Stat.BaseSkillEffectDuration, Stat.AviansMightDurationMsPlus);
+        double flight = Duration(Stat.BaseSecondarySkillEffectDuration, Stat.AviansFlightDurationMsPlus);
         bool changed = false;
         var previousOwner = state.AvianOwner;
         double previousStart = state.AvianStartedAt;
@@ -111,21 +110,20 @@ public static partial class Game
         bool own = AvianActive(conn) && root is not null;
         var received = conn.ReceivedAuras.Values.Where(a => a.EffectId is "AvianMightShared" or "AvianFlightShared").ToArray();
         if (!own && received.Length == 0) return [];
-        int Get(string name) => AspectInput(conn, raw, name);
+        int Get(uint name) => AspectInput(conn, raw, name);
         var rows = root is null ? [] : root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
         var result = new List<(uint, int)>();
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (value != 0 && Stats.Key(name) is uint key) result.Add((key, value));
+            if (value != 0 && name is var key) result.Add((key, value));
         }
-        int Received(string name) => Stats.Key(name) is uint key
-            ? received.Select(a => (a.SkillStats ?? []).FirstOrDefault(p => p.Key == key).Value).DefaultIfEmpty().Max() : 0;
-        void Scaled(string name, bool local)
+        int Received(uint key) => received.Select(a => (a.SkillStats ?? []).FirstOrDefault(p => p.Key == key).Value).DefaultIfEmpty().Max();
+        void Scaled(uint name, bool local)
         {
-            if (Stats.Key(name) is not uint key) return;
+            uint key = name;
             int value = local ? rows.FirstOrDefault(p => p.Key == key).Value : 0;
             // Aspect is a buff, not an Aura: ordinary aura effect never scales it.
-            int scaled = (int)Math.Round(value * Math.Max(0, 1 + Get("aspect_of_the_avian_buff_effect_+%") / 100d),
+            int scaled = (int)Math.Round(value * Math.Max(0, 1 + Get(Stat.AspectOfTheAvianBuffEffectPlusPct) / 100d),
                 MidpointRounding.AwayFromZero);
             int external = Received(name);
             Add(name, Math.Max(scaled, external) - (includeReceived ? 0 : external));
@@ -134,25 +132,25 @@ public static partial class Game
         bool ownFlight = own && conn.Reservations.Avian == ReservationState.AvianPhase.Flight;
         bool receivedMight = received.Any(a => a.EffectId == "AvianMightShared");
         bool receivedFlight = received.Any(a => a.EffectId == "AvianFlightShared");
-        Add("has_avians_might", (ownMight || receivedMight) && (includeReceived || !receivedMight) ? 1 : 0);
-        Add("has_avians_flight", (ownFlight || receivedFlight) && (includeReceived || !receivedFlight) ? 1 : 0);
-        Scaled("chance_to_deal_double_damage_%", ownMight);
-        Scaled("minion_chance_to_deal_double_damage_%", ownMight);
-        Scaled("base_movement_velocity_+%", ownFlight);
-        Scaled("minion_movement_speed_+%", ownFlight);
+        Add(Stat.HasAviansMight, (ownMight || receivedMight) && (includeReceived || !receivedMight) ? 1 : 0);
+        Add(Stat.HasAviansFlight, (ownFlight || receivedFlight) && (includeReceived || !receivedFlight) ? 1 : 0);
+        Scaled(Stat.ChanceToDealDoubleDamagePct, ownMight);
+        Scaled(Stat.MinionChanceToDealDoubleDamagePct, ownMight);
+        Scaled(Stat.BaseMovementVelocityPlusPct, ownFlight);
+        Scaled(Stat.MinionMovementSpeedPlusPct, ownFlight);
         if (ownMight || receivedMight)
         {
             foreach (string element in new[] { "cold", "lightning" })
                 foreach (string bound in new[] { "minimum", "maximum" })
                     // RawAdded already includes global added damage for either attack or spell. Publishing typed
                     // copies as well doubles the same Winds roll in both real hit paths.
-                    Add($"global_{bound}_added_{element}_damage",
-                        Get($"{bound}_added_{element}_damage_while_you_have_avians_might"));
+                    Add(Stat.Of($"global_{bound}_added_{element}_damage"),
+                        Get(Stat.Of($"{bound}_added_{element}_damage_while_you_have_avians_might")));
         }
         if (ownFlight || receivedFlight)
         {
-            Add("base_life_regeneration_rate_per_minute", Get("life_regeneration_per_minute_while_you_have_avians_flight"));
-            Add("base_mana_regeneration_rate_per_minute", Get("mana_regeneration_rate_per_minute_while_you_have_avians_flight"));
+            Add(Stat.BaseLifeRegenerationRatePerMinute, Get(Stat.LifeRegenerationPerMinuteWhileYouHaveAviansFlight));
+            Add(Stat.BaseManaRegenerationRatePerMinute, Get(Stat.ManaRegenerationRatePerMinuteWhileYouHaveAviansFlight));
         }
         return result;
     }

@@ -5,14 +5,14 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Serialized by the owner's combat lock. All deadlines and recovery use that owner's game clock.</summary>
 public sealed class FortificationSession
 {
-    public const string OnMeleeHit = "fortify_on_hit";
-    public const string ChanceOnMeleeHit = "chance_to_fortify_on_melee_hit_+%";
-    public const string ChanceOnStun = "chance_to_fortify_on_melee_stun_%";
-    public const string CannotGain = "cannot_gain_fortification_from_hits";
-    public const string Current = "current_fortification", Uncapped = "uncapped_current_fortification";
-    public const string Maximum = "virtual_max_fortification";
-    public const string Regeneration = "life_regeneration_rate_per_minute_%";
-    public const string AttackSpeed = "attack_speed_+%";
+    public const uint OnMeleeHit = Stat.FortifyOnHit;
+    public const uint ChanceOnMeleeHit = Stat.ChanceToFortifyOnMeleeHitPlusPct;
+    public const uint ChanceOnStun = Stat.ChanceToFortifyOnMeleeStunPct;
+    public const uint CannotGain = Stat.CannotGainFortificationFromHits;
+    public const uint Current = Stat.CurrentFortification, Uncapped = Stat.UncappedCurrentFortification;
+    public const uint Maximum = Stat.VirtualMaxFortification;
+    public const uint Regeneration = Stat.LifeRegenerationRatePerMinutePct;
+    public const uint AttackSpeed = Stat.AttackSpeedPlusPct;
     public readonly FortificationState State = new();
     public FortificationState.Value Value { get; private set; } = new(0, 0, 20, null);
     public int AddedMaximum { get; private set; }
@@ -59,7 +59,7 @@ public sealed class FortificationSession
         return Value;
     }
 
-    public FortificationState.Value Observe(double now, Func<string, int> get)
+    public FortificationState.Value Observe(double now, Func<uint, int> get)
     {
         Read(now); // Settle the previous cap and recovery inputs before adopting new sources.
         int speed = get(FortificationState.AttackSpeedPerStack), regen = get(FortificationState.LifeRegenPerStack);
@@ -86,7 +86,7 @@ public sealed class FortificationSession
     }
 
     public bool Hit(double now, decimal rawDamage, decimal maximumLife,
-        GameServer.Core.Protocol.Instance.MonsterRarity rarity, Func<string, int> get, Random random)
+        GameServer.Core.Protocol.Instance.MonsterRarity rarity, Func<uint, int> get, Random random)
     {
         Observe(now, get);
         if (get(CannotGain) != 0) return false;
@@ -105,7 +105,7 @@ public sealed class FortificationSession
     /// stun; the stacks use <see cref="FortificationGainModel"/> with the hit's raw damage and the target's life and
     /// rarity, as <see cref="Hit"/> does.</summary>
     public bool FortifyFromStun(double now, decimal rawDamage, decimal maximumLife, MonsterRarity rarity,
-        Func<string, int> get, Random random)
+        Func<uint, int> get, Random random)
     {
         Observe(now, get);
         if (get(CannotGain) != 0) return false;

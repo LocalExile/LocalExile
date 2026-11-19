@@ -7,7 +7,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class SpellEchoTests
 {
     static int Speed(int increased, bool fishingRod, params (string Name, int Value)[] stats) =>
-        Game.FinalCastSpeedPct(name => stats.FirstOrDefault(s => s.Name == name).Value, () => fishingRod, increased);
+        Game.FinalCastSpeedPct(name => stats.FirstOrDefault(s => Stat.Of(s.Name) == name).Value, () => fishingRod, increased);
 
     // The client's cast_speed_+% (0x1427101c0) puts its combined "more" final (0x14270ed40) on the summed increases.
     [Fact]

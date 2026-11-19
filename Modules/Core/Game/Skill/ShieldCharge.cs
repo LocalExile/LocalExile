@@ -58,13 +58,13 @@ public static partial class Game
         var gem = SupportedSkill(conn, skillId);
         if (!SkillsFor(conn).IsAttack(gem.Effect) || !SkillsFor(conn).RequiresShield(gem.Effect)
             || ActiveOffHand(conn)?.Type?.Class != "Shield") return null;
-        int Own(string name) => Stats.Key(name) is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
+        int Own(uint k) => gem.Stats.GetValueOrDefault(k);
         var shield = EquippedArmourDefences(conn).FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
         int per15 = (int)((shield.Armour + shield.Evasion) / 15);
-        int min = Own("off_hand_local_minimum_added_physical_damage")
-            + per15 * Own("off_hand_minimum_added_physical_damage_per_15_shield_armour_and_evasion_rating");
-        int max = Own("off_hand_local_maximum_added_physical_damage")
-            + per15 * Own("off_hand_maximum_added_physical_damage_per_15_shield_armour_and_evasion_rating");
+        int min = Own(Stat.OffHandLocalMinimumAddedPhysicalDamage)
+            + per15 * Own(Stat.OffHandMinimumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
+        int max = Own(Stat.OffHandLocalMaximumAddedPhysicalDamage)
+            + per15 * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
         int attackMs = SkillsFor(conn).AttackTimeMs(gem.Effect, gem.Level);
         return new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(conn).AttackMs, min, Math.Max(min, max), WeaponFor(conn).Range);
     }

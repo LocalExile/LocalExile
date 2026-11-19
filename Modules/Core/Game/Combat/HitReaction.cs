@@ -42,7 +42,7 @@ public static class HitReaction
 
     // Character.ot's object_inherent_melee_hit_stun_duration_+%_final is 50.
     static double Seconds(StunHit hit, SpawnedMonster m) => (hit.BaseSeconds > 0 ? hit.BaseSeconds : BaseSeconds) * Math.Max(0, 1 + hit.DurationPct / 100.0)
-        * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects["base_stun_recovery_+%"] / 100.0);
+        * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects[Stat.BaseStunRecoveryPlusPct] / 100.0);
 
     /// <summary>Rolls the stun; true when a new recovery started (<c>FlinchUntil</c>), to present. Call under the Monsters lock.</summary>
     public static bool TryFlinch(SpawnedMonster m, StunHit hit, double now, Random random)
@@ -84,16 +84,16 @@ public static partial class Game
     public static StunHit OwnerStun(Player conn, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
         bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         var taken = MonsterTakenComponents(m, mitigated, spell);
         double total = taken.MaxTotal;
-        double stunning = total <= 0 || (critical && taken[DamageType.Cold].Max > 0) || Get("cannot_stun") > 0 ? 0
+        double stunning = total <= 0 || (critical && taken[DamageType.Cold].Max > 0) || Get(Stat.CannotStun) > 0 ? 0
             : HitReaction.StunningDamage(damage, taken[DamageType.Physical].Max / total, melee);
-        int local = spell ? 0 : MainHandLocalSources(conn)?.GetValueOrDefault("local_stun_threshold_reduction_+%") ?? 0;
+        int local = spell ? 0 : MainHandLocalSources(conn)?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0;
         // Sample before the caller applies this hit: a damaging hit can leave its previously full-life target injured.
         bool fullLife = m.Life > 0 && m.Life == m.MaxLife;
-        int duration = Get("base_stun_duration_+%") + (fullLife ? Get("stun_duration_+%_vs_enemies_that_are_on_full_life") : 0);
-        bool guaranteed = stunning > 0 && fullLife && Get("always_stun_enemies_that_are_on_full_life") > 0;
-        return new(stunning, Get("base_stun_threshold_reduction_+%") + local, duration, melee, conn, Guaranteed: guaranteed);
+        int duration = Get(Stat.BaseStunDurationPlusPct) + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0);
+        bool guaranteed = stunning > 0 && fullLife && Get(Stat.AlwaysStunEnemiesThatAreOnFullLife) > 0;
+        return new(stunning, Get(Stat.BaseStunThresholdReductionPlusPct) + local, duration, melee, conn, Guaranteed: guaranteed);
     }
 }

@@ -7,29 +7,29 @@ public static partial class Game
     static SummonCatalog.Definition? HitSummonDefinition(string? effect, MonsterRarity rarity = MonsterRarity.Normal) => effect switch
     {
         "Absolution" or "AbsolutionAltX" => new(effect, "Absolution", "Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudge",
-            "base_max_number_of_absolution_sentinels", ""),
+            Stat.BaseMaxNumberOfAbsolutionSentinels, 0),
         "DominatingBlow" or "DominatingBlowAltX" => new(effect, "Dominating" + rarity,
-            "Metadata/Monsters/Axis/AxisEliteSoldierDominatingBlow", "base_max_number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters", ""),
+            "Metadata/Monsters/Axis/AxisEliteSoldierDominatingBlow", Stat.Of("base_max_number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters"), 0),
         _ => null,
     };
 
     internal static void HitSummonsOnHitLocked(Player conn, SpawnedMonster monster,
         IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random)
     {
-        if (skill is null || GolemStat(skill, "base_max_number_of_absolution_sentinels") + GolemStat(skill, "base_max_number_of_dominated_normal_monsters") <= 0
+        if (skill is null || GolemStat(skill, Stat.BaseMaxNumberOfAbsolutionSentinels) + GolemStat(skill, Stat.BaseMaxNumberOfDominatedNormalMonsters) <= 0
             || !monster.Hostile || conn.PlayerLife == 0) return;
         var gem = SupportedSkill(conn, source);
         var definition = HitSummonDefinition(SkillsFor(conn).EffectId(gem.Effect));
         if (definition is null || !gem.RequirementsMet) return;
         if (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
-            && (monster.Effects["cannot_be_dominated"] > 0 || monster.Effects["cannot_be_converted_or_dominated"] > 0)) return;
+            && (monster.Effects[Stat.CannotBeDominated] > 0 || monster.Effects[Stat.CannotBeConvertedOrDominated] > 0)) return;
         var pair = conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, monster));
         if (pair.Value is null) return;
         if (monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && random.Next(100)
-            < GolemStat(skill, definition.Family == "Absolution" ? "absolution_blast_chance_to_summon_on_hitting_rare_or_unique_%" : "dominating_blow_chance_to_summon_on_hitting_unqiue_%"))
+            < GolemStat(skill, definition.Family == "Absolution" ? Stat.AbsolutionBlastChanceToSummonOnHittingRareOrUniquePct : Stat.DominatingBlowChanceToSummonOnHittingUnqiuePct))
             conn.Summons.HitSummons.Add(new(pair.Key, monster, source, gem.Effect, gem.SourceGem, false));
         if (monster.Rarity == MonsterRarity.Unique) return;
-        double duration = SkillDurationModifiers.Seconds(GolemStat(skill, "base_skill_effect_duration"),
+        double duration = SkillDurationModifiers.Seconds(GolemStat(skill, Stat.BaseSkillEffectDuration),
             n => GolemStat(CharacterPlayerStats(conn), n), n => GolemStat(skill, n));
         conn.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration);
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(conn, pair.Key, monster, now);

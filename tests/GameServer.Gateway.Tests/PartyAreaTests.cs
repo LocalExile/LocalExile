@@ -106,7 +106,7 @@ public class PartyAreaTests
             member.LeavingArea = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.LeavingArea = false;
             leader.PlayerLife = 0; Assert.Null(PartyTravel.Member(leader, member.Character!)); leader.PlayerLife = 100;
             var mapArea = new MapDevice.MapArea(graveyard, "test-map", "test map", 12) { Level = 79 };
-            var mods = new MapMods(new Dictionary<string, int> { ["map_item_drop_quantity_+%"] = 40, ["map_item_drop_rarity_+%"] = 30 });
+            var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapItemDropQuantityPlusPct] = 40, [Stat.MapItemDropRarityPlusPct] = 30 });
             var origin = new MapDevice.Origin(town, leader.InstanceNumber, 70, 80);
             try
             {

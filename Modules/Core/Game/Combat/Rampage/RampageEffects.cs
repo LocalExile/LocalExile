@@ -72,7 +72,7 @@ public static partial class Game
             if (!RampageEffectCurrent(conn, epoch)) return;
         }
         var own = tier.Skill.AtLevel(level)!;
-        double cast = tier.Skill.CastTimeMs / 1000.0 / Math.Max(.01, 1 + own.Get("base_cast_speed_+%") / 100.0);
+        double cast = tier.Skill.CastTimeMs / 1000.0 / Math.Max(.01, 1 + own.Get(Stat.BaseCastSpeedPlusPct) / 100.0);
         var steps = RampageExecution.Steps(tier, level);
         double end = cast + steps.Max(s => s.Delay) + .5;
         uint? actor = await CreateRampageActor(conn, tier.Daemon, level, end, null, origin, epoch);
@@ -148,7 +148,7 @@ public static partial class Game
                     if (Dist(target.Walk.Position(job.At), job.Origin) <= 120
                         && conn.RampageWorld.ConsumedCorpses.Add(target))
                     {
-                        double amount = target.MaxLife * own.Get("corpse_explosion_monster_life_%") / 100.0;
+                        double amount = target.MaxLife * own.Get(Stat.CorpseExplosionMonsterLifePct) / 100.0;
                         origins.Add((target.Walk.Position(job.At), DamagePacket.Of(DamageType.Fire, amount, amount)));
                         corpses.Add(corpseId);
                     }
@@ -168,8 +168,8 @@ public static partial class Game
         foreach (var (origin, packet) in origins)
         {
             double radius = job.Step.Kind == RampageExecution.StepKind.Corpses ? RampageExecution.CorpseRadius
-                : Math.Max(0, own.Get("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : RampageExecution.NearbyRadius)
-                    * Math.Sqrt(Math.Max(0, 100 + own.Get("active_skill_area_of_effect_radius_+%_final")) / 100.0)
+                : Math.Max(0, own.Get(Stat.ActiveSkillBaseAreaOfEffectRadius) is > 0 and var r ? r : RampageExecution.NearbyRadius)
+                    * Math.Sqrt(Math.Max(0, 100 + own.Get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)) / 100.0)
                     * job.Step.RadiusPercent / 100;
             (uint Id, SpawnedMonster Monster)[] targets;
             lock (conn.Monsters) targets = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead
@@ -208,7 +208,7 @@ public static partial class Game
         if (hit.Value.Life == 0)
         {
             await MonsterKilledBy(conn, id, target, playerKill: false);
-            if (own?.Get("explode_on_kill_%_fire_damage_to_deal") is int percent and > 0)
+            if (own?.Get(Stat.ExplodeOnKillPctFireDamageToDeal) is int percent and > 0)
                 await RampageKillExplosion(conn, epoch, id, target, percent);
         }
         else if (stun is not null)
@@ -229,13 +229,13 @@ public static partial class Game
     {
         if (own is null || target.Dead) return null;
         RampageStunToken? stun = null;
-        if (own.Get("always_stun") != 0 && !target.Mods.Effects.CannotBeStunned)
+        if (own.Get(Stat.AlwaysStun) != 0 && !target.Mods.Effects.CannotBeStunned)
         {
             target.StunSerial++;
             target.ActionGeneration++;
             target.SwingGeneration = null;
             target.FlinchUntil = Math.Max(target.FlinchUntil,
-                now + .35 * (1 + own.Get("base_stun_duration_+%") / 100.0));
+                now + .35 * (1 + own.Get(Stat.BaseStunDurationPlusPct) / 100.0));
             target.BusyUntil = Math.Max(target.BusyUntil, target.FlinchUntil);
             if (!target.Walk.OnFrames(now)) target.Walk.Cancel(now);   // on frames with the 0x1d1 (TakeHitPacket)
             target.LastTarget = null;
@@ -243,9 +243,9 @@ public static partial class Game
             stun = new(id, target, target.StunSerial, target.ActionGeneration, conn.IncomingHitEpoch,
                 conn.ProjectileEpoch, conn.RampageWorld.Epoch, target.FlinchUntil);
         }
-        if (own.Get("global_chance_to_blind_on_hit_%") > 0 && target.Mods.Effects["cannot_be_blinded"] == 0)
+        if (own.Get(Stat.GlobalChanceToBlindOnHitPct) > 0 && target.Mods.Effects[Stat.CannotBeBlinded] == 0)
         {
-            target.RampageBlindUntil = now + 4 * (1 + own.Get("blind_duration_+%") / 100.0);
+            target.RampageBlindUntil = now + 4 * (1 + own.Get(Stat.BlindDurationPlusPct) / 100.0);
             ushort buff = conn.RampageWorld.Blinds.TryGetValue(id, out var old) ? old.Buff : conn.NextBuff++;
             conn.RampageWorld.Blinds[id] = (target.RampageBlindUntil, buff);
         }
@@ -325,7 +325,7 @@ public static partial class Game
     // Under conn.Monsters.
     static bool RampageBlindEndsLocked(Player conn, RampageWorld world, uint id, double until, double now) =>
         !world.Enabled || until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead || target.Life == 0
-        || target.Mods.Effects["cannot_be_blinded"] != 0;
+        || target.Mods.Effects[Stat.CannotBeBlinded] != 0;
 
     static Task ExpireRampageBlinds(Player conn) =>
         !RampageBlindWork(conn) ? Task.CompletedTask :

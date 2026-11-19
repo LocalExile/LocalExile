@@ -51,7 +51,7 @@ public sealed class LeechSession
         return double.IsFinite(next) ? next : null;
     }
 
-    public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws = 0)
+    public void Configure(double now, LeechLimits.Snapshot value, Func<uint, int> get, int equippedClaws = 0)
     {
         var before = Active(now);
         int count = Count;
@@ -60,21 +60,21 @@ public sealed class LeechSession
         DisplayChanged?.Invoke();
     }
 
-    void ConfigureCore(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws)
+    void ConfigureCore(double now, LeechLimits.Snapshot value, Func<uint, int> get, int equippedClaws)
     {
         limits = value;
-        convertLifeToEnergyShield = get("keystone_ghost_reaver") != 0 || get("leech_energy_shield_instead_of_life") != 0;
-        keepLife = get("life_leech_does_not_stop_at_full_life") != 0
-            || get("virtual_life_leech_does_not_stop_at_full_life") != 0;
-        keepEnergyShield = get("energy_shield_leech_does_not_stop_on_full_energy_shield") != 0;
-        keepAttackEnergyShield = get("energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield") != 0;
-        recoverLife = get("cannot_recover_life") == 0;
-        recoverEnergyShield = get("cannot_recover_energy_shield") == 0;
+        convertLifeToEnergyShield = get(Stat.KeystoneGhostReaver) != 0 || get(Stat.LeechEnergyShieldInsteadOfLife) != 0;
+        keepLife = get(Stat.LifeLeechDoesNotStopAtFullLife) != 0
+            || get(Stat.VirtualLifeLeechDoesNotStopAtFullLife) != 0;
+        keepEnergyShield = get(Stat.EnergyShieldLeechDoesNotStopOnFullEnergyShield) != 0;
+        keepAttackEnergyShield = get(Stat.EnergyShieldLeechFromAttacksDoesNotStopOnFullEnergyShield) != 0;
+        recoverLife = get(Stat.CannotRecoverLife) == 0;
+        recoverEnergyShield = get(Stat.CannotRecoverEnergyShield) == 0;
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
-        double commonInstant = (double)get("leech_%_is_instant")
-            + (equippedClaws > 0 ? get("leech_%_is_instant_while_wielding_claw") : 0);
-        lifeInstant = Math.Clamp(commonInstant + get("life_leech_%_is_instant")
-                + (double)equippedClaws * get("life_leech_%_is_instant_per_equipped_claw"), 0, 100);
+        double commonInstant = (double)get(Stat.LeechPctIsInstant)
+            + (equippedClaws > 0 ? get(Stat.LeechPctIsInstantWhileWieldingClaw) : 0);
+        lifeInstant = Math.Clamp(commonInstant + get(Stat.LifeLeechPctIsInstant)
+                + (double)equippedClaws * get(Stat.LifeLeechPctIsInstantPerEquippedClaw), 0, 100);
         manaInstant = Math.Clamp(commonInstant, 0, 100);
         shieldInstant = Math.Clamp(commonInstant, 0, 100);
         // GGG 3.22.1d explicitly preserves Life-instant sources through Ghost Reaver. Keep that source scope:
@@ -83,12 +83,12 @@ public sealed class LeechSession
         foreach (var resource in value.Resources)
         {
             var state = State(resource.Pool);
-            double speed = (double)get($"{resource.Pool}_leech_speed_+%") + get("life_mana_es_leech_speed_+%");
+            double speed = (double)get(Stat.Of($"{resource.Pool}_leech_speed_+%")) + get(Stat.LifeManaEsLeechSpeedPlusPct);
             double total = Math.Max(0, 1 + speed / 100);
             // Both raw flags describe the same boolean doubling; two copies do not quadruple recovery.
-            if (resource.Pool == "life" && (get("life_leech_speed_is_doubled") != 0
-                || get("total_recovery_per_minute_from_life_leech_is_doubled") != 0)) total *= 2;
-            double recovery = Math.Max(0, 1 + get($"{resource.Pool}_recovery_rate_+%") / 100.0);
+            if (resource.Pool == "life" && (get(Stat.LifeLeechSpeedIsDoubled) != 0
+                || get(Stat.TotalRecoveryPerMinuteFromLifeLeechIsDoubled) != 0)) total *= 2;
+            double recovery = Math.Max(0, 1 + get(Stat.Of($"{resource.Pool}_recovery_rate_+%")) / 100.0);
             if (resource.Pool == "life" && !recoverLife || resource.Pool == "energy_shield" && !recoverEnergyShield) recovery = 0;
             state.Configure(now, new(total, resource.MaximumPerSecond, recovery));
             if (resource.CannotLeech) state.Clear(now);

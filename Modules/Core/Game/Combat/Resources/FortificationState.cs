@@ -10,10 +10,10 @@ public sealed class FortificationState
     public const int BaseMaximum = 20;
     public const double BaseDurationSeconds = 6;
     public const double HitGainIntervalSeconds = .1;
-    public const string MaximumStat = "base_max_fortification";
-    public const string DurationStat = "fortify_duration_+%";
-    public const string LifeRegenPerStack = "life_regeneration_per_minute_%_per_fortification";
-    public const string AttackSpeedPerStack = "attack_speed_+%_per_fortification";
+    public const uint MaximumStat = Stat.BaseMaxFortification;
+    public const uint DurationStat = Stat.FortifyDurationPlusPct;
+    public const uint LifeRegenPerStack = Stat.LifeRegenerationPerMinutePctPerFortification;
+    public const uint AttackSpeedPerStack = Stat.AttackSpeedPlusPctPerFortification;
 
     readonly List<Grant> grants = [];
     public double ExpiryRate { get; private set; } = 1;

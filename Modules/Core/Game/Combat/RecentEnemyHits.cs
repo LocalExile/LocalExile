@@ -8,7 +8,7 @@ public static partial class Game
     public static (int Count, int Chance) RecentEnemyHitStatsLocked(Player conn, IReadOnlyDictionary<uint, int> sources)
     {
         int count = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
-        int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
+        int Get(uint key) => sources.GetValueOrDefault(key);
         return (count, RecentEnemyHits.Chance(count, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance)));
     }
 
@@ -16,15 +16,15 @@ public static partial class Game
     {
         var value = RecentEnemyHitStatsLocked(conn, stats);
         if (conn.RecentEnemyHits.NextChangeIn(conn.Clock.Elapsed.TotalSeconds) is double left) StatsChangeIn(left);
-        if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;
-        if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
+        if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
+        if (RecentEnemyHits.VirtualChance is var chance) stats[chance] = value.Chance;
     }
 
     public static RecentEnemyHits.Decision IncomingArmourLocked(Player conn, bool relevant, int priorContacts,
         IReadOnlyDictionary<uint, int> stats)
     {
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         int chance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance));
         return RecentEnemyHits.Resolve(conn.Pools.Armour, chance, relevant, conn.IncomingHitRandom);
     }
@@ -40,8 +40,8 @@ public static partial class Game
                 var value = RecentEnemyHitStatsLocked(conn, CharacterPlayerStats(conn));
                 if (conn.PresentedRecentEnemyHits == value) return null;
                 var stats = new Dictionary<uint, int>();
-                if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;
-                if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
+                if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
+                if (RecentEnemyHits.VirtualChance is var chance) stats[chance] = value.Chance;
                 return PlayerStatsUpdateAtGate(conn, stats.Select(kv => (kv.Key, kv.Value)).ToList());
             }
         });

@@ -9,16 +9,16 @@ public class UniqueFlaskTests
     [Fact]
     public void During_effect_mods_scale_and_recovery_flask_stats_end_with_the_recovery()
     {
-        var local = new Dictionary<string, int>
+        var local = new Dictionary<uint, int>
         {
-            ["local_flask_number_of_additional_projectiles_during_flask_effect"] = 2,
-            ["local_unique_flask_item_rarity_+%_while_healing"] = 45,
-            ["local_unique_flask_resist_all_elements_%_during_flask_effect"] = 10,
+            [Stat.LocalFlaskNumberOfAdditionalProjectilesDuringFlaskEffect] = 2,
+            [Stat.LocalUniqueFlaskItemRarityPlusPctWhileHealing] = 45,
+            [Stat.LocalUniqueFlaskResistAllElementsPctDuringFlaskEffect] = 10,
         };
         var sources = UtilityFlasks.DuringEffectSources(local, 1.5);
-        Assert.Contains(sources, s => s is { Stat: "number_of_additional_projectiles", Value: 3 });
-        Assert.Contains(sources, s => s is { Stat: "base_item_found_rarity_+%", Value: 67 });
-        Assert.Contains(sources, s => s is { Stat: "base_resist_all_elements_%", Value: 15 });
+        Assert.Contains(sources, s => s is { Stat: Stat.NumberOfAdditionalProjectiles, Value: 3 });
+        Assert.Contains(sources, s => s is { Stat: Stat.BaseItemFoundRarityPlusPct, Value: 67 });
+        Assert.Contains(sources, s => s is { Stat: Stat.BaseResistAllElementsPct, Value: 15 });
 
         var running = new Flasks.Effects();
         var recovery = new Flasks.Effect(0, 1, 121, 100, 28, 0, 5);
@@ -35,16 +35,16 @@ public class UniqueFlaskTests
         CinderswallowRetainsOnlyTheQualifyingIgnite();
 
         var player = new Dictionary<uint, int>();
-        void Set(string name, int value) => player[Program.Stats.Key(name)!.Value] = value;
-        Set("damage_+%", 100);
-        Set("area_damage_+%", 50);
-        Set("elemental_damage_+%", 50);
-        Set("attack_damage_+%", 900);
-        Set("spell_damage_+%", 900);
+        void Set(uint name, int value) => player[name] = value;
+        Set(Stat.DamagePlusPct, 100);
+        Set(Stat.AreaDamagePlusPct, 50);
+        Set(Stat.ElementalDamagePlusPct, 50);
+        Set(Stat.AttackDamagePlusPct, 900);
+        Set(Stat.SpellDamagePlusPct, 900);
         Assert.Equal(30, Game.OriathExplosionPacket(100, DamageType.Fire, player)[DamageType.Fire].Min);
-        Set("fire_damage_%_to_add_as_chaos", 20);
+        Set(Stat.FireDamagePctToAddAsChaos, 20);
         Assert.Equal(6, Game.OriathExplosionPacket(100, DamageType.Fire, player)[DamageType.Chaos].Min);
-        Set("base_deal_no_fire_damage", 1);
+        Set(Stat.BaseDealNoFireDamage, 1);
         Assert.Equal(0, Game.OriathExplosionPacket(100, DamageType.Fire, player)[DamageType.Fire].Min);
     }
 
@@ -52,9 +52,9 @@ public class UniqueFlaskTests
     [Fact]
     public void Bottled_Faith_ground_and_Stormblood_critical_ailments()
     {
-        var local = new Dictionary<string, int>
+        var local = new Dictionary<uint, int>
         {
-            ["local_consecrate_ground_on_flask_use_radius"] = 18,
+            [Stat.LocalConsecrateGroundOnFlaskUseRadius] = 18,
             [FlaskGrounds.ConsecratedAreaStat] = 200,
         };
         Assert.Equal((FlaskGrounds.Kind.ConsecratedGround, 54), FlaskGrounds.OnUse(local).Single());
@@ -65,7 +65,7 @@ public class UniqueFlaskTests
         Assert.Equal(0, conn.FlaskGrounds.ConsecratedEnemyDamageTaken((200, 200)));
 
         var physical = DamagePacket.Of(DamageType.Physical, 1000, 1000);
-        int Stormblood(string name) => name == "all_damage_from_critical_strikes_can_freeze" ? 1 : 0;
+        int Stormblood(uint name) => name == Stat.AllDamageFromCriticalStrikesCanFreeze ? 1 : 0;
         bool Freezes(bool critical) => new MonsterElementalAilments().Inflict(physical, critical, threshold: 1000, now: 0,
             Stormblood, _ => 0, new Random(1)).Any(e => e.Kind == MonsterElementalAilments.Kind.Freeze);
         Assert.True(Freezes(critical: true));
@@ -82,9 +82,9 @@ public class UniqueFlaskTests
         Assert.Equal(2500, Game.CriticalChanceOn(conn, 7, 500, 1500, critical));
     }
 
-    static void StartFlask(Player conn, string stat, int value) =>
+    static void StartFlask(Player conn, uint stat, int value) =>
         conn.UtilityFlaskEffects.Start(new(1, 0, "test", new(0, 0, "test", [], 10, 1, 10), 1, null,
-            [new("mod " + stat, stat, value)], 0, 10));
+            [new("mod " + Program.Stats.Name(stat), stat, value)], 0, 10));
 
     static void CinderswallowRetainsOnlyTheQualifyingIgnite()
     {

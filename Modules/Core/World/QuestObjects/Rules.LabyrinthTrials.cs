@@ -1411,8 +1411,8 @@ static partial class QuestobjectsRules
     static bool CannotBleed(Player conn)
     {
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        return Get("cannot_gain_bleeding") != 0 || Get("virtual_immune_to_bleeding") != 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        return Get(Stat.CannotGainBleeding) != 0 || Get(Stat.VirtualImmuneToBleeding) != 0;
     }
 
     // A trial hit contributes to the shared incoming ailment owner. The recovery writer advances it;
@@ -1591,8 +1591,8 @@ static partial class QuestobjectsRules
     {
         if (hit <= 0) return Task.CompletedTask;
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("cannot_be_poisoned") == 0 && Get("immune_to_poison") == 0)
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.CannotBePoisoned) == 0 && Get(Stat.ImmuneToPoison) == 0)
             lock (conn.Monsters)
                 conn.IncomingAilments.ApplyPoison(conn.Clock.Elapsed.TotalSeconds,
                     hit * LabyrinthTrials.ArrowPoisonPerSecond, LabyrinthTrials.ArrowPoisonSeconds);
@@ -1612,7 +1612,7 @@ static partial class QuestobjectsRules
     // to their whole movement speed.
     internal static Dictionary<uint, int> WithDartSlow(Player conn, Dictionary<uint, int> sources)
     {
-        if (DartSlows.TryGetValue(conn, out var slow) && slow.Active && Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint key)
+        if (DartSlows.TryGetValue(conn, out var slow) && slow.Active && LabyrinthTrials.ArrowSlowStat is var key)
             sources[key] = sources.GetValueOrDefault(key) + LabyrinthTrials.ArrowSlowPercent;
         return sources;
     }

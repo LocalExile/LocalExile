@@ -430,7 +430,7 @@ public static partial class Game
         if (active)
         {
             var rawStats = CharacterStatSources(conn).Stats;
-            Func<string, int> raw = name => Stats.Key(name) is uint key
+            Func<uint, int> raw = name => name is var key
                 ? rawStats.GetValueOrDefault(key)
                 : 0;
             phaseValues = CatAspectPhaseValues(state.Cat,

@@ -216,8 +216,8 @@ public sealed class ShrineTests
         using var stats = GameEvents.PlayerStatSources.Add("shrine-regression", ShrineManager.AddStats);
         try
         {
-            var opening = new MapDevice.Opening(new(1, "test", "Test", 1), new MapMods(new Dictionary<string, int>
-                { ["map_num_extra_apparition_shrines"] = 2 }));
+            var opening = new MapDevice.Opening(new(1, "test", "Test", 1), new MapMods(new Dictionary<uint, int>
+                { [Stat.MapNumExtraApparitionShrines] = 2 }));
             var request = new MapOpening(conn, [], false, opening, "");
             ShrineMapAdmission.Check(request);
             Assert.Null(request.Opening);
@@ -304,25 +304,25 @@ public sealed class ShrineTests
             var ctx = new ShrineContext(conn, 0);
             foreach (var effect in first.Before) await effect.OnNearbyMonsterEnter(ctx, first, 0x7070);
             foreach (var effect in overlapping.Before) await effect.OnNearbyMonsterEnter(ctx, overlapping, 0x7070);
-            Assert.Equal(50, monster.Effects["base_resist_all_elements_%"]);
+            Assert.Equal(50, monster.Effects[Stat.BaseResistAllElementsPct]);
             Assert.Equal(85, Game.MonsterHitResistance(monster, DamageType.Fire, default).Maximum);
-            var encounterStats = new Dictionary<string, int> { ["damage_+%"] = 23 };
+            var encounterStats = new Dictionary<uint, int> { [Stat.DamagePlusPct] = 23 };
             monster.EncounterStats = encounterStats;
             foreach (var effect in first.Before) await effect.OnActivation(ctx, first);
-            Assert.Equal(50, monster.Effects["base_resist_all_elements_%"]);
+            Assert.Equal(50, monster.Effects[Stat.BaseResistAllElementsPct]);
             foreach (var effect in overlapping.Before) await effect.OnMapUnload(ctx, overlapping);
-            Assert.Equal(0, monster.Effects["base_resist_all_elements_%"]);
-            Assert.Equal(23, monster.Effects["damage_+%"]);
+            Assert.Equal(0, monster.Effects[Stat.BaseResistAllElementsPct]);
+            Assert.Equal(23, monster.Effects[Stat.DamagePlusPct]);
             // The Acceleration aura adds 60% action speed; a 30% chill subtracts from that increase.
-            encounterStats["action_speed_-%"] = -60;
+            encounterStats[Stat.ActionSpeedMinusPct] = -60;
             monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 10, 0, _ => 0, _ => 0, 1, 30);
             Assert.Equal(1.3, Game.MonsterActionFactor(monster, 0), 8);
-            encounterStats["action_speed_cannot_be_reduced_below_base"] = 1;
+            encounterStats[Stat.ActionSpeedCannotBeReducedBelowBase] = 1;
             Assert.Equal(1.3, Game.MonsterActionFactor(monster, 0), 8);
             monster.ReceivedActionFactor = .5; monster.ReceivedActionUntil = 10;
             Assert.Equal(1, Game.MonsterActionFactor(monster, 0), 8);
-            encounterStats.Remove("action_speed_-%");
-            encounterStats.Remove("action_speed_cannot_be_reduced_below_base");
+            encounterStats.Remove(Stat.ActionSpeedMinusPct);
+            encounterStats.Remove(Stat.ActionSpeedCannotBeReducedBelowBase);
             monster.ReceivedActionUntil = 0;
             var divine = ShrineCatalog.Find("GodMode")!;
             var god = new ShrineInstance { Definition = divine, At = (112, 100), Before = ShrineRegistry.Before(divine) };

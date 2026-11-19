@@ -5,8 +5,8 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     public const string PhysicalAegisEffect = "PhysicalAegis";
-    public const string PhysicalAegisBlindStat =
-        "nearby_enemies_are_blinded_while_you_have_active_physical_aegis";
+    public const uint PhysicalAegisBlindStat =
+        Stat.NearbyEnemiesAreBlindedWhileYouHaveActivePhysicalAegis;
     // The Ghastly Theatre's "nearby" range is estimated at 5 m (50 cells at the project's 10 cells per metre).
     // It is an item condition, not an aura skill: aura area modifiers do not scale it.
     public const int PhysicalAegisNearbyRadius = 50;
@@ -87,11 +87,11 @@ public static partial class Game
     {
         var stats = SkillsFor(conn).EffectStats(grant.Effect, grant.Level)
             .ToDictionary(row => row.Item1, row => row.Item2);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int maximum = Get("aegis_unique_shield_max_value");
-        int delayMs = Get("aegis_recharge_delay_ms");
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int maximum = Get(Stat.AegisUniqueShieldMaxValue);
+        int delayMs = Get(Stat.AegisRechargeDelayMs);
         if (maximum <= 0 || delayMs <= 0) return null;
-        return (maximum, delayMs / 1000.0, Get("active_skill_display_aegis_variation"));
+        return (maximum, delayMs / 1000.0, Get(Stat.ActiveSkillDisplayAegisVariation));
     }
 
     public static int PhysicalAegisRadius(Player conn, PhysicalAegisState state)
@@ -125,7 +125,7 @@ public static partial class Game
             if (!state.Active || conn.PlayerLife == 0 || conn.Paused || conn.LeavingArea
                 || !PhysicalAegisHasBlind(conn, state)
                 || target is not { Hostile: true, Dead: false, Life: > 0 }
-                || target.Mods.Effects["cannot_be_blinded"] != 0) return false;
+                || target.Mods.Effects[Stat.CannotBeBlinded] != 0) return false;
             return Dist(target.Walk.Position(now), conn.Walk.Position(now)) <= PhysicalAegisRadius(conn, state);
         }
     }

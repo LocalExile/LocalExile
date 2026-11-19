@@ -6,8 +6,8 @@ namespace GameServer.Gateway.Tests;
 // Red/blue supports whose stats had no consumer: Maim, Bloodlust, Power Charge on Critical and Volatility.
 public sealed class RedSupportMechanicsTests
 {
-    static Func<string, int> Stats(params (string Name, int Value)[] stats) =>
-        name => stats.Where(s => s.Name == name).Sum(s => s.Value);
+    static Func<uint, int> Stats(params (string Name, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Name) == name).Sum(s => s.Value);
 
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
         stats.ToDictionary(s => Program.Stats.Key(s.Name) ?? throw new InvalidOperationException(s.Name), s => s.Value);
@@ -16,7 +16,7 @@ public sealed class RedSupportMechanicsTests
     public void Maim_bloodlust_power_charges_and_volatility_apply()
     {
         static MonsterModSet Target(params (string Name, int Value)[] stats) =>
-            new([], [], new(stats.ToDictionary(s => s.Name, s => s.Value)));
+            new([], [], new(stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value)));
 
         // A plain hit Maims for 4 s and changes movement only.
         var plain = new SpawnedMonster("plain", new(105, 100, 100), 0, 0, 1000);

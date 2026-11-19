@@ -17,15 +17,15 @@ public class RationalDoctrineTests
         Assert.Equal(4000, Stat(jewel!, "ConsecratedGroundLingersUnique__1"));
         Assert.Equal(4000, Stat(jewel!, "ProfaneGroundLingersUnique__1"));
 
-        var stats = new Dictionary<string, int>
+        var stats = new Dictionary<uint, int>
         {
-            ["strength"] = 100, ["dexterity"] = 50, ["intelligence"] = 99,
+            [global::Stat.Strength] = 100, [global::Stat.Dexterity] = 50, [global::Stat.Intelligence] = 99,
             [FlaskGrounds.ProfaneChanceStat] = 25,
         };
         Assert.Equal(0, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
-        stats["intelligence"] = 100;
+        stats[global::Stat.Intelligence] = 100;
         Assert.Equal(25, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
-        stats["intelligence"] = 101;
+        stats[global::Stat.Intelligence] = 101;
         Assert.Equal(25, FlaskGrounds.ProfaneChance(name => stats.GetValueOrDefault(name)));
 
         var conn = new Player(new(1, "rational", 100, 100, 100, 100, null, []), 0, 1);

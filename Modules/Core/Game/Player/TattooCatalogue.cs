@@ -34,19 +34,19 @@ public static class TattooCatalogue
 
     public static bool TargetMatches(PassiveTree.Node node, string target)
     {
-        bool Has(string stat, int value) => node.Stats.Any(s => Stats.Name(s.Key) == stat && s.Value == value);
-        bool Attribute(string stat) => node.Stats.Count == 1 && Has(stat, node.Stats[0].Value) && node.Stats[0].Value > 0;
+        bool Has(uint stat, int value) => node.Stats.Any(s => s.Key == stat && s.Value == value);
+        bool Attribute(uint stat) => node.Stats.Count == 1 && Has(stat, node.Stats[0].Value) && node.Stats[0].Value > 0;
         bool small = !node.IsNotable && !node.IsKeystone && !node.IsAscendancy && !node.IsStart
             && !node.IsJewelSocket && !node.IsMastery && !node.IsProxy && !node.IsExpansion;
         return target switch
         {
-            "Small Strength" => small && Attribute("base_strength"),
-            "Small Dexterity" => small && Attribute("base_dexterity"),
-            "Small Intelligence" => small && Attribute("base_intelligence"),
-            "Small Attribute" => small && (Attribute("base_strength") || Attribute("base_dexterity") || Attribute("base_intelligence")),
-            "Notable (+30 to Strength)" => node.IsNotable && Has("base_strength", 30),
-            "Notable (+30 to Dexterity)" => node.IsNotable && Has("base_dexterity", 30),
-            "Notable (+30 to Intelligence)" => node.IsNotable && Has("base_intelligence", 30),
+            "Small Strength" => small && Attribute(Stat.BaseStrength),
+            "Small Dexterity" => small && Attribute(Stat.BaseDexterity),
+            "Small Intelligence" => small && Attribute(Stat.BaseIntelligence),
+            "Small Attribute" => small && (Attribute(Stat.BaseStrength) || Attribute(Stat.BaseDexterity) || Attribute(Stat.BaseIntelligence)),
+            "Notable (+30 to Strength)" => node.IsNotable && Has(Stat.BaseStrength, 30),
+            "Notable (+30 to Dexterity)" => node.IsNotable && Has(Stat.BaseDexterity, 30),
+            "Notable (+30 to Intelligence)" => node.IsNotable && Has(Stat.BaseIntelligence, 30),
             "Keystone" => node.IsKeystone,
             "Mastery" => node.IsMastery,
             // A Forbidden tattoo replaces an ascendancy notable, not a small ascendancy node.

@@ -39,15 +39,15 @@ public static partial class Game
         if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
             || SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
         var player = CharacterPlayerStats(conn);
-        int Get(string name) => VaalSoulInput(conn, player, gem.Stats, name);
-        int Sum(params string[] names) => (int)Math.Clamp(names.Sum(n => (long)Get(n)), int.MinValue, int.MaxValue);
-        bool conversion = VaalRageCost.ReplacesSouls(Get("vaal_attack_rage_cost_instead_of_souls_per_use") != 0,
+        int Get(uint name) => VaalSoulInput(conn, player, gem.Stats, name);
+        int Sum(params uint[] names) => (int)Math.Clamp(names.Sum(n => (long)Get(n)), int.MinValue, int.MaxValue);
+        bool conversion = VaalRageCost.ReplacesSouls(Get(Stat.VaalAttackRageCostInsteadOfSoulsPerUse) != 0,
             true, SkillsFor(conn).IsAttack(gem.Effect), true);
-        bool free = Get("no_cost") != 0 || Get("virtual_no_cost") != 0 || Get("skill_no_cost_or_reservation") != 0;
-        int rage = VaalRageCost.Calculate(Math.Max(0, Get("total_base_rage_cost")), (int)definition.BaseCost,
-            conversion, true, SkillsFor(conn).IsAttack(gem.Effect), true, new(Get("base_cost_+%"), Get("base_rage_cost_+%"),
-                Get("cost_+%_final"), Sum("base_skill_cost_efficiency_+%", "base_attack_skill_cost_efficiency_+%"),
-                Get("base_rage_cost_efficiency_+%"), free));
+        bool free = Get(Stat.NoCost) != 0 || Get(Stat.VirtualNoCost) != 0 || Get(Stat.SkillNoCostOrReservation) != 0;
+        int rage = VaalRageCost.Calculate(Math.Max(0, Get(Stat.TotalBaseRageCost)), (int)definition.BaseCost,
+            conversion, true, SkillsFor(conn).IsAttack(gem.Effect), true, new(Get(Stat.BaseCostPlusPct), Get(Stat.BaseRageCostPlusPct),
+                Get(Stat.CostPlusPctFinal), Sum(Stat.BaseSkillCostEfficiencyPlusPct, Stat.BaseAttackSkillCostEfficiencyPlusPct),
+                Get(Stat.BaseRageCostEfficiencyPlusPct), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
         uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(conn, id).GetValueOrDefault(Stat.ManaCost));
         // Lifetap turns the whole upfront cost into Life.
@@ -59,15 +59,15 @@ public static partial class Game
         }
         int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
-        bool buffScaled = Get("modifiers_to_buff_effect_duration_also_affect_soul_prevention_duration") != 0;
+        bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;
         double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats)
-            : Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
+            : Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0
             ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;
-        double prevention = Get("vaal_skill_does_not_apply_soul_gain_prevention") != 0
-            || Get("map_player_disable_soul_gain_prevention") != 0 ? 0
+        double prevention = Get(Stat.VaalSkillDoesNotApplySoulGainPrevention) != 0
+            || Get(Stat.MapPlayerDisableSoulGainPrevention) != 0 ? 0
             : Math.Max(0, preventionBase
-                * (1 + Get("vaal_skill_soul_gain_prevention_+%_final_from_pact_of_ktash") / 100.0));
+                * (1 + Get(Stat.VaalSkillSoulGainPreventionPlusPctFinalFromPactOfKtash) / 100.0));
         return new(id, gem.Effect, conn.ActionCount, conn.ProjectileEpoch, rage, souls, mana, life, prevention)
             { RageConverted = conversion };
     }
@@ -125,16 +125,16 @@ public static partial class Game
             CriticalRoll = CaptureSkillCriticalRoll(conn, plan.Skill), RecoveryGeneration = conn.ActionInterruptionGeneration };
     }
 
-    public const string MaximumPowerOnVaalUse = "gain_maximum_power_charges_on_vaal_skill_use";
+    public const uint MaximumPowerOnVaalUse = Stat.GainMaximumPowerChargesOnVaalSkillUse;
     public static void GrantVaalUseChargesLocked(Player conn, double at)
     {
         if (conn.Paused || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameWork) return;
         var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         if (Get(MaximumPowerOnVaalUse) <= 0) return;
         var session = ChargesOf(conn); session.Observe(Get);
         var step = session.Admit(at, [new ChargeEvent.Grant(ChargeType.Power, session.Limits(ChargeType.Power).Maximum,
-            MaximumPowerOnVaalUse)], Get, () => WeaponProfileFor(conn), true, Random.Shared);
+            Stats.Name(MaximumPowerOnVaalUse))], Get, () => WeaponProfileFor(conn), true, Random.Shared);
         if (step.CountsChanged) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
     }
 
@@ -174,12 +174,12 @@ public static partial class Game
     static void PublishVaalRageCost(Player conn, ushort id, Dictionary<uint, int> stats)
     {
         if (PlanVaalUse(conn, id) is not { } plan) return;
-        void Put(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
-        Put("rage_cost", plan.Rage);
+        void Put(uint name, int value) { if (name is var key) stats[key] = value; }
+        Put(Stat.RageCost, plan.Rage);
         var gem = SupportedSkill(conn, id);
         var player = CharacterPlayerStats(conn);
-        if (VaalSoulInput(conn, player, gem.Stats, "vaal_attack_rage_cost_instead_of_souls_per_use") != 0
-            && SkillsFor(conn).IsAttack(gem.Effect)) Put("virtual_vaal_skill_require_no_souls_per_use", 1);
+        if (VaalSoulInput(conn, player, gem.Stats, Stat.VaalAttackRageCostInsteadOfSoulsPerUse) != 0
+            && SkillsFor(conn).IsAttack(gem.Effect)) Put(Stat.VirtualVaalSkillRequireNoSoulsPerUse, 1);
     }
 
     static async Task PublishVaalUse(Player conn,

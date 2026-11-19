@@ -14,17 +14,16 @@ public static partial class Game
         public static Cull Of(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? skill, bool critical,
             bool spell)
         {
-            int Get(string name) => Stats.Key(name) is uint k
-                ? (player?.GetValueOrDefault(k) ?? 0) + (skill?.GetValueOrDefault(k) ?? 0) : 0;
-            int threshold = Get("kill_enemy_on_hit_if_under_20%_life") > 0 ? 20
-                : Get("kill_enemy_on_hit_if_under_15%_life") > 0 ? 15
-                : Get("kill_enemy_on_hit_if_under_10%_life") > 0 || critical && Get("crits_have_culling_strike") > 0
-                    || spell && Get("spells_have_culling_strike") > 0 ? 10 : 0;
+            int Get(uint k) => (player?.GetValueOrDefault(k) ?? 0) + (skill?.GetValueOrDefault(k) ?? 0);
+            int threshold = Get(Stat.KillEnemyOnHitIfUnder20PctLife) > 0 ? 20
+                : Get(Stat.KillEnemyOnHitIfUnder15PctLife) > 0 ? 15
+                : Get(Stat.KillEnemyOnHitIfUnder10PctLife) > 0 || critical && Get(Stat.CritsHaveCullingStrike) > 0
+                    || spell && Get(Stat.SpellsHaveCullingStrike) > 0 ? 10 : 0;
             // "Kill Normal or Magic Enemies that have X% Life or lower when Hit by Supported Skills" (Cull the Weak).
-            int normalMagic = Math.Clamp(Get("kill_normal_or_magic_enemy_on_hit_if_under_x%_life"), 0, 100);
-            bool cannotKill = Get("hits_cannot_kill_enemies") != 0;
+            int normalMagic = Math.Clamp(Get(Stat.KillNormalOrMagicEnemyOnHitIfUnderXPctLife), 0, 100);
+            bool cannotKill = Get(Stat.HitsCannotKillEnemies) != 0;
             return threshold == 0 && normalMagic == 0 && !cannotKill ? default
-                : new(threshold, Get("recover_%_maximum_life_on_cull"), normalMagic, cannotKill);
+                : new(threshold, Get(Stat.RecoverPctMaximumLifeOnCull), normalMagic, cannotKill);
         }
     }
 
@@ -45,16 +44,16 @@ public static partial class Game
         // "crit recently" sources need extra context and stay outside this. Pacifism (CannotKill) is never overridden.
         if (threshold == 0 && !cull.CannotKill && cullStats is not null)
         {
-            int Get(string name) => Stats.Key(name) is uint k ? cullStats.GetValueOrDefault(k) : 0;
+            int Get(uint k) => cullStats.GetValueOrDefault(k);
             bool applies = false;
-            if (Get("culling_strike_on_burning_enemies") != 0 && BurningTarget(conn, m)) applies = true;
-            if (Get("culling_strike_on_frozen_enemies") != 0
+            if (Get(Stat.CullingStrikeOnBurningEnemies) != 0 && BurningTarget(conn, m)) applies = true;
+            if (Get(Stat.CullingStrikeOnFrozenEnemies) != 0
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, conn.Clock.Elapsed.TotalSeconds) > 0) applies = true;
-            if (Get("culling_strike_vs_cursed_enemies") != 0 && m.Curses.All.Count > 0) applies = true;
-            if (Get("culling_strike_vs_marked_enemy") != 0 && m.Curses.All.Values.Any(c => c.Mark)) applies = true;
-            if (Get("culling_strike_on_enemies_affected_by_poachers_mark") != 0
+            if (Get(Stat.CullingStrikeVsCursedEnemies) != 0 && m.Curses.All.Count > 0) applies = true;
+            if (Get(Stat.CullingStrikeVsMarkedEnemy) != 0 && m.Curses.All.Values.Any(c => c.Mark)) applies = true;
+            if (Get(Stat.CullingStrikeOnEnemiesAffectedByPoachersMark) != 0
                 && m.Curses.All.Values.Any(c => c.Effect == "PoachersMark")) applies = true;
-            if (Get("culled_if_hit_while_under_10%_life") != 0 && m.Life * 100L <= m.MaxLife * 10L) applies = true;
+            if (Get(Stat.CulledIfHitWhileUnder10PctLife) != 0 && m.Life * 100L <= m.MaxLife * 10L) applies = true;
             if (applies) threshold = 10;
         }
         if (cull.CannotKill)
@@ -69,7 +68,7 @@ public static partial class Game
         m.Overkill = beforeHit > 0 && hit.Life == 0
             ? (int)Math.Clamp((long)damage - beforeHit, 0, int.MaxValue) : 0;
         if (threshold == 0 || hit.Life == 0 || hit.StageStarts || m.StageRunning
-            || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;
+            || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects[Stat.ImmuneToCullingStrike] != 0) return hit;
         m.Life = hit.Life;
         hit = TakeOwnerDamageLocked(conn, m, (int)hit.Life, rampageSource, player);
         bool cannotRecoverLife = cullStats is not null && Stat.CannotRecoverLife is var ck
@@ -85,9 +84,9 @@ public static partial class Game
         }
         if (hit.Life == 0 && cullStats is not null)
         {
-            int Get(string name) => Stats.Key(name) is uint k ? cullStats.GetValueOrDefault(k) : 0;
-            int lifeGained = Get("life_gained_on_cull");
-            int manaGained = Get("mana_gained_on_cull");
+            int Get(uint k) => cullStats.GetValueOrDefault(k);
+            int lifeGained = Get(Stat.LifeGainedOnCull);
+            int manaGained = Get(Stat.ManaGainedOnCull);
             if (!cannotRecoverLife && lifeGained > 0 && conn.PlayerLife > 0)
             {
                 // The same capped recovery the other instant Life sources use: reserved Life and Petrified Blood apply.

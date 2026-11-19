@@ -9,17 +9,17 @@ public static partial class Game
     static readonly Store<Player, Dictionary<ushort, int>> RuthlessCounts = new();
 
     // This use's more melee hit damage: 1 for a skill without Ruthless or a use that is not its count's last.
-    public static double RuthlessBlowMore(Dictionary<ushort, int> counts, ushort skillId, Func<string, int> skill)
+    public static double RuthlessBlowMore(Dictionary<ushort, int> counts, ushort skillId, Func<uint, int> skill)
     {
-        int max = skill("support_ruthless_big_hit_max_count");
+        int max = skill(Stat.SupportRuthlessBigHitMaxCount);
         if (max <= 0) return 1;
         int count = counts.GetValueOrDefault(skillId) + 1;
         bool blow = count >= max;
         counts[skillId] = blow ? 0 : count;
-        return blow ? Math.Max(0, 1 + skill("support_ruthless_big_hit_damage_+%_final") / 100.0) : 1;
+        return blow ? Math.Max(0, 1 + skill(Stat.SupportRuthlessBigHitDamagePlusPctFinal) / 100.0) : 1;
     }
 
-    public static double RuthlessBlowMore(Player conn, ushort skillId, Func<string, int> skill)
+    public static double RuthlessBlowMore(Player conn, ushort skillId, Func<uint, int> skill)
     {
         lock (conn.Monsters) return RuthlessBlowMore(RuthlessCounts.GetValue(conn, _ => []), skillId, skill);
     }

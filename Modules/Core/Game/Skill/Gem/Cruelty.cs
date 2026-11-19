@@ -12,8 +12,8 @@
 // stronger running value; it takes over when the stronger one ends.
 public static partial class Game
 {
-    public const string CrueltyDotStat = "cruelty_damage_over_time_+%_final";
-    public const string CrueltySupportedStat = "supported_by_cruelty";
+    public const uint CrueltyDotStat = Stat.CrueltyDamageOverTimePlusPctFinal;
+    public const uint CrueltySupportedStat = Stat.SupportedByCruelty;
     public const int CrueltyMaxPct = 40, CrueltyDurationMs = 4000;
 
     /// <summary>The more Damage over Time a hit grants Cruelty for: the wiki's formula, rounded and capped at 40%
@@ -32,14 +32,14 @@ public static partial class Game
     public static void CrueltyOnHitLocked(Player conn, ushort skillId, double damage, uint lifeBefore,
         uint maximumLife, IReadOnlyDictionary<uint, int> skill, double now)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        int Get(uint key) => skill.GetValueOrDefault(key);
         if (Get(CrueltySupportedStat) == 0) return;
-        int pct = CrueltyPctFor(Math.Min(damage, lifeBefore), maximumLife, Get("cruelty_effect_+%"));
+        int pct = CrueltyPctFor(Math.Min(damage, lifeBefore), maximumLife, Get(Stat.CrueltyEffectPlusPct));
         if (pct <= 0) return;
         var state = conn.SupportGems;
-        double durationMs = Get("support_base_cruelty_duration_ms");
+        double durationMs = Get(Stat.SupportBaseCrueltyDurationMs);
         if (durationMs <= 0) durationMs = CrueltyDurationMs;
-        double until = now + durationMs / 1000.0 * Math.Max(0, 1 + Get("cruelty_duration_+%") / 100.0);
+        double until = now + durationMs / 1000.0 * Math.Max(0, 1 + Get(Stat.CrueltyDurationPlusPct) / 100.0);
         var (before, _) = state.CrueltyActiveAt(now);
         state.CrueltyInstances[pct] = Math.Max(until, state.CrueltyInstances.GetValueOrDefault(pct));
         // An ended instance, or a weaker one that ends no later than a stronger one, can never apply again.

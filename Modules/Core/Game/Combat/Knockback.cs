@@ -6,8 +6,8 @@ using GameServer.Core.World;
 /// state the resync and boss teleports use).</summary>
 static partial class Game
 {
-    internal const string KnockbackChanceStat = "base_global_chance_to_knockback_%";
-    internal const string KnockbackDistanceStat = "knockback_distance_+%";
+    internal const uint KnockbackChanceStat = Stat.BaseGlobalChanceToKnockbackPct;
+    internal const uint KnockbackDistanceStat = Stat.KnockbackDistancePlusPct;
     // Knockback has a minimum distance of 0.4 metres (poewiki Knockback); a Gateway cell is 0.1 m (10 units per
     // metre, Agents/docs/protocol/11-skills.md), so the shove is at least four cells, scaled by knockback_distance_+%.
     internal const double KnockbackMinimumMetres = .4;
@@ -53,7 +53,7 @@ static partial class Game
         if (!(radius > 0) || !double.IsFinite(radius)) return;
         foreach (var m in conn.Monsters.Values)
         {
-            if (!KnockbackAllowed(m) || m.Effects["cannot_be_knocked_back"] > 0) continue;
+            if (!KnockbackAllowed(m) || m.Effects[Stat.CannotBeKnockedBack] > 0) continue;
             var at = m.Walk.Position(now);
             double dx = (double)at.X - landing.X, dy = (double)at.Y - landing.Y;
             double distance = Math.Sqrt(dx * dx + dy * dy);
@@ -97,9 +97,9 @@ static partial class Game
         IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null)
     {
         if (!KnockbackAllowed(m)) return false;
-        int Stat(string name)
+        int Stat(uint name)
         {
-            if (Stats.Key(name) is not uint key) return 0;
+            if (!(name is var key)) return 0;
             return (int)Math.Clamp((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }

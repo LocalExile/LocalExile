@@ -35,14 +35,13 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            int Get(string name) => Stats.Key(name) is uint key
-                ? sources.GetValueOrDefault(key) : 0;
+            int Get(uint key) => sources.GetValueOrDefault(key);
             var session = FortificationOf(conn);
             if (conn.PlayerLife == 0 && session.Value.Uncapped > 0) session.Clear();
             var value = session.Observe(conn.Clock.Elapsed.TotalSeconds, Get);
-            void Add(string name, int added)
+            void Add(uint name, int added)
             {
-                if (Stats.Key(name) is uint key)
+                if (name is var key)
                     sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + added, int.MinValue, int.MaxValue);
             }
             Add(FortificationSession.AttackSpeed, value.IncreasedAttackSpeedPercent(session.SpeedPerStack));
@@ -55,9 +54,9 @@ public static partial class Game
     {
         foreach (var (name, amount) in new[] { (FortificationSession.Current, value.Current),
             (FortificationSession.Uncapped, (int)Math.Min(int.MaxValue, value.Uncapped)),
-            (FortificationSession.Maximum, value.Maximum), ("has_fortify", value.Current > 0 ? 1 : 0),
-            ("has_fortification", value.Current > 0 ? 1 : 0) })
-            if (Stats.Key(name) is uint key) stats[key] = amount;
+            (FortificationSession.Maximum, value.Maximum), (Stat.HasFortify, value.Current > 0 ? 1 : 0),
+            (Stat.HasFortification, value.Current > 0 ? 1 : 0) })
+            if (name is var key) stats[key] = amount;
     }
 
     // Called only at an accepted melee damage commit, before any notification can yield to another action/area.
@@ -65,9 +64,9 @@ public static partial class Game
         bool melee, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
     {
         if (!melee || !target.Hostile || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
-        int Get(string name)
+        int Get(uint name)
         {
-            if (Stats.Key(name) is not uint key) return 0;
+            if (!(name is var key)) return 0;
             return (int)Math.Clamp((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
@@ -82,7 +81,7 @@ public static partial class Game
     {
         if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
         var player = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         return FortificationOf(conn).FortifyFromStun(conn.Clock.Elapsed.TotalSeconds, rawDamage, maximumLife, rarity,
             Get, random ?? Random.Shared);
     }
@@ -103,10 +102,10 @@ public static partial class Game
         AddItemUtilityFlaskRawStats(new PlainStatMap(recovery),
             conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         ConfigureFortificationRecovery(conn, maximumLife,
-            name => Stats.Key(name) is uint key ? recovery.GetValueOrDefault(key) : 0);
+            name => name is var key ? recovery.GetValueOrDefault(key) : 0);
     }
 
-    public static void ConfigureFortificationRecovery(Player conn, uint maximumLife, Func<string, int> get)
+    public static void ConfigureFortificationRecovery(Player conn, uint maximumLife, Func<uint, int> get)
     {
         lock (conn.Monsters)
         {
@@ -168,7 +167,7 @@ public static partial class Game
                     {
                         session.Buff = conn.NextBuff++;
                         packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
-                            visual: BuffArtVisual(conn, "fortify_buff", "virtual_fortify_art_variation"),
+                            visual: BuffArtVisual(conn, "fortify_buff", Stat.VirtualFortifyArtVariation),
                             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
                                 (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));

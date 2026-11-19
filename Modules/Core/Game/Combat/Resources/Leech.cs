@@ -30,10 +30,10 @@ public static partial class Game
     public static void WithLeechConditions(Player conn, StatMap stats)
     {
         var state = LeechContext(conn);
-        foreach (var (name, active) in new[] { ("is_life_leeching", state.Life), ("is_mana_leeching", state.Mana),
-            ("is_es_leeching", state.EnergyShield), ("is_leeching", state.Life || state.Mana || state.EnergyShield),
-            ("on_full_energy_shield", state.FullEnergyShield) })
-            if (Stats.Key(name) is uint key) stats[key] = active ? 1 : 0;
+        foreach (var (name, active) in new[] { (Stat.IsLifeLeeching, state.Life), (Stat.IsManaLeeching, state.Mana),
+            (Stat.IsEsLeeching, state.EnergyShield), (Stat.IsLeeching, state.Life || state.Mana || state.EnergyShield),
+            (Stat.OnFullEnergyShield, state.FullEnergyShield) })
+            if (name is var key) stats[key] = active ? 1 : 0;
     }
 
     // "X% increased Attack Speed while Leeching" (Endless Hunger): the client's increased attack speed sum (0x142704be0)
@@ -49,16 +49,16 @@ public static partial class Game
     // cannot_be_stunned_while_leeching and is_leeching; 0x142896810 the same for virtual_unaffected_by_bleeding).
     public static void WithLeechingDefences(StatMap stats)
     {
-        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        bool leeching = Get("is_leeching") != 0;
+        int Get(uint k) => stats.GetValueOrDefault(k);
+        bool leeching = Get(Stat.IsLeeching) != 0;
         if (Stat.CannotBeStunned is var stun
-            && leeching && Get("cannot_be_stunned_while_leeching") != 0) stats[stun] = 1;
+            && leeching && Get(Stat.CannotBeStunnedWhileLeeching) != 0) stats[stun] = 1;
         if (Stat.VirtualUnaffectedByBleeding is var bleed)
-            stats[bleed] = Get("base_unaffected_by_bleeding") != 0 || leeching && Get("unaffected_by_bleeding_while_leeching") != 0
+            stats[bleed] = Get(Stat.BaseUnaffectedByBleeding) != 0 || leeching && Get(Stat.UnaffectedByBleedingWhileLeeching) != 0
                 ? 1 : 0;
     }
 
-    public static void ConfigureLeech(Player conn, Func<string, int> get, bool onLowLife)
+    public static void ConfigureLeech(Player conn, Func<uint, int> get, bool onLowLife)
     {
         lock (conn.Monsters)
         {
@@ -86,10 +86,9 @@ public static partial class Game
     }
 
     public static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
-        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<string, int>? local = null)
+        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? local = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key
-            ? (int)Math.Clamp((long)player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue) : 0;
+        int Get(uint key) => (int)Math.Clamp((long)player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue);
         return LeechSources.From(Get, attack, name => local?.GetValueOrDefault(name) ?? 0);
     }
 
@@ -101,18 +100,18 @@ public static partial class Game
         if (sources.Attack)
         {
             DamagePacket Extra(string pool) => DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
-                (p, type) => p.Add(DamagePacket.Of(type, target.Curses[pool + "_leech_on_any_damage_when_hit_by_attack_permyriad"],
-                    target.Curses[pool + "_leech_on_any_damage_when_hit_by_attack_permyriad"])));
+                (p, type) => p.Add(DamagePacket.Of(type, target.Curses[Stat.Of(pool + "_leech_on_any_damage_when_hit_by_attack_permyriad")],
+                    target.Curses[Stat.Of(pool + "_leech_on_any_damage_when_hit_by_attack_permyriad")])));
             sources = sources with { Life = sources.Life.Add(Extra("life")), Mana = sources.Mana.Add(Extra("mana")),
-                GainOnHit = (sources.GainOnHit.Life + target.Curses["life_granted_when_hit_by_attacks"],
-                    sources.GainOnHit.Mana + target.Curses["mana_granted_when_hit_by_attacks"], sources.GainOnHit.EnergyShield) };
+                GainOnHit = (sources.GainOnHit.Life + target.Curses[Stat.LifeGrantedWhenHitByAttacks],
+                    sources.GainOnHit.Mana + target.Curses[Stat.ManaGrantedWhenHitByAttacks], sources.GainOnHit.EnergyShield) };
         }
         var amounts = sources.Amounts(taken, directDamage);
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
         amounts.Life += sources.OverkillLife(directDamage, target.Life);
         var session = LeechOf(conn);
-        if (target.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
-        if (target.Effects["cannot_have_energy_shield_leeched_from"] != 0)
+        if (target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0) amounts.Life = 0;
+        if (target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0)
         {
             amounts.EnergyShield = 0;
             if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;

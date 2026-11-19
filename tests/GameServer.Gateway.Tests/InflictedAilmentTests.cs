@@ -10,10 +10,10 @@ public class InflictedAilmentTests
         Freeze = MonsterElementalAilments.Kind.Freeze, Shock = MonsterElementalAilments.Kind.Shock;
 
     static Dictionary<uint, int> Raw(params (string Name, int Value)[] stats) =>
-        stats.ToDictionary(s => Program.Stats.Key(s.Name)!.Value, s => s.Value);
+        stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value);
 
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
-        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+    static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
     // The damage a monster with a threshold of 100 takes, by type.
     static DamagePacket Taken(double cold = 0, double lightning = 0, double physical = 0, double fire = 0, double chaos = 0) =>
@@ -22,12 +22,12 @@ public class InflictedAilmentTests
             .Aggregate(DamagePacket.Empty, (hit, part) => hit.Add(part.Item1, new DamageRange(part.Item2, part.Item2)));
 
     static MonsterElementalAilments.Effect? Hit(MonsterElementalAilments.Kind kind, DamagePacket damage,
-        Func<string, int> attacker, Func<string, int>? target = null, bool critical = true) =>
+        Func<uint, int> attacker, Func<uint, int>? target = null, bool critical = true) =>
         new MonsterElementalAilments().Inflict(damage, critical, threshold: 100, now: 0, attacker, target ?? With(),
             new Random(1)).SingleOrDefault(e => e.Kind == kind);
 
-    static double Magnitude(MonsterElementalAilments.Kind kind, DamagePacket damage, Func<string, int> attacker,
-        Func<string, int>? target = null, bool critical = true) =>
+    static double Magnitude(MonsterElementalAilments.Kind kind, DamagePacket damage, Func<uint, int> attacker,
+        Func<uint, int>? target = null, bool critical = true) =>
         Hit(kind, damage, attacker, target, critical)?.Magnitude ?? 0;
 
     // "Shocks/Chills from your Hits always ... by at least X%" raise the base before the effect modifiers (wiki Shock), so
@@ -92,7 +92,7 @@ public class InflictedAilmentTests
 
         // "Chill/Shock Attackers for 4 seconds on Block" deals no damage: a 10% chill and a 15% shock through the effect
         // modifiers, for 4 s through the duration modifiers.
-        static MonsterElementalAilments.Effect OnBlock(MonsterElementalAilments.Kind kind, Func<string, int> player) =>
+        static MonsterElementalAilments.Effect OnBlock(MonsterElementalAilments.Kind kind, Func<uint, int> player) =>
             new MonsterElementalAilments().WithoutDamage(kind, 4, now: 0, player, With())!;
         Assert.Equal((10.0, 4.0), (OnBlock(Chill, With()).Magnitude, OnBlock(Chill, With()).Until));
         Assert.Equal(15, OnBlock(Chill, With(("virtual_chill_effect_+%", 50))).Magnitude);
@@ -100,7 +100,7 @@ public class InflictedAilmentTests
         Assert.Equal(15, OnBlock(Shock, With()).Magnitude);
         Assert.Equal(50, OnBlock(Shock, With(("virtual_shock_effect_+%", 300))).Magnitude);   // 60% over the cap
         // The Pandemonius states its chill's 30%, which the effect modifiers and the cap still meet.
-        static double WhenHit(Func<string, int> player, Func<string, int> monster) =>
+        static double WhenHit(Func<uint, int> player, Func<uint, int> monster) =>
             new MonsterElementalAilments().WithoutDamage(Chill, 1, now: 0, player, monster, stated: 30)!.Magnitude;
         Assert.Equal(30, WhenHit(With(("virtual_chill_effect_+%", 50)), With()));
         Assert.Equal(40, WhenHit(With(("virtual_chill_effect_+%", 50), ("elementalist_chill_maximum_magnitude_override", 40)), With()));
@@ -110,12 +110,12 @@ public class InflictedAilmentTests
         // while its condition holds, on hits and on the panel's hand rows.
         var player = Raw(("reduce_enemy_fire_resistance_with_weapons_%", 10), ("reduce_enemy_elemental_resistance_with_weapons_%", 5),
             ("cold_penetration_%_vs_chilled_enemies", 20));
-        var sword = new Dictionary<string, int>();
+        var sword = new Dictionary<uint, int>();
         Assert.Equal(new Penetration.PerType(15, 5, 5, 0, 20), Penetration.Of(player, Program.Stats, attack: true, weaponLocal: sword));
         // Unarmed (no weapon's local sources) and spells take no "with Weapons" penetration; chilled targets still count.
         Assert.Equal(new Penetration.PerType(0, 0, 0, 0, 20), Penetration.Of(player, Program.Stats, attack: true));
         Assert.Equal(new Penetration.PerType(0, 0, 0, 0, 20), Penetration.Of(player, Program.Stats, attack: false, weaponLocal: sword));
-        player[Program.Stats.Key(Penetration.ElementalProhibition)!.Value] = 1;
+        player[Penetration.ElementalProhibition] = 1;
         Assert.Equal(default(Penetration.PerType), Penetration.Of(player, Program.Stats, attack: true, weaponLocal: sword));
 
         // The cold-vs-chilled share counts against a chilled monster only, and only for cold.
@@ -138,12 +138,12 @@ public class InflictedAilmentTests
         // The panel's hand rows count "with Weapons" only for a hand holding a weapon.
         var panel = With(("reduce_enemy_fire_resistance_with_weapons_%", 10), ("reduce_enemy_elemental_resistance_with_weapons_%", 5));
         var armed = PanelStats.Compute(panel, _ => 0, _ => 0, mainArmed: true);
-        Assert.Contains(("main_hand_attack_damage_penetrates_fire_resist_%", 15), armed);
-        Assert.Contains(("main_hand_attack_damage_penetrates_cold_resist_%", 5), armed);
-        Assert.DoesNotContain(armed, row => row.Stat.StartsWith("off_hand_") || row.Stat == "reduce_enemy_fire_resistance_%");
-        Assert.Contains(("main_hand_attack_damage_penetrates_fire_resist_%", 15),
+        Assert.Contains((Stat.MainHandAttackDamagePenetratesFireResistPct, 15), armed);
+        Assert.Contains((Stat.MainHandAttackDamagePenetratesColdResistPct, 5), armed);
+        Assert.DoesNotContain(armed, row => Program.Stats.Name(row.Stat).StartsWith("off_hand_") || row.Stat == Stat.ReduceEnemyFireResistancePct);
+        Assert.Contains((Stat.MainHandAttackDamagePenetratesFireResistPct, 15),
             PanelStats.Selected(panel, _ => 0, mainHand: _ => 0, mainArmed: true));
-        Assert.DoesNotContain(PanelStats.Compute(panel, _ => 0, _ => 0), row => row.Stat.Contains("penetrates"));
+        Assert.DoesNotContain(PanelStats.Compute(panel, _ => 0, _ => 0), row => Program.Stats.Name(row.Stat).Contains("penetrates"));
     }
 
     // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all
@@ -152,7 +152,7 @@ public class InflictedAilmentTests
     [Fact]
     public void Chill_freeze_and_shock_spread_by_their_own_proliferation_radius()
     {
-        static int Radius(MonsterElementalAilments.Kind kind, Func<string, int> player) =>
+        static int Radius(MonsterElementalAilments.Kind kind, Func<uint, int> player) =>
             MonsterElementalAilments.ProliferationRadius(kind, player);
         var spreading = With(("elemental_status_effect_aura_radius", 15), ("gloves_freeze_proliferation_radius", 20));
         Assert.Equal((15, 20, 15), (Radius(Chill, spreading), Radius(Freeze, spreading), Radius(Shock, spreading)));
@@ -163,7 +163,7 @@ public class InflictedAilmentTests
         var conn = new Player(new(1, "spread", 300, 300, 100, 100, null, []), 1, 1);
         // Speed 1, as NewMonsterWalk's floor: a chill re-times the walk.
         SpawnedMonster At(int x, params (string, int)[] stats) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
-            { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
+            { Mods = new([], [], new(stats.ToDictionary(s => Stat.Of(s.Item1), s => s.Item2))) };
         var (source, near, mid, far, immune) = (At(100), At(112), At(118), At(125), At(105, ("immune_to_chill", 1)));
         uint id = 0;
         foreach (var m in new[] { source, near, mid, far, immune }) conn.Monsters[++id] = m;

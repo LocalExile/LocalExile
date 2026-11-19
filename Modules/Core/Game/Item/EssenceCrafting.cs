@@ -61,8 +61,8 @@ public sealed class EssenceCrafting
             fixedMods.Count(m => m.GenerationType == forced.GenerationType) >= 3) return null;
         // Modern essences refuse meta-crafted items, rather than pretending to honour the protected affixes.
         if (item.Mods.Where(m => m.Section == ModSection.Explicit).Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s =>
-            s.Id is "item_generation_cannot_change_prefixes" or "item_generation_cannot_change_suffixes" or
-                "item_generation_cannot_roll_attack_affixes" or "item_generation_cannot_roll_caster_affixes") == true)) return null;
+            s.Id is Stat.ItemGenerationCannotChangePrefixes or Stat.ItemGenerationCannotChangeSuffixes or
+                Stat.ItemGenerationCannotRollAttackAffixes or Stat.ItemGenerationCannotRollCasterAffixes) == true)) return null;
 
         return ItemRolls.ClearForesee(rolls.Roll(item, ItemRarity.Rare, random, guaranteed: forced,
             maxModLevel: essence.ModLevelCap > 0 ? essence.ModLevelCap : null) with { Identified = true });

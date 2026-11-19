@@ -103,8 +103,8 @@ static class IzaroSkills
     static IEnumerable<Move> MovesOf(MonsterCatalog.Variety variety) =>
         Moves.Where(m => variety.GrantedEffects?.Contains(m.Effect) == true);
 
-    static int Value(IReadOnlyList<(uint Key, int Value)> stats, string name) =>
-        Stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Key == key).Value : 0;
+    static int Value(IReadOnlyList<(uint Key, int Value)> stats, uint name) =>
+        name is var key ? stats.FirstOrDefault(s => s.Key == key).Value : 0;
 
     // The skill as its level has it: a spell's cast time and base damage, an attack's slower time and more damage than his
     // plain one's.
@@ -113,11 +113,11 @@ static class IzaroSkills
         var catalog = Game.SkillsFor(conn);
         int effectLevel = catalog.MonsterEffectLevel(move.Effect, level);
         var stats = catalog.EffectStats(move.Effect, effectLevel);
-        double more = 1 + (Value(stats, "active_skill_damage_+%_final") + Value(stats, "active_skill_physical_damage_+%_final")) / 100.0;
+        double more = 1 + (Value(stats, Stat.ActiveSkillDamagePlusPctFinal) + Value(stats, Stat.ActiveSkillPhysicalDamagePlusPctFinal)) / 100.0;
         bool spell = catalog.IsSpell(move.Effect);
-        double speed = 1 + Value(stats, "active_skill_attack_speed_+%_final") / 100.0;
+        double speed = 1 + Value(stats, Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100.0;
         double seconds = spell ? catalog.CastTimeMs(move.Effect) / 1000.0
-            : (Value(stats, "cast_time_overrides_attack_duration") != 0 ? catalog.CastTimeMs(move.Effect) / 1000.0 : plain.Seconds) / speed;
+            : (Value(stats, Stat.CastTimeOverridesAttackDuration) != 0 ? catalog.CastTimeMs(move.Effect) / 1000.0 : plain.Seconds) / speed;
         var damage = move.MonsterDamage is { } scaled && Monsters.BaseDamage(level) is int baseDamage
             ? DamagePacket.Of(scaled.Type, baseDamage * scaled.Low, baseDamage * scaled.High).Scale(more)
             : spell ? catalog.HitDamage(move.Effect, effectLevel).Scale(more) : plain.Damage.Scale(more);
@@ -131,8 +131,8 @@ static class IzaroSkills
         var catalog = Game.SkillsFor(conn);
         var list = new List<GrantedSkill> { melee };
         // The record's times are final, so neither the skill's speed nor the cast-time override goes with them.
-        string[] notSent = [.. MonsterSkillStatsNotSent, "active_skill_attack_speed_+%_final", "cast_time_overrides_attack_duration"];
-        var finalStats = notSent.Select(name => Stats.Key(name)).OfType<uint>().ToHashSet();
+        uint[] notSent = [.. MonsterSkillStatsNotSent, Stat.ActiveSkillAttackSpeedPlusPctFinal, Stat.CastTimeOverridesAttackDuration];
+        var finalStats = notSent.Select(name => (name)).OfType<uint>().ToHashSet();
         foreach (var move in MovesOf(variety))
         {
             int effectLevel = catalog.MonsterEffectLevel(move.Effect, level);
@@ -146,10 +146,10 @@ static class IzaroSkills
             // The Grasping Ornaments' action spaces them by the final duration and counts them by the final area (0x141b9df80,
             // 0x14193efd0): with no duration only his clip played, and the hits came from nothing (live).
             var effectStats = catalog.EffectStats(move.Effect, effectLevel);
-            if (Value(effectStats, "base_skill_effect_duration") is int duration and > 0 && Stat.SkillEffectDuration is var durationKey)
+            if (Value(effectStats, Stat.BaseSkillEffectDuration) is int duration and > 0 && Stat.SkillEffectDuration is var durationKey)
                 drawn.Add((durationKey, duration));
             if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var areaKey)
-                drawn.Add((areaKey, Value(effectStats, "active_skill_area_of_effect_radius_+%_final")));
+                drawn.Add((areaKey, Value(effectStats, Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)));
             var dropped = drawn.Select(s => s.Item1).Concat(finalStats).ToHashSet();
             var stats = WithBehaviourVariation(conn, move.Effect, [.. catalog.EffectStats(move.Effect, effectLevel).Where(s => !dropped.Contains(s.Item1)), .. drawn]);
             if (catalog.FindByRow(SkillId(move), move.Effect, effectLevel, stats) is { } skill) list.Add(skill);
@@ -312,7 +312,7 @@ static class IzaroSkills
 
     static Dictionary<string, int> LoadBuffRows()
     {
-        var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+        var rows = new Dictionary<string, int>();
         var wanted = Moves.Select(m => m.Buff).OfType<string>().ToHashSet();
         if (!ClientTables.Has("BuffDefinitions")) return rows;
         int row = 0;

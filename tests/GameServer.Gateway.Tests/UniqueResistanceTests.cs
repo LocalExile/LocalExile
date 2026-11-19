@@ -28,7 +28,7 @@ public class UniqueResistanceTests
             var before = Game.PoolsFor(conn, 80);
             var items = Program.Items;
             var mistwall = Assert.IsType<Item>(new UniqueCatalog(items).Create("Mistwall", new Random(17)));
-            int pair = ItemModStats.Sum([mistwall], items.Mods).GetValueOrDefault("fire_and_cold_damage_resistance_%");
+            int pair = ItemModStats.Sum([mistwall], items.Mods).GetValueOrDefault(Stat.FireAndColdDamageResistancePct);
             Assert.True(pair > 0);
             Game.ItemsOf(conn).Add(PlayerInventories.Offhand1, 0, 0, mistwall);
             var after = Game.PoolsFor(conn, 80);

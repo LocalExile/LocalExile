@@ -119,67 +119,67 @@ public static class RadiusJewelCatalogue
         }
     }
 
-    static readonly IReadOnlyDictionary<string, (string From, string To)> AttributePairs =
-        new Dictionary<string, (string From, string To)>
+    static readonly IReadOnlyDictionary<string, (uint From, uint To)> AttributePairs =
+        new Dictionary<string, (uint From, uint To)>
         {
-            ["str_to_int"] = ("base_strength", "base_intelligence"),
-            ["int_to_dex"] = ("base_intelligence", "base_dexterity"),
-            ["int_to_str"] = ("base_intelligence", "base_strength"),
-            ["dex_to_int"] = ("base_dexterity", "base_intelligence"),
-            ["str_to_dex"] = ("base_strength", "base_dexterity"),
-            ["dex_to_str"] = ("base_dexterity", "base_strength"),
+            ["str_to_int"] = (Stat.BaseStrength, Stat.BaseIntelligence),
+            ["int_to_dex"] = (Stat.BaseIntelligence, Stat.BaseDexterity),
+            ["int_to_str"] = (Stat.BaseIntelligence, Stat.BaseStrength),
+            ["dex_to_int"] = (Stat.BaseDexterity, Stat.BaseIntelligence),
+            ["str_to_dex"] = (Stat.BaseStrength, Stat.BaseDexterity),
+            ["dex_to_str"] = (Stat.BaseDexterity, Stat.BaseStrength),
         };
 
     // local stat id -> target stat, count stat, per divisor, whether the value is the divisor, allocated/unallocated.
-    static readonly IReadOnlyDictionary<string, (string Target, string Count, int Per, bool Divisor, bool Allocated)>
-        ScalingRules = new Dictionary<string, (string Target, string Count, int Per, bool Divisor, bool Allocated)>
+    static readonly IReadOnlyDictionary<uint, (uint Target, uint Count, int Per, bool Divisor, bool Allocated)>
+        ScalingRules = new Dictionary<uint, (uint Target, uint Count, int Per, bool Divisor, bool Allocated)>
         {
-            ["local_unique_jewel_additional_life_per_X_int_in_radius"] =
-                ("base_maximum_life", "base_intelligence", 0, true, true),
-            ["local_unique_jewel_chaos_damage_+%_per_10_int_in_radius"] =
-                ("chaos_damage_+%", "base_intelligence", 10, false, true),
-            ["local_unique_jewel_evasion_rating_+%_per_X_dex_in_radius"] =
-                ("evasion_rating_+%", "base_dexterity", 0, true, true),
-            ["local_unique_jewel_claw_physical_damage_+%_per_X_dex_in_radius"] =
-                ("physical_claw_damage_+%", "base_dexterity", 0, true, true),
-            ["local_unique_jewel_unarmed_damage_+%_per_X_dex_in_radius"] =
-                ("unarmed_melee_physical_damage_+%", "base_dexterity", 0, true, true),
-            ["local_unique_jewel_totem_life_+X%_per_10_str_in_radius"] =
-                ("totem_life_+%", "base_strength", 10, false, true),
-            ["local_unique_jewel_one_additional_maximum_lightning_damage_per_X_dex"] =
-                ("attack_maximum_added_lightning_damage", "base_dexterity", 0, true, true),
-            ["local_unique_jewel_X_strength_per_1_strength_allocated_in_radius"] =
-                ("base_strength", "base_strength", 1, false, true),
-            ["local_unique_jewel_X_intelligence_per_1_intelligence_allocated_in_radius"] =
-                ("base_intelligence", "base_intelligence", 1, false, true),
-            ["local_unique_jewel_X_dexterity_per_1_dexterity_allocated_in_radius"] =
-                ("base_dexterity", "base_dexterity", 1, false, true),
-            ["local_unique_jewel_critical_strike_multiplier_+_per_10_str_unallocated_in_radius"] =
-                ("base_critical_strike_multiplier_+", "base_strength", 10, false, false),
-            ["local_unique_jewel_life_recovery_rate_+%_per_10_str_allocated_in_radius"] =
-                ("life_recovery_rate_+%", "base_strength", 10, false, true),
-            ["local_unique_jewel_life_recovery_rate_+%_per_10_str_unallocated_in_radius"] =
-                ("life_recovery_rate_+%", "base_strength", 10, false, false),
-            ["local_unique_jewel_additional_physical_damage_reduction_%_per_10_str_allocated_in_radius"] =
-                ("additional_physical_damage_reduction_%", "base_strength", 10, false, true),
-            ["local_unique_jewel_accuracy_rating_+_per_10_int_unallocated_in_radius"] =
-                ("accuracy_rating", "base_intelligence", 10, false, false),
-            ["local_unique_jewel_mana_recovery_rate_+%_per_10_int_allocated_in_radius"] =
-                ("mana_recovery_rate_+%", "base_intelligence", 10, false, true),
-            ["local_unique_jewel_mana_recovery_rate_+%_per_10_int_unallocated_in_radius"] =
-                ("mana_recovery_rate_+%", "base_intelligence", 10, false, false),
-            ["local_unique_jewel_energy_shield_regeneration_rate_per_minute_%_per_10_int_allocated_in_radius"] =
-                ("base_energy_shield_regeneration_rate_per_minute_%", "base_intelligence", 10, false, true),
-            ["local_unique_jewel_dot_multiplier_+_per_10_int_unallocated_in_radius"] =
-                ("dot_multiplier_+", "base_intelligence", 10, false, false),
-            ["local_unique_jewel_maximum_mana_+_per_10_dex_unallocated_in_radius"] =
-                ("base_maximum_mana", "base_dexterity", 10, false, false),
-            ["local_unique_jewel_movement_speed_+%_per_10_dex_allocated_in_radius"] =
-                ("base_movement_velocity_+%", "base_dexterity", 10, false, true),
-            ["local_unique_jewel_movement_speed_+%_per_10_dex_unallocated_in_radius"] =
-                ("base_movement_velocity_+%", "base_dexterity", 10, false, false),
-            ["local_unique_jewel_accuracy_rating_+_per_10_dex_unallocated_in_radius"] =
-                ("accuracy_rating", "base_dexterity", 10, false, false),
+            [Stat.LocalUniqueJewelAdditionalLifePerXIntInRadius] =
+                (Stat.BaseMaximumLife, Stat.BaseIntelligence, 0, true, true),
+            [Stat.LocalUniqueJewelChaosDamagePlusPctPer10IntInRadius] =
+                (Stat.ChaosDamagePlusPct, Stat.BaseIntelligence, 10, false, true),
+            [Stat.LocalUniqueJewelEvasionRatingPlusPctPerXDexInRadius] =
+                (Stat.EvasionRatingPlusPct, Stat.BaseDexterity, 0, true, true),
+            [Stat.LocalUniqueJewelClawPhysicalDamagePlusPctPerXDexInRadius] =
+                (Stat.PhysicalClawDamagePlusPct, Stat.BaseDexterity, 0, true, true),
+            [Stat.LocalUniqueJewelUnarmedDamagePlusPctPerXDexInRadius] =
+                (Stat.UnarmedMeleePhysicalDamagePlusPct, Stat.BaseDexterity, 0, true, true),
+            [Stat.LocalUniqueJewelTotemLifePlusXPctPer10StrInRadius] =
+                (Stat.TotemLifePlusPct, Stat.BaseStrength, 10, false, true),
+            [Stat.LocalUniqueJewelOneAdditionalMaximumLightningDamagePerXDex] =
+                (Stat.AttackMaximumAddedLightningDamage, Stat.BaseDexterity, 0, true, true),
+            [Stat.LocalUniqueJewelXStrengthPer1StrengthAllocatedInRadius] =
+                (Stat.BaseStrength, Stat.BaseStrength, 1, false, true),
+            [Stat.LocalUniqueJewelXIntelligencePer1IntelligenceAllocatedInRadius] =
+                (Stat.BaseIntelligence, Stat.BaseIntelligence, 1, false, true),
+            [Stat.LocalUniqueJewelXDexterityPer1DexterityAllocatedInRadius] =
+                (Stat.BaseDexterity, Stat.BaseDexterity, 1, false, true),
+            [Stat.LocalUniqueJewelCriticalStrikeMultiplierPlusPer10StrUnallocatedInRadius] =
+                (Stat.BaseCriticalStrikeMultiplierPlus, Stat.BaseStrength, 10, false, false),
+            [Stat.LocalUniqueJewelLifeRecoveryRatePlusPctPer10StrAllocatedInRadius] =
+                (Stat.LifeRecoveryRatePlusPct, Stat.BaseStrength, 10, false, true),
+            [Stat.LocalUniqueJewelLifeRecoveryRatePlusPctPer10StrUnallocatedInRadius] =
+                (Stat.LifeRecoveryRatePlusPct, Stat.BaseStrength, 10, false, false),
+            [Stat.LocalUniqueJewelAdditionalPhysicalDamageReductionPctPer10StrAllocatedInRadius] =
+                (Stat.AdditionalPhysicalDamageReductionPct, Stat.BaseStrength, 10, false, true),
+            [Stat.LocalUniqueJewelAccuracyRatingPlusPer10IntUnallocatedInRadius] =
+                (Stat.AccuracyRating, Stat.BaseIntelligence, 10, false, false),
+            [Stat.LocalUniqueJewelManaRecoveryRatePlusPctPer10IntAllocatedInRadius] =
+                (Stat.ManaRecoveryRatePlusPct, Stat.BaseIntelligence, 10, false, true),
+            [Stat.LocalUniqueJewelManaRecoveryRatePlusPctPer10IntUnallocatedInRadius] =
+                (Stat.ManaRecoveryRatePlusPct, Stat.BaseIntelligence, 10, false, false),
+            [Stat.LocalUniqueJewelEnergyShieldRegenerationRatePerMinutePctPer10IntAllocatedInRadius] =
+                (Stat.BaseEnergyShieldRegenerationRatePerMinutePct, Stat.BaseIntelligence, 10, false, true),
+            [Stat.LocalUniqueJewelDotMultiplierPlusPer10IntUnallocatedInRadius] =
+                (Stat.DotMultiplierPlus, Stat.BaseIntelligence, 10, false, false),
+            [Stat.LocalUniqueJewelMaximumManaPlusPer10DexUnallocatedInRadius] =
+                (Stat.BaseMaximumMana, Stat.BaseDexterity, 10, false, false),
+            [Stat.LocalUniqueJewelMovementSpeedPlusPctPer10DexAllocatedInRadius] =
+                (Stat.BaseMovementVelocityPlusPct, Stat.BaseDexterity, 10, false, true),
+            [Stat.LocalUniqueJewelMovementSpeedPlusPctPer10DexUnallocatedInRadius] =
+                (Stat.BaseMovementVelocityPlusPct, Stat.BaseDexterity, 10, false, false),
+            [Stat.LocalUniqueJewelAccuracyRatingPlusPer10DexUnallocatedInRadius] =
+                (Stat.AccuracyRating, Stat.BaseDexterity, 10, false, false),
         };
 
     public static Conversion? ReadConversion(Item item, ModCatalog mods)
@@ -198,150 +198,151 @@ public static class RadiusJewelCatalogue
             if (mods.ByHash(mod.Hash) is not { } row) continue;
             for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
             {
-                string id = row.Stats[i].Id;
-                if (id == "local_unique_jewel_tattoos_in_radius_effect_+%")
+                uint id = row.Stats[i].Id;
+                string name = row.Stats[i].Name;
+                if (id == Stat.LocalUniqueJewelTattoosInRadiusEffectPlusPct)
                 {
                     tattooEffectPct += mod.Values[i];
                     continue;
                 }
-                if (id == "local_jewel_effect_base_radius")
+                if (id == Stat.LocalJewelEffectBaseRadius)
                 {
                     radius = mod.Values[i];
                     continue;
                 }
-                if (id == "local_unique_jewel_nearby_disconnected_keystone_passives_can_be_allocated")
+                if (id == Stat.LocalUniqueJewelNearbyDisconnectedKeystonePassivesCanBeAllocated)
                 {
                     allocateDisconnected |= mod.Values[i] != 0;
                     keystonesOnly |= mod.Values[i] != 0;
                     continue;
                 }
-                if (id.StartsWith("local_jewel_nearby_passives_", StringComparison.Ordinal))
+                if (name.StartsWith("local_jewel_nearby_passives_", StringComparison.Ordinal))
                 {
-                    if (AttributePairs.TryGetValue(id["local_jewel_nearby_passives_".Length..], out var pair))
+                    if (AttributePairs.TryGetValue(name["local_jewel_nearby_passives_".Length..], out var pair))
                         AddMove(moves, pair.From, pair.To);
                     continue;
                 }
-                if (id.StartsWith("local_unique_jewel_notable_passives_in_radius_instead_grant_",
+                if (name.StartsWith("local_unique_jewel_notable_passives_in_radius_instead_grant_",
                     StringComparison.Ordinal))
                 {
-                    string target = id["local_unique_jewel_notable_passives_in_radius_instead_grant_".Length..];
+                    string target = name["local_unique_jewel_notable_passives_in_radius_instead_grant_".Length..];
                     if (Program.Stats.Key(target) is uint key) notableStats.Add((key, mod.Values[i]));
                     continue;
                 }
-                if (id.StartsWith("local_unique_jewel_passives_in_radius_grant_", StringComparison.Ordinal))
+                if (name.StartsWith("local_unique_jewel_passives_in_radius_grant_", StringComparison.Ordinal))
                 {
-                    string target = id["local_unique_jewel_passives_in_radius_grant_".Length..];
+                    string target = name["local_unique_jewel_passives_in_radius_grant_".Length..];
                     if (Program.Stats.Key(target) is uint key) additionStats.Add((key, mod.Values[i]));
                     continue;
                 }
-                if (id.StartsWith("local_unique_jewel_passives_in_radius_give_", StringComparison.Ordinal))
+                if (name.StartsWith("local_unique_jewel_passives_in_radius_give_", StringComparison.Ordinal))
                 {
-                    string target = id["local_unique_jewel_passives_in_radius_give_".Length..];
+                    string target = name["local_unique_jewel_passives_in_radius_give_".Length..];
                     if (Program.Stats.Key(target) is uint key) additionStats.Add((key, mod.Values[i]));
                     continue;
                 }
-                if (id == "local_unique_jewel_skills_in_radius_grant_%_unarmed_melee_attack_speed")
+                if (id == Stat.LocalUniqueJewelSkillsInRadiusGrantPctUnarmedMeleeAttackSpeed)
                 {
                     if (Stat.UnarmedMeleeAttackSpeedPlusPct is var key)
                         additionStats.Add((key, mod.Values[i]));
                     continue;
                 }
-                if (id == "local_unique_jewel_lightning_resistance_also_grants_power_charge_on_kill_chance")
+                if (id == Stat.LocalUniqueJewelLightningResistanceAlsoGrantsPowerChargeOnKillChance)
                 {
-                    resistance = MakeResistance("base_lightning_damage_resistance_%", "add_power_charge_on_kill_%_chance", 100);
+                    resistance = MakeResistance(Stat.BaseLightningDamageResistancePct, Stat.AddPowerChargeOnKillPctChance, 100);
                     continue;
                 }
-                if (id == "local_unique_jewel_lightning_resistance_also_grants_block_spells_chance_scaled_%")
+                if (id == Stat.LocalUniqueJewelLightningResistanceAlsoGrantsBlockSpellsChanceScaledPct)
                 {
-                    resistance = MakeResistance("base_lightning_damage_resistance_%", "additional_spell_block_%", mod.Values[i]);
+                    resistance = MakeResistance(Stat.BaseLightningDamageResistancePct, Stat.AdditionalSpellBlockPct, mod.Values[i]);
                     continue;
                 }
-                if (id == "local_unique_jewel_cold_resistance_also_grants_frenzy_charge_on_kill_chance")
+                if (id == Stat.LocalUniqueJewelColdResistanceAlsoGrantsFrenzyChargeOnKillChance)
                 {
-                    resistance = MakeResistance("base_cold_damage_resistance_%", "add_frenzy_charge_on_kill_%_chance", 100);
+                    resistance = MakeResistance(Stat.BaseColdDamageResistancePct, Stat.AddFrenzyChargeOnKillPctChance, 100);
                     continue;
                 }
-                if (id == "local_unique_jewel_cold_resistance_also_grants_spell_suppression_chance_scaled_%")
+                if (id == Stat.LocalUniqueJewelColdResistanceAlsoGrantsSpellSuppressionChanceScaledPct)
                 {
-                    resistance = MakeResistance("base_cold_damage_resistance_%", "base_spell_suppression_chance_%", mod.Values[i]);
+                    resistance = MakeResistance(Stat.BaseColdDamageResistancePct, Stat.BaseSpellSuppressionChancePct, mod.Values[i]);
                     continue;
                 }
-                if (id == "local_unique_jewel_fire_resistance_also_grants_endurance_charge_on_kill_chance")
+                if (id == Stat.LocalUniqueJewelFireResistanceAlsoGrantsEnduranceChargeOnKillChance)
                 {
-                    resistance = MakeResistance("base_fire_damage_resistance_%", "endurance_charge_on_kill_%", 100);
+                    resistance = MakeResistance(Stat.BaseFireDamageResistancePct, Stat.EnduranceChargeOnKillPct, 100);
                     continue;
                 }
-                if (id == "local_unique_jewel_fire_resistance_also_grants_block_chance_scaled_%")
+                if (id == Stat.LocalUniqueJewelFireResistanceAlsoGrantsBlockChanceScaledPct)
                 {
-                    resistance = MakeResistance("base_fire_damage_resistance_%", "additional_block_%", mod.Values[i]);
+                    resistance = MakeResistance(Stat.BaseFireDamageResistancePct, Stat.AdditionalBlockPct, mod.Values[i]);
                     continue;
                 }
-                if (id == "local_unique_jewel_non_keystone_passive_in_radius_effect_+%")
+                if (id == Stat.LocalUniqueJewelNonKeystonePassiveInRadiusEffectPlusPct)
                 {
                     effectPct += mod.Values[i];
                     continue;
                 }
-                if (id == "local_unique_jewel_notable_passive_in_radius_does_nothing")
+                if (id == Stat.LocalUniqueJewelNotablePassiveInRadiusDoesNothing)
                 {
                     if (mod.Values[i] != 0) suppressNotables = true;
                     continue;
                 }
-                if (id == "local_unique_jewel_nearby_disconnected_passives_can_be_allocated")
+                if (id == Stat.LocalUniqueJewelNearbyDisconnectedPassivesCanBeAllocated)
                 {
                     if (mod.Values[i] != 0) allocateDisconnected = true;
                     continue;
                 }
-                if (id == "local_jewel_variable_ring_radius_value")
+                if (id == Stat.LocalJewelVariableRingRadiusValue)
                 {
                     ring = mod.Values[i];
                     continue;
                 }
-                if (id == "local_jewel_allocated_non_notable_passives_in_radius_grant_nothing")
+                if (id == Stat.LocalJewelAllocatedNonNotablePassivesInRadiusGrantNothing)
                 {
                     if (mod.Values[i] != 0) suppressAllocatedSmalls = true;
                     continue;
                 }
-                if (id == "local_jewel_copy_stats_from_unallocated_non_notable_passives_in_radius")
+                if (id == Stat.LocalJewelCopyStatsFromUnallocatedNonNotablePassivesInRadius)
                 {
                     if (mod.Values[i] != 0) copyUnallocatedSmalls = true;
                     continue;
                 }
-                if (id == "local_unique_jewel_dex_and_int_apply_to_str_melee_damage_bonus_in_radius")
+                if (id == Stat.LocalUniqueJewelDexAndIntApplyToStrMeleeDamageBonusInRadius)
                 {
                     strengthMeleeBonus = true;
                     continue;
                 }
                 if (ScalingRules.TryGetValue(id, out var rule))
                 {
-                    if (Program.Stats.Key(rule.Target) is uint target && Program.Stats.Key(rule.Count) is uint count)
+                    if (rule.Target is var target && rule.Count is var count)
                         scalingStats.Add(new(target, count, rule.Per, mod.Values[i], rule.Divisor, rule.Allocated));
                     continue;
                 }
                 switch (id)
                 {
-                    case "local_unique_jewel_physical_damage_increases_applies_to_cold_damage":
+                    case Stat.LocalUniqueJewelPhysicalDamageIncreasesAppliesToColdDamage:
                         physicalToCold = true;
                         break;
-                    case "local_unique_jewel_cold_damage_increases_applies_to_physical_damage":
+                    case Stat.LocalUniqueJewelColdDamageIncreasesAppliesToPhysicalDamage:
                         coldToPhysical = true;
                         break;
-                    case "local_unique_jewel_damage_increases_applies_to_fire_damage":
-                        AddMove(moves, "physical_damage_+%", "fire_damage_+%");
-                        AddMove(moves, "cold_damage_+%", "fire_damage_+%");
-                        AddMove(moves, "lightning_damage_+%", "fire_damage_+%");
-                        AddMove(moves, "chaos_damage_+%", "fire_damage_+%");
-                        AddMove(moves, "elemental_damage_+%", "fire_damage_+%");
+                    case Stat.LocalUniqueJewelDamageIncreasesAppliesToFireDamage:
+                        AddMove(moves, Stat.PhysicalDamagePlusPct, Stat.FireDamagePlusPct);
+                        AddMove(moves, Stat.ColdDamagePlusPct, Stat.FireDamagePlusPct);
+                        AddMove(moves, Stat.LightningDamagePlusPct, Stat.FireDamagePlusPct);
+                        AddMove(moves, Stat.ChaosDamagePlusPct, Stat.FireDamagePlusPct);
+                        AddMove(moves, Stat.ElementalDamagePlusPct, Stat.FireDamagePlusPct);
                         break;
-                    case "local_unique_jewel_life_increases_applies_to_energy_shield":
-                        AddMove(moves, "maximum_life_+%", "maximum_energy_shield_+%");
+                    case Stat.LocalUniqueJewelLifeIncreasesAppliesToEnergyShield:
+                        AddMove(moves, Stat.MaximumLifePlusPct, Stat.MaximumEnergyShieldPlusPct);
                         break;
-                    case "local_unique_jewel_life_increases_applies_to_mana_doubled":
-                        AddMove(moves, "maximum_life_+%", "maximum_mana_+%", 2);
+                    case Stat.LocalUniqueJewelLifeIncreasesAppliesToManaDoubled:
+                        AddMove(moves, Stat.MaximumLifePlusPct, Stat.MaximumManaPlusPct, 2);
                         break;
-                    case "local_unique_jewel_energy_shield_increases_applies_to_armour_doubled":
-                        AddMove(moves, "maximum_energy_shield_+%", "physical_damage_reduction_rating_+%", 2);
+                    case Stat.LocalUniqueJewelEnergyShieldIncreasesAppliesToArmourDoubled:
+                        AddMove(moves, Stat.MaximumEnergyShieldPlusPct, Stat.PhysicalDamageReductionRatingPlusPct, 2);
                         break;
-                    case "local_unique_jewel_melee_applies_to_bow":
+                    case Stat.LocalUniqueJewelMeleeAppliesToBow:
                         if (mod.Values[i] != 0) moves.AddRange(MeleeToBow);
                         break;
                 }
@@ -354,8 +355,8 @@ public static class RadiusJewelCatalogue
             swap = (Stat.PhysicalDamagePlusPct, Stat.ColdDamagePlusPct);
         else
         {
-            if (physicalToCold) AddMove(moves, "physical_damage_+%", "cold_damage_+%");
-            if (coldToPhysical) AddMove(moves, "cold_damage_+%", "physical_damage_+%");
+            if (physicalToCold) AddMove(moves, Stat.PhysicalDamagePlusPct, Stat.ColdDamagePlusPct);
+            if (coldToPhysical) AddMove(moves, Stat.ColdDamagePlusPct, Stat.PhysicalDamagePlusPct);
         }
         if (moves.Count == 0 && swap is null && notableStats.Count == 0 && additionStats.Count == 0
             && resistance is null && scalingStats.Count == 0 && effectPct == 0 && !suppressNotables
@@ -406,48 +407,45 @@ public static class RadiusJewelCatalogue
                 "elemental_damage_+%", "attack_speed_+%", "accuracy_rating", "accuracy_rating_+%",
                 "critical_strike_chance_+%", "critical_strike_multiplier_+", "stun_duration_+%",
                 "stun_threshold_reduction_+%", "steal_power_frenzy_endurance_charges_on_hit_%" })
-                AddMove(result, $"{weapon}_{suffix}", $"bow_{suffix}");
-            AddMove(result, $"physical_{weapon}_damage_+%", "physical_bow_damage_+%");
-            AddMove(result, $"global_critical_strike_chance_+%_while_holding_{weapon}", "global_critical_strike_chance_+%_while_holding_bow");
-            AddMove(result, $"global_critical_strike_multiplier_+_while_holding_{weapon}", "global_critical_strike_multiplier_+_while_holding_bow");
-            AddMove(result, $"with_{weapon}_additional_block_%", "with_bow_additional_block_%");
-            AddMove(result, $"spell_block_with_{weapon}_%", "spell_block_with_bow_%");
-            AddMove(result, $"knockback_on_crit_with_{weapon}", "knockback_on_crit_with_bow");
+                AddMove(result, Stat.Of($"{weapon}_{suffix}"), Stat.Of($"bow_{suffix}"));
+            AddMove(result, Stat.Of($"physical_{weapon}_damage_+%"), Stat.PhysicalBowDamagePlusPct);
+            AddMove(result, Stat.Of($"global_critical_strike_chance_+%_while_holding_{weapon}"), Stat.GlobalCriticalStrikeChancePlusPctWhileHoldingBow);
+            AddMove(result, Stat.Of($"global_critical_strike_multiplier_+_while_holding_{weapon}"), Stat.GlobalCriticalStrikeMultiplierPlusWhileHoldingBow);
+            AddMove(result, Stat.Of($"with_{weapon}_additional_block_%"), Stat.WithBowAdditionalBlockPct);
+            AddMove(result, Stat.Of($"spell_block_with_{weapon}_%"), Stat.SpellBlockWithBowPct);
+            AddMove(result, Stat.Of($"knockback_on_crit_with_{weapon}"), Stat.KnockbackOnCritWithBow);
         }
-        AddMove(result, "melee_damage_+%", "bow_damage_+%");
-        AddMove(result, "melee_physical_damage_+%", "physical_bow_damage_+%");
-        AddMove(result, "melee_attack_speed_+%", "bow_attack_speed_+%");
-        AddMove(result, "melee_critical_strike_chance_+%", "bow_critical_strike_chance_+%");
+        AddMove(result, Stat.MeleeDamagePlusPct, Stat.BowDamagePlusPct);
+        AddMove(result, Stat.MeleePhysicalDamagePlusPct, Stat.PhysicalBowDamagePlusPct);
+        AddMove(result, Stat.MeleeAttackSpeedPlusPct, Stat.BowAttackSpeedPlusPct);
+        AddMove(result, Stat.MeleeCriticalStrikeChancePlusPct, Stat.BowCriticalStrikeChancePlusPct);
         foreach (var prefix in new[] { "one_handed_melee_", "two_handed_melee_" })
         {
-            AddMove(result, prefix + "physical_damage_+%", "physical_bow_damage_+%");
+            AddMove(result, Stat.Of(prefix + "physical_damage_+%"), Stat.PhysicalBowDamagePlusPct);
             foreach (var stat in new[] { "attack_speed_+%", "accuracy_rating_+%", "critical_strike_chance_+%",
                 "critical_strike_multiplier_+", "stun_duration_+%" })
-                AddMove(result, prefix + stat, "bow_" + stat);
-            AddMove(result, prefix + "weapon_ailment_damage_+%", "bow_ailment_damage_+%");
-            AddMove(result, prefix + "weapon_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
+                AddMove(result, Stat.Of(prefix + stat), Stat.Of("bow_" + stat));
+            AddMove(result, Stat.Of(prefix + "weapon_ailment_damage_+%"), Stat.BowAilmentDamagePlusPct);
+            AddMove(result, Stat.Of(prefix + "weapon_hit_and_ailment_damage_+%"), Stat.BowHitAndAilmentDamagePlusPct);
         }
-        AddMove(result, "critical_strike_multiplier_with_dagger_+", "bow_critical_strike_multiplier_+");
-        AddMove(result, "mace_or_staff_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
-        AddMove(result, "axe_or_sword_ailment_damage_+%", "bow_ailment_damage_+%");
-        AddMove(result, "melee_weapon_ailment_damage_+%", "bow_ailment_damage_+%");
-        AddMove(result, "melee_weapon_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
-        AddMove(result, "melee_attacks_usable_without_mana_cost", "bow_attacks_usable_without_mana_cost");
-        AddMove(result, "staff_block_%", "with_bow_additional_block_%");
+        AddMove(result, Stat.CriticalStrikeMultiplierWithDaggerPlus, Stat.BowCriticalStrikeMultiplierPlus);
+        AddMove(result, Stat.MaceOrStaffHitAndAilmentDamagePlusPct, Stat.BowHitAndAilmentDamagePlusPct);
+        AddMove(result, Stat.AxeOrSwordAilmentDamagePlusPct, Stat.BowAilmentDamagePlusPct);
+        AddMove(result, Stat.MeleeWeaponAilmentDamagePlusPct, Stat.BowAilmentDamagePlusPct);
+        AddMove(result, Stat.MeleeWeaponCriticalStrikeMultiplierPlus, Stat.BowCriticalStrikeMultiplierPlus);
+        AddMove(result, Stat.MeleeAttacksUsableWithoutManaCost, Stat.BowAttacksUsableWithoutManaCost);
+        AddMove(result, Stat.StaffBlockPct, Stat.WithBowAdditionalBlockPct);
         return result;
     }
 
-    static void AddMove(List<Move> moves, string from, string to, int factor = 1)
+    static void AddMove(List<Move> moves, uint from, uint to, int factor = 1)
     {
-        if (Program.Stats.Key(from) is not uint source || Program.Stats.Key(to) is not uint target) return;
-        moves.Add(new(source, target, factor));
+        moves.Add(new(from, to, factor));
     }
 
-    static ResistanceAddition? MakeResistance(string source, string target, int scale)
+    static ResistanceAddition? MakeResistance(uint source, uint target, int scale)
     {
-        if (Program.Stats.Key(source) is not uint sourceKey
-            || Program.Stats.Key(target) is not uint targetKey) return null;
-        return new([sourceKey, Stat.BaseResistAllElementsPct], targetKey, scale <= 1 ? 100 : scale);
+        return new([source, Stat.BaseResistAllElementsPct], target, scale <= 1 ? 100 : scale);
     }
 
     public static bool IsRadius(Item item, ModCatalog mods) => ReadConversion(item, mods) is not null;
@@ -502,7 +500,7 @@ public static class RadiusJewelCatalogue
         var values = row.MaxValues().ToArray();
         if (value is int selected)
             for (int i = 0; i < row.Stats.Count; i++)
-                if (row.Stats[i].Id == "local_jewel_variable_ring_radius_value") values[i] = selected;
+                if (row.Stats[i].Id == Stat.LocalJewelVariableRingRadiusValue) values[i] = selected;
         return new ItemMod(section, row.Hash, values);
     }
 
@@ -536,16 +534,16 @@ public static class RadiusJewelCatalogue
             // Thread of Hope prints the chosen ring first, then the allocation rule and the resistance penalty.
             if (items.Mods.ById(chosen.ModId) is not { Stats.Count: > 0 } ring) return null;
             mods.Add(CreateMod(ring, chosen.Value, ModSection.Implicit));
-            hasRadius |= ring.Stats.Any(stat => stat.Id == "local_jewel_effect_base_radius");
+            hasRadius |= ring.Stats.Any(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
             if (items.Mods.ById(entry.ConversionMod) is not { Stats.Count: > 0 } common) return null;
             // Thread of Hope's ring value supplies the radius; the allocate mod's 800 base would make the client
             // draw a filled disc instead of the annulus.
             var commonMod = CreateMod(common);
             var commonValues = commonMod.Values.ToArray();
-            int baseRadiusAt = common.Stats.ToList().FindIndex(stat => stat.Id == "local_jewel_effect_base_radius");
+            int baseRadiusAt = common.Stats.ToList().FindIndex(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
             if (baseRadiusAt >= 0 && baseRadiusAt < commonValues.Length) commonValues[baseRadiusAt] = 0;
             mods.Add(commonMod with { Values = commonValues });
-            hasRadius |= common.Stats.Any(stat => stat.Id == "local_jewel_effect_base_radius");
+            hasRadius |= common.Stats.Any(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
         }
         else
         {
@@ -557,7 +555,7 @@ public static class RadiusJewelCatalogue
             string conversionId = chosen?.ModId ?? entry.ConversionMod;
             if (items.Mods.ById(conversionId) is not { Stats.Count: > 0 } conversion) return null;
             mods.Add(CreateMod(conversion, chosen?.Value));
-            hasRadius |= conversion.Stats.Any(stat => stat.Id == "local_jewel_effect_base_radius");
+            hasRadius |= conversion.Stats.Any(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
         }
         if (entry.VariantKeepsConversionMod && chosen is not null)
             foreach (string globalId in entry.GlobalMods)
@@ -569,14 +567,14 @@ public static class RadiusJewelCatalogue
         {
             if (items.Mods.ById(extraId) is not { Stats.Count: > 0 } extra) return null;
             mods.Add(CreateMod(extra));
-            hasRadius |= extra.Stats.Any(stat => stat.Id == "local_jewel_effect_base_radius");
+            hasRadius |= extra.Stats.Any(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
         }
         if (!hasRadius && entry.Radius > 0)
         {
             if (items.Mods.ById("JewelEffectBaseRadiusUnique__1") is not { Stats.Count: > 0 } radius) return null;
             var radiusMod = CreateMod(radius);
             var values = radiusMod.Values.ToArray();
-            int baseRadiusAt = radius.Stats.ToList().FindIndex(stat => stat.Id == "local_jewel_effect_base_radius");
+            int baseRadiusAt = radius.Stats.ToList().FindIndex(stat => stat.Id == Stat.LocalJewelEffectBaseRadius);
             if (baseRadiusAt >= 0 && baseRadiusAt < values.Length) values[baseRadiusAt] = entry.Radius;
             mods.Add(radiusMod with { Values = values });
         }

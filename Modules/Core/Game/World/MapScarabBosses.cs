@@ -41,7 +41,7 @@ public static class MapScarabBosses
     {
         // The population is planned ahead of the area's entry, before conn.Layout is the area's: it hands its layout.
         layout ??= conn.Layout;
-        if (MapModsOf(conn)?.Get("map_shrines_have_standalone_map_boss") is not > 0 || Bosses.Count == 0) return [];
+        if (MapModsOf(conn)?.Get(Stat.MapShrinesHaveStandaloneMapBoss) is not > 0 || Bosses.Count == 0) return [];
         var random = new Random(unchecked((int)(conn.Seed ^ 0x54455252)));
         var result = new List<AreaPopulation.Spawn>();
         foreach (var at in shrines.Distinct())

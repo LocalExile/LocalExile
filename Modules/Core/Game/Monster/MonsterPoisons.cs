@@ -13,11 +13,11 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null, int addedChaos = 0)
     {
-        Func<string, int> get;
+        Func<uint, int> get;
         if (capturedInputs is null)
         {
             var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
-            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
         }
         else
             get = capturedInputs.Get;
@@ -33,7 +33,7 @@ public static partial class Game
     public static MonsterPoisons.Settings DefaultAttackPoison(Player conn, IReadOnlyDictionary<uint, int> player,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
@@ -61,29 +61,29 @@ public static partial class Game
         double phys = mitigated[DamageType.Physical].Min;
         double chaos = mitigated[DamageType.Chaos].Min;
 
-        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
-        int Get(string name) => Player(name) + Skill(name);
-        if ((Get("all_damage_can_poison") != 0 ? mitigated.MinTotal : phys + chaos) <= 0) return false;
+        int Player(uint key) => player.GetValueOrDefault(key);
+        int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
+        int Get(uint name) => Player(name) + Skill(name);
+        if ((Get(Stat.AllDamageCanPoison) != 0 ? mitigated.MinTotal : phys + chaos) <= 0) return false;
 
         if (MonsterPoisons.Prohibited(Get)) return false;
 
-        long chance = (long)Get("base_chance_to_poison_on_hit_%")
+        long chance = (long)Get(Stat.BaseChanceToPoisonOnHitPct)
             + (spell
-                ? Get("spells_chance_to_poison_on_hit_%")
+                ? Get(Stat.SpellsChanceToPoisonOnHitPct)
                 : settings.Secondary ? 0
-                : Get("chance_to_poison_on_hit_with_attacks_%") + settings.WeaponChance + settings.ProjectileChance);
-        if (chaos > 0) chance += Get("chaos_damage_chance_to_poison_%");
+                : Get(Stat.ChanceToPoisonOnHitWithAttacksPct) + settings.WeaponChance + settings.ProjectileChance);
+        if (chaos > 0) chance += Get(Stat.ChaosDamageChanceToPoisonPct);
 
         if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return false;
-        if (target.Mods.Effects["cannot_be_poisoned"] != 0) return false;
-        int avoid = target.Mods.Effects["avoid_poison_%"];
+        if (target.Mods.Effects[Stat.CannotBePoisoned] != 0) return false;
+        int avoid = target.Mods.Effects[Stat.AvoidPoisonPct];
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         // Lethal Dose: a hit that finds the enemy unpoisoned applies additional poisons on top of its own.
         int stacks = 1 + (target.Poisons.Stacks(now) == 0
-            ? Math.Max(0, Get("additional_poisons_+_to_apply_vs_non_poisoned_enemies")) : 0);
+            ? Math.Max(0, Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies)) : 0);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
         int accepted = 0;

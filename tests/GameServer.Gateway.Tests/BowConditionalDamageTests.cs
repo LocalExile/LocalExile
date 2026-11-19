@@ -9,14 +9,14 @@ public class BowConditionalDamageTests
     [Fact]
     public void Bow_conditional_added_damage_applies_only_to_bow_attacks()
     {
-        var stats = new Dictionary<string, int>
+        var stats = new Dictionary<uint, int>
         {
-            ["attack_minimum_added_physical_damage_with_bow"] = 6,
-            ["attack_maximum_added_physical_damage_with_bow"] = 10,
-            ["attack_minimum_added_cold_damage_with_bows"] = 100,
-            ["attack_maximum_added_cold_damage_with_bows"] = 160,
+            [Stat.AttackMinimumAddedPhysicalDamageWithBow] = 6,
+            [Stat.AttackMaximumAddedPhysicalDamageWithBow] = 10,
+            [Stat.AttackMinimumAddedColdDamageWithBows] = 100,
+            [Stat.AttackMaximumAddedColdDamageWithBows] = 160,
         };
-        int Get(string name) => stats.GetValueOrDefault(name);
+        int Get(uint name) => stats.GetValueOrDefault(name);
         var bow = SupportedAttackDamage.Raw(new SkillCatalog.Unarmed(0, 0, 0, 0) { Bow = true }, Get);
         Assert.Equal(6, bow[DamageType.Physical].Min);
         Assert.Equal(10, bow[DamageType.Physical].Max);

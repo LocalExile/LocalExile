@@ -5,12 +5,12 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static PlayerElementalAilments.HitSettings IncomingAilmentSettings(Func<string, int> get) => new(
-        get("always_ignite") != 0 ? 100 : get("base_chance_to_ignite_%"),
-        get("always_freeze") != 0 ? 100 : get("base_chance_to_freeze_%"),
-        get("always_shock") != 0 ? 100 : get("base_chance_to_shock_%"),
-        get("active_skill_chill_effect_+%_final"), get("active_skill_shock_duration_+%_final"),
-        get("active_skill_ignite_damage_+%_final")) { NeverFreeze = get("never_freeze") != 0 };
+    public static PlayerElementalAilments.HitSettings IncomingAilmentSettings(Func<uint, int> get) => new(
+        get(Stat.AlwaysIgnite) != 0 ? 100 : get(Stat.BaseChanceToIgnitePct),
+        get(Stat.AlwaysFreeze) != 0 ? 100 : get(Stat.BaseChanceToFreezePct),
+        get(Stat.AlwaysShock) != 0 ? 100 : get(Stat.BaseChanceToShockPct),
+        get(Stat.ActiveSkillChillEffectPlusPctFinal), get(Stat.ActiveSkillShockDurationPlusPctFinal),
+        get(Stat.ActiveSkillIgniteDamagePlusPctFinal)) { NeverFreeze = get(Stat.NeverFreeze) != 0 };
 
     public static void ApplyPlayerAilmentsLocked(Player conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
@@ -20,12 +20,12 @@ public static partial class Game
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats,
         PlayerElementalAilments.HitSettings settings, uint? source = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
         // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || conn.Immune || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
-                && Get("all_damage_taken_can_chill") == 0) return;
+                && Get(Stat.AllDamageTakenCanChill) == 0) return;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
@@ -77,7 +77,7 @@ public static partial class Game
             return 0;
         }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         var immunities = PlayerImmunities(conn, stats);
         int damage = 0, lifeDamage = 0;
         if (conn.ElementalAilments.HasEffects)
@@ -85,7 +85,7 @@ public static partial class Game
             damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
                 MaxResistance(conn, DamageType.Fire), immunities.Contains(DamageType.Fire),
                 source => DamageTakenFromBlindedPct(conn, source, stats));
-            if (Get("base_cannot_be_damaged") > 0) damage = 0;
+            if (Get(Stat.BaseCannotBeDamaged) > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
             lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
@@ -97,7 +97,7 @@ public static partial class Game
             var chaos = DamageType.Chaos;
             lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + conn.IncomingAilments.Advance(from, until,
                 conn.Pools, conn.EnergyShield, Get, Resistance(conn, physical), MaxResistance(conn, physical),
-                Resistance(conn, chaos), MaxResistance(conn, chaos), conn.Immune || Get("base_cannot_be_damaged") > 0,
+                Resistance(conn, chaos), MaxResistance(conn, chaos), conn.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), conn.Walk.MovingSeconds,
                 ref conn.NonChaosDotBypassCarry, ref conn.ChaosDotBypassCarry));
         }
@@ -123,46 +123,46 @@ public static partial class Game
         if (blocked || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
         var effects = m.Mods.Effects;
         var playerStats = prepared ?? CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
-        int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
-            attack ? effects["bleed_on_hit_with_attacks_%"] : 0);
-        if (attack) bleedChance += Player("receive_bleeding_chance_%_when_hit_by_attack");
-        int poisonChance = Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
-            effects["base_chance_to_poison_on_hit_%"]);
+        int Player(uint key) => playerStats.GetValueOrDefault(key);
+        int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
+            attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
+        if (attack) bleedChance += Player(Stat.ReceiveBleedingChancePctWhenHitByAttack);
+        int poisonChance = Math.Max(effects[Stat.GlobalPoisonOnHit] != 0 ? 100 : 0,
+            effects[Stat.BaseChanceToPoisonOnHitPct]);
         if (attack) poisonChance = Math.Max(poisonChance,
-            effects["base_attacks_poison"] != 0 ? 100 : effects["chance_to_poison_on_hit_with_attacks_%"]);
+            effects[Stat.BaseAttacksPoison] != 0 ? 100 : effects[Stat.ChanceToPoisonOnHitWithAttacksPct]);
         if (bleedChance <= 0 && poisonChance <= 0) return;
         // Damaging ailments roll their base independently of the hit's roll, before victim mitigation.
         var rolled = hit.Roll(conn.IncomingHitRandom);
         double physical = rolled[DamageType.Physical].Min;
         double chaos = rolled[DamageType.Chaos].Min;
-        bool poisonable = effects["all_damage_can_poison"] != 0
+        bool poisonable = effects[Stat.AllDamageCanPoison] != 0
             ? rolled.Components.Any(c => c.Range.Min > 0)
             : physical + chaos > 0;
-        double poisonBase = effects["all_damage_can_poison"] != 0 ? rolled.MinTotal : physical + chaos;
-        if (bleedChance > 0 && physical > 0 && Player("cannot_gain_bleeding") == 0
-            && Player("base_cannot_gain_bleeding") == 0
-            && Player("virtual_immune_to_bleeding") == 0 && Player("immune_to_bleeding") == 0
+        double poisonBase = effects[Stat.AllDamageCanPoison] != 0 ? rolled.MinTotal : physical + chaos;
+        if (bleedChance > 0 && physical > 0 && Player(Stat.CannotGainBleeding) == 0
+            && Player(Stat.BaseCannotGainBleeding) == 0
+            && Player(Stat.VirtualImmuneToBleeding) == 0 && Player(Stat.ImmuneToBleeding) == 0
             && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, conn.IncomingHitRandom)
-            && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_bleed_%"), 100, conn.IncomingHitRandom))
+            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidBleedPct), 100, conn.IncomingHitRandom))
         {
-            double more = Math.Max(0, 1 + effects["bleeding_damage_+%"] / 100.0);
+            double more = Math.Max(0, 1 + effects[Stat.BleedingDamagePlusPct] / 100.0);
             double seconds = Ailments.BleedDurationSeconds
-                * Math.Max(0, 1 + effects["base_bleed_duration_+%"] / 100.0);
+                * Math.Max(0, 1 + effects[Stat.BaseBleedDurationPlusPct] / 100.0);
             conn.IncomingAilments.ApplyBleed(now, physical * 0.70 * more
-                * Math.Max(0, 1 + effects["monster_bleeding_damage_+%_final"] / 100.0), seconds, source,
+                * Math.Max(0, 1 + effects[Stat.MonsterBleedingDamagePlusPctFinal] / 100.0), seconds, source,
                 victim: Player);
         }
-        if (poisonChance > 0 && poisonable && Player("cannot_be_poisoned") == 0
-            && Player("immune_to_poison") == 0
+        if (poisonChance > 0 && poisonable && Player(Stat.CannotBePoisoned) == 0
+            && Player(Stat.ImmuneToPoison) == 0
             && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, conn.IncomingHitRandom)
-            && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_poison_%"), 100, conn.IncomingHitRandom))
+            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidPoisonPct), 100, conn.IncomingHitRandom))
         {
-            double more = Math.Max(0, 1 + effects["base_poison_damage_+%"] / 100.0);
+            double more = Math.Max(0, 1 + effects[Stat.BasePoisonDamagePlusPct] / 100.0);
             double seconds = Ailments.PoisonDurationSeconds
-                * Math.Max(0, 1 + effects["base_poison_duration_+%"] / 100.0);
+                * Math.Max(0, 1 + effects[Stat.BasePoisonDurationPlusPct] / 100.0);
             conn.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
-                * Math.Max(0, 1 + effects["monster_poison_damage_+%_final"] / 100.0), seconds, source,
+                * Math.Max(0, 1 + effects[Stat.MonsterPoisonDamagePlusPctFinal] / 100.0), seconds, source,
                 victim: Player);
         }
     }
@@ -240,7 +240,7 @@ public static partial class Game
             leadership = conn.PlayerLife > 0 ? conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) : null;
         return Math.Max(.01, PlayerActionFactorFrom(conn, name =>
         {
-            if (Stats.Key(name) is not uint key) return 0;
+            if (!(name is var key)) return 0;
             long value = sources.GetValueOrDefault(key);
             if (leadership is { } active)
                 foreach (var (stat, amount) in active.Stats)
@@ -249,15 +249,15 @@ public static partial class Game
         }));
     }
 
-    public static double PlayerActionFactorFrom(Player conn, Func<string, int> get)
+    public static double PlayerActionFactorFrom(Player conn, Func<uint, int> get)
     {
-        double extra = get("has_tailwind") == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get("tailwind_effect_on_self_+%") / 100d)) - 8;
-        double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get("action_speed_-%") - extra)
-            * Math.Max(.01, 1 + get("temporal_chains_action_speed_+%_final") / 100d);
-        if (get("action_speed_cannot_be_reduced_below_base") != 0) factor = Math.Max(1, factor);
+        double extra = get(Stat.HasTailwind) == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get(Stat.TailwindEffectOnSelfPlusPct) / 100d)) - 8;
+        double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get(Stat.ActionSpeedMinusPct) - extra)
+            * Math.Max(.01, 1 + get(Stat.TemporalChainsActionSpeedPlusPctFinal) / 100d);
+        if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is
         // the wiki's "at least 110% of base value").
-        int minimum = get("action_speed_+%_minimum_value_from_rakiatas_leadership");
+        int minimum = get(Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership);
         // A frozen player's factor is 0 and stays 0; the floor only lifts a lowered (positive) action speed.
         if (minimum != 0 && factor > 0) factor = Math.Max(factor, 1 + minimum / 100.0);
         return factor;

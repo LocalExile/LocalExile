@@ -17,8 +17,8 @@ public sealed class GemAttackSpeedTests
         const double baseline = 2173 / (250.0 / 23.0);
         Assert.Equal(baseline, ProjectileSpeed.CellsPerSecond(2173, _ => 0, _ => 0), 4);
         Assert.Equal(baseline * 1.2, ProjectileSpeed.CellsPerSecond(2173,
-            name => name == "projectile_speed_+%" ? 20 : 0, _ => 0), 4);
+            name => name == Stat.ProjectileSpeedPlusPct ? 20 : 0, _ => 0), 4);
         Assert.Equal(baseline * 1.1, ProjectileSpeed.CellsPerSecond(2173, _ => 0,
-            name => name == "base_projectile_speed_+%" ? 10 : 0), 4);
+            name => name == Stat.BaseProjectileSpeedPlusPct ? 10 : 0), 4);
     }
 }

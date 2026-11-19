@@ -45,25 +45,24 @@ public static class Lifetap
     /// <summary>Lifetap grants 20% increased Life Recovery from Flasks (poedb, BuffDefinitions 1846's stat).</summary>
     public const int FlaskRecoveryPct = 20;
 
-    public const string CostLifeStat = "base_skill_cost_life_instead_of_mana",
-        AlternateCostLifeStat = "skill_cost_life_instead_of_mana",
-        DamageStat = "support_lifetap_damage_+%_final_while_buffed",
-        ThresholdStat = "support_lifetap_spent_life_threshold",
-        DurationStat = "support_base_lifetap_buff_duration";
+    public const uint CostLifeStat = Stat.BaseSkillCostLifeInsteadOfMana,
+        AlternateCostLifeStat = Stat.SkillCostLifeInsteadOfMana,
+        DamageStat = Stat.SupportLifetapDamagePlusPctFinalWhileBuffed,
+        ThresholdStat = Stat.SupportLifetapSpentLifeThreshold,
+        DurationStat = Stat.SupportBaseLifetapBuffDuration;
 
     const double DefaultDurationSeconds = 4;
 
-    public static int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
-        Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+    public static int Value(IReadOnlyDictionary<uint, int> stats, uint key) => stats.GetValueOrDefault(key);
 
     /// <summary>Whether these supported-skill stats convert the Mana cost to Life, with or without Lifetap.</summary>
     public static bool ConvertsCostToLife(IReadOnlyDictionary<uint, int> stats) =>
-        Stat(stats, CostLifeStat) != 0 || Stat(stats, AlternateCostLifeStat) != 0;
+        Value(stats, CostLifeStat) != 0 || Value(stats, AlternateCostLifeStat) != 0;
 
     /// <summary>Whether these stats come from Lifetap Support: its own spent-Life threshold is the specific marker.
     /// Generic Life-cost conversion (for example Blood Magic) must pay Life without granting Lifetap's buff.</summary>
     public static bool Supported(IReadOnlyDictionary<uint, int> stats) =>
-        ConvertsCostToLife(stats) && Stat(stats, ThresholdStat) > 0;
+        ConvertsCostToLife(stats) && Value(stats, ThresholdStat) > 0;
 
     /// <summary>The whole cost, in Life, of a skill whose Mana cost is converted to Life; 0 otherwise.</summary>
     public static int LifeCost(IReadOnlyDictionary<uint, int> stats, int manaCost) =>
@@ -83,7 +82,7 @@ public static class Lifetap
     {
         if (life <= 0 || !Supported(stats)) return;
         var state = conn.Lifetap;
-        int threshold = Stat(stats, ThresholdStat);
+        int threshold = Value(stats, ThresholdStat);
         if (threshold <= 0) return;
         state.Spent = (int)Math.Min(int.MaxValue, (long)state.Spent + life);
         if (state.Spent < threshold) return;
@@ -97,7 +96,7 @@ public static class Lifetap
 
     /// <summary>The buff's duration: the support's 4000 ms base, plus 100 ms per 1% quality in the same stat.</summary>
     public static double DurationSeconds(IReadOnlyDictionary<uint, int> stats) =>
-        Stat(stats, DurationStat) is > 0 and int milliseconds ? milliseconds / 1000.0 : DefaultDurationSeconds;
+        Value(stats, DurationStat) is > 0 and int milliseconds ? milliseconds / 1000.0 : DefaultDurationSeconds;
 
     /// <summary>
     /// The buff instance the client must add or remove since the previous call. Called under the send gate and the

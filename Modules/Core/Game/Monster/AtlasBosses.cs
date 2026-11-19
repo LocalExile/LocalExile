@@ -261,20 +261,20 @@ static class AtlasBosses
     internal static DamagePacket DamageOverTime(Player conn, int effect, int level)
     {
         var stats = Game.SkillsFor(conn).EffectStats(effect, level);
-        int Get(string name)
+        int Get(uint name)
         {
-            if (Stats.Key(name) is not uint key) return 0;
+            if (!(name is var key)) return 0;
             foreach (var (id, value) in stats) if (id == key) return value;
             return 0;
         }
         var packet = DamagePacket.Empty;
         foreach (var (type, name) in new[]
         {
-            (DamageType.Physical, "base_physical_damage_to_deal_per_minute"),
-            (DamageType.Fire, "base_fire_damage_to_deal_per_minute"),
-            (DamageType.Cold, "base_cold_damage_to_deal_per_minute"),
-            (DamageType.Lightning, "base_lightning_damage_to_deal_per_minute"),
-            (DamageType.Chaos, "base_chaos_damage_to_deal_per_minute"),
+            (DamageType.Physical, Stat.BasePhysicalDamageToDealPerMinute),
+            (DamageType.Fire, Stat.BaseFireDamageToDealPerMinute),
+            (DamageType.Cold, Stat.BaseColdDamageToDealPerMinute),
+            (DamageType.Lightning, Stat.BaseLightningDamageToDealPerMinute),
+            (DamageType.Chaos, Stat.BaseChaosDamageToDealPerMinute),
         })
         {
             double perSecond = Get(name) / 60.0;

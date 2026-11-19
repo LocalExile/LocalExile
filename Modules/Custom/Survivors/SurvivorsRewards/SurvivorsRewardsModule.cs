@@ -14,9 +14,9 @@ public sealed class SurvivorsRewardsModule : IModule
         GameEvents.FinalStatsBuilding.Add(module.Manifest.Id, (conn, stats) =>
         {
             if (StateOf(conn).SurvivorsItemIds.Count == 0) return;
-            foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
-                "virtual_intelligence_for_requirements" })
-                if (Stats.Key(name) is uint key) stats[key] = Math.Max(stats.GetValueOrDefault(key), 1000);
+            foreach (uint key in new[] { Stat.VirtualStrengthForRequirements, Stat.VirtualDexterityForRequirements,
+                Stat.VirtualIntelligenceForRequirements })
+                stats[key] = Math.Max(stats.GetValueOrDefault(key), 1000);
         });
         GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, (conn, bytes) =>
         {

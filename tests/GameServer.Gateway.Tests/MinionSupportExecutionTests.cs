@@ -28,9 +28,9 @@ public sealed class MinionSupportExecutionTests
         var fighter = f.Conn.Summons.Fighters[id];
         fighter.Monster.Walk.Teleport(100, 100, 0);
         Invoke("RefreshGolemLocked", f.Conn, fighter, Game.CharacterPlayerStats(f.Conn), (double?)0d);
-        fighter.Monster.Mods = fighter.Monster.Mods with { Effects = new(new Dictionary<string, int>
-            { ["accuracy_rating"] = 1000000, ["never_crit"] = 1,
-                ["support_melee_splash_damage_+%_final_for_splash"] = fighter.Own.GetValueOrDefault(Stat.SupportMeleeSplashDamagePlusPctFinalForSplash) }) };
+        fighter.Monster.Mods = fighter.Monster.Mods with { Effects = new(new Dictionary<uint, int>
+            { [Stat.AccuracyRating] = 1000000, [Stat.Of("never_crit")] = 1,
+                [Stat.SupportMeleeSplashDamagePlusPctFinalForSplash] = fighter.Own.GetValueOrDefault(Stat.SupportMeleeSplashDamagePlusPctFinalForSplash) }) };
         f.Conn.Walk.Teleport(100, 100, 0);
         return fighter;
     }
@@ -52,8 +52,8 @@ public sealed class MinionSupportExecutionTests
         try
         {
             var fighter = await Skeleton(f, "Multistrike Support", "Ruthless Support");
-            fighter.Gear["global_minimum_added_chaos_damage"] = fighter.Gear["global_maximum_added_chaos_damage"] = 100;
-            fighter.Gear["base_deal_no_physical_damage"] = 1;
+            fighter.Gear[Stat.GlobalMinimumAddedChaosDamage] = fighter.Gear[Stat.GlobalMaximumAddedChaosDamage] = 100;
+            fighter.Gear[Stat.BaseDealNoPhysicalDamage] = 1;
             fighter.Own[Stat.BaseChanceToPoisonOnHitPct] = 100;
             fighter.Abilities = Game.GolemAbilities(f.Conn, fighter.Monster.Variety!, fighter.Monster.Level, fighter, fighter.Player);
             var ability = fighter.Abilities.First(a => !a.Attack.Spell && Program.Skills.IsMelee(a.Effect));
@@ -69,8 +69,8 @@ public sealed class MinionSupportExecutionTests
             Assert.True(originalPoison > 0);
             double original = ability.Attack.Damage.MaxTotal;
             Assert.True(original > 0);
-            int Own(string n) => fighter.Own.GetValueOrDefault(Program.Stats.Key(n)!.Value);
-            Assert.Equal(2, Own("base_melee_attack_repeat_count"));
+            int Own(uint n) => fighter.Own.GetValueOrDefault(n);
+            Assert.Equal(2, Own(Stat.BaseMeleeAttackRepeatCount));
             for (int use = 0; use < 3; use++)
             {
                 Invoke("GolemReserveLocked", f.Conn, fighter, ability, 999u, enemy, (105, 100), time.Time);
@@ -79,11 +79,11 @@ public sealed class MinionSupportExecutionTests
                     Invoke("GolemActionRecords", f.Conn, new PlayerMinions.Output([], null, fighter.Id, fighter.Monster,
                         PlayerMinions.OutputKind.GolemAction, Action: fighter.Monster.ActionGeneration));
                     var pending = fighter.Pending!;
-                    double ruthless = use == 2 ? 1 + Own("support_ruthless_big_hit_damage_+%_final") / 100d : 1;
-                    double extra = repeat == 0 ? 1 : 1 + Own(repeat == 1 ? "multistrike_damage_+%_final_on_first_repeat"
-                        : "multistrike_damage_+%_final_on_second_repeat") / 100d;
+                    double ruthless = use == 2 ? 1 + Own(Stat.SupportRuthlessBigHitDamagePlusPctFinal) / 100d : 1;
+                    double extra = repeat == 0 ? 1 : 1 + Own(repeat == 1 ? Stat.MultistrikeDamagePlusPctFinalOnFirstRepeat
+                        : Stat.MultistrikeDamagePlusPctFinalOnSecondRepeat) / 100d;
                     Assert.Equal(original * ruthless * extra, pending.Ability.Attack.Damage.MaxTotal, 5);
-                    double ailmentRuthless = use == 2 ? 1 + Own("support_ruthless_blow_ailment_damage_from_melee_hits_+%_final") / 100d : 1;
+                    double ailmentRuthless = use == 2 ? 1 + Own(Stat.SupportRuthlessBlowAilmentDamageFromMeleeHitsPlusPctFinal) / 100d : 1;
                     Assert.Equal(originalPoison * ailmentRuthless * extra, Poison(pending.Ability), 5);
                     Assert.Equal(repeat, pending.RepeatIndex);
                     time.Time = pending.At;

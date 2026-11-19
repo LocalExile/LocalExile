@@ -8,7 +8,7 @@ public static partial class Game
 
     public static int GolemRecentDamageIncrease(GolemState.Golem golem, double at) =>
         GolemSummonedInPastEightSeconds(golem, at)
-            ? GolemStat(golem.Player, "golem_damage_+%_if_summoned_in_past_8_seconds") : 0;
+            ? GolemStat(golem.Player, Stat.GolemDamagePlusPctIfSummonedInPast8Seconds) : 0;
 
     public readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
 
@@ -22,62 +22,63 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player, double at = double.NegativeInfinity,
         GolemOwnerResistances? ownerResistances = null)
     {
-        var values = new Dictionary<string, int>(golem.InheritedMods.Effects.Stats);
+        var values = new Dictionary<uint, int>(golem.InheritedMods.Effects.Stats);
         foreach (var (key, value) in player)
-            if (Stats.Name(key) is { } name)
-            {
-                if (name.StartsWith("minion_", StringComparison.Ordinal))
+        {
+            string name = Stats.Name(key);
+            uint target;
+            if (name.StartsWith("minion_", StringComparison.Ordinal))
+                target = name[7..] switch
                 {
-                    name = name[7..] switch
-                    {
-                        "elemental_resistance_%" => "base_resist_all_elements_%",
-                        "fire_damage_resistance_%" => "base_fire_damage_resistance_%",
-                        "cold_damage_resistance_%" => "base_cold_damage_resistance_%",
-                        "lightning_damage_resistance_%" => "base_lightning_damage_resistance_%",
-                        "chaos_resistance_%" => "base_chaos_damage_resistance_%",
-                        var plain => plain,
-                    };
-                }
-                else if (name is not ("energy_shield_+%_final_for_minion" or "minions_have_no_armour_or_energy_shield"))
-                    continue;
-                values[name] = ActorScale.Saturate((long)values.GetValueOrDefault(name) + value);
-            }
+                    "elemental_resistance_%" => Stat.BaseResistAllElementsPct,
+                    "fire_damage_resistance_%" => Stat.BaseFireDamageResistancePct,
+                    "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
+                    "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
+                    "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
+                    var plain => Stat.Of(plain),
+                };
+            else if (key is Stat.EnergyShieldPlusPctFinalForMinion or Stat.MinionsHaveNoArmourOrEnergyShield)
+                target = key;
+            else continue;
+            values[target] = ActorScale.Saturate((long)values.GetValueOrDefault(target) + value);
+        }
         foreach (var (key, value) in golem.Own)
         {
-            string name = Stats.Name(key) ?? "";
-            if (name.StartsWith("minion_", StringComparison.Ordinal)) name = name[7..];
+            string name = Stats.Name(key);
+            uint id = key;
+            if (name.StartsWith("minion_", StringComparison.Ordinal)) id = Stat.Of(name = name[7..]);
             // SupportedSkill already projects its global added damage into the attack and spell forms.
             if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
-            values[name] = values.GetValueOrDefault(name) + value;
+            values[id] = values.GetValueOrDefault(id) + value;
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
-        int Get(string n) => GolemStat(player, n);
+        int Get(uint n) => GolemStat(player, n);
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
         // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.
-        int maximumPowerChargeCrit = ActorScale.Saturate((long)Get("minion_critical_strike_chance_+%_per_maximum_power_charge")
+        int maximumPowerChargeCrit = ActorScale.Saturate((long)Get(Stat.MinionCriticalStrikeChancePlusPctPerMaximumPowerCharge)
             * OwnerMaximumPowerCharges(player));
         if (maximumPowerChargeCrit != 0)
-            values["critical_strike_chance_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("critical_strike_chance_+%")
+            values[Stat.CriticalStrikeChancePlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct)
                 + maximumPowerChargeCrit);
         // Speaker's Wreath's real rows are per complete 50 of the owner's final Dexterity. This is the same
         // authoritative attribute snapshot the character pools use (class, equipment, flat and percentage sources),
         // never the minion's Dexterity. The attack row intentionally does not enter cast speed.
-        int dexGroups = Math.Max(0, Get("dexterity")) / 50;
-        int dexAttackSpeed = ActorScale.Saturate((long)dexGroups * Get("minion_attack_speed_+%_per_50_dex"));
-        int dexMovementSpeed = ActorScale.Saturate((long)dexGroups * Get("minion_movement_speed_+%_per_50_dex"));
-        values["attack_speed_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("attack_speed_+%") + dexAttackSpeed);
-        values["base_movement_velocity_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("base_movement_velocity_+%")
+        int dexGroups = Math.Max(0, Get(Stat.Dexterity)) / 50;
+        int dexAttackSpeed = ActorScale.Saturate((long)dexGroups * Get(Stat.MinionAttackSpeedPlusPctPer50Dex));
+        int dexMovementSpeed = ActorScale.Saturate((long)dexGroups * Get(Stat.MinionMovementSpeedPlusPctPer50Dex));
+        values[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.AttackSpeedPlusPct) + dexAttackSpeed);
+        values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
             + dexMovementSpeed);
-        int inheritedCoefficient = Get("minions_gain_x_percent_of_your_resistances");
+        int inheritedCoefficient = Get(Stat.MinionsGainXPercentOfYourResistances);
         if (inheritedCoefficient != 0)
         {
             var owner = ownerResistances ?? GolemOwnerResistancesFor(conn);
             void Inherit(string type, int resistance)
             {
-                string key = $"base_{type}_damage_resistance_%";
+                uint key = Stat.Of($"base_{type}_damage_resistance_%");
                 long inherited = (long)Math.Floor((double)resistance * inheritedCoefficient / 100d);
                 values[key] = ActorScale.Saturate((long)values.GetValueOrDefault(key) + inherited);
             }
@@ -86,27 +87,27 @@ public static partial class Game
         }
         if (!golem.Definition.IsGolem)
         {
-            values["global_minimum_added_physical_damage"] = values.GetValueOrDefault("global_minimum_added_physical_damage")
-                + Get("non_golem_minion_global_minimum_added_physical_damage");
-            values["global_maximum_added_physical_damage"] = values.GetValueOrDefault("global_maximum_added_physical_damage")
-                + Get("non_golem_minion_global_maximum_added_physical_damage");
-            values["attack_speed_+%"] = values.GetValueOrDefault("attack_speed_+%") + values.GetValueOrDefault("attack_and_cast_speed_+%");
-            values["base_movement_velocity_+%"] = values.GetValueOrDefault("movement_speed_+%") + values.GetValueOrDefault("base_movement_velocity_+%");
-            values.Remove("life_regeneration_rate_per_minute_%");
+            values[Stat.GlobalMinimumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMinimumAddedPhysicalDamage)
+                + Get(Stat.NonGolemMinionGlobalMinimumAddedPhysicalDamage);
+            values[Stat.GlobalMaximumAddedPhysicalDamage] = values.GetValueOrDefault(Stat.GlobalMaximumAddedPhysicalDamage)
+                + Get(Stat.NonGolemMinionGlobalMaximumAddedPhysicalDamage);
+            values[Stat.AttackSpeedPlusPct] = values.GetValueOrDefault(Stat.AttackSpeedPlusPct) + values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct);
+            values[Stat.BaseMovementVelocityPlusPct] = values.GetValueOrDefault(Stat.Of("movement_speed_+%")) + values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct);
+            values.Remove(Stat.LifeRegenerationRatePerMinutePct);
             return golem.InheritedMods with { Effects = new(values) };
         }
         string family = golem.Definition.Kind == "Carrion" ? "bone" : golem.Definition.Kind.ToLowerInvariant();
         int recent = GolemSummonedInPastEightSeconds(golem, at)
-            ? Get("golem_damage_+%_if_summoned_in_past_8_seconds") : 0;
-        values["damage_+%"] = values.GetValueOrDefault("damage_+%") + Get("golem_damage_+%") + Get(family + "_golem_damage_+%")
-            + Get("golem_damage_+%_per_active_golem_type") * Math.Max(1, Get("virtual_current_number_of_golem_types"))
-            + Get("golem_damage_+%_per_active_golem") * Get("virtual_total_number_of_active_golems") + recent;
-        values["attack_and_cast_speed_+%"] = values.GetValueOrDefault("attack_and_cast_speed_+%") + Get("golem_attack_and_cast_speed_+%");
-        values["attack_speed_+%"] = values.GetValueOrDefault("attack_speed_+%") + values.GetValueOrDefault("attack_and_cast_speed_+%");
-        values["base_movement_velocity_+%"] = values.GetValueOrDefault("movement_speed_+%") + values.GetValueOrDefault("base_movement_velocity_+%") + Get("golem_movement_speed_+%");
-        values["base_resist_all_elements_%"] = values.GetValueOrDefault("base_resist_all_elements_%") + Get(family + "_golem_elemental_resistances_%");
+            ? Get(Stat.GolemDamagePlusPctIfSummonedInPast8Seconds) : 0;
+        values[Stat.DamagePlusPct] = values.GetValueOrDefault(Stat.DamagePlusPct) + Get(Stat.Of("golem_damage_+%")) + Get(Stat.Of(family + "_golem_damage_+%"))
+            + Get(Stat.GolemDamagePlusPctPerActiveGolemType) * Math.Max(1, Get(Stat.VirtualCurrentNumberOfGolemTypes))
+            + Get(Stat.GolemDamagePlusPctPerActiveGolem) * Get(Stat.VirtualTotalNumberOfActiveGolems) + recent;
+        values[Stat.AttackAndCastSpeedPlusPct] = values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) + Get(Stat.GolemAttackAndCastSpeedPlusPct);
+        values[Stat.AttackSpeedPlusPct] = values.GetValueOrDefault(Stat.AttackSpeedPlusPct) + values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct);
+        values[Stat.BaseMovementVelocityPlusPct] = values.GetValueOrDefault(Stat.Of("movement_speed_+%")) + values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct) + Get(Stat.GolemMovementSpeedPlusPct);
+        values[Stat.BaseResistAllElementsPct] = values.GetValueOrDefault(Stat.BaseResistAllElementsPct) + Get(Stat.Of(family + "_golem_elemental_resistances_%"));
         // Recovery is stepped once by the owner controller, not again by RegenerateMonstersLocked.
-        values.Remove("life_regeneration_rate_per_minute_%");
+        values.Remove(Stat.LifeRegenerationRatePerMinutePct);
         return golem.InheritedMods with { Effects = new(values) };
     }
 
@@ -164,7 +165,7 @@ public static partial class Game
     static int SkeletonShieldChaos(Player conn, GolemState.Golem fighter, IReadOnlyDictionary<uint, int> player)
     {
         if (fighter.Definition.Kind != "Skeleton") return 0;
-        int percent = GolemStat(player, "your_skeletons_gain_added_chaos_damage_equal_to_%_of_energy_shield_on_shield");
+        int percent = GolemStat(player, Stat.YourSkeletonsGainAddedChaosDamageEqualToPctOfEnergyShieldOnShield);
         if (percent <= 0 || ActiveOffHand(conn) is not { Type: { Class: "Shield" } shield } hand) return 0;
         var items = ItemsFor(conn);
         if (items.Defences(shield) is not { } defences) return 0;
@@ -184,7 +185,7 @@ public static partial class Game
         double now = at ?? AreaTime(conn);
         var mods = GolemModifiers(conn, golem, player, now, ownerResistances).Effects;
         int shieldChaos = SkeletonShieldChaos(conn, golem, player);
-        int Own(string name) => GolemStat(golem.Own, name);
+        int Own(uint name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
@@ -197,17 +198,17 @@ public static partial class Game
                     if (type != prismatic && Stats.Key($"base_deal_no_{type.ToString().ToLowerInvariant()}_damage") is uint prohibited)
                         raw[prohibited] = 1;
             }
-            int Raw(string name) => GolemStat(raw, name);
+            int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
-            double seconds = (spell || Raw("cast_time_overrides_attack_duration") != 0) && catalog.CastTimeMs(effect) > 0
+            double seconds = (spell || Raw(Stat.CastTimeOverridesAttackDuration) != 0) && catalog.CastTimeMs(effect) > 0
                 ? catalog.CastTimeMs(effect) / 1000.0 : (golem.Weapon?.AttackMs ?? variety.AttackMs) / 1000.0;
-            double speed = (1 + mods["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100d) * (1 + (spell ? mods["cast_speed_+%"] + mods["attack_and_cast_speed_+%"] : mods["attack_speed_+%"] + Raw("attack_speed_+%")) / 100.0);
-            speed *= Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100.0);
-            speed *= Math.Max(.01, 1 + Own(spell ? "active_skill_minion_cast_speed_+%_final" : "active_skill_minion_attack_speed_+%_final") / 100d);
+            double speed = (1 + mods[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d) * (1 + (spell ? mods[Stat.CastSpeedPlusPct] + mods[Stat.AttackAndCastSpeedPlusPct] : mods[Stat.AttackSpeedPlusPct] + Raw(Stat.AttackSpeedPlusPct)) / 100.0);
+            speed *= Math.Max(.01, 1 + Raw(spell ? Stat.ActiveSkillCastSpeedPlusPctFinal : Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100.0);
+            speed *= Math.Max(.01, 1 + Own(spell ? Stat.Of("active_skill_minion_cast_speed_+%_final") : Stat.ActiveSkillMinionAttackSpeedPlusPctFinal) / 100d);
             bool multistrike = MinionSupportMatches(effect, "SupportMultistrike");
             if (!spell && catalog.IsMelee(effect))
-                speed *= (multistrike ? Math.Max(.01, 1 + Own("support_multiple_attacks_melee_attack_speed_+%_final") / 100d) : 1)
-                    * Math.Max(.01, 1 + Own("support_melee_physical_attack_speed_+%_final") / 100d);
+                speed *= (multistrike ? Math.Max(.01, 1 + Own(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100d) : 1)
+                    * Math.Max(.01, 1 + Own(Stat.Of("support_melee_physical_attack_speed_+%_final")) / 100d);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
@@ -215,10 +216,10 @@ public static partial class Game
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
                     string slug = type.ToString().ToLowerInvariant();
-                    int min = Raw($"spell_minimum_base_{slug}_damage"), max = Raw($"spell_maximum_base_{slug}_damage");
+                    int min = Raw(Stat.Of($"spell_minimum_base_{slug}_damage")), max = Raw(Stat.Of($"spell_maximum_base_{slug}_damage"));
                     if (max > 0) damage = damage.Add(type, new(min, max));
                 }
-            else if (catalog.IsAttack(effect) && Raw("base_deal_no_damage") == 0)
+            else if (catalog.IsAttack(effect) && Raw(Stat.BaseDealNoDamage) == 0)
             {
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = (golem.Weapon is { } equipped ? equipped.LocalDamage ?? DamagePacket.Of(DamageType.Physical, equipped.MinDamage, equipped.MaxDamage)
@@ -229,76 +230,76 @@ public static partial class Game
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(multiplier);
             }
-            if (shieldChaos > 0 && damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
+            if (shieldChaos > 0 && damage.MaxTotal > 0 && Raw(Stat.BaseDealNoDamage) == 0)
             {
                 double added = shieldChaos * AddedEffectiveness(conn, effect, skillLevel);
                 damage = damage.Add(DamageType.Chaos, new(added, added));
             }
             // Flat damage augments an existing hit; it must not turn movement, auras or DoTs into attacks.
-            if (damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
+            if (damage.MaxTotal > 0 && Raw(Stat.BaseDealNoDamage) == 0)
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
                     string slug = type.ToString().ToLowerInvariant();
-                    int min = mods[$"global_minimum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_minimum_added_{slug}_damage"];
-                    int max = mods[$"global_maximum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_maximum_added_{slug}_damage"];
+                    int min = mods[Stat.Of($"global_minimum_added_{slug}_damage")] + mods[Stat.Of($"{(spell ? "spell" : "attack")}_minimum_added_{slug}_damage")];
+                    int max = mods[Stat.Of($"global_maximum_added_{slug}_damage")] + mods[Stat.Of($"{(spell ? "spell" : "attack")}_maximum_added_{slug}_damage")];
                     if (max != 0) damage = damage.Add(type, new(min, max));
                 }
             var conversion = new DamageConversion();
             foreach (var type in DamageTypes.ConversionOrder.Where(t => t != DamageType.Physical))
             {
                 string slug = type.ToString().ToLowerInvariant();
-                conversion.AddSkill(DamageType.Physical, type, Raw($"base_physical_damage_%_to_convert_to_{slug}") + Raw($"skill_physical_damage_%_to_convert_to_{slug}"));
-                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
-                conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
+                conversion.AddSkill(DamageType.Physical, type, Raw(Stat.Of($"base_physical_damage_%_to_convert_to_{slug}")) + Raw(Stat.Of($"skill_physical_damage_%_to_convert_to_{slug}")));
+                conversion.AddGlobal(DamageType.Physical, type, mods[Stat.Of($"physical_damage_%_to_convert_to_{slug}")]);
+                conversion.AddGain(DamageType.Physical, type, mods[Stat.Of($"physical_damage_%_to_add_as_{slug}")]);
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             var rawDamage = damage;
-            double more = Math.Max(0, 1 + mods["monster_rarity_damage_+%_final"] / 100d)
-                * Math.Max(0, 1 - mods["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100d)
-                * Math.Max(0, 1 + Own("vaal_upgrade_minion_damage_+%_final") / 100d)
-                * Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
-                * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
-                * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)
-                * Math.Max(0, 1 + Raw("active_skill_damage_+%_final") / 100.0)
+            double more = Math.Max(0, 1 + mods[Stat.MonsterRarityDamagePlusPctFinal] / 100d)
+                * Math.Max(0, 1 - mods[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d)
+                * Math.Max(0, 1 + Own(Stat.VaalUpgradeMinionDamagePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
+                * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100.0)
+                * Math.Max(0, 1 + Own(Stat.Of("minion_damage_+%_final")) / 100.0)
+                * Math.Max(0, 1 + Raw(Stat.ActiveSkillDamagePlusPctFinal) / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
-            if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_damage_+%_final") / 100d);
+            if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, Stat.ActiveSkillNonReaperMinionDamagePlusPctFinal) / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1);
             else { types.Add(0); if (catalog.IsMelee(effect) && golem.Weapon is not { Melee: false }) types.Add(19); }
-            if (Raw("is_area_damage") != 0) types.Add(7);
-            if (Raw("base_is_projectile") != 0) types.Add(2);
-            var supportStats = golem.Own.Select(p => (Name: Stats.Name(p.Key) ?? "", p.Value))
-                .Where(p => multistrike || p.Name != "support_multiple_attack_damage_+%_final").ToArray();
+            if (Raw(Stat.IsAreaDamage) != 0) types.Add(7);
+            if (Raw(Stat.BaseIsProjectile) != 0) types.Add(2);
+            var supportStats = golem.Own.Select(p => (Id: p.Key, p.Value))
+                .Where(p => multistrike || p.Id != Stat.SupportMultipleAttackDamagePlusPctFinal).ToArray();
             var modified = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
                 if (effect == 306 && path.Type != prismatic) continue;
                 if (GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
-                double increase = mods["damage_+%"] + (spell ? mods["spell_damage_+%"] : mods["attack_damage_+%"])
-                    + (Raw("is_area_damage") != 0 ? mods["area_damage_+%"] : 0);
+                double increase = mods[Stat.DamagePlusPct] + (spell ? mods[Stat.SpellDamagePlusPct] : mods[Stat.AttackDamagePlusPct])
+                    + (Raw(Stat.IsAreaDamage) != 0 ? mods[Stat.AreaDamagePlusPct] : 0);
                 foreach (var type in DamageTypes.ConversionOrder)
-                    if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[type.ToString().ToLowerInvariant() + "_damage_+%"];
-                if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods["elemental_damage_+%"];
+                    if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[Stat.Of(type.ToString().ToLowerInvariant() + "_damage_+%")];
+                if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods[Stat.ElementalDamagePlusPct];
                 var (general, typed) = GemSupportDamage.Multipliers(path.History, supportStats, types);
                 double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
-                    ? Math.Max(0, 1 + Own("active_skill_minion_physical_damage_+%_final") / 100.0) : 1;
-                double auraMore = spell ? Math.Max(0, 1 + mods["spell_damage_aura_spell_damage_+%_final"] / 100.0) : 1;
+                    ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) : 1;
+                double auraMore = spell ? Math.Max(0, 1 + mods[Stat.SpellDamageAuraSpellDamagePlusPctFinal] / 100.0) : 1;
                 if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
-                    auraMore *= Math.Max(0, 1 + mods["wrath_aura_spell_lightning_damage_+%_final"] / 100.0);
+                    auraMore *= Math.Max(0, 1 + mods[Stat.WrathAuraSpellLightningDamagePlusPctFinal] / 100.0);
                 // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
                 double elementalMore = (path.History & DamageTypeHistory.Elemental) != 0
-                    ? Math.Max(0, 1 + Own("support_minion_totem_resistance_elemental_damage_+%_final") / 100.0) : 1;
+                    ? Math.Max(0, 1 + Own(Stat.SupportMinionTotemResistanceElementalDamagePlusPctFinal) / 100.0) : 1;
                 modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed * elementalMore));
             }
             damage = modified;
             string id = catalog.EffectId(effect) ?? "";
-            double range = spell ? Math.Max(20, 70 * (1 + Raw("spell_maximum_action_distance_+%") / 100.0)) : variety.AttackRange;
+            double range = spell ? Math.Max(20, 70 * (1 + Raw(Stat.SpellMaximumActionDistancePlusPct) / 100.0)) : variety.AttackRange;
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
-            double radius = Raw("active_skill_base_area_of_effect_radius");
+            double radius = Raw(Stat.ActiveSkillBaseAreaOfEffectRadius);
             if (radius <= 0) radius = id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
-            radius *= (1 + Raw("active_skill_area_of_effect_radius_+%_final") / 100.0)
-                * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
+            radius *= (1 + Raw(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0)
+                * Math.Sqrt(Math.Max(0, 1 + (mods[Stat.BaseSkillAreaOfEffectPlusPct] + Raw(Stat.BaseSkillAreaOfEffectPlusPct)) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
             var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
             var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
@@ -308,19 +309,19 @@ public static partial class Game
                 projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
-                (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
+                (GolemStat(player, Stat.MinionCooldownRecoveryPlusPct) + (golem.Definition.IsGolem ? GolemStat(player, Stat.GolemSkillCooldownRecoveryPlusPct) : 0) + Own(Stat.MinionCooldownRecoveryPlusPct)) / 100.0);
             var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
                 Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit);
             result.Add(ability);
-            int AilmentStat(string name) => mods[name] + Raw(name) + (name == "critical_ailment_dot_multiplier_+" ? 50 : 0);
+            int AilmentStat(uint name) => mods[name] + Raw(name) + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0);
             string hand = spell ? "spell" : "main_hand";
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
             var ignite = MonsterIgnites.Settings.From(rows, hand, AilmentStat);
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
-            double bleedMore = Math.Max(0, 1 + Own("active_skill_minion_bleeding_damage_+%_final") / 100d);
+            double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
             var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
-            int chance = AilmentStat("base_chance_to_poison_on_hit_%") + AilmentStat(spell ? "spells_chance_to_poison_on_hit_%" : "chance_to_poison_on_hit_with_attacks_%") + poison.WeaponChance;
+            int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
             MinionAilmentProfiles.Add(ability, new(ignite, bleed, poison, chance));
         }
         return result;
@@ -330,7 +331,7 @@ public static partial class Game
     {
         uint? derived = Stats.Key($"golem_{kind}_+%_final_from_unique_primordial_tether");
         return derived is uint key && player.ContainsKey(key) ? player[key]
-            : GolemStat(player, $"unique_primordial_tether_golem_{kind}_+%_final");
+            : GolemStat(player, Stat.Of($"unique_primordial_tether_golem_{kind}_+%_final"));
     }
 
     static SkillCatalog.MonsterProjectileInfo? GolemProjectile(int effect, SkillCatalog skills) => effect switch
@@ -374,7 +375,7 @@ public static partial class Game
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(player));
-        int inheritedCoefficient = GolemStat(player, "minions_gain_x_percent_of_your_resistances");
+        int inheritedCoefficient = GolemStat(player, Stat.MinionsGainXPercentOfYourResistances);
         GolemOwnerResistances? ownerResistances = inheritedCoefficient == 0 ? null : GolemOwnerResistancesFor(conn);
         if (ownerResistances is { } resistanceHash) hash.Add(resistanceHash);
         foreach (var p in golem.Own.OrderBy(p => p.Key)) hash.Add(p);

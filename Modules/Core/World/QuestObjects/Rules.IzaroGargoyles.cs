@@ -27,7 +27,7 @@ static partial class QuestobjectsRules
     const uint AscendingClip = 0;
 
     // A statue gargoyle's damage taken (ours: "little", live).
-    static readonly IReadOnlyDictionary<string, int> Dormant = new Dictionary<string, int> { ["base_damage_taken_+%"] = -90 };
+    static readonly IReadOnlyDictionary<uint, int> Dormant = new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = -90 };
 
     static bool GargoyleDead(Player conn, GargoyleSlot g) =>
         g.Monster.Dead || g.Monster.Life == 0 || !ReferenceEquals(conn.Monsters.GetValueOrDefault(g.Id), g.Monster);

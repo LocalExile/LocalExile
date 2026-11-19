@@ -5,10 +5,10 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    const string SiphoningGain = "gain_siphoning_charge_on_skill_use_%_chance";
-    const string SiphoningMaximum = "maximum_siphoning_charges_per_elder_or_shaper_item_equipped";
-    const string SiphoningDegen = "physical_damage_taken_per_minute_per_siphoning_charge_if_have_used_a_skill_recently";
-    const string SiphoningHitReduction = "additional_physical_damage_reduction_%_against_hits";
+    const uint SiphoningGain = Stat.GainSiphoningChargeOnSkillUsePctChance;
+    const uint SiphoningMaximum = Stat.MaximumSiphoningChargesPerElderOrShaperItemEquipped;
+    const uint SiphoningDegen = Stat.PhysicalDamageTakenPerMinutePerSiphoningChargeIfHaveUsedASkillRecently;
+    const uint SiphoningHitReduction = Stat.AdditionalPhysicalDamageReductionPctAgainstHits;
     public sealed record CarriedSiphoning(int Held, uint[] Sources, double Seconds, double UsedSeconds,
         double Pending, double TakenCarry, double BypassCarry);
 
@@ -68,7 +68,7 @@ public static partial class Game
         if (raw is null && hosts.Count == 0 && state.Sources.Count == 0)
         { state.At = Math.Max(state.At, now); return state; }
         raw ??= CharacterStatSources(conn).Stats;
-        int Get(string n) => Stats.Key(n) is uint key ? raw.GetValueOrDefault(key) : 0;
+        int Get(uint key) => raw.GetValueOrDefault(key);
         if (state.Sources.Count == 0 && Get(SiphoningGain) == 0 && Get(SiphoningMaximum) == 0)
         { state.At = Math.Max(state.At, now); return state; }
         if (!state.Sources.SetEquals(hosts))
@@ -99,9 +99,9 @@ public static partial class Game
         state.UsedUntil = Math.Max(state.At, at) + RecentEvents.WindowSeconds;
         SettleSiphoning(conn, state, state.At);
         if (!RandomRolls.Chance(state.Gain, 100, random ?? Random.Shared)) return;
-        int Get(string n) => Stats.Key(n) is uint key ? raw.GetValueOrDefault(key) : 0;
+        int Get(uint key) => raw.GetValueOrDefault(key);
         double duration = Charges.BaseDurationMs / 1000d
-            * Math.Max(0, 1 + ((long)Get("charge_duration_+%") + Get("base_charge_duration_+%")) / 100d);
+            * Math.Max(0, 1 + ((long)Get(Stat.ChargeDurationPlusPct) + Get(Stat.BaseChargeDurationPlusPct)) / 100d);
         if (duration <= 0) return;
         state.Held = Math.Min(state.Maximum, state.Held + 1);
         state.Until = state.At + duration;
@@ -132,20 +132,20 @@ public static partial class Game
     {
         var state = SiphoningAt(conn, AreaTime(conn), raw);
         if (state.Sources.Count == 0 && state.Held == 0 && state.Maximum == 0) return [];
-        int Get(string n) => Stats.Key(n) is uint key ? raw.GetValueOrDefault(key) : 0;
+        int Get(uint key) => raw.GetValueOrDefault(key);
         var rows = new List<(uint, int)>();
-        void Add(string n, long v) { if (Stats.Key(n) is uint key) rows.Add((key, ActorScale.Saturate(v))); }
-        Add("current_siphoning_charges", state.Held);
-        Add("virtual_maximum_siphoning_charges", state.Maximum);
+        void Add(uint n, long v) { if (n is var key) rows.Add((key, ActorScale.Saturate(v))); }
+        Add(Stat.CurrentSiphoningCharges, state.Held);
+        Add(Stat.VirtualMaximumSiphoningCharges, state.Maximum);
         foreach (string end in new[] { "minimum", "maximum" })
         {
-            long value = (long)state.Held * Get($"attack_and_spell_{end}_added_physical_damage_per_siphoning_charge");
-            Add($"attack_{end}_added_physical_damage", value);
-            Add($"spell_{end}_added_physical_damage", value);
+            long value = (long)state.Held * Get(Stat.Of($"attack_and_spell_{end}_added_physical_damage_per_siphoning_charge"));
+            Add(Stat.Of($"attack_{end}_added_physical_damage"), value);
+            Add(Stat.Of($"spell_{end}_added_physical_damage"), value);
         }
-        Add("life_leech_from_any_damage_permyriad", (long)state.Held * Get("life_leech_from_any_damage_permyriad_per_siphoning_charge"));
-        Add("non_chaos_damage_to_add_as_chaos_damage_%", (long)state.Held * Get("non_chaos_damage_%_to_add_as_chaos_damage_per_siphoning_charge"));
-        Add(SiphoningHitReduction, (long)state.Held * Get("additional_physical_damage_reduction_against_hits_%_per_siphoning_charge"));
+        Add(Stat.LifeLeechFromAnyDamagePermyriad, (long)state.Held * Get(Stat.LifeLeechFromAnyDamagePermyriadPerSiphoningCharge));
+        Add(Stat.NonChaosDamageToAddAsChaosDamagePct, (long)state.Held * Get(Stat.NonChaosDamagePctToAddAsChaosDamagePerSiphoningCharge));
+        Add(SiphoningHitReduction, (long)state.Held * Get(Stat.AdditionalPhysicalDamageReductionAgainstHitsPctPerSiphoningCharge));
         return rows;
     }
 
@@ -154,11 +154,11 @@ public static partial class Game
         var state = SiphoningAt(conn, now);
         double raw = state.Pending; state.Pending = 0;
         if (raw <= 0 || InGracePeriod(conn) || InTown(conn) || conn.Immune || HardcoreProgressBlocked(conn)) return 0;
-        int Get(string n) => Stats.Key(n) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         if (DamageImmunities.From(Get).Contains(DamageType.Physical)) return 0;
         int damage = IncomingResourceDefences.TakenOverTime(raw, Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(conn.Pools, Get),
-            typedIncreasedPct: Get("physical_damage_taken_+%"), reductionPct: ChargeEffects.Reduction(Get).Physical,
+            typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct), reductionPct: ChargeEffects.Reduction(Get).Physical,
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
             Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry);

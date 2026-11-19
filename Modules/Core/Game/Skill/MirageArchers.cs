@@ -12,8 +12,8 @@ public static partial class Game
         double factor = MirageDamageFactor(shot.SkillStats);
         var caster = new Dictionary<uint, int>(CharacterPlayerStats(conn));
         // These restrictions belong to the player using the skill himself, not to the mirage.
-        foreach (string name in new[] { "keystone_ancestral_bond", "deal_no_damage_yourself" })
-            if (Stats.Key(name) is uint key) caster.Remove(key);
+        foreach (uint name in new[] { Stat.KeystoneAncestralBond, Stat.DealNoDamageYourself })
+            caster.Remove(name);
         return shot with
         {
             MirageSource = null, CriticalTrigger = null, ClientPredicted = false,
@@ -114,11 +114,11 @@ public static partial class Game
         {
             if (shot.MirageSource is not { } source || !WeaponProfileFor(Conn, activeSet: true).Bow
                 || !SameTriggerSource(source, SupportedSkill(Conn, shot.SourceSkill))) return;
-            int Own(string name) => Stats.Key(name) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
+            int Own(uint key) => source.Stats.GetValueOrDefault(key);
             var player = CharacterPlayerStats(Conn);
-            int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-            double seconds = SkillDurationModifiers.Seconds(Own("support_mirage_archer_base_duration"), Player, Own)
-                * Math.Max(0, 1 + (Player("mirage_archer_duration_+%") + Own("mirage_archer_duration_+%")) / 100d);
+            int Player(uint key) => player.GetValueOrDefault(key);
+            double seconds = SkillDurationModifiers.Seconds(Own(Stat.SupportMirageArcherBaseDuration), Player, Own)
+                * Math.Max(0, 1 + (Player(Stat.MirageArcherDurationPlusPct) + Own(Stat.MirageArcherDurationPlusPct)) / 100d);
             if (seconds <= 0) return;
             long end = Runtime.Now + ProjectileRuntime.Time(seconds);
             if (archer is { } old && old.Skill == shot.SourceSkill && SameTriggerSource(old.Source, source))
@@ -129,7 +129,7 @@ public static partial class Game
             if (archer is { } previous) EndMirage(previous);
             var current = archer = new Archer(shot.SourceSkill, source) { Expires = end };
             StartMirage(current);
-            double factor = Math.Max(.01, 1 + Own("support_mirage_archer_attack_speed_+%_final") / 100d);
+            double factor = Math.Max(.01, 1 + Own(Stat.SupportMirageArcherAttackSpeedPlusPctFinal) / 100d);
             long Interval() => Math.Max(ProjectileRuntime.TickQuanta, ProjectileRuntime.Time(SupportedAttackSeconds(Conn, current.Skill) / factor));
             current.NextAttack = Runtime.Now + Interval();
             void Fire()

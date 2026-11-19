@@ -45,7 +45,7 @@ internal sealed class HarbingerSession(HarbingerRoster roster, Guid lease, DateT
         if (retired || !frame.Alive || frame.Paused || frame.Leaving || !frame.Nodes.Contains(source.Node)
             || !actionCurrent()) return false;
         roster.Read(lease, frame.Nodes, now);
-        int recovery = key("base_cooldown_speed_+%") is uint k ? source.MinionStats.GetValueOrDefault(k) : 0;
+        int recovery = source.MinionStats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct);
         return roster.Activate(lease, source, recovery, now, age);
     }
 

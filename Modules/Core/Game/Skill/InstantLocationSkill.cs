@@ -59,7 +59,7 @@ public static class InstantLocationSkill
     // Called again under the send gate: an old request cannot move the player after transfer/death/pause.
     // 0x141c00cd0 accepts a valid endpoint via 0x141c006d0 before running its fallback terrain trace.
     public static bool TryResolve(Player conn, int epoch, (uint X, uint Y) aim,
-        bool inTown, Func<string, int> stat, out (int X, int Y) from, out (int X, int Y) to)
+        bool inTown, Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to)
     {
         lock (conn.Monsters)
         {
@@ -69,15 +69,15 @@ public static class InstantLocationSkill
     }
 
     static bool TryResolveFrom(Player conn, int epoch, (int X, int Y) from, (uint X, uint Y) aim,
-        bool inTown, Func<string, int> stat, out (int X, int Y) to)
+        bool inTown, Func<uint, int> stat, out (int X, int Y) to)
     {
         to = default;
         if (!conn.ProjectileActive(epoch) || !conn.PlayerSent || conn.PlayerLife == 0 || conn.Paused
-            || conn.PendingTransfer is not null || inTown || stat("your_movement_skills_are_disabled") != 0
+            || conn.PendingTransfer is not null || inTown || stat(Stat.YourMovementSkillsAreDisabled) != 0
             || conn.Layout.Walkable is not { } walkable || conn.Layout.GridW <= 0 || conn.Layout.GridH <= 0)
             return false;
         if (aim.X >= conn.Layout.GridW || aim.Y >= conn.Layout.GridH) return false;
-        if (Endpoint(from, aim, stat("skill_maximum_travel_distance_+%")) is not { } endpoint) return false;
+        if (Endpoint(from, aim, stat(Stat.SkillMaximumTravelDistancePlusPct)) is not { } endpoint) return false;
         bool Allowed(int x, int y) => x >= 0 && y >= 0 && x < conn.Layout.GridW && y < conn.Layout.GridH
             && walkable(x, y) && !conn.Barrier.Contains((x, y));
         if (!Allowed(from.X, from.Y) || !Allowed(endpoint.X, endpoint.Y)) return false;
@@ -95,7 +95,7 @@ public static class InstantLocationSkill
     // Object 0x1ce binds the entity again on delivery. Reject active target walks rather than claim moving-target parity.
     // Only the native clear-grid trace is supported: partial terrain searches and coincident RNG fail closed.
     public static bool TryResolveObject(Player conn, int epoch, uint targetId, bool inTown,
-        Func<string, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim)
+        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim)
     {
         lock (conn.Monsters)
         {
@@ -117,7 +117,7 @@ public static class InstantLocationSkill
     }
 
     public static bool TryCommitObject(Player conn, int epoch, uint targetId, bool inTown,
-        Func<string, int> stat, out (int X, int Y) aim, out (int X, int Y) to)
+        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to)
     {
         using (Game.ProjectileMutation(conn))
         {
@@ -130,7 +130,7 @@ public static class InstantLocationSkill
     // Native ground 0x1ce keeps the current/predicted action at entry, then Frostblink's reposition ends its old walk.
     // Mirror that position change without incrementing ActionCount or cancelling a cast/channel's pending release.
     public static bool TryCommit(Player conn, int epoch, (uint X, uint Y) aim, bool inTown,
-        Func<string, int> stat, out (int X, int Y) to)
+        Func<uint, int> stat, out (int X, int Y) to)
     {
         using (Game.ProjectileMutation(conn))
         {

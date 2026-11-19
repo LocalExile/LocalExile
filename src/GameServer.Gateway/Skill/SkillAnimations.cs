@@ -82,16 +82,16 @@ public static class SkillAnimations
         if (ActionType(effect) is not { } action) return null;
         if (Fixed.TryGetValue(action, out string? key)) return key;
         if (FromEffect.TryGetValue(action, out key)) return EffectAnimation(effect) ?? key;
-        int Stat(string name) => Program.Stats.Key(name) is uint k ? skills.EffectStats(effect, 1).FirstOrDefault(s => s.Item1 == k).Item2 : 0;
+        int Value(uint k) => skills.EffectStats(effect, 1).FirstOrDefault(s => s.Item1 == k).Item2;
         return action switch
         {
             // 0x141bedb60: the hands' mode (0x1419e7570) is 3 when both hold weapons: 0x141c9af80 with DualStrike.
             "ViperStrike" => dualWielding ? "DualStrike" : "Melee",
             // 0x1414d2c20: skill_behaviour_variation 1 plays SpellAreaOfEffect.
-            "StormCall" => Stat("skill_behaviour_variation") == 1 ? "SpellAreaOfEffect" : "SpellAreaOfEffectLightning",
+            "StormCall" => Value(Stat.SkillBehaviourVariation) == 1 ? "SpellAreaOfEffect" : "SpellAreaOfEffectLightning",
             // 0x141a6a0b0: GroundSlam with skill_behaviour_variation 2 or skill_art_variation 1, else Melee (the fifth
             // attack's projectiles change no row).
-            "MoltenStrike" => Stat("skill_behaviour_variation") == 2 || Stat("skill_art_variation") == 1 ? "GroundSlam" : "Melee",
+            "MoltenStrike" => Value(Stat.SkillBehaviourVariation) == 2 || Value(Stat.SkillArtVariation) == 1 ? "GroundSlam" : "Melee",
             _ => null,
         };
     }

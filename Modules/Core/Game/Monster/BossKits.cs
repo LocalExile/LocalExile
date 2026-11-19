@@ -156,7 +156,7 @@ public static class BossKits
                 // A travel reaches as far as it carries the monster; a buff on itself is used from where it sees the
                 // player; a spell on the player or a corpse (a curse, Volatile Dead) from as far as its action reaches.
                 var useStats = GolemData.Skill(catalog, effect, level).Stats;
-                int UseStat(string name) => Stats.Key(name) is uint key ? useStats.GetValueOrDefault(key) : 0;
+                int UseStat(uint key) => useStats.GetValueOrDefault(key);
                 double reach = use.Shape == MonsterSkillShape.Travel ? MonsterSkills.TravelReach
                     : use.Shape != MonsterSkillShape.Self && catalog.IsSpell(effect)
                         ? Math.Max(attack.Range, Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, UseStat)))
@@ -229,7 +229,7 @@ public static class BossKits
     {
         var catalog = SkillsFor(conn);
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         var names = stats.Where(p => p.Value != 0).Select(p => Stats.Name(p.Key)).OfType<string>().ToList();
         var kind = ActionClasses.OfEffect(effect);
         if (catalog.HasType(effect, "Trapped") && !setOff)
@@ -241,7 +241,7 @@ public static class BossKits
         attack = attack with { Debuffs = SkillDebuffs(catalog, effect, kind, Get, names) };
         if (body) attack = attack with { Summon = null };
         else if (attack.Summon is not null) return attack;
-        else if (Get("is_totem") != 0 || catalog.HasType(effect, "SummonsTotem") || catalog.HasType(effect, "Minion")) return null;
+        else if (Get(Stat.IsTotem) != 0 || catalog.HasType(effect, "SummonsTotem") || catalog.HasType(effect, "Minion")) return null;
         bool spell = catalog.IsSpell(effect);
         // A skill that is melee too (Frenzy, Puncture, Elemental Hit) swings when its user's attack does.
         bool melee = catalog.IsMelee(effect) && !attack.Ranged;
@@ -276,7 +276,7 @@ public static class BossKits
     /// buff holding the skill's stats (ActionClasses.BuffStats) for the class's duration stat: as wide as
     /// <paramref name="radius"/> (its area's), else its class's radius stat, else the kind's art as drawn (GroundEffects
     /// __col4), scaled by the skill's area modifiers. Null for a class that leaves none there.</summary>
-    static MonsterGroundSpec? SkillGround(ActionClasses.ActionClass? kind, ActionClasses.GroundAt at, Func<string, int> get,
+    static MonsterGroundSpec? SkillGround(ActionClasses.ActionClass? kind, ActionClasses.GroundAt at, Func<uint, int> get,
         IReadOnlyList<string> names, double? radius, bool spell)
     {
         if (kind?.Ground is not { } spec || spec.At != at) return null;
@@ -298,7 +298,7 @@ public static class BossKits
     /// player gem's effect on its ActiveSkills row that names one (SkillCatalog.SameActionEffects: the exiles' Bear
     /// Trap names none, the gem's 3 s). A debuff whose time no effect names is left out.</summary>
     static IReadOnlyList<MonsterDebuffSpec> SkillDebuffs(SkillCatalog catalog, int effect, ActionClasses.ActionClass? kind,
-        Func<string, int> get, IReadOnlyList<string> names)
+        Func<uint, int> get, IReadOnlyList<string> names)
     {
         if (kind is null || kind.Debuffs.Count == 0) return [];
         List<MonsterDebuffSpec> debuffs = [];
@@ -307,7 +307,7 @@ public static class BossKits
             ushort row = BuffRows.Find(spec.Buff);
             if (row == 0) continue;
             int ms = get(spec.DurationStat);
-            if (ms <= 0 && Stats.Key(spec.DurationStat) is uint key)
+            if (ms <= 0 && spec.DurationStat is var key)
                 foreach (int other in catalog.SameActionEffects(effect).Skip(1).Where(GemGranted.Contains))
                     if (GolemData.Skill(catalog, other, 1).Stats.GetValueOrDefault(key) is > 0 and var found) { ms = found; break; }
             if (ms > 0) debuffs.Add(new(row, ActionClasses.BuffStats(row, get, names), ms / 1000.0));
@@ -337,10 +337,10 @@ public static class BossKits
     {
         if (!catalog.HasType(effect, "Area")) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         // The action class may add its own radius to the stat's (ActionClasses: Cold Snap's 15, Rain of Arrows' 24);
         // a skill with neither has no area the server can name.
-        int radius = Get("active_skill_base_area_of_effect_radius") + (ActionClasses.OfEffect(effect)?.BaseRadius ?? 0);
+        int radius = Get(Stat.ActiveSkillBaseAreaOfEffectRadius) + (ActionClasses.OfEffect(effect)?.BaseRadius ?? 0);
         if (radius <= 0) return null;
         return SkillArea.Radius(radius, Get, catalog.IsSpell(effect));
     }
@@ -352,11 +352,11 @@ public static class BossKits
     public static SkillCatalog.MonsterProjectileInfo? ArtShot(SkillCatalog catalog, int effect, byte level)
     {
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         if ((ClassProjectile(catalog, effect, Get) ?? catalog.SkillArtProjectile(effect) ?? catalog.SharedProjectile(effect)) is not { } art)
             return null;
-        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
-            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        int count = Get(Stat.NumberOfProjectilesOverride) is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles);
         // A nova (projectiles_nova: Lightning Trap's) fires its projectiles around the full turn.
         bool nova = Stat.ProjectilesNova is var novaKey && stats.GetValueOrDefault(novaKey) != 0;
         return new(art.Id, art.Speed, false, art.CollisionRadius) { Count = Math.Max(1, count), SpreadRadians = nova ? Math.Tau : Math.PI / 6 };
@@ -365,7 +365,7 @@ public static class BossKits
     /// <summary>The Projectiles row a skill's action class creates by its own code (ActionClasses.ActionClass.Projectile:
     /// Ensnaring Arrow's TetheringArrow, Siege Ballista's CrossbowSnipeProjectile, Incinerate's Flamethrower1), with its
     /// speed and collision radius; null for a class that names none.</summary>
-    static (string Id, int Speed, int CollisionRadius)? ClassProjectile(SkillCatalog catalog, int effect, Func<string, int> get)
+    static (string Id, int Speed, int CollisionRadius)? ClassProjectile(SkillCatalog catalog, int effect, Func<uint, int> get)
     {
         if (ActionClasses.OfEffect(effect)?.Projectile is not { } pick || catalog.Projectile(pick(get)) is not { } row) return null;
         int radius = ClientTables.TableOrEmpty("Projectiles").FirstOrDefault(p => p.Text("Id") == row.Id).IntOrNull("CollisionRadius") ?? 1;
@@ -396,7 +396,7 @@ public static class BossKits
     {
         var catalog = SkillsFor(conn);
         var native = GolemData.Skill(catalog, effect, actorLevel);
-        int Raw(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
+        int Raw(uint key) => native.Stats.GetValueOrDefault(key);
         bool spell = catalog.IsSpell(effect);
         var damage = DamagePacket.Empty;
         // A spell's damage is its spell_*_base_{type}_damage; one with none deals its secondary_*_base_{type}_damage
@@ -407,7 +407,7 @@ public static class BossKits
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
                     string slug = type.ToString().ToLowerInvariant();
-                    int min = Raw($"{prefix}_minimum_base_{slug}_damage"), max = Raw($"{prefix}_maximum_base_{slug}_damage");
+                    int min = Raw(Stat.Of($"{prefix}_minimum_base_{slug}_damage")), max = Raw(Stat.Of($"{prefix}_maximum_base_{slug}_damage"));
                     if (max > 0) damage = damage.Add(type, new(min, max));
                 }
                 if (!damage.IsZero) break;
@@ -415,11 +415,11 @@ public static class BossKits
         if (!spell)
         {
             var (min, max) = Monsters.BaseDamage(variety, actorLevel) ?? (1, 1);
-            int more = Raw("active_skill_damage_+%_final");
+            int more = Raw(Stat.ActiveSkillDamagePlusPctFinal);
             damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(native.Multiplier * Math.Max(0, 1 + more / 100d));
         }
         double seconds = (spell && catalog.CastTimeMs(effect) > 0 ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
-            / Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
+            / Math.Max(.01, 1 + Raw(spell ? Stat.ActiveSkillCastSpeedPlusPctFinal : Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
         // A ranged skill reaches its variety's MaximumAttackDistance (AttackRange); a spell keeps the aggro range it is
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
@@ -429,8 +429,8 @@ public static class BossKits
             : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
         var summon = MonsterSummonOf(catalog, effect, actorLevel);
-        int hits = 1 + Math.Max(0, Raw("base_skill_number_of_additional_hits"))
-            + (Raw("skill_double_hits_when_dual_wielding") != 0 && DualWields(variety) ? 1 : 0);
+        int hits = 1 + Math.Max(0, Raw(Stat.BaseSkillNumberOfAdditionalHits))
+            + (Raw(Stat.SkillDoubleHitsWhenDualWielding) != 0 && DualWields(variety) ? 1 : 0);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,

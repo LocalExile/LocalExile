@@ -15,8 +15,8 @@ public static partial class Game
         {
             Count = 12, CircularSpread = true, SpreadRadians = Math.PI * 2,
             Speed = ProjectileSpeed.CellsPerSecond(metadata.Value.Speed, _ => 0, _ => 0), Range = 120,
-            Pierce = own.Get("always_pierce") != 0 ? int.MaxValue : 0,
-            Chain = Math.Max(0, own.Get("number_of_chains")),
+            Pierce = own.Get(Stat.AlwaysPierce) != 0 ? int.MaxValue : 0,
+            Chain = Math.Max(0, own.Get(Stat.NumberOfChains)),
         };
         var session = ProjectilesFor(conn);
         ProjectileActorKey emitter;

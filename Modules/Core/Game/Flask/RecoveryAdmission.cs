@@ -6,7 +6,7 @@ public static partial class Game
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
     static void AcceptRecoveryFlaskLocked(Player conn, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
-        IReadOnlyDictionary<string, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
+        IReadOnlyDictionary<uint, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
         var state = Automation(conn);
         state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot));
@@ -58,20 +58,20 @@ public static partial class Game
     // then protect against new applications for the rolled seconds. Neither suffix grants protection if its trigger
     // ailment was absent. Both live in the shared incoming-ailment owner.
     static void ApplyConditionalFlaskAilmentProtectionLocked(Player conn,
-        IReadOnlyDictionary<string, int> local, double now)
+        IReadOnlyDictionary<uint, int> local, double now)
     {
-        if (local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") is int bleed
+        if (local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBloodS) is int bleed
             && bleed > 0 && conn.IncomingAilments.RemoveOrProtectBleeding(now, bleed))
             Console.WriteLine($"[gateway] flask removed bleeding and protects for {bleed} s");
-        if (local.GetValueOrDefault("local_flask_poison_immunity_if_poisoned_s") is int poison
+        if (local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) is int poison
             && poison > 0 && conn.IncomingAilments.RemoveOrProtectPoison(now, poison))
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
     }
 
     static bool ConditionalFlaskAilmentProtectionTriggered(Player conn,
-        IReadOnlyDictionary<string, int> local, double now) =>
-        local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") > 0
+        IReadOnlyDictionary<uint, int> local, double now) =>
+        local.GetValueOrDefault(Stat.LocalFlaskBleedingImmunityIfBleedingAndRemoveCorruptedBloodS) > 0
             && conn.IncomingAilments.Bleeding(now)
-        || local.GetValueOrDefault("local_flask_poison_immunity_if_poisoned_s") > 0
+        || local.GetValueOrDefault(Stat.LocalFlaskPoisonImmunityIfPoisonedS) > 0
             && conn.IncomingAilments.PoisonStacks(now) > 0;
 }

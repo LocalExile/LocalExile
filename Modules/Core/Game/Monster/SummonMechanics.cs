@@ -7,26 +7,26 @@ public static partial class Game
         lock (conn.Monsters)
         {
             Dictionary<uint, int>? result = null;
-            void Add(string name, int value)
+            void Add(uint name, int value)
             {
-                if (value == 0 || Stats.Key(name) is not uint key) return;
+                if (value == 0 || !(name is var key)) return;
                 result ??= new(sources); result[key] = result.GetValueOrDefault(key) + value;
             }
             foreach (double until in new[] { conn.Summons.HolyRegenerationUntil, conn.Summons.FeedingFrenzyUntil })
                 if (AreaTime(conn) < until) StatsChangeAt(until, () => AreaTime(conn));
-            if (AreaTime(conn) < conn.Summons.HolyRegenerationUntil) Add("base_life_regeneration_rate_per_minute", conn.Summons.HolyRegenerationPerMinute);
+            if (AreaTime(conn) < conn.Summons.HolyRegenerationUntil) Add(Stat.BaseLifeRegenerationRatePerMinute, conn.Summons.HolyRegenerationPerMinute);
             if (AreaTime(conn) < conn.Summons.FeedingFrenzyUntil && conn.PlayerLife > 0)
             {
-                Add("has_puppet_master", 1);
-                Add("puppet_master_minion_damage_+%_final", 10);
-                Add("minion_movement_speed_+%", 10);
-                Add("minion_attack_speed_+%", 10);
-                Add("minion_cast_speed_+%", 10);
+                Add(Stat.HasPuppetMaster, 1);
+                Add(Stat.PuppetMasterMinionDamagePlusPctFinal, 10);
+                Add(Stat.MinionMovementSpeedPlusPct, 10);
+                Add(Stat.MinionAttackSpeedPlusPct, 10);
+                Add(Stat.MinionCastSpeedPlusPct, 10);
             }
             foreach (var name in new[] { "damage", "maximum_life" })
-                Add("active_skill_non_reaper_minion_" + name + "_+%_final", conn.Summons.Fighters.Values
+                Add(Stat.Of("active_skill_non_reaper_minion_" + name + "_+%_final"), conn.Summons.Fighters.Values
                     .Where(g => g.Definition.Kind == "Reaper" && !g.Monster.Dead)
-                    .Select(g => GolemStat(g.Own, "active_skill_non_reaper_minion_" + name + "_+%_final")).DefaultIfEmpty().Min());
+                    .Select(g => GolemStat(g.Own, Stat.Of("active_skill_non_reaper_minion_" + name + "_+%_final"))).DefaultIfEmpty().Min());
             return result ?? sources;
         }
     }
@@ -37,7 +37,7 @@ public static partial class Game
         foreach (var relic in conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == "HolyRelic" && !g.Monster.Dead && g.Pending is null))
             if (relic.Abilities.FirstOrDefault(a => a.Effect is 9927 or 9928) is { } nova && GolemReady(relic, nova, now))
             {
-                if (GolemStat(relic.Own, "holy_relic_targets_nearest_enemy") != 0)
+                if (GolemStat(relic.Own, Stat.HolyRelicTargetsNearestEnemy) != 0)
                 {
                     var at = relic.Monster.Walk.Position(now);
                     var nearest = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0
@@ -54,10 +54,10 @@ public static partial class Game
 
     public static void HolyRelicRegenerationLocked(Player conn, GolemState.Golem relic, GolemState.Ability nova, double now)
     {
-        double duration = GolemStat(nova.Stats, "base_skill_effect_duration") / 1000d;
+        double duration = GolemStat(nova.Stats, Stat.BaseSkillEffectDuration) / 1000d;
         double until = now + duration;
         var centre = relic.Monster.Walk.Position(now);
-        int rate = GolemStat(relic.Own, "holy_relic_nova_life_regeneration_rate_per_minute");
+        int rate = GolemStat(relic.Own, Stat.HolyRelicNovaLifeRegenerationRatePerMinute);
         if (rate > 0 && Dist(centre, conn.Walk.Position(now)) <= nova.Radius)
         {
             bool changed = conn.Summons.HolyRegenerationPerMinute != rate || now >= conn.Summons.HolyRegenerationUntil;
@@ -70,7 +70,7 @@ public static partial class Game
         }
         foreach (var ally in conn.Golems.All.Values.Concat(conn.Summons.Fighters.Values).Concat(conn.Reservations.Fighters.Values))
             if (!ally.Monster.Dead && Dist(centre, ally.Monster.Walk.Position(now)) <= nova.Radius)
-            { ally.HolyRegenerationUntil = until; ally.HolyRegenerationPerSecond = GolemStat(relic.Own, "holy_relic_nova_minion_life_regeneration_rate_per_second"); }
+            { ally.HolyRegenerationUntil = until; ally.HolyRegenerationPerSecond = GolemStat(relic.Own, Stat.HolyRelicNovaMinionLifeRegenerationRatePerSecond); }
     }
 
     static bool ReaperConsumeLocked(Player conn, GolemState.Golem reaper, double now)
@@ -98,8 +98,8 @@ public static partial class Game
         if (OwnedFighter(conn, action.Target) is not { } meal || meal.Monster.Dead || meal.Monster.Life == 0) return;
         GolemDieLocked(conn, meal, now);
         reaper.Monster.Life = (uint)Math.Min(reaper.Monster.MaxLife, reaper.Monster.Life + reaper.Monster.MaxLife / 2L);
-        reaper.WrathUntil = now + GolemStat(action.Ability.Stats, "base_skill_effect_duration") / 1000d;
-        reaper.Gear = new() { ["attack_speed_+%"] = 20, ["base_movement_velocity_+%"] = 20, ["base_skill_area_of_effect_+%"] = 40, ["base_actor_scale_+%"] = 10 };
+        reaper.WrathUntil = now + GolemStat(action.Ability.Stats, Stat.BaseSkillEffectDuration) / 1000d;
+        reaper.Gear = new() { [Stat.AttackSpeedPlusPct] = 20, [Stat.BaseMovementVelocityPlusPct] = 20, [Stat.BaseSkillAreaOfEffectPlusPct] = 40, [Stat.BaseActorScalePlusPct] = 10 };
         reaper.InputHash = 0; conn.Summons.RefreshAt = 0;
         conn.Minions.OutputQueue.Add(new([], "Reaper consumed allied minion", reaper.Id, reaper.Monster, PlayerMinions.OutputKind.Life));
         conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(reaper.Id, conn.NextBuff++, 1870, reaper.Id,

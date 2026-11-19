@@ -10,16 +10,16 @@ public readonly record struct BlindHitInput(long GlobalChance, long AttackChance
     public static BlindHitInput Capture(IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
-        long Get(string name) => Program.Stats.Key(name) is uint key ? (long)player.GetValueOrDefault(key)
-            + (own?.GetValueOrDefault(key) ?? 0) : 0;
+        long Get(uint key) => (long)player.GetValueOrDefault(key)
+            + (own?.GetValueOrDefault(key) ?? 0);
         return Capture(Get);
     }
-    public static BlindHitInput Capture(Func<string, int> get) => new(
-        get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
-        get("%_chance_to_blind_on_critical_strike"), get("blind_effect_+%"), Game.BlindSeconds(get));
-    public static BlindHitInput Capture(Func<string, long> get) => new(
-        get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
-        get("%_chance_to_blind_on_critical_strike"), Saturate(get("blind_effect_+%")),
+    public static BlindHitInput Capture(Func<uint, int> get) => new(
+        get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
+        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get));
+    public static BlindHitInput Capture(Func<uint, long> get) => new(
+        get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
+        get(Stat.PctChanceToBlindOnCriticalStrike), Saturate(get(Stat.BlindEffectPlusPct)),
         Game.BlindSeconds(name => Saturate(get(name))));
     public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
         + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
@@ -81,7 +81,7 @@ public static partial class Game
         var owner = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, owner)) return (0, 0);
         var state = owner.TargetBlind(id, target);
-        bool immune = target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0;
+        bool immune = target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0;
         var value = state.Read(at, immune);
         if (immune) return (0, 0);
         if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
@@ -99,10 +99,10 @@ public static partial class Game
     public static (int Chance, int Effect, double Seconds) BlindInputs(IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? (int)Math.Clamp((long)player.GetValueOrDefault(key)
-            + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue) : 0;
-        return (Math.Clamp(Get("global_chance_to_blind_on_hit_%"), 0, 100), Get("blind_effect_+%"),
-            4 * Math.Max(0d, 1 + Get("blind_duration_+%") / 100d));
+        int Get(uint key) => (int)Math.Clamp((long)player.GetValueOrDefault(key)
+            + (own?.GetValueOrDefault(key) ?? 0), int.MinValue, int.MaxValue);
+        return (Math.Clamp(Get(Stat.GlobalChanceToBlindOnHitPct), 0, 100), Get(Stat.BlindEffectPlusPct),
+            4 * Math.Max(0d, 1 + Get(Stat.BlindDurationPlusPct) / 100d));
     }
     public static bool InflictMonsterBlind(Player conn, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
@@ -119,7 +119,7 @@ public static partial class Game
             || !RandomRolls.Chance(chance, 100, random ?? Random.Shared)) return false;
         var state = ResourceEffectsOf(conn);
         if (!(ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
-            .Inflict(at, seconds, effect, target.Mods.Effects["cannot_be_blinded"] != 0))) return false;
+            .Inflict(at, seconds, effect, target.Mods.Effects[Stat.CannotBeBlinded] != 0))) return false;
         target.PresentationChanged?.Invoke();
         return true;
     }
@@ -192,7 +192,7 @@ public static partial class Game
                     && !conn.BlindAura.Blinded(id) && !conn.PhysicalAegis.Blind.Blinded(id)) continue;
                 var value = MonsterBlindValue(conn, id, target, now, smoke);
                 Present(id, state.TargetBlind(id, target), value,
-                    target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0, false);
+                    target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
             }
             return bytes.Count == 0 ? null : [.. bytes];
         }
@@ -200,14 +200,14 @@ public static partial class Game
     public static Task SendBlind(Player conn) =>
         Send(conn, [], null, atGate: () => BlindPresentation(conn));
 
-    public const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
-    public const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
+    public const uint VsBlindedCriticalStat = Stat.CriticalStrikeChancePlusPctVsBlindedEnemies;
+    public const uint FromBlindedDamageTakenStat = Stat.DamageTakenPlusPctFromBlindedEnemies;
 
     public static bool Blinded(Player conn, uint monster) => Blinded(conn, monster, ResourceEffectsTime(conn));
 
     public static bool Blinded(Player conn, uint monster, double at) =>
         conn.Monsters.TryGetValue(monster, out var target)
-        && !target.Dead && target.Life > 0 && target.Mods.Effects["cannot_be_blinded"] == 0
+        && !target.Dead && target.Life > 0 && target.Mods.Effects[Stat.CannotBeBlinded] == 0
         && (conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster) || PhysicalAegisBlinds(conn, monster)
             || target.RampageBlindUntil > at
             || conn.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
@@ -216,8 +216,8 @@ public static partial class Game
     public static int UnderBlind(Player conn, uint monster, int value) =>
         conn.Monsters.TryGetValue(monster, out var target) ? MonsterBlindRating(conn, monster, target, value, ResourceEffectsTime(conn)) : value;
 
-    static int StatOf(IReadOnlyDictionary<uint, int> stats, string name) =>
-        Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+    static int StatOf(IReadOnlyDictionary<uint, int> stats, uint name) =>
+        stats.GetValueOrDefault(name);
 
     // critical_strike_chance_+%_vs_blinded_enemies (PoB "against Blinded Enemies": ActorCondition enemy Blinded) is an
     // increase: a hit's chance against a Blinded target is recomputed from its base with it in the increased sum, never
@@ -225,7 +225,7 @@ public static partial class Game
     public static int CriticalChanceOn(Player conn, uint target, int chance, int? vsBlinded, GroundCritical? vsGround = null) =>
         Math.Clamp((GroundCriticalOn(conn, target, vsGround) is int ground ? ground
         : vsBlinded is int blinded && Blinded(conn, target) ? blinded : chance)
-        + (conn.Monsters.GetValueOrDefault(target)?.Curses["enemy_additional_critical_strike_chance_against_self"] ?? 0), 0, 10000);
+        + (conn.Monsters.GetValueOrDefault(target)?.Curses[Stat.EnemyAdditionalCriticalStrikeChanceAgainstSelf] ?? 0), 0, 10000);
 
     // The default attack's (and an ordinary bow's) chance against a Blinded target: the main hand's base with the pooled
     // attack increases and the vs-Blinded one, as Pools.AttackCriticalStrikeChance is built. A release keeps the

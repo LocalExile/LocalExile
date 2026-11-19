@@ -11,8 +11,9 @@ public static class MapScarabPacks
         CloisterPacks = LoadCloisterPacks();
     }
 
-    public const string Cloister = "CloisterPacks", CountStat = "map_contains_X_additional_div_card_packs";
-    const string DeckChance = "map_putrid_monster_%_chance_to_drop_stack_deck";
+    public const string Cloister = "CloisterPacks";
+    public const uint CountStat = Stat.MapContainsXAdditionalDivCardPacks;
+    const uint DeckChance = Stat.MapPutridMonsterPctChanceToDropStackDeck;
     public const string Deck = "Metadata/Items/DivinationCards/DivinationCardDeck";
 
     static MapRunCatalog Fragments = default!;
@@ -22,7 +23,7 @@ public static class MapScarabPacks
     static IReadOnlyList<PackCatalog.Pack> LoadCloisterPacks()
     {
         if (!ClientTables.Has("AdditionalMonsterPacksFromStats")) return [];
-        int stat = (int)(Program.Stats.Key(CountStat) ?? 0) - 1;
+        int stat = (int)CountStat - 1;
         var rows = ClientTables.Table("AdditionalMonsterPacksFromStats").Where(r => r.IntOrNull("StatsKey") == stat
             && r.IntOrNull("__col1") == 2 && r.IntOrNull("AdditionalMonsterPacksStatMode") == 0).ToList();
         var names = ClientTables.Table("MonsterPacks").Select(r => r.Text("Id") ?? "").ToList();
@@ -44,7 +45,7 @@ public static class MapScarabPacks
         RollFragmentCount(request, CountStat, random);
     }
 
-    public static void RollFragmentCount(MapOpening request, string name, Random random)
+    public static void RollFragmentCount(MapOpening request, uint name, Random random)
     {
         if (request.Opening is not { } opening) return;
         int count = 0;
@@ -58,7 +59,7 @@ public static class MapScarabPacks
 
     public static IReadOnlyList<AreaPopulation.AdditionalPacks> Requests(MapMods? mods) =>
         mods?.Get(CountStat) is int count and > 0 && Ready
-            ? [new(CountStat, Packs, count, mods.PackSizeFactor)] : [];
+            ? [new(Program.Stats.Name(CountStat), Packs, count, mods.PackSizeFactor)] : [];
 
     public static bool DropsDeck(MapMods? mods, string variety, Random random) => mods?.Get(DeckChance) is int chance and > 0
         && Packs.Any(p => p.Entries.Any(e => Game.Monsters.Find(e.Variety.ToString())?.Id == variety))

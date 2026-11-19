@@ -15,22 +15,22 @@ static partial class Sirus
         var effects = Effects(m.Variety!);
         if (index < 0 || index >= effects.Length) return;
         int effect = effects[index];
-        int Native(string name) => Stat(c, effect, m.Level, name);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int stacks = Native("corrupted_blood_on_hit_num_stacks");
-        if (stacks == 0 || BloodImmune(Get) || RandomRolls.Chance(Get("avoid_corrupted_blood_%_chance"), 100, c.IncomingHitRandom)) return;
+        int Native(uint name) => Stat(c, effect, m.Level, name);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int stacks = Native(global::Stat.CorruptedBloodOnHitNumStacks);
+        if (stacks == 0 || BloodImmune(Get) || RandomRolls.Chance(Get(global::Stat.AvoidCorruptedBloodPctChance), 100, c.IncomingHitRandom)) return;
         var e = Exposures.GetValue(c, _ => new());
-        if (Get("cannot_gain_corrupted_blood_while_you_have_at_least_5_stacks") != 0 && e.BloodStacks >= 5 && e.BloodUntil > now) return;
+        if (Get(global::Stat.CannotGainCorruptedBloodWhileYouHaveAtLeast5Stacks) != 0 && e.BloodStacks >= 5 && e.BloodUntil > now) return;
         if (e.BloodUntil <= now) { e.BloodStacks = 0; e.BloodDps = 0; }
         e.BloodStacks = Math.Min(10, e.BloodStacks + stacks);
-        e.BloodUntil = now + Native("corrupted_blood_on_hit_duration") / 1000d;
+        e.BloodUntil = now + Native(global::Stat.CorruptedBloodOnHitDuration) / 1000d;
         e.BloodDps = Math.Max(e.BloodDps, (baseHit.MinTotal + baseHit.MaxTotal) * .5
-            * Native("corrupted_blood_on_hit_%_average_damage_to_deal_per_minute_per_stack") / 6000d);
+            * Native(global::Stat.CorruptedBloodOnHitPctAverageDamageToDealPerMinutePerStack) / 6000d);
         BloodIcon(c, e, now);
     }
 
-    static bool BloodImmune(Func<string, int> get) => get("cannot_be_inflicted_by_corrupted_blood") != 0
-        || get("immune_to_corrupted_blood") != 0;
+    static bool BloodImmune(Func<uint, int> get) => get(global::Stat.CannotBeInflictedByCorruptedBlood) != 0
+        || get(global::Stat.ImmuneToCorruptedBlood) != 0;
 
     static void BloodIcon(Player c, Exposure e, double now)
     {
@@ -48,11 +48,11 @@ static partial class Sirus
         var packet = DamagePacket.Empty;
         foreach (var type in DamageTypes.ConversionOrder)
         {
-            double dps = Stat(c, effect, 84, "base_" + type.ToString().ToLowerInvariant() + "_damage_to_deal_per_minute") / 60d;
+            double dps = Stat(c, effect, 84, global::Stat.Of("base_" + type.ToString().ToLowerInvariant() + "_damage_to_deal_per_minute")) / 60d;
             if (dps > 0) packet = packet.Add(type, new(dps, dps));
         }
         double penalty = minion ? Math.Max(0, 1 + Stat(c, effect, 84,
-            "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d) : 1;
+            global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d) : 1;
         // Conversion affects hits only; the stat set already specifies each degeneration type.
         return packet.Scale(penalty);
     }
@@ -82,11 +82,11 @@ static partial class Sirus
                     if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused) return null;
                     var e = Exposures.GetValue(p, _ => new());
                     var stats = CharacterPlayerStats(p);
-                    int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+                    int Get(uint key) => stats.GetValueOrDefault(key);
                     if (e.BloodStacks > 0 && (e.BloodUntil <= now || BloodImmune(Get) || p.PlayerLife == 0))
                     { e.BloodStacks = 0; e.BloodDps = 0; BloodIcon(p, e, now); }
-                    var raw = p.PlayerLife == 0 || p.Immune || Get("base_cannot_be_damaged") > 0 || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
-                    if (p.PlayerLife > 0 && !p.Immune && Get("base_cannot_be_damaged") == 0 && !InGracePeriod(p) && e.BloodStacks > 0)
+                    var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) > 0 || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
+                    if (p.PlayerLife > 0 && !p.Immune && Get(global::Stat.BaseCannotBeDamaged) == 0 && !InGracePeriod(p) && e.BloodStacks > 0)
                         raw = raw.Add(DamageType.Physical, new(e.BloodDps * e.BloodStacks, e.BloodDps * e.BloodStacks));
                     var immune = PlayerImmunities(p);
                     double shieldBefore = p.EnergyShield.Current;
@@ -97,17 +97,17 @@ static partial class Sirus
                         int slot = (int)type;
                         double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
                             : Math.Min(Resistance(p, type), MaxResistance(p, type));
-                        double factor = p.ElementalAilments.DamageTakenFactor(now, Get("base_damage_taken_+%")
-                            + Get(type.ToString().ToLowerInvariant() + "_damage_taken_+%"))
+                        double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
+                            + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
                             * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
                             * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
                         double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
                         int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
-                        bool chaosBypasses = type == DamageType.Chaos && Get("chaos_damage_does_not_bypass_energy_shield") == 0
-                            && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-                            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
+                        bool chaosBypasses = type == DamageType.Chaos && Get(global::Stat.ChaosDamageDoesNotBypassEnergyShield) == 0
+                            && Get(global::Stat.VirtualChaosDamageDoesNotBypassEnergyShield) == 0
+                            && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowLife) != 0
                                 && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
-                            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0
+                            && !(Get(global::Stat.ChaosDamageDoesNotBypassEnergyShieldWhileNotLowMana) != 0
                                 && (long)p.PlayerMana * 2 > p.Pools.Mana);
                         lifeDamage += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
                             : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
@@ -120,9 +120,9 @@ static partial class Sirus
                     {
                         if (g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
                         var hit = Ground(p, g.Monster.Walk.Position(now), true, now);
-                        int MinionStat(string name) => Stats.Key(name) is uint key ? g.Player.GetValueOrDefault(key) : 0;
-                        bool elementalImmune = g.Definition.IsGolem && (MinionStat("golem_immunity_to_elemental_damage") > 0
-                            || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat("elemental_golem_immunity_to_elemental_damage") > 0);
+                        int MinionStat(uint key) => g.Player.GetValueOrDefault(key);
+                        bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) > 0
+                            || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) > 0);
                         double total = 0;
                         foreach (var type in DamageTypes.ConversionOrder)
                         {

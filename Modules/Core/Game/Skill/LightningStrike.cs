@@ -21,7 +21,7 @@ static partial class Game
         int repeats = MeleeAttackRepeats(conn, skillId);
         int action = conn.ActionCount;
         var stats = SupportedSkill(conn, skillId).Stats;
-        double ruthless = RuthlessBlowMore(conn, skillId, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        double ruthless = RuthlessBlowMore(conn, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
         bool Valid() => session.Active && conn.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(conn) ?? PlayerStateAllowsAction(conn))
             && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;

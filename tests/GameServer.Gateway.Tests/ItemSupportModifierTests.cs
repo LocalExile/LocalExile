@@ -43,8 +43,8 @@ public sealed class ItemSupportModifierTests
         return Game.GemSkillEffects(conn).Single(g => g.Name == "Tornado Shot").Id;
     }
 
-    static int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
-        Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+    static int Stat(IReadOnlyDictionary<uint, int> stats, uint name) =>
+        stats.GetValueOrDefault(name);
 
     // Item Rarity Support's base_killed_monster_dropped_item_rarity_+% (40% at gem level 1) reaches the supported
     // skill's stats and, through the monster's last-hit share, the kill's drop rolls. Item Quantity is untouched:
@@ -56,7 +56,7 @@ public sealed class ItemSupportModifierTests
         {
             ushort gem = Link(conn, "Metadata/Items/Gems/SkillGemTornadoShot",
                 "Metadata/Items/Gems/SupportGemItemRarity");
-            int share = Stat(Game.SupportedSkill(conn, gem).Stats, "base_killed_monster_dropped_item_rarity_+%");
+            int share = Stat(Game.SupportedSkill(conn, gem).Stats, global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct);
             Assert.Equal(40, share);
 
             // The kill's drop rolls read the skill's share once the monster carries it from the last hit.
@@ -83,15 +83,15 @@ public sealed class ItemSupportModifierTests
         {
             ushort gem = Link(conn, "Metadata/Items/Gems/SkillGemTornadoShot",
                 "Metadata/Items/Gems/SupportGemItemQuantity");
-            int share = Stat(Game.SupportedSkill(conn, gem).Stats, "base_killed_monster_dropped_item_quantity_+%");
+            int share = Stat(Game.SupportedSkill(conn, gem).Stats, global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct);
             Assert.Equal(17, share);
 
-            int Own(string stat) => stat == "base_killed_monster_dropped_item_quantity_+%" ? share : 0;
-            int Row(Func<string, int> character) => PanelStats.Selected(character, Own)
-                .First(r => r.Stat == "display_skill_increased_item_quantity_+%").Value;
+            int Own(uint stat) => stat == global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct ? share : 0;
+            int Row(Func<uint, int> character) => PanelStats.Selected(character, Own)
+                .First(r => r.Stat == global::Stat.DisplaySkillIncreasedItemQuantityPlusPct).Value;
             // The skill row shows the support's share on its own and adds the character's own quantity.
             Assert.Equal(17, Row(_ => 0));
-            Assert.Equal(47, Row(stat => stat == "base_item_found_quantity_+%" ? 30 : 0));
+            Assert.Equal(47, Row(stat => stat == global::Stat.BaseItemFoundQuantityPlusPct ? 30 : 0));
         });
     }
 }

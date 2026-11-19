@@ -24,12 +24,12 @@ public static partial class Game
         }
         var packets = new List<byte[]>();
         if (target.Ignites.TryApply(profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) }, critical, now,
-            target.Effects["avoid_ignite_%"],
-            target.Effects["immune_to_ignite"] != 0, Random.Shared))
+            target.Effects[Stat.AvoidIgnitePct],
+            target.Effects[Stat.ImmuneToIgnite] != 0, Random.Shared))
             packets.AddRange(ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now));
         if (BleedOnHitLocked(conn, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
         if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, Random.Shared)
-            && target.Effects["cannot_be_poisoned"] == 0 && !RandomRolls.Chance(target.Effects["avoid_poison_%"], 100, Random.Shared))
+            && target.Effects[Stat.CannotBePoisoned] == 0 && !RandomRolls.Chance(target.Effects[Stat.AvoidPoisonPct], 100, Random.Shared))
         {
             var p = profile.Poison;
             double min = critical ? p.CriticalMin : p.Min, max = critical ? p.CriticalMax : p.Max;

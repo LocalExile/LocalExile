@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Parameter rules do not require native projectile metadata or an executable release path.
     public sealed record ProjectileSkillParameters(
-        Func<Func<string, int>, double, bool, ProjectileProfile> Resolve)
+        Func<Func<uint, int>, double, bool, ProjectileProfile> Resolve)
     {
         public Action<ProjectileProfile, Dictionary<uint, int>>? PanelStats { get; init; }
     }
@@ -21,7 +21,7 @@ public static partial class Game
 
     public sealed record ProjectileReleaseContext(Player Conn, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
-        int Variation, Func<string, int> Get, Func<string, int> Player, Func<string, int> Own);
+        int Variation, Func<uint, int> Get, Func<uint, int> Player, Func<uint, int> Own);
 
     public sealed record ProjectilePresentation
     {

@@ -361,9 +361,9 @@ public static class GameEvents
         return gain.Experience;
     }
 
-    public static IReadOnlyDictionary<string, int> RunStats(Player conn)
+    public static IReadOnlyDictionary<uint, int> RunStats(Player conn)
     {
-        if (!Stats.Any) return ImmutableDictionary<string, int>.Empty;
+        if (!Stats.Any) return ImmutableDictionary<uint, int>.Empty;
         var sheet = new StatSheet(conn);
         foreach (var (owner, run) in Stats.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(Stats), () => run(sheet));
         return sheet.Added;

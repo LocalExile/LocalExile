@@ -365,14 +365,14 @@ public static partial class Game
             {
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
                 var stats = CharacterPlayerStats(conn);
-                int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+                int Get(uint key) => stats.GetValueOrDefault(key);
                 if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
                 uint current = conn.EnergyShield.Current;
                 // A client paying its costs from Energy Shield (Eldritch Battery) spends it on its own, below the value
                 // last sent; it refills that only with a recharge rate to predict. The server's recharge runs whenever no
                 // damage came within the delay, full or not, so the rate goes out then too (live 2026-11-13: the globe
                 // stayed below full after a cast, the server's last update being full with no rate).
-                bool active = conn.EnergyShield.Recharging || Get("keystone_eldritch_battery") != 0
+                bool active = conn.EnergyShield.Recharging || Get(Stat.KeystoneEldritchBattery) != 0
                     && conn.EnergyShield.RechargeReady(conn.Clock.Elapsed.TotalSeconds, Get);
                 int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 || conn.IncomingAilments.Bleeding(conn.Clock.Elapsed.TotalSeconds) ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
@@ -411,7 +411,7 @@ public static partial class Game
             return false;
         player = SupportedStats(conn, skillId);
         cost = (uint)Math.Max(0, player.GetValueOrDefault(Stat.ManaCost));
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        int Own(uint key) => own.GetValueOrDefault(key);
         int nativeLife = Math.Max(0, player.GetValueOrDefault(Stat.LifeCost));
         if (nativeLife > 0 && BloodCharges.Uses(Own))
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
@@ -435,12 +435,12 @@ public static partial class Game
         else
         {
             int lifeBasis = (int)Math.Min(cost, int.MaxValue);
-            if (conn.PetrifiedBlood.Active && Stats.Key(ItemChargeCosts.ManaEfficiency) is uint efficiency
+            if (conn.PetrifiedBlood.Active && ItemChargeCosts.ManaEfficiency is var efficiency
                 && player.GetValueOrDefault(efficiency) != 0)
             {
                 var costStats = player;
                 lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stat.ManaCost),
-                    name => Stats.Key(name) is uint key ? costStats.GetValueOrDefault(key) : 0,
+                    name => name is var key ? costStats.GetValueOrDefault(key) : 0,
                     SkillsFor(conn).IsChannelled(SupportedSkill(conn, skillId).Effect), SkillCostMore(conn, own), applyManaEfficiency: false);
             }
             life = PetrifiedBlood.LifeCost(conn, lifeBasis);
@@ -449,8 +449,8 @@ public static partial class Game
         es = (uint)Math.Max(0, player.GetValueOrDefault(Stat.EsCost));
         if (es > conn.EnergyShield.Current) return false;
         var paying = player;
-        bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
-        if (Has("virtual_spend_energy_shield_for_costs_before_mana") || Has("keystone_eldritch_battery"))
+        bool Has(uint name) => name is var key && paying.GetValueOrDefault(key) != 0;
+        if (Has(Stat.VirtualSpendEnergyShieldForCostsBeforeMana) || Has(Stat.KeystoneEldritchBattery))
             fromEs = Math.Min(cost, conn.EnergyShield.Current - es);
         return conn.PlayerMana >= cost - fromEs && !(life > 0 && conn.PlayerLife <= (uint)life);
     }
@@ -538,25 +538,25 @@ public static partial class Game
     // rod), the totem supports' only off a totem, Fanaticism's only for a hand-cast spell, the Frostbolt one at most
     // +200%, the metamorphosis boss's in permyriad. A total of −100% or less keeps its existing refusal.
     static int FinalCastSpeedPct(Player conn, IReadOnlyDictionary<uint, int> stats, int increased) =>
-        FinalCastSpeedPct(name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0, () => HoldingFishingRod(conn), increased);
+        FinalCastSpeedPct(name => name is var k ? stats.GetValueOrDefault(k) : 0, () => HoldingFishingRod(conn), increased);
 
-    public static int FinalCastSpeedPct(Func<string, int> get, Func<bool> holdingFishingRod, int increased)
+    public static int FinalCastSpeedPct(Func<uint, int> get, Func<bool> holdingFishingRod, int increased)
     {
         if (increased <= -100) return increased;
         static float Factor(int value, float scale = 100) => Math.Max(0, (value + scale) / scale);
-        float Final(string name) => Factor(get(name));
-        bool totem = get("is_totem") != 0, handCast = get("casting_spell") != 0 && get("is_not_hand_cast") == 0;
-        int fishing = get("cast_speed_+%_final_while_holding_fishing_rod");
-        float final = Final("active_skill_cast_speed_+%_final") * 100 * Final("righteous_fire_cast_speed_+%_final")
-            * Final("suppressing_fire_debuff_cast_speed_+%_final") * Final("support_multicast_cast_speed_+%_final")
-            * Final("echoing_shrine_cast_speed_+%_final") * Final("essence_support_attack_and_cast_speed_+%_final")
-            * Final("weapon_tree_cast_speed_+%_final_in_main_hand") * Final("weapon_tree_cast_speed_+%_final_in_off_hand")
-            * Final("covered_in_spiders_attack_and_cast_speed_+%_final")
-            * (totem ? 1 : Final("support_spell_totem_cast_speed_+%_final")) * (totem ? 1 : Final("support_crab_totem_cast_speed_+%_final"))
-            * Factor(Math.Min(200, get("cast_speed_+%_final_per_frostbolt_destroyed_recently") * get("number_of_frostbolts_destroyed_recently")))
-            * (handCast ? Final("fanaticism_hand_cast_speed_+%_final") : 1)
+        float Final(uint name) => Factor(get(name));
+        bool totem = get(Stat.IsTotem) != 0, handCast = get(Stat.CastingSpell) != 0 && get(Stat.IsNotHandCast) == 0;
+        int fishing = get(Stat.CastSpeedPlusPctFinalWhileHoldingFishingRod);
+        float final = Final(Stat.ActiveSkillCastSpeedPlusPctFinal) * 100 * Final(Stat.RighteousFireCastSpeedPlusPctFinal)
+            * Final(Stat.SuppressingFireDebuffCastSpeedPlusPctFinal) * Final(Stat.SupportMulticastCastSpeedPlusPctFinal)
+            * Final(Stat.EchoingShrineCastSpeedPlusPctFinal) * Final(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal)
+            * Final(Stat.WeaponTreeCastSpeedPlusPctFinalInMainHand) * Final(Stat.WeaponTreeCastSpeedPlusPctFinalInOffHand)
+            * Final(Stat.CoveredInSpidersAttackAndCastSpeedPlusPctFinal)
+            * (totem ? 1 : Final(Stat.SupportSpellTotemCastSpeedPlusPctFinal)) * (totem ? 1 : Final(Stat.SupportCrabTotemCastSpeedPlusPctFinal))
+            * Factor(Math.Min(200, get(Stat.CastSpeedPlusPctFinalPerFrostboltDestroyedRecently) * get(Stat.NumberOfFrostboltsDestroyedRecently)))
+            * (handCast ? Final(Stat.FanaticismHandCastSpeedPlusPctFinal) : 1)
             * (fishing != 0 && holdingFishingRod() ? Factor(fishing) : 1)
-            * Factor(get("metamorphosis_boss_cast_speed_+%_final_permyriad"), 10000) * Final("cast_speed_+%_final_for_minion") - 100;
+            * Factor(get(Stat.MetamorphosisBossCastSpeedPlusPctFinalPermyriad), 10000) * Final(Stat.CastSpeedPlusPctFinalForMinion) - 100;
         int more = (int)MathF.Round(final, MidpointRounding.AwayFromZero);
         if (more == 0) return increased;
         float total = (increased + 100) * Factor(more) - 100;
@@ -623,9 +623,9 @@ public static partial class Game
     private static int RighteousFireRadius(Player conn, IReadOnlyDictionary<uint, int> supported)
     {
         var stats = MergeSkillStats(AreaPlayerStats(conn), supported);
-        int Get(string name, int fallback) =>
-            Stats.Key(name) is uint key && stats.TryGetValue(key, out int value) ? value : fallback;
-        return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18),
+        int Get(uint name, int fallback) =>
+            name is var key && stats.TryGetValue(key, out int value) ? value : fallback;
+        return SkillArea.Radius(Get(Stat.ActiveSkillBaseAreaOfEffectRadius, 18),
             name => Get(name, 0), spell: true);
     }
 
@@ -791,7 +791,7 @@ public static partial class Game
                 ringAo = Art.Animated("righteous_fire_ring", variation)
                     ?? (variation == 0 ? RighteousFireRingAo : null);
                 var stats = MergeSkillStats(AreaPlayerStats(conn), supported.Stats);
-                int Get(string name, int fallback) => Stats.Key(name) is uint k && stats.TryGetValue(k, out int v) ? v : fallback;
+                int Get(uint name, int fallback) => name is var k && stats.TryGetValue(k, out int v) ? v : fallback;
                 int radius = RighteousFireRadius(conn, supported.Stats);
                 ushort buff = conn.NextBuff++, aura = conn.NextBuff++;
                 uint? ring = null;
@@ -799,8 +799,8 @@ public static partial class Game
                 at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 area = conn.Instance;
                 state = new RighteousFireState(buff, aura, skillId,
-                    DamagePctPerMinute: Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
-                    BurnPctPerMinute: Get("base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute", 5400))
+                    DamagePctPerMinute: Get(Stat.BaseRighteousFirePctOfMaxLifeToDealToNearbyPerMinute, 4200),
+                    BurnPctPerMinute: Get(Stat.BaseNonlethalFireDamagePctOfMaximumLifeTakenPerMinute, 5400))
                 {
                     Ring = ring,
                     Radius = radius,
@@ -808,8 +808,8 @@ public static partial class Game
                     SpellDamageMore = Stat.RighteousFireSpellDamagePlusPctFinal is var key
                         ? supported.Stats.GetValueOrDefault(key) : 0,
                     AuraVisual = auraVisual,
-                    EnergyShieldBurnPctPerMinute = Get("base_nonlethal_fire_damage_%_of_maximum_energy_shield_taken_per_minute", 4200),
-                    EnergyShieldDamagePctPerMinute = Get("base_righteous_fire_%_of_max_energy_shield_to_deal_to_nearby_per_minute", 4200),
+                    EnergyShieldBurnPctPerMinute = Get(Stat.BaseNonlethalFireDamagePctOfMaximumEnergyShieldTakenPerMinute, 4200),
+                    EnergyShieldDamagePctPerMinute = Get(Stat.BaseRighteousFirePctOfMaxEnergyShieldToDealToNearbyPerMinute, 4200),
                     SourceLifetime = lifetime,
                     Instance = conn.Instance,
                 };
@@ -958,7 +958,7 @@ public static partial class Game
         double periodicRegenPerSecond = 0;
         double nextVitalsSave = last + 5;
         Dictionary<uint, int> recoveryStats = [];
-        int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
+        int RecoveryStat(uint key) => recoveryStats.GetValueOrDefault(key);
         var cachedRf = conn.RighteousFire;
         var rates = RecoveryRates.GetOrCreateValue(updates);
         EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, updates), async conn =>
@@ -1015,7 +1015,7 @@ public static partial class Game
                     conn.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)));
-                    int periodic = RecoveryStat("virtual_gain_life_regeneration_per_minute_%_for_1_second_every_4_seconds");
+                    int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
                     periodicRegenStart = periodic > 0 && conn.PlayerLife > 0 ? periodicRegenStart ?? now : null;
                     periodicRegenPerSecond = conn.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
@@ -1057,8 +1057,8 @@ public static partial class Game
                     leech.ClearFull(now, lifeBefore >= lifeCap, manaBefore >= manaCap,
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
-                    int IncomingStat(string name) => RecoveryStat(name);
-                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0 : Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
+                    int IncomingStat(uint name) => RecoveryStat(name);
+                    double takenFactor = IncomingStat(Stat.BaseCannotBeDamaged) > 0 ? 0 : Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.ConditionalTakenStat) / 100.0)
                         * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
                     double trapTakenFactor = takenFactor
@@ -1309,7 +1309,7 @@ public static partial class Game
     {
         if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
         prepared ??= CharacterPlayerStats(conn);
-        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? prepared.GetValueOrDefault(key) : 0);
+        var result = DamageImmunities.From(name => name is var key ? prepared.GetValueOrDefault(key) : 0);
         if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
         return result;
     }
@@ -1336,10 +1336,10 @@ public static partial class Game
     // Devout of Garukhan's while-moving evasion and regeneration as finals, again when a walk starts or ends, for a
     // character with a while-moving stat. The client steps its pools from life/mana_recovery_per_minute and does not
     // derive them from the raw stats (re/recovery-timing.md), so the panel and that prediction follow the walk.
-    static readonly string[] WhileMovingInputs = ["evasion_rating_+%_while_moving",
-        "life_regeneration_rate_per_minute_%_while_moving", "mana_regeneration_rate_+%_while_moving"];
-    static readonly string[] WhileMovingFinals = ["evasion_rating", "life_recovery_per_minute",
-        "total_life_recovery_per_minute_from_regeneration", "mana_recovery_per_minute", "total_mana_recovery_per_minute_from_regeneration"];
+    static readonly uint[] WhileMovingInputs = [Stat.EvasionRatingPlusPctWhileMoving,
+        Stat.LifeRegenerationRatePerMinutePctWhileMoving, Stat.ManaRegenerationRatePlusPctWhileMoving];
+    static readonly uint[] WhileMovingFinals = [Stat.EvasionRating, Stat.LifeRecoveryPerMinute,
+        Stat.TotalLifeRecoveryPerMinuteFromRegeneration, Stat.ManaRecoveryPerMinute, Stat.TotalManaRecoveryPerMinuteFromRegeneration];
 
     public static Task SendWhileMovingStats(Player conn) =>
         !conn.Pools.WhileMovingStats ? Task.CompletedTask : Send(conn, [], null, atGate: () =>
@@ -1349,7 +1349,7 @@ public static partial class Game
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return null;
                 var stats = CharacterPlayerStats(conn);
                 // A row the stationary panel omits (no life regeneration) goes as 0, so the client stops predicting it.
-                return PlayerStatsUpdateAtGate(conn, [.. WhileMovingFinals.Select(n => Stats.Key(n)).OfType<uint>()
+                return PlayerStatsUpdateAtGate(conn, [.. WhileMovingFinals.Select(n => (n)).OfType<uint>()
                     .Select(k => (k, stats.GetValueOrDefault(k)))]);
             }
         });

@@ -19,12 +19,12 @@ public static partial class Game
     static readonly int[] MapHiddenLife = [0, 5, 9, 13, 19, 24, 30, 36, 43, 49, 55, 61, 68, 77, 87, 98, 109];
 
     // The league blocks a map load carries when the atlas tree holds any node of a family (the node id's atlas_<family>_).
-    static readonly Dictionary<string, (string Stat, int Value)[]> MapLeagueBlocks = new()
+    static readonly Dictionary<string, (uint Stat, int Value)[]> MapLeagueBlocks = new()
     {
-        ["blight"] = [("blight_path_piece_length_modifier_%", 20), ("map_blight_monsters_damage_taken_from_player_sources_+%_final", -75),
-            ("map_blight_tower_damage_+%_final_from_atlas_passive", 300)],
-        ["alva"] = [("map_incursion_league", 1)],
-        ["harvest"] = [("map_harvest_seeds_are_tier_1", 1), ("map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot", 1)],
+        ["blight"] = [(Stat.BlightPathPieceLengthModifierPct, 20), (Stat.MapBlightMonstersDamageTakenFromPlayerSourcesPlusPctFinal, -75),
+            (Stat.MapBlightTowerDamagePlusPctFinalFromAtlasPassive, 300)],
+        ["alva"] = [(Stat.MapIncursionLeague, 1)],
+        ["harvest"] = [(Stat.MapHarvestSeedsAreTier1, 1), (Stat.MapHarvestSeedsOfOtherColoursHaveChanceToUpgradeOnCompletingPlot, 1)],
     };
 
     /// <summary>InstanceEvents.AreaStats: the stats of the instance <paramref name="request"/> opens.</summary>
@@ -47,19 +47,19 @@ public static partial class Game
         IReadOnlySet<string> families, int preset, bool deepwater)
     {
         var stats = new Dictionary<uint, int>();
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+            if (name is var key) stats[key] = stats.GetValueOrDefault(key) + value;
         }
-        void Set(string name, int value)
+        void Set(uint name, int value)
         {
-            if (Stats.Key(name) is uint key) stats[key] = value;
+            if (name is var key) stats[key] = value;
         }
         // Every load of a character in a Deepwater league carries the league's flag.
-        if (deepwater) Add("map_deepwater_league", 1);
+        if (deepwater) Add(Stat.MapDeepwaterLeague, 1);
         if (mods is null) return stats;
         foreach (var (key, value) in atlas) stats[key] = stats.GetValueOrDefault(key) + value;
-        if (preset >= 0) Add("map_active_atlas_passive_tree_index", preset + 1);
+        if (preset >= 0) Add(Stat.MapActiveAtlasPassiveTreeIndex, preset + 1);
         int effect = global::AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
         // Each explicit mod's values scaled by the mod effect and truncated on their own; implicits and fragments unscaled.
         foreach (var mod in mods.ExplicitMods)
@@ -79,45 +79,45 @@ public static partial class Game
         foreach (var (rarity, kind) in new[] { (ItemRarity.Rare, "rare"), (ItemRarity.Magic, "magic"), (ItemRarity.Normal, "normal") })
             if (Stats.Key($"map_contains_x_additional_{kind}_packs_if_{kind}") is uint key && stats.Remove(key, out int value)
                 && mods.MapRarity == rarity && value != 0)
-                Add($"map_contains_x_additional_{kind}_packs", value);
+                Add(Stat.Of($"map_contains_x_additional_{kind}_packs"), value);
         // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
         if (Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue is var appraiser
             && stats.GetValueOrDefault(appraiser) != 0)
         {
             int quantity = 0;
-            foreach (string id in new[] { "map_item_drop_quantity_+%", "map_implicit_item_drop_quantity_+%", "map_unscaled_item_drop_quantity_+%" })
-                if (Stats.Key(id) is uint key && stats.Remove(key, out int value)) quantity += value;
-            Add("map_item_drop_rarity_+%", 3 * quantity);
+            foreach (uint id in new[] { Stat.MapItemDropQuantityPlusPct, Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapUnscaledItemDropQuantityPlusPct })
+                if (stats.Remove(id, out int value)) quantity += value;
+            Add(Stat.MapItemDropRarityPlusPct, 3 * quantity);
         }
         // The derived counts.
-        Set("map_rarity", (int)mods.MapRarity);
-        Set("map_number_of_explicit_mods", mods.ExplicitMods.Count);
-        Set("total_number_of_map_mods", mods.ExplicitMods.Count + mods.FragmentCount);
-        if (mods.Corrupted) Set("map_is_corrupted", 1);
-        if (mods.FragmentCount > 0) Set("map_num_fragments", mods.FragmentCount);
+        Set(Stat.MapRarity, (int)mods.MapRarity);
+        Set(Stat.MapNumberOfExplicitMods, mods.ExplicitMods.Count);
+        Set(Stat.TotalNumberOfMapMods, mods.ExplicitMods.Count + mods.FragmentCount);
+        if (mods.Corrupted) Set(Stat.MapIsCorrupted, 1);
+        if (mods.FragmentCount > 0) Set(Stat.MapNumFragments, mods.FragmentCount);
         if (mods.ScarabCount > 0)
         {
-            Set("map_total_scarab_tiers", mods.ScarabCount);
-            Set("map_num_scarabs", mods.ScarabCount);
-            foreach (var (kind, count) in mods.ScarabKinds) Set($"map_{kind}_scarab_count", count);
+            Set(Stat.MapTotalScarabTiers, mods.ScarabCount);
+            Set(Stat.MapNumScarabs, mods.ScarabCount);
+            foreach (var (kind, count) in mods.ScarabKinds) Set(Stat.Of($"map_{kind}_scarab_count"), count);
         }
         // The tier block and the device.
         if (tier is >= 1 and <= 16)
         {
-            Set("map_tier", tier);
-            Set("map_atlas_information", 6912 + tier);
-            Set("map_hidden_monster_life_+%_final", MapHiddenLife[tier]);
-            if (tier > 1) Set("map_hidden_monster_damage_+%_final", tier - 1);
+            Set(Stat.MapTier, tier);
+            Set(Stat.MapAtlasInformation, 6912 + tier);
+            Set(Stat.MapHiddenMonsterLifePlusPctFinal, MapHiddenLife[tier]);
+            if (tier > 1) Set(Stat.MapHiddenMonsterDamagePlusPctFinal, tier - 1);
         }
-        Set("map_device_type", 1);
+        Set(Stat.MapDeviceType, 1);
         // The league blocks of the tree's families; a flag set by several sources is set once.
         foreach (string family in families)
             if (MapLeagueBlocks.TryGetValue(family, out var block))
                 foreach (var (stat, value) in block) Add(stat, value);
         if (Stat.MapIncursionLeague is var incursion && stats.GetValueOrDefault(incursion) > 1) stats[incursion] = 1;
         // The three a map load always carries, 0 when nothing adds to them.
-        foreach (string always in new[] { "map_item_drop_quantity_+%", "map_item_drop_rarity_+%", "map_pack_size_+%" })
-            if (Stats.Key(always) is uint key) stats.TryAdd(key, 0);
+        foreach (uint always in new[] { Stat.MapItemDropQuantityPlusPct, Stat.MapItemDropRarityPlusPct, Stat.MapPackSizePlusPct })
+            stats.TryAdd(always, 0);
         return stats;
     }
 }

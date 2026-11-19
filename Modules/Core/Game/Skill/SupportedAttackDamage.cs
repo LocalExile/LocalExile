@@ -5,24 +5,24 @@ using GameServer.Core.World;
 
 public static class SupportedAttackDamage
 {
-    const string ColdPerDexterityMin = "attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity",
-        ColdPerDexterityMax = "attacks_with_this_weapon_maximum_added_cold_damage_per_10_dexterity";
+    const uint ColdPerDexterityMin = Stat.AttacksWithThisWeaponMinimumAddedColdDamagePer10Dexterity,
+        ColdPerDexterityMax = Stat.AttacksWithThisWeaponMaximumAddedColdDamagePer10Dexterity;
 
     // This pair is IsWeaponLocal, not IsLocal: it belongs to attacks by its source weapon, not the item's base range.
-    public static IReadOnlyDictionary<string, int> WeaponSources(Item item, ModCatalog mods)
+    public static IReadOnlyDictionary<uint, int> WeaponSources(Item item, ModCatalog mods)
     {
         var sources = ItemModStats.Local(item, mods);
         var other = ItemModStats.Sum([item], mods);
-        foreach (string name in new[] { ColdPerDexterityMin, ColdPerDexterityMax })
+        foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax })
             if (other.TryGetValue(name, out int value)) sources[name] = value;
         return sources.ToFrozenDictionary();
     }
 
     // ModParser's "with Claws" is Claw + Hit, not an ailment increase. This belongs to the attacking hand.
-    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
-        weapon.ItemClass == "Claw" ? get("claw_damage_+%") : 0;
+    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
+        weapon.ItemClass == "Claw" ? get(Stat.ClawDamagePlusPct) : 0;
 
-    public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
+    public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<uint, int> get, IReadOnlySet<int> types)
     {
         get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
         return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
@@ -35,13 +35,13 @@ public static class SupportedAttackDamage
     /// test or main's ItemWeapons constructs separately) with the global added ranges, before any increase. A bow's
     /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables).
     /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
-    public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get,
+    public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<uint, int> get,
         int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
     {
         var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
             new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
         var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
-        long dexterityGroups = Math.Max(0, get("dexterity")) / 10;
+        long dexterityGroups = Math.Max(0, get(Stat.Dexterity)) / 10;
         if (weapon.LocalSources is { } source && dexterityGroups > 0)
             added = added.Add(DamageType.Cold, new(
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
@@ -51,8 +51,8 @@ public static class SupportedAttackDamage
             {
                 string slug = type.ToString().ToLowerInvariant();
                 var bow = new DamageRange(
-                    get($"attack_minimum_added_{slug}_damage_with_bow") + get($"attack_minimum_added_{slug}_damage_with_bows"),
-                    get($"attack_maximum_added_{slug}_damage_with_bow") + get($"attack_maximum_added_{slug}_damage_with_bows"));
+                    get(Stat.Of($"attack_minimum_added_{slug}_damage_with_bow")) + get(Stat.Of($"attack_minimum_added_{slug}_damage_with_bows")),
+                    get(Stat.Of($"attack_maximum_added_{slug}_damage_with_bow")) + get(Stat.Of($"attack_maximum_added_{slug}_damage_with_bows")));
                 if (bow.Min != 0 || bow.Max != 0) added = added.Add(type, bow);
             }
         return WithCoefficients(local, added, baseMultiplier, addedEffectiveness);

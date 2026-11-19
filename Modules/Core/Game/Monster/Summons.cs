@@ -61,15 +61,15 @@ public static partial class Game
 
     /// <summary>How many minions one use brings: Summon Skeletons its melee, archer and mage counts together (at least
     /// one), every other summon one.</summary>
-    public static int SummonCount(SummonCatalog.Definition definition, Func<string, int> stat) =>
-        definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
-            "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(stat)) : 1;
+    public static int SummonCount(SummonCatalog.Definition definition, Func<uint, int> stat) =>
+        definition.Family == "Skeleton" ? Math.Max(1, new[] { Stat.NumberOfMeleeSkeletonsToSummon,
+            Stat.NumberOfArcherSkeletonsToSummon, Stat.NumberOfMageSkeletonsToSummon }.Sum(stat)) : 1;
 
     public static int SummonLimit(Player conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
-        if (definition.LimitStat.Length == 0) return 1;
+        if (definition.LimitStat == 0) return 1;
         var player = CharacterPlayerStats(conn);
-        string final = definition.LimitStat.Replace("base_", "", StringComparison.Ordinal);
+        uint final = definition.FinalLimitStat;
         int value = GolemStat(gem.Stats, definition.LimitStat) + GolemStat(player, definition.LimitStat) + GolemStat(player, final);
         // Clones have no ordinary cap; duration is their lifetime constraint.
         return Math.Clamp(value == 0 && definition.Family == "Clone" ? 100 : value, 0, 200);
@@ -78,8 +78,8 @@ public static partial class Game
     static double SummonDuration(Player conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.Persistent) return double.PositiveInfinity;
-        int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? "spectres_have_base_duration_ms"
-            : definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal) ? "base_secondary_skill_effect_duration" : "base_skill_effect_duration");
+        int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.SpectresHaveBaseDurationMs
+            : definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal) ? Stat.BaseSecondarySkillEffectDuration : Stat.BaseSkillEffectDuration);
         var player = CharacterPlayerStats(conn);
         return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
     }
@@ -96,11 +96,11 @@ public static partial class Game
     internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.Family == "Skeleton")
-            return Math.Max(1, new[] { "number_of_melee_skeletons_to_summon", "number_of_archer_skeletons_to_summon",
-                "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n)));
+            return Math.Max(1, new[] { Stat.NumberOfMeleeSkeletonsToSummon, Stat.NumberOfArcherSkeletonsToSummon,
+                Stat.NumberOfMageSkeletonsToSummon }.Sum(n => GolemStat(gem.Stats, n)));
         if (definition.Family == "RagingSpirit")
-            return Random.Shared.Next(100) < Math.Clamp(GolemStat(gem.Stats, "summoned_raging_spirit_chance_to_spawn_additional_minion_%"), 0, 100) ? 2 : 1;
-        return Math.Max(1, GolemStat(gem.Stats, "number_of_monsters_to_summon"));
+            return Random.Shared.Next(100) < Math.Clamp(GolemStat(gem.Stats, Stat.SummonedRagingSpiritChanceToSpawnAdditionalMinionPct), 0, 100) ? 2 : 1;
+        return Math.Max(1, GolemStat(gem.Stats, Stat.NumberOfMonstersToSummon));
     }
 
     internal static Task<bool> CastSummon(Player conn,
@@ -214,7 +214,7 @@ public static partial class Game
                 + "CloneImmobile" + variant + (conn.ClassRow == 2 && variant.Length > 0 ? "__" : "");
         }
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;
-        int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
+        int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
@@ -381,14 +381,14 @@ public static partial class Game
                 if (player is null) { GolemStepLocked(conn, fighter, now); continue; }
                 var gem = SupportedSkill(conn, fighter.Source);
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(conn, gem);
-                if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, "base_number_of_support_ghosts_allowed") <= 0)
+                if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, Stat.BaseNumberOfSupportGhostsAllowed) <= 0)
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
                 if (fighter.SourceIdentity is not null && (fighter.Definition.Kind == "Phantasm" || SentinelNativeType(fighter.Definition.Kind) != 0)
                     && (gem.SourceGem is null || !ReferenceEquals(fighter.SourceIdentity, PlayerInventories.GemIdentity(gem.SourceGem)))
                     || SkillsFor(conn).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
                 gem = gem with { Stats = MergeSummonStats(gem.Stats, fighter.RetainedSkillStats) };
-                int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
+                int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
                 if (actorLevel <= 0 && (fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || fighter.Definition.Kind == "VaalDomination"))
                     actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
                 if (actorLevel > 0 && actorLevel != fighter.Monster.Level)

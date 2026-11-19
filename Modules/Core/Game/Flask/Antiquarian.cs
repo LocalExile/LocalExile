@@ -13,8 +13,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            int Get(string name) => Stats.Key(name) is uint key
-                ? sources.GetValueOrDefault(key) : 0;
+            int Get(uint key) => sources.GetValueOrDefault(key);
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (Get(AntiquarianEffects.AdrenalineSource) > 0 && conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(now)
                 && StatsChangeInAnd(conn.Antiquarian.AdrenalineUntil - now))
@@ -27,7 +26,7 @@ public static partial class Game
     // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
     static void ObserveAntiquarian(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(uint key) => stats.GetValueOrDefault(key);
         lock (conn.Monsters)
             conn.Antiquarian.Observe(conn.Clock.Elapsed.TotalSeconds, Get(AntiquarianEffects.AdrenalineSource) > 0,
                 Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);

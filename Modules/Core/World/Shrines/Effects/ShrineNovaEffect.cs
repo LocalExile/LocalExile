@@ -16,15 +16,15 @@ public static class ShrineNovaRules
         int effect = cold ? claimed ? 102 : 101 : claimed ? 1068 : 1067;
         string daemon = (cold ? claimed ? 2921 : 2920 : claimed ? 2919 : 2918).ToString();
         var own = skills.EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
-        int Get(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        int Get(uint key) => own.GetValueOrDefault(key);
         // Monster ShockNova's contact (0x141404c60) scales a hardcoded 26-cell circle. It is NOT NewShockNova,
         // the player's gem action with a separate annulus. Its derived radius percentage is client stat 0x1591.
-        int radius = SkillArea.Radius(cold ? Get("active_skill_base_area_of_effect_radius") : 26, Get, true);
+        int radius = SkillArea.Radius(cold ? Get(Stat.ActiveSkillBaseAreaOfEffectRadius) : 26, Get, true);
         double cast = skills.CastTimeMs(effect) / 1000.0;
         return new(effect, daemon, radius, SkillArea.RadiusPercent(Get, true), cast,
             Math.Max(cast, (Monsters.Find(daemon)?.AttackMs ?? 1000) / 1000.0),
-            cold ? 1 : Get("shock_nova_places_X_ground_lightning_patches"), cold ? radius : 6,
-            Get("base_skill_effect_duration") / 1000.0, cold ? DamageType.Cold : DamageType.Lightning);
+            cold ? 1 : Get(Stat.ShockNovaPlacesXGroundLightningPatches), cold ? radius : 6,
+            Get(Stat.BaseSkillEffectDuration) / 1000.0, cold ? DamageType.Cold : DamageType.Lightning);
     }
 
     public static double HitDelay(Spell spell, double distance) => spell.CastSeconds
@@ -123,9 +123,9 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
             var stats = catalog.EffectStats(spell.Effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
             var action = new MonsterAttack(skillId, spell.CastSeconds, spell.Radius, DamagePacket.Empty) { Spell = true };
             foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-            void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
-            Set("active_skill_area_of_effect_radius", spell.Radius);
-            Set("total_skill_area_of_effect_radius_+%_including_final", spell.RadiusPercent);
+            void Set(uint name, int value) { stats[name] = value; }
+            Set(Stat.ActiveSkillAreaOfEffectRadius, spell.Radius);
+            Set(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal, spell.RadiusPercent);
             var skill = catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]);
             if (skill is null) return false;
             daemon = await SpawnMonster(conn, variety,
@@ -136,7 +136,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                     m.NoRewards = true;
                     m.Attack = null;
                     m.SummonerId = shrine.ObjectId;
-                    m.EncounterStats = new Dictionary<string, int> { ["base_cannot_be_damaged"] = 1 };
+                    m.EncounterStats = new Dictionary<uint, int> { [Stat.BaseCannotBeDamaged] = 1 };
                 });
             if (daemon == 0) return false;
         }
@@ -204,7 +204,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                 {
                     if (player.ElementalAilments.Magnitude(playerKind, at) >= magnitude) continue;
                     ApplyPlayerAilmentsLocked(player, at, ailments => ailments.Inflict(playerKind, magnitude, .3, at,
-                        name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, player.IncomingHitRandom));
+                        name => stats.GetValueOrDefault(name), player.IncomingHitRandom));
                 }
             }
     }

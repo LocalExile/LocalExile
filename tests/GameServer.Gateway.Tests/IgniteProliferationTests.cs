@@ -2,11 +2,11 @@ namespace GameServer.Gateway.Tests;
 
 public class IgniteProliferationTests
 {
-    static Func<string, int> With(params (string Stat, int Value)[] stats) =>
-        name => stats.Where(s => s.Stat == name).Sum(s => s.Value);
+    static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
+        name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
     static SpawnedMonster At(int x, params (string, int)[] stats) => new($"at {x}", new(x, 100, 1), 0, 0, 100)
-        { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };
+        { Mods = new([], [], new(stats.ToDictionary(s => Stat.Of(s.Item1), s => s.Item2))) };
 
     // The radius is the largest source (the main hand's only for attacks in it). A spreading ignite burns every living,
     // ignitable monster in its radius at its own damage per second; the copy does not spread and is not a new ignite.

@@ -57,13 +57,9 @@ sealed class GuardedPacksEffect : IShrineEffect
     /// stats are read, keyed by stat name: the client key is a Stats row + 1, so the name comes back from Stats.</summary>
     static async Task<bool> GuardBuff(Player conn, uint guard, ShrineCatalog.MonsterBuff buff)
     {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var stats = new Dictionary<uint, int>();
         foreach (var (key, value) in buff.Stats)
-            if (key >= 1 && key <= Stats.Names.Count)
-            {
-                string name = Stats.Name(key);
-                stats[name] = stats.GetValueOrDefault(name) + value;
-            }
+            if (key >= 1 && key <= Stats.Names.Count) stats[key] = stats.GetValueOrDefault(key) + value;
         ushort instance;
         lock (conn.Monsters)
         {

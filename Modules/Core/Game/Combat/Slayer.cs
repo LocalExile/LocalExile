@@ -11,14 +11,14 @@ using static Game;
 /// </summary>
 public static class Slayer
 {
-    public const string MovementOnKill = "gain_movement_speed_+%_for_20_seconds_on_kill";
-    public const string AttackSpeedOnRareKill = "gain_attack_speed_+%_for_20_seconds_on_killing_rare_or_unique_enemy";
-    public const string CritPerNearbyEnemy = "slayer_critical_strike_multiplier_+_per_nearby_enemy_up_to_100";
-    public const string AreaPerEnemyKilled = "slayer_area_of_effect_+%_per_enemy_killed_recently_up_to_50%";
-    public const string MoreVsUnique = "slayer_damage_+%_final_against_unique_enemies";
-    public const string MoreIfKilledRecently = "damage_+%_if_enemy_killed_recently_final";
-    public const string NearbyEnemies = "number_of_nearby_enemies", EnemiesKilledRecently = "number_of_enemies_killed_recently",
-        HaveKilledRecently = "have_killed_recently";
+    public const uint MovementOnKill = Stat.GainMovementSpeedPlusPctFor20SecondsOnKill;
+    public const uint AttackSpeedOnRareKill = Stat.GainAttackSpeedPlusPctFor20SecondsOnKillingRareOrUniqueEnemy;
+    public const uint CritPerNearbyEnemy = Stat.SlayerCriticalStrikeMultiplierPlusPerNearbyEnemyUpTo100;
+    public const uint AreaPerEnemyKilled = Stat.SlayerAreaOfEffectPlusPctPerEnemyKilledRecentlyUpTo50Pct;
+    public const uint MoreVsUnique = Stat.SlayerDamagePlusPctFinalAgainstUniqueEnemies;
+    public const uint MoreIfKilledRecently = Stat.DamagePlusPctIfEnemyKilledRecentlyFinal;
+    public const uint NearbyEnemies = Stat.NumberOfNearbyEnemies, EnemiesKilledRecently = Stat.NumberOfEnemiesKilledRecently,
+        HaveKilledRecently = Stat.HaveKilledRecently;
 
     /// <summary>"for 20 seconds" (both Headsman stats' descriptions).</summary>
     public const double HeadsmanSeconds = 20;
@@ -33,12 +33,12 @@ public static class Slayer
 
     /// <summary>Overwhelm's crit multiplier: +X per nearby enemy, the product capped at +100 (client 0x14276e1f0:
     /// <c>min(100, S[26a6] × S[18a1])</c>, no lower bound).</summary>
-    public static long CritMultiplierFromNearby(Func<string, int> get) =>
+    public static long CritMultiplierFromNearby(Func<uint, int> get) =>
         Math.Min(100, (long)get(CritPerNearbyEnemy) * get(NearbyEnemies));
 
     /// <summary>Impact's increased area: X per enemy killed recently, the product capped at 50 (client 0x14274c820,
     /// RE area-increased-terms §4: <c>min(50, S[26a2] × S[1f22])</c>).</summary>
-    public static long AreaFromKills(Func<string, int> get) =>
+    public static long AreaFromKills(Func<uint, int> get) =>
         Math.Min(50, (long)get(AreaPerEnemyKilled) * get(EnemiesKilledRecently));
 
     /// <summary>A count stopped where the capped product above stops changing (10 enemies at +10 per enemy, 10 kills at
@@ -50,17 +50,17 @@ public static class Slayer
     // Other stats the client reads in the same calculators as number_of_nearby_enemies (0x18a1: 0x14251aa40,
     // 0x142525b99, 0x142710f20, 0x142753203, 0x14285d770) or number_of_enemies_killed_recently (0x1f22, area
     // 0x14274c820), each with its own cap or threshold.
-    static readonly string[] OtherNearbyReaders =
+    static readonly uint[] OtherNearbyReaders =
     [
-        "physical_damage_reduction_%_per_nearby_enemy", "movement_speed_+%_per_nearby_enemy",
-        "movement_speed_+%_per_nearby_enemy_up_to_50%", "attack_and_cast_speed_+%_per_nearby_enemy_up_to_30%",
-        "additional_block_%_with_5_or_more_nearby_enemies", "self_take_no_extra_damage_from_critical_strikes_if_only_one_nearby_enemy",
+        Stat.PhysicalDamageReductionPctPerNearbyEnemy, Stat.MovementSpeedPlusPctPerNearbyEnemy,
+        Stat.MovementSpeedPlusPctPerNearbyEnemyUpTo50Pct, Stat.AttackAndCastSpeedPlusPctPerNearbyEnemyUpTo30Pct,
+        Stat.AdditionalBlockPctWith5OrMoreNearbyEnemies, Stat.SelfTakeNoExtraDamageFromCriticalStrikesIfOnlyOneNearbyEnemy,
     ];
-    static readonly string[] OtherKillReaders =
-        ["area_of_effect_+%_per_enemy_killed_recently", "area_of_effect_+%_per_enemy_killed_recently_up_to_25%"];
+    static readonly uint[] OtherKillReaders =
+        [Stat.AreaOfEffectPlusPctPerEnemyKilledRecently, Stat.AreaOfEffectPlusPctPerEnemyKilledRecentlyUpTo25Pct];
 
     /// <summary>Bane of Legends' two more multipliers on one hit, against a unique target or not.</summary>
-    public static double DamageMore(Func<string, int> get, bool uniqueTarget) =>
+    public static double DamageMore(Func<uint, int> get, bool uniqueTarget) =>
         (uniqueTarget ? Math.Max(0, 1 + get(MoreVsUnique) / 100.0) : 1)
         * (get(HaveKilledRecently) != 0 ? Math.Max(0, 1 + get(MoreIfKilledRecently) / 100.0) : 1);
 
@@ -91,7 +91,7 @@ public static class Slayer
     public static long Revision(Player conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
-    static int Raw(Player conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
+    static int Raw(Player conn, uint name) => name is var key && conn.StatSourcesCache is { } cached
         ? cached.Sources.GetValueOrDefault(key) : 0;
 
     /// <summary>A kill of the player's (GameEvents.Kill): it counts as killed recently, and starts or refreshes
@@ -116,9 +116,9 @@ public static class Slayer
     public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> stats)
     {
         if (!States.TryGetValue(conn, out var state)) return stats;
-        void Add(string name, int value)
+        void Add(uint name, int value)
         {
-            if (value != 0 && Stats.Key(name) is uint k)
+            if (value != 0 && name is var k)
                 stats[k] = (int)Math.Clamp((long)stats.GetValueOrDefault(k) + value, int.MinValue, int.MaxValue);
         }
         Add(NearbyEnemies, state.Nearby);
@@ -126,9 +126,9 @@ public static class Slayer
         Add(HaveKilledRecently, state.Killed > 0 ? 1 : 0);
         // Impact's area joins the base form, which the panel's total and every skill read (as Rampage's does): the
         // client takes the player's stats as sent and evaluates none of them (04-player-entity.md §4.1a).
-        Add(SkillArea.BaseIncreased, (int)AreaFromKills(name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0));
-        Add("base_movement_velocity_+%", state.Movement);
-        Add("attack_speed_+%", state.AttackSpeed);
+        Add(SkillArea.BaseIncreased, (int)AreaFromKills(name => name is var k ? stats.GetValueOrDefault(k) : 0));
+        Add(Stat.BaseMovementVelocityPlusPct, state.Movement);
+        Add(Stat.AttackSpeedPlusPct, state.AttackSpeed);
         return stats;
     }
 
@@ -136,7 +136,7 @@ public static class Slayer
     public static DamagePacket OutgoingDamage(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target,
         DamagePacket rolled)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Get(uint key) => player.GetValueOrDefault(key);
         double more = DamageMore(Get, target.Rarity == MonsterRarity.Unique);
         var state = Of(conn);
         if (state.BaneLogged == more) return more == 1 ? rolled : rolled.Scale(more);
@@ -196,10 +196,10 @@ public static class Slayer
             {
                 state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
                 RecomputePoolsAndSpeed(conn);
-                int Stat(string name) => Stats.Key(name) is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+                int Stat(uint key) => CharacterPlayerStats(conn).GetValueOrDefault(key);
                 Console.WriteLine($"[gateway] Slayer: {nearby} nearby enemies, {killed} killed recently, Headsman +{movement}% "
                     + $"movement +{attackSpeed}% attack speed; crit multiplier {conn.Pools.CriticalStrikeMultiplier}%, "
-                    + $"area +{Stat("skill_area_of_effect_+%")}%");
+                    + $"area +{Stat(global::Stat.SkillAreaOfEffectPlusPct)}%");
             }
         }
         foreach (var packet in packets) await Send(conn, packet, null);

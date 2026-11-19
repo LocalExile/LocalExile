@@ -7,9 +7,9 @@ public static partial class Game
 {
     public static GolemCatalog GolemData = null!;
     const string GolemSaveKey = "Game.Golems";
-    static int GolemStat(IReadOnlyDictionary<uint, int> stats, string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-    static void GolemAdd(Dictionary<uint, int> stats, string name, int value)
-    { if (value != 0 && Stats.Key(name) is uint key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value); }
+    static int GolemStat(IReadOnlyDictionary<uint, int> stats, uint name) => name is var key ? stats.GetValueOrDefault(key) : 0;
+    static void GolemAdd(Dictionary<uint, int> stats, uint name, int value)
+    { if (value != 0 && name is var key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value); }
 
     static double SavedLifeFraction(SpawnedMonster monster)
     {
@@ -354,11 +354,11 @@ public static partial class Game
         if (supported.Effect != definition.Effect || !supported.RequirementsMet
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
-        int Own(string name) => GolemStat(supported.Stats, name);
-        int Player(string name) => GolemStat(player, name);
-        int limit = GolemCatalog.Limit(Own("base_number_of_golems_allowed"), Player);
+        int Own(uint name) => GolemStat(supported.Stats, name);
+        int Player(uint name) => GolemStat(player, name);
+        int limit = GolemCatalog.Limit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
         if (limit == 0) return 0;
-        byte level = (byte)Math.Clamp(Own("base_display_minion_actor_level"), 1, 100);
+        byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
             ? Math.Clamp(summonedSecondsRemaining, 0, 8) : arrival ? 0 : 8;
         double summonedAt = replacement?.SummonedAt ?? preparedNow - (8 - remaining);
@@ -571,8 +571,8 @@ public static partial class Game
                         continue;
                     }
                     golem.Own = gem.Stats; golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                    golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, "base_number_of_golems_allowed"), n => GolemStat(player, n));
-                    int level = GolemStat(gem.Stats, "base_display_minion_actor_level");
+                    golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(player, n));
+                    int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                     if (level != golem.Monster.Level)
                     {
                         rebuild.Add(golem); continue;
@@ -610,13 +610,13 @@ public static partial class Game
         var changedRecovery = new HashSet<uint>();
         foreach (var g in alive)
         {
-            int oldGuard = GolemStat(g.OwnerBuff, "melee_damage_removed_from_stone_golem_before_life_or_es_%");
+            int oldGuard = GolemStat(g.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct);
             g.OwnerBuff = [];
             if (conn.PlayerLife == 0 || g.Definition.Buff == 0) continue;
             double scale = 1 + GolemCatalog.BuffEffect(g.Definition, n => GolemStat(player, n), n => GolemStat(g.Own, n), alive.Length) / 100.0;
             foreach (var (source, target) in g.Definition.BuffStats)
                 GolemAdd(g.OwnerBuff, target, (int)Math.Floor(GolemStat(g.Own, source) * scale));
-            if (g.Definition.Buff == 592 && oldGuard != GolemStat(g.OwnerBuff, "melee_damage_removed_from_stone_golem_before_life_or_es_%"))
+            if (g.Definition.Buff == 592 && oldGuard != GolemStat(g.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct))
                 changedRecovery.Add(g.Id);
             if (!buffs.TryGetValue(g.Definition.Buff, out var best) || g.OwnerBuff.Values.Sum() > best.OwnerBuff.Values.Sum())
                 buffs[g.Definition.Buff] = g;
@@ -645,7 +645,7 @@ public static partial class Game
             foreach (string kind in new[] { "attack", "spell" })
                 foreach (string bound in new[] { "minimum", "maximum" })
                 {
-                    string stat = $"{kind}_{bound}_added_lightning_damage";
+                    uint stat = Stat.Of($"{kind}_{bound}_added_lightning_damage");
                     GolemAdd(totals, stat, GolemStat(wrath.Skill.Stats, stat));
                 }
             if (!conn.Golems.Buffs.ContainsKey(676))
@@ -655,10 +655,10 @@ public static partial class Game
                 conn.Golems.Buffs[676] = (wrath.Golem.Id, instance);
             }
         }
-        GolemAdd(totals, "virtual_total_number_of_active_golems", alive.Length);
-        GolemAdd(totals, "virtual_current_number_of_golem_types", alive.Select(g => g.Definition.Kind).Distinct().Count());
+        GolemAdd(totals, Stat.VirtualTotalNumberOfActiveGolems, alive.Length);
+        GolemAdd(totals, Stat.VirtualCurrentNumberOfGolemTypes, alive.Select(g => g.Definition.Kind).Distinct().Count());
         foreach (var family in alive.GroupBy(g => g.Definition.Kind))
-            GolemAdd(totals, "current_number_of_" + (family.Key == "Flame" ? "fire" : family.Key.ToLowerInvariant()) + "_golems", family.Count());
+            GolemAdd(totals, Stat.Of("current_number_of_" + (family.Key == "Flame" ? "fire" : family.Key.ToLowerInvariant()) + "_golems"), family.Count());
         bool changed = !totals.OrderBy(p => p.Key).SequenceEqual(conn.Golems.OwnerStats.OrderBy(p => p.Key));
         if (changed)
         {
@@ -695,6 +695,6 @@ public static partial class Game
 
     public static byte[] GolemOwnerBuffPacket(ushort instance, ushort row, GolemState.Golem golem) =>
         InstanceEntities.AddBuff(PlayerId, instance, row, golem.Id,
-            values: row == 592 ? [(uint)GolemStat(golem.OwnerBuff, "melee_damage_removed_from_stone_golem_before_life_or_es_%")] : null,
+            values: row == 592 ? [(uint)GolemStat(golem.OwnerBuff, Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct)] : null,
             u82: row == 592 ? (ushort)0 : null);
 }

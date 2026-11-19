@@ -181,7 +181,7 @@ public static partial class Game
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
         var player = CharacterPlayerStats(conn);
-        int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
+        int Player(uint k) => player.GetValueOrDefault(k);
         MonsterCatalog.Variety? variety;
         DamageType element;
         string skill;
@@ -193,11 +193,11 @@ public static partial class Game
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Minions.PendingRelics == 0 || RelicTriggerOf(conn) is not { } relic) return;
             var own = SkillsFor(conn).EffectStats(relic.Grant.Effect, relic.Grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
-            int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
+            int Own(uint k) => own.GetValueOrDefault(k);
             (element, string id) = RelicVarieties[conn.Minions.Random.Next(RelicVarieties.Length)];
             skill = relic.Grant.EffectId;
-            seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player,
-                name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? Player("base_minion_duration_+%") : 0));
+            seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player,
+                name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? Player(Stat.BaseMinionDurationPlusPct) : 0));
             if (conn.Minions.All.FirstOrDefault(m => m.Skill == skill && m.Kind == element.ToString()) is { } same)
             {
                 same.Until = now + seconds;
@@ -205,8 +205,8 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {conn.Remote} {element} Relic 0x{same.Id:x}: duration refreshed to {seconds:0.##} s");
                 return;
             }
-            level = (byte)Math.Clamp(Math.Min(conn.Pools.Level, Own("minion_actor_level_is_user_level_up_to_maximum")), 1, 100);
-            lifePct = Own("guardian_relic_explode_on_death_for_%_life_as_element_damage");
+            level = (byte)Math.Clamp(Math.Min(conn.Pools.Level, Own(Stat.MinionActorLevelIsUserLevelUpToMaximum)), 1, 100);
+            lifePct = Own(Stat.GuardianRelicExplodeOnDeathForPctLifeAsElementDamage);
             variety = Monsters.Find(id);
             at = NextToPlayer(conn);
         }
@@ -219,8 +219,8 @@ public static partial class Game
         var aura = RelicAura(conn, variety, level);
         bool teleports = variety.GrantedEffects?.Any(e => SkillsFor(conn).EffectId(e) == "RelicTeleport") == true;
         // The player's increased minion life raises its life (on its Stats as maximum_life) and so its explosion.
-        var mods = Player("minion_maximum_life_+%") is int moreLife and not 0
-            ? MonsterModSet.None with { Effects = new(new Dictionary<string, int> { ["maximum_life_+%"] = moreLife }) }
+        var mods = Player(Stat.MinionMaximumLifePlusPct) is int moreLife and not 0
+            ? MonsterModSet.None with { Effects = new(new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = moreLife }) }
             : MonsterModSet.None;
         await SpawnMonster(conn, variety, level, MonsterRarity.Normal, at.X, at.Y, friendly: true,
             mods: mods, extraStats: MinionStats, owned: (id, m) =>
@@ -238,7 +238,7 @@ public static partial class Game
 
     // The stats that mark a monster as the player's minion for the client (0x141bfaf20 reads both).
     static IReadOnlyList<(uint Key, int Value)> MinionStats =>
-        [.. new[] { "is_player_minion", "is_semantic_minion" }.Select(Stats.Key).OfType<uint>().Select(k => (k, 1))];
+        [.. new[] { Stat.IsPlayerMinion, Stat.IsSemanticMinion }.Select(k => (k, 1))];
 
     // A relic's aura: its variety's aura effect at the relic's level (PlayerMinions.AuraStatsAt), with that level's radius:
     // AuraCatalog.BaseRadius and the level's active_skill_base_radius_+ (Anger at gem level 20: 59).
@@ -249,7 +249,7 @@ public static partial class Game
         {
             if (skills.EffectId(effect) is not { } id || !AuraCatalog.Supported(id)) continue;
             var own = skills.EffectStats(effect, skills.MaxLevelAt(effect, level)).ToDictionary(s => s.Item1, s => s.Item2);
-            int Get(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
+            int Get(uint k) => own.GetValueOrDefault(k);
             return new(id, AuraCatalog.BuffRow(id), SkillArea.Radius(AuraCatalog.BaseRadius, Get, spell: false),
                 PlayerMinions.AuraStatsAt(skills, Stats, effect, id, level));
         }
