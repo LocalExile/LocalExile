@@ -327,6 +327,7 @@ public static partial class Game
         On([PlayerStatStep.Rampage], a => conn.Rampage.Changed = a);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.Leech], a => LeechOf(conn).Changed = a);
         LeechOf(conn).DisplayChanged = () => PresentStats(conn);
+        conn.PetrifiedBlood.Changed = () => PresentStats(conn);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.IncomingAilments],
             a => conn.IncomingAilments.Changed = () => { a(); PresentStats(conn); });
         On(PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments],

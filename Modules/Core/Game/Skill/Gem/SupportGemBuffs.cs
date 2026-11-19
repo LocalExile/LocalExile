@@ -32,6 +32,7 @@ public static partial class Game
         state.ArcaneSurgeCastSpeedPct = running ? Math.Max(state.ArcaneSurgeCastSpeedPct, castSpeedPct) : castSpeedPct;
         state.ArcaneSurgeManaRegenPct = running ? Math.Max(state.ArcaneSurgeManaRegenPct, manaRegenPct) : manaRegenPct;
         state.ArcaneSurgeUntil = running ? Math.Max(state.ArcaneSurgeUntil, until) : until;
+        PresentStats(conn);
         if (stronger || state.ArcaneSurgeUntil - state.ArcaneSurgeShownUntil >= ArcaneSurgeRepresentSeconds)
         {
             state.ArcaneSurgeRefresh = true;
@@ -92,6 +93,7 @@ public static partial class Game
                 conn.SupportGems.InspirationSpent = 0;
                 if (conn.SupportGems.InspirationCharges != 0) conn.SupportGems.PendingStats = true;
                 conn.SupportGems.InspirationCharges = 0;
+                PresentStats(conn);
             }
             else
             {
@@ -105,6 +107,7 @@ public static partial class Game
                         conn.SupportGems.InspirationCharges + 1);
                 }
                 if (conn.SupportGems.InspirationCharges != before) conn.SupportGems.PendingStats = true;
+                if (conn.SupportGems.InspirationRefresh || conn.SupportGems.PendingStats) PresentStats(conn);
             }
         }
     }
@@ -174,6 +177,9 @@ public static partial class Game
         var state = conn.SupportGems;
         double now = conn.Clock.Elapsed.TotalSeconds;
         var packets = new List<byte[]>();
+        foreach (double ends in state.CrueltyInstances.Values.Append(state.ArcaneSurgeUntil)
+            .Append(state.InspirationCharges > 0 ? state.InspirationUntil : 0))
+            if (ends > now) PresentIn(conn, ends - now);
         bool arcane = state.ArcaneSurgeActiveAt(now);
         if (state.PresentedArcaneSurge != 0 && (!arcane || state.ArcaneSurgeRefresh))
         {
@@ -249,7 +255,7 @@ public static partial class Game
         return packets;
     }
 
-    /// <summary>The Arcane Surge and Inspiration buff instances and their stat refresh, from the player tick.</summary>
+    /// <summary>The Arcane Surge, Cruelty and Inspiration buff instances and their stat refresh: a stat presentation.</summary>
     public static async Task SendSupportGemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn)
     {

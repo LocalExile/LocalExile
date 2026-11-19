@@ -10,7 +10,8 @@ public static partial class Game
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
-        SendIncomingAilmentChanges, SendLeechBuffs,
+        SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
+        SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
     ];
 
     sealed class Presenting

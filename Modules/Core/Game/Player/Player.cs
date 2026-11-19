@@ -338,6 +338,8 @@ public static partial class Game
             {
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired
                     || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
+                if (conn.Lifetap.Until > conn.Clock.Elapsed.TotalSeconds)
+                    PresentIn(conn, conn.Lifetap.Until - conn.Clock.Elapsed.TotalSeconds);
                 return Lifetap.PresentationRecords(conn);
             }
         });
@@ -497,6 +499,7 @@ public static partial class Game
                 conn.PlayerLife -= (uint)life;
                 lifeCost = (uint)life;
                 Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
+                PresentStats(conn);
             }
             ManaSpentLocked(conn, cost, player);
             SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
@@ -952,14 +955,9 @@ public static partial class Game
                     || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await VerifyStatPresentations(remote, stream, ciphers, conn);
-                await SendSpreadPoisonRegeneration(remote, stream, ciphers, conn);
-                if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await SendTotems(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
-                await SendLifetap(remote, stream, ciphers, conn);
                 lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);
-                await SendSupportGemBuffs(remote, stream, ciphers, conn);
-                await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await TickPassiveAuras(remote, stream, ciphers, conn);
                 await SendBlind(remote, stream, ciphers, conn);

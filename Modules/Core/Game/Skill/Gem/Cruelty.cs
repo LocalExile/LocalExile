@@ -47,6 +47,7 @@ public static partial class Game
             if (ends <= now || state.CrueltyInstances.Any(i => i.Key > strength && i.Value >= ends))
                 state.CrueltyInstances.Remove(strength);
         if (state.CrueltyActiveAt(now).Pct != before) state.PendingStats = true;
+        PresentStats(conn);
     }
 
     /// <summary>The running Cruelty value every Cruelty-supported skill gets: the strongest running instance any of

@@ -20,6 +20,8 @@ public sealed class SpreadPoisonRegeneration
     double recoveredUntil = double.NegativeInfinity;
 
     public bool Applied { get { lock (gate) return double.IsFinite(sentUntil); } }
+    /// <summary>When the granted regeneration ends.</summary>
+    public double Until { get { lock (gate) return until; } }
 
     /// <summary>A kill at <paramref name="now"/> grants <paramref name="seconds"/>; a shorter grant never shortens it.</summary>
     public bool Grant(double now, double seconds, bool trackRecovery = false)
@@ -124,22 +126,18 @@ public static partial class Game
                         && Dist(ally.Walk.Position(now), kill.At) <= PoisonSpreadRadius)
                         AllySpreadPoisonRegenerations.GetValue(ally, _ => new()).Grant(now, seconds, trackRecovery: true);
         }
+        PresentStats(conn);
         Console.WriteLine($"[gateway] Bino's: poison spread to {spread} enemies ({dps:0} dps, {seconds:0.0} s)");
         if (!regenerates) return;
-        bool self = false;
         lock (conn.Monsters)
             if (conn.PlayerLife > 0 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), kill.At) <= PoisonSpreadRadius)
-                self = SpreadPoisonRegenerationOf(conn).Grant(conn.Clock.Elapsed.TotalSeconds, seconds);
-        // Another player's grant is theirs, on their clock; their own tick presents it.
+                SpreadPoisonRegenerationOf(conn).Grant(conn.Clock.Elapsed.TotalSeconds, seconds);
+        // Another player's grant is theirs, on their clock; their Stats phase presents it.
         foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
             if (peer.Owner is { } other && peer.Current && peer.Life > 0 && Dist((peer.X, peer.Y), kill.At) <= PoisonSpreadRadius
-                && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(other.Clock.Elapsed.TotalSeconds, seconds))
+                && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(other.Clock.Elapsed.TotalSeconds, seconds)
+                && Logged(true, () => PresentStats(other)))
                 Console.WriteLine($"[gateway] Bino's: regeneration granted to player 0x{peer.Id:x} for {seconds:0.0} s");
-        if (self && kill.CommittedOutput is null)
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            kill.Later(() => SendSpreadPoisonRegeneration(remote, stream, ciphers, conn));
-        }
     }
 
     /// <summary>The spread starts a fresh default-duration poison, with global duration modifiers. Its copied DPS
@@ -162,7 +160,11 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-            double now = ProjectileWorldTime(conn);
+            double now = ProjectileWorldTime(conn), clock = conn.Clock.Elapsed.TotalSeconds;
+            foreach (var (_, monster) in conn.Monsters)
+                if (AllySpreadPoisonRegenerations.TryGetValue(monster, out var ally) && ally.Until > now)
+                    PresentIn(conn, ally.Until - now);
+            if (SpreadPoisonRegenerationOf(conn).Until > clock) PresentIn(conn, SpreadPoisonRegenerationOf(conn).Until - clock);
             foreach (var (id, monster) in conn.Monsters)
                 if (AllySpreadPoisonRegenerations.TryGetValue(monster, out var ally)
                     && ally.Present(now, !monster.Dead && monster.Life > 0, () => conn.NextBuff++) is var (gone, fresh, _))
@@ -182,6 +184,7 @@ public static partial class Game
                     u68: BitConverter.SingleToUInt32Bits((float)seconds)));
             if (stats)
             {
+                MarkPlayerStats(conn, PlayerStatStep.Sources);
                 RecomputePoolsAndSpeed(conn);
                 bytes.AddRange(PlayerStatsOffFrames(conn));
                 Console.WriteLine($"[gateway] Bino's regeneration {(added is var (_, s) ? $"started, {s:0.0} s" : "ended")}");

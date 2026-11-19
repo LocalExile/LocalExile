@@ -100,6 +100,7 @@ public static partial class Game
     public static byte[]? PetrifiedBloodLossPresentation(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
+        if (conn.PetrifiedBlood.NextEnd(now) is double ends) PresentIn(conn, ends - now);
         var (perMinute, expiry) = conn.PetrifiedBlood.Display(now);
         if (InGracePeriod(conn)) perMinute = 0;
         var state = conn.PetrifiedBlood;

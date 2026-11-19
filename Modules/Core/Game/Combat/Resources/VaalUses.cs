@@ -114,6 +114,7 @@ public static partial class Game
         {
             conn.PlayerLife -= plan.Life;
             Lifetap.Spend(conn, SupportedSkill(conn, plan.Skill).Stats, (int)plan.Life, now);
+            PresentStats(conn);
         }
         ManaSpentLocked(conn, plan.Mana, stats);
         if (attackDeadline is double next) conn.NextAttackAt = next;

@@ -93,8 +93,21 @@ public sealed class PetrifiedBloodState
     public void Clear()
     {
         Suspend();
+        bool had = debts.Count > 0;
         debts.Clear();
         carry = 0;
+        if (had) Changed?.Invoke();
+    }
+
+    /// <summary>A deferred segment was added or dropped (the orb's loss overlay follows).</summary>
+    public Action? Changed;
+
+    /// <summary>When the next deferred segment ends (the shown rate drops); null without one.</summary>
+    public double? NextEnd(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var debt in debts) if (debt.End > now) next = Math.Min(next, debt.End);
+        return double.IsFinite(next) ? next : null;
     }
 
     public void AddDeferred(double now, double amount)
@@ -102,6 +115,7 @@ public sealed class PetrifiedBloodState
         if (amount <= 0) return;
         if (debts.Count == 0) last = now;
         debts.Add(new(amount / PetrifiedBlood.DeferSeconds, now, now + PetrifiedBlood.DeferSeconds));
+        Changed?.Invoke();
     }
 
     /// <summary>The whole life points owed since the previous call. Fractions stay in the state; the caller applies
