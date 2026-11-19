@@ -188,10 +188,12 @@ public static partial class Game
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
-        if (use.Emitter.Id != PlayerId && NativeProjectileTotem(conn, gem.Effect)
-            && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(conn).Clips(use.Profile.Id) is { Flight: not null } clips)
-            use = use with { Payload = nativeTotemShot with { ClientPredicted = false,
-                Presentation = MonsterProjectilePresentation(clips, use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
+        // A totem's action plays its cast but spawns no projectile on the client (live 2026-11-19: a totem's Fireball
+        // cast and hit with nothing flying), so the server draws a totem's shots, with the rig's flight and impact clips.
+        if (use.Emitter.Id != PlayerId && use.Payload is ProjectileOffense totemShot)
+            use = use with { Payload = totemShot with { ClientPredicted = false,
+                Presentation = totemShot.Presentation ?? MonsterProjectilePresentation(SkillsFor(conn).Clips(use.Profile.Id),
+                    use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
         if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
         {
             double thrown = use.Profile.Speed;
