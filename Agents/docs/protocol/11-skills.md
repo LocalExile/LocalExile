@@ -2845,15 +2845,25 @@ StateMachine only for RemoteMine. Trap metadata comes from `SkillTrapVariations`
 skill list at `0x4000` and subsequent action packets without client-data changes.
 Their payload skill's record flag 1 carries the parent object's u32 and source skill's u16, both blob-endian.
 Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` or a nonexistent `is_mine`.
-`BeThrown` (`0x141c11350`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
-followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
+`BeThrown` (`0x141c11350`) plays the `.act`'s `Emerge` clip, the throw and the arming in one (`throw_arm`: a trap's
+0.833 s, a mine's 1.233 s, `hit_ground` at 0.4 s in both; the trap's `shadOff` at 0.645 s is its armed, translucent
+look, which is also its idle look). The object's `trap_throw_arm_time_override` is the time the whole clip plays in.
+The server sends the 0x1ac with BeThrown's 0x1ab: sent only at the landing, the object slid to its place in the armed
+look and the throw never showed. A 0x1ba glide supplies the horizontal travel and ends at the clip's `hit_ground`.
+`Arm` plays the placed-in-place clip (`LayTrap`: `place`, `re_arm`) and is not sent after a throw.
+The payload skill carries `skill_is_non_pathing`, as a totem's does (section 10g). Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
 `DetonateMines` admission (`0x141d26730`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
 A throw takes the trap or mine throwing time (0.6 s and 0.3 s over throwing speed), not the spell's cast time.
 With the button held, the 3.29.3c client sent its next use about 0.39 s after the last (live 2026-11-17, Fireball with
 Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
-throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
+throw replaced after half its time still lands. On the official client a trap is in the air 0.15 s at the thrower's
+feet and 0.4 s from about 29 cells on, a mine 0.13 s at 25 cells and 0.18 s at 46 (video at 30 frames a second,
+2026-11-19); the server's flight is a fit to these, and the object is armed when its clip ends.
+A trap goes off when its duration ends; a mine is removed.
 A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
-It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
+It aims at the nearest enemy within 60 cells, or with none any way (seen on the official client).
+A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down around that enemy, or on the object.
+An attack thrown as a trap or mine is paced by the throw, not by the weapon's attack time.
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
