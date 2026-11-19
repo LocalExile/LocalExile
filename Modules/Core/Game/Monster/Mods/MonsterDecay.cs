@@ -12,7 +12,7 @@ public static partial class Game
     {
         public readonly MonsterIgnites Damage = new();
         public ushort? Buff;
-        public double TakenCarry;
+        public double TakenCarry, Rate = 1;
     }
     static readonly RuleTable<ClientState, DecayState> Decays = new();
 
@@ -28,6 +28,7 @@ public static partial class Game
             || Stats.Key("base_cannot_be_damaged") is uint cannot && player.GetValueOrDefault(cannot) != 0) return;
         double dps = effects.OverTime(basis, DamageType.Chaos, EnemyOnLowLife(monster) ? effects["damage_+%_when_on_low_life"] : 0);
         var state = Decays.GetValue(conn, _ => new());
+        RetimeDecay(conn, state, now, player);
         if (!state.Damage.Add(now, dps, MonsterDecaySeconds)) return;
         DecayIcon(conn, state, now, source);
     }
@@ -53,14 +54,24 @@ public static partial class Game
         ushort buff = conn.NextBuff++;
         state.Buff = buff;
         conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, buff, DecayBuffRow, source,
-            values: [(uint)Math.Clamp(state.Damage.PerSecond(now) * 60, 0, uint.MaxValue)],
             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.Damage.Until - now))), "Decay", WorldId: PlayerId));
+    }
+
+    static void RetimeDecay(ClientState conn, DecayState state, double now, IReadOnlyDictionary<uint, int> player)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        double rate = RecipientEffectTime.Rate(2, Get);
+        if (rate == state.Rate) return;
+        state.Damage.SetExpiryRate(now, rate);
+        state.Rate = rate;
+        if (state.Buff is not null) DecayIcon(conn, state, now);
     }
 
     public static int AdvancePlayerDecayLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> player,
         bool chaosImmune, double dotTakenFactor)
     {
         if (!Decays.TryGetValue(conn, out var state) || !state.Damage.Burning) return 0;
+        RetimeDecay(conn, state, now, player);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         bool immune = conn.Immune || chaosImmune || Get("base_cannot_be_damaged") != 0;
         if (immune) { state.Damage.DiscardDamageCarry(); state.TakenCarry = 0; }

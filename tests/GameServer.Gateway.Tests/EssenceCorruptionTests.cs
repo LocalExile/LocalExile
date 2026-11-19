@@ -229,6 +229,7 @@ public sealed class EssenceCorruptionTests
     {
         Assert.Contains("8 seconds", StatDescriptions.Load().For(Game.DecayOnHit)!.Variants[0].Text);
         Assert.Equal("decay", ClientTables.Table("BuffDefinitions")[766].Text("Id"));
+        Assert.False(ClientTables.Table("BuffDefinitions")[766].Bool("IsRecovery"));
         var source = new SpawnedMonster("decay", new(0, 0, 0), 60, 8, 100)
             { Mods = RealMod("DecayOnHitEssenceMonster1") };
         var scaled = source.Mods.Effects.Combine(new Dictionary<string, int>
@@ -247,6 +248,8 @@ public sealed class EssenceCorruptionTests
         Apply(0, true);
         Assert.True(double.IsNegativeInfinity(Game.PlayerDecayStarted(conn)));
         Apply(0); Apply(1);
+        Assert.All(conn.Minions.OutputQueue.Where(q => q.Packet.AsSpan().StartsWith(new byte[] { 1, 0xc1 })),
+            q => Assert.Equal(31, q.Packet.Length)); // non-recovery buff: no inline stat values
         Advance(0, 2);
         Assert.Equal(9500u, conn.PlayerLife); // strongest only, no poison-style stacking
         Advance(0, 2);
@@ -279,6 +282,16 @@ public sealed class EssenceCorruptionTests
         Assert.Equal(5250u, conn.PlayerLife);
         Advance(38, 40);
         Assert.Equal(5250u, conn.PlayerLife);
+        Game.ClearPlayerDecay(conn);
+        var slowed = Stats(("buff_time_passed_+%_other_than_temporal_chains", -50));
+        Game.ApplyMonsterDecayLocked(conn, 42, source, false, 40, slowed);
+        Advance(40, 48, slowed);
+        Assert.Equal(3250u, conn.PlayerLife);
+        Advance(48, 56, slowed);
+        Assert.Equal(1250u, conn.PlayerLife);
+        Advance(56, 58, slowed);
+        Assert.Equal(1250u, conn.PlayerLife);
+        Game.ClearPlayerDecay(conn);
         Apply(40);
         conn.PlayerLife = 1;
         Advance(40, 41);
