@@ -41,7 +41,10 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     /// <summary>The charges the character has now (the minimum counts).</summary>
     public int Effective(ChargeType type) => State.Effective(type, limits[(int)type]);
 
-    public void Enqueue(ChargeEvent e) => events.Enqueue(e);
+    public void Enqueue(ChargeEvent e) { events.Enqueue(e); Woken?.Invoke(); }
+
+    /// <summary>An event was queued: the ticker steps again if it had stopped.</summary>
+    public Action? Woken;
 
     /// <summary>Events wait: the ticker works the character's stats out (outside the lock) before the next step.</summary>
     public bool Pending => !events.IsEmpty;

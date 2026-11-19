@@ -324,93 +324,118 @@ public static partial class Game
         _ => 1,
     };
 
-    // The charges ticker of one connection, started with the area's other loops: every ChargeSession.StepSeconds of game
-    // time (a pause stops it) it steps the session and sends what changed, the charge buffs (ChargeBuffs) and, when the
-    // counts the stats use changed, the pools, the walk speed and the stats (SendChargeStats). The character's stats are
+    // The charges ticker of one connection: every ChargeSession.StepSeconds of the area's frames (a pause stops them) it
+    // steps the session and sends what changed, the charge buffs (ChargeBuffs) and, when the counts the stats use changed,
+    // the pools, the walk speed and the stats (SendChargeStats). It runs while the session has work (a charge held, an
+    // event queued, a periodic gain's stat, a presentation or refresh pending) and stops otherwise; a queued event
+    // (ChargeSession.Woken), a stat update or a pool refresh starts it again (WakeCharges). The character's stats are
     // worked out outside the Monsters lock, and only while events wait (their gain chances); the limits come with every
     // stats change (ChargeSession.Observe through WithCharges).
-    public static async Task RunCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    static void StartCharges(ClientState conn, PlayerUpdatesState updates)
     {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
         var session = ChargesOf(conn);
         if (CarriedCharges.TryRemove(conn.Ticket, out var entry) && entry.Charges is var carried)
             lock (conn.Monsters)
             {
                 session.State.Restore(carried, updates.Schedule.Now(conn));
-                Console.WriteLine($"[gateway] {remote} charges carried from the last area: " +
+                Console.WriteLine($"[gateway] {conn.Wire.Remote} charges carried from the last area: " +
                     string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} s left)")));
             }
-        while (PlayerUpdatesCurrent(conn, updates))
+        session.Woken = () => WakeCharges(conn);
+        WakeCharges(conn);
+    }
+
+    static readonly RuleTable<ClientState, object> ChargeTickers = new();
+
+    public static void WakeCharges(ClientState conn)
+    {
+        if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
+        lock (conn.Monsters)
         {
-            await updates.Schedule.Wait(PlayerUpdateRole.Charges, (int)(ChargeSession.StepSeconds * 1000), updates.Stop.Token);
-            if (!PlayerUpdatesCurrent(conn, updates)) break;
-            if (conn.LeavingArea || conn.Paused) continue;
-            try
-            {
-                Func<string, int>? stats = null;
-                WeaponProfile weapon = default;
-                if (session.Pending)
-                {
-                    var final = CharacterPlayerStats(conn);
-                    stats = name => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
-                    weapon = WeaponProfileFor(conn);
-                }
-                double now = updates.Schedule.Now(conn);
-                ChargeSession.StepResult step;
-                bool presentationPending;
-                using (ProjectileMutation(conn))
-                {
-                    if (!PlayerUpdatesCurrent(conn, updates)) break;
-                    if (conn.LeavingArea) continue;
-                    now = ProjectileWorldTime(conn);
-                    session.SettleDegeneration(now);
-                    // Idle charges have no deadline to retime; degeneration still settles on its own clock.
-                    if (session.TimesCharges)
-                    {
-                        var recipient = CharacterPlayerStats(conn);
-                        session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
-                            name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
-                    }
-                    step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
-                        inTown: InTown(conn), Random.Shared,
-                        mineDetonatedRecently: conn.RecentEvents.Happened(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds));
-                    presentationPending = ChargePresentationPending(session);
-                    var refresh = ChargePoolRefreshes.GetOrCreateValue(conn);
-                    if (refresh.Pending) step = step with { CountsChanged = true };
-                    refresh.Pending = false;
-                    if (step.CountsChanged)
-                    {
-                        conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                        conn.ApplyMovementSpeed();
-                    }
-                }
-                foreach (string line in step.Log) Console.WriteLine($"[gateway] {remote} {line} (t={now:0.000})");
-                bool countsChanged = step.CountsChanged;
-                if (presentationPending)
-                    await Send(remote, stream, ciphers, [], null, atGate: () =>
-                    {
-                        lock (conn.Monsters)
-                        {
-                            if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea) return null;
-                            var (packet, changed) = CurrentChargePresentationLocked(conn, remote);
-                            countsChanged |= changed;
-                            return packet;
-                        }
-                    });
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                if (countsChanged)
-                {
-                    await SendChargeStats(remote, stream, ciphers, conn,
-                        string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Label(t, session.Converted(t))}")));
-                }
-            }
-            catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { return; }
-            catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
-            {
-                if (!conn.Closed) Console.WriteLine($"[gateway] {remote} charges: {ServerLog.Describe(ex)}");
-            }
-            catch (Exception) { break; }   // the connection has gone
+            if (ChargeTickers.TryGetValue(conn, out _)) return;
+            ChargeTickers.AddOrUpdate(conn, new());
         }
+        EveryAsPlayer(conn, (int)(ChargeSession.StepSeconds * 1000), () =>
+        {
+            lock (conn.Monsters)
+            {
+                var session = ChargesOf(conn);
+                if (PlayerUpdatesCurrent(conn, updates) && (session.TimesCharges || ChargePresentationPending(session)
+                    || ChargePoolRefreshes.GetOrCreateValue(conn).Pending)) return true;
+                ChargeTickers.Remove(conn);
+                return false;
+            }
+        }, (remote, stream, ciphers, conn) => StepCharges(remote, stream, ciphers, conn, updates));
+    }
+
+    static async Task StepCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    {
+        var session = ChargesOf(conn);
+        try
+        {
+            Func<string, int>? stats = null;
+            WeaponProfile weapon = default;
+            if (session.Pending)
+            {
+                var final = CharacterPlayerStats(conn);
+                stats = name => Stats.Key(name) is uint key ? final.GetValueOrDefault(key) : 0;
+                weapon = WeaponProfileFor(conn);
+            }
+            double now = updates.Schedule.Now(conn);
+            ChargeSession.StepResult step;
+            bool presentationPending;
+            using (ProjectileMutation(conn))
+            {
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                if (conn.LeavingArea) return;
+                now = ProjectileWorldTime(conn);
+                session.SettleDegeneration(now);
+                // Idle charges have no deadline to retime; degeneration still settles on its own clock.
+                if (session.TimesCharges)
+                {
+                    var recipient = CharacterPlayerStats(conn);
+                    session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
+                        name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
+                }
+                step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
+                    inTown: InTown(conn), Random.Shared,
+                    mineDetonatedRecently: conn.RecentEvents.Happened(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds));
+                presentationPending = ChargePresentationPending(session);
+                var refresh = ChargePoolRefreshes.GetOrCreateValue(conn);
+                if (refresh.Pending) step = step with { CountsChanged = true };
+                refresh.Pending = false;
+                if (step.CountsChanged)
+                {
+                    conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                    conn.ApplyMovementSpeed();
+                }
+            }
+            foreach (string line in step.Log) Console.WriteLine($"[gateway] {remote} {line} (t={now:0.000})");
+            bool countsChanged = step.CountsChanged;
+            if (presentationPending)
+                await Send(remote, stream, ciphers, [], null, atGate: () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea) return null;
+                        var (packet, changed) = CurrentChargePresentationLocked(conn, remote);
+                        countsChanged |= changed;
+                        return packet;
+                    }
+                });
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            if (countsChanged)
+            {
+                await SendChargeStats(remote, stream, ciphers, conn,
+                    string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Label(t, session.Converted(t))}")));
+            }
+        }
+        catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
+        {
+            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} charges: {ServerLog.Describe(ex)}");
+        }
+        catch (Exception) { }   // the connection has gone
     }
 
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in

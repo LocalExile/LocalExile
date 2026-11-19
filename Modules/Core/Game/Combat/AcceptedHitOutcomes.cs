@@ -23,7 +23,7 @@ public static partial class Game
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
         // rebuilding the full skill list per hit (the 2026-11-05 log: 4 PlayerSkills builds in 80 ms, each inside the
         // send gate, and 0x0025 handlers at 50-200 ms).
-        if (step.CountsChanged) ChargePoolRefreshes.GetOrCreateValue(conn).Pending = true;
+        if (step.CountsChanged) { ChargePoolRefreshes.GetOrCreateValue(conn).Pending = true; WakeCharges(conn); }
         conn.Minions.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.Charges, Charges: accepted));
     }
 
@@ -51,7 +51,7 @@ public static partial class Game
     {
         var session = ChargesOf(conn); double now = ProjectileWorldTime(conn);
         var step = session.Refresh(now);
-        if (step.CountsChanged) ChargePoolRefreshes.GetOrCreateValue(conn).Pending = true;
+        if (step.CountsChanged) { ChargePoolRefreshes.GetOrCreateValue(conn).Pending = true; WakeCharges(conn); }
         var packets = session.Presentation(now, () => conn.NextBuff++).SelectMany(b => ChargeBuffs.Packets(b, PlayerId, type => ChargeArtVisual(conn, type))).ToArray();
         foreach (var (packet, label) in packets)
             Console.WriteLine($"[gateway] {remote} => {label}: {Convert.ToHexString(packet.AsSpan(0, Math.Min(packet.Length, 96)))}");
