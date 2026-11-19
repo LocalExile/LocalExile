@@ -19,7 +19,29 @@ public sealed class LeechSession
     // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
     public KillRecovery OnKill { get; set; }
 
+    /// <summary>Leeching of a resource started or stopped (the stats that read it follow).</summary>
+    public Action? Changed;
+
+    // Reports a start or stop against the state before a change.
+    void Report(double now, (bool, bool, bool) before) { if (Active(now) != before) Changed?.Invoke(); }
+
+    /// <summary>When the leech of a resource next stops on its own; null while none leeches.</summary>
+    public double? NextChangeAt(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var state in new[] { Life, Mana, EnergyShield })
+            if (state.Until(now) is double until) next = Math.Min(next, until);
+        return double.IsFinite(next) ? next : null;
+    }
+
     public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws = 0)
+    {
+        var before = Active(now);
+        ConfigureCore(now, value, get, equippedClaws);
+        Report(now, before);
+    }
+
+    void ConfigureCore(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws)
     {
         limits = value;
         convertLifeToEnergyShield = get("keystone_ghost_reaver") != 0 || get("leech_energy_shield_instead_of_life") != 0;
@@ -58,8 +80,18 @@ public sealed class LeechSession
         (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
         bool attack = false)
     {
+        var before = Active(now);
+        var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack);
+        Report(now, before);
+        return instant;
+    }
+
+    (double Life, double Mana, double EnergyShield) HitCore(double now,
+        (double Life, double Mana, double EnergyShield) amounts, bool lifeFull, bool manaFull, bool shieldFull,
+        bool attack)
+    {
         if (limits is null) return default;
-        ClearFull(now, lifeFull, manaFull, shieldFull);
+        ClearFullCore(now, lifeFull, manaFull, shieldFull);
         double Grant(int index, double amount, bool full, bool keep, double instant, bool recover)
         {
             var resource = limits.Resources[index];
@@ -78,6 +110,13 @@ public sealed class LeechSession
     }
 
     public void ClearFull(double now, bool life, bool mana, bool shield)
+    {
+        var before = Active(now);
+        ClearFullCore(now, life, mana, shield);
+        Report(now, before);
+    }
+
+    void ClearFullCore(double now, bool life, bool mana, bool shield)
     {
         // Full Life, not Low Life: Petrified Blood ignores leech recovery above Low Life without removing the
         // instance, so it keeps its full-pool cap and can resume when Life drops.
@@ -105,7 +144,9 @@ public sealed class LeechSession
 
     public void Clear(double now)
     {
+        var before = Active(now);
         Life.Clear(now); Mana.Clear(now); EnergyShield.Clear(now);
+        Report(now, before);
         LifeInstantCarry = ManaInstantCarry = 0;
         InstantLifeChanged = InstantManaChanged = false;
     }

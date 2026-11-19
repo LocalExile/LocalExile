@@ -18,7 +18,11 @@ public static partial class Game
         {
             TrimLeechLocked(conn);
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return default;
-            var active = LeechOf(conn).Active(ProjectileWorldTime(conn));
+            double now = ProjectileWorldTime(conn);
+            var session = LeechOf(conn);
+            var active = session.Active(now);
+            // A step that reads it runs again when a leech stops on its own.
+            if (session.NextChangeAt(now) is double stops) StatsChangeAt(stops, () => ProjectileWorldTime(conn));
             return (active.Life, active.Mana, active.EnergyShield, conn.EnergyShield.Full);
         }
     }

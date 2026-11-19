@@ -920,8 +920,6 @@ public static partial class Game
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         double last = updates.Schedule.Now(conn);
         int suppression = Suppression(conn).Chance;
-        var criticalContext = CriticalContext(conn);
-        var leechContext = LeechContext(conn);
         bool moving = conn.Walk.Moving(last);
         (int X, int Y)? goldCheckedAt = null;
         while (PlayerUpdatesCurrent(conn, updates))
@@ -943,20 +941,6 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
-            {
-                leechContext = currentLeech;
-                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Leech);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-            }
-            // Keep the selected skill's conditional luck virtuals current across live Life/Focus boundaries too.
-            // Combat still samples the owner at the accepted contact, independently of this panel refresh cadence.
-            if (CriticalContext(conn) is var currentCritical && currentCritical != criticalContext)
-            {
-                criticalContext = currentCritical;
-                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-            }
             // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
             // eleven holds a tick, each with the Monsters lock, were what the input handlers queued behind. Spirit
             // Chieftain stays outside: its minion follows its published state.

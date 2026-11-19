@@ -16,6 +16,12 @@ public sealed class LeechRecoveryState
 
     public int Count => expiries.Count;
     public bool Active(double now) { Settle(now); return expiries.Count > 0; }
+    /// <summary>When the last instance ends (the leech stops unless another is granted); null without one.</summary>
+    public double? Until(double now)
+    {
+        Settle(now);
+        return expiries.Count == 0 ? null : expiries.UnorderedItems.Max(instance => instance.Priority);
+    }
 
     public void Configure(double now, Settings value)
     {
