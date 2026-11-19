@@ -69,8 +69,9 @@ public static partial class MapEssences
                 InstanceItems.InventoryChange(use.InventoryId, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf Vaal Orb used on essence monolith 0x{monolith.Id:x}");
             Console.WriteLine(Log($"corrupted outcome={result.Outcome} essences=[{string.Join(',', monolith.Essences)}]"));
+            // Show the corrupted essences first, so a forced release breaks the new list rather than recreating after it.
+            await PresentDirty(conn, area);
             if (monolith.ForcedRelease) await Release(conn, area, monolith);
-            else await PresentDirty(conn, area);
         }
         finally { area.Gate.Release(); }
         return true;
@@ -105,6 +106,8 @@ public static partial class MapEssences
             });
         if (monster == 0) return false;
         foreach (var member in Members(conn)) await Present(member, area.Monoliths![monolith.Index], true);
+        // The transition showed the release; recreating the object would cut its break short. Kept dirty only if a send failed.
+        area.Dirty.Remove(monolith.Index);
         await PresentDirty(conn, area);
         return true;
     }
@@ -153,9 +156,9 @@ public static partial class MapEssences
         await area.Gate.WaitAsync();
         try
         {
+            await PresentDirty(conn, area);
             foreach (var m in area.Monoliths!.Where(m => m.ForcedRelease && m.Monster == 0).ToArray())
                 await Release(conn, area, m);
-            await PresentDirty(conn, area);
         }
         finally { area.Gate.Release(); }
     }
