@@ -143,10 +143,16 @@ static partial class Game
         MinionTacticsTick(conn, now);
         if (conn.PlayerLife == 0) conn.Summons.Offerings.Clear();
         conn.Summons.Offerings.RemoveAll(o => now >= o.Until);
-        var player = CharacterPlayerStats(conn);
-        int limit = GolemStat(player, Stat.AllowMultipleOfferings) != 0 ? 3 : GolemStat(player, Stat.Allow2Offerings) != 0 ? 2 : 1;
-        while (conn.Summons.Offerings.Count > limit) conn.Summons.Offerings.RemoveAt(0);
-        SelfOfferingTick(conn, player, now);
+        // Read only when an offering or a fighter needs it: a full stat build each tick (~66 a second) was most of an idle
+        // player's stat builds and allocation (live 2026-11-20).
+        Dictionary<uint, int>? stats = null;
+        Dictionary<uint, int> Player() => stats ??= CharacterPlayerStats(conn);
+        if (conn.Summons.Offerings.Count > 1)
+        {
+            int limit = GolemStat(Player(), Stat.AllowMultipleOfferings) != 0 ? 3 : GolemStat(Player(), Stat.Allow2Offerings) != 0 ? 2 : 1;
+            while (conn.Summons.Offerings.Count > limit) conn.Summons.Offerings.RemoveAt(0);
+        }
+        SelfOfferingTick(conn, Player, now);
         foreach (var fighter in UtilityFighters(conn))
         {
             var active = conn.Summons.Offerings;
@@ -160,10 +166,10 @@ static partial class Game
                     conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(fighter.Id, instance, offering.Buff, PlayerId, offering.Source,
                         u68: BitConverter.SingleToUInt32Bits((float)(offering.Until - now))), "Offering buff"));
                 }
-            var stats = MinionOfferingStats(conn, now);
-            if (fighter.Utility.Count == stats.Count && stats.All(p => fighter.Utility.GetValueOrDefault(p.Key) == p.Value)) continue;
-            fighter.Utility = stats; fighter.InputHash = 0;
-            RefreshGolemLocked(conn, fighter, player);
+            var offered = MinionOfferingStats(conn, now);
+            if (fighter.Utility.Count == offered.Count && offered.All(p => fighter.Utility.GetValueOrDefault(p.Key) == p.Value)) continue;
+            fighter.Utility = offered; fighter.InputHash = 0;
+            RefreshGolemLocked(conn, fighter, Player());
         }
     }
 
@@ -175,9 +181,11 @@ static partial class Game
                     stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
-    static void SelfOfferingTick(Player conn, IReadOnlyDictionary<uint, int> player, double now)
+    static void SelfOfferingTick(Player conn, Func<IReadOnlyDictionary<uint, int>> stats, double now)
     {
         var state = conn.Summons;
+        if (state.Offerings.Count == 0 && state.PlayerOfferingBuffs.Count == 0 && state.PlayerOfferingStats.Count == 0) return;
+        var player = stats();
         var active = GolemStat(player, Stat.OfferingsAlsoBuffYou) != 0 ? state.Offerings.ToArray() : [];
         foreach (var (row, sent) in state.PlayerOfferingBuffs.ToArray())
             if (!active.Any(o => ReferenceEquals(o, sent.Offering)))
