@@ -45,6 +45,9 @@ public sealed class GameModule : IModule, IDisposable
     {
         Rules.CombatLifetime = module.Lifetime;
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
+        module.Lifetime.Own(Rules.CleanupEssenceAuras());
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) =>
+        { Rules.ClearEssenceAuraExposure(conn); return Task.CompletedTask; });
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
@@ -226,6 +229,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
         conn.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(conn);
+        Rules.ClearEssenceAuraExposure(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);

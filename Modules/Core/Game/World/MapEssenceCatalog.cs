@@ -10,6 +10,28 @@ public static class MapEssenceCatalog
     public static IReadOnlyList<Essence> All => Data.Value;
     public static Essence? Find(int row) => All.FirstOrDefault(e => e.Row == row);
 
+    // These rows require encounter behaviours beyond ordinary monster stats. Report the actual released modifiers,
+    // including old/forced inputs, rather than assuming that a visible modifier has a server-side skill consumer.
+    static readonly Lazy<IReadOnlyDictionary<int, string>> PendingBehaviours = new(() =>
+    {
+        var result = new Dictionary<int, string>();
+        var mods = ClientTables.Table("Mods");
+        foreach (int row in All.SelectMany(e => e.MonsterMods).Distinct())
+        {
+            if (Program.Items.Mods.Row(row) is not { } mod || mod.Id == Game.EssenceLifeDegen
+                || MonsterModCatalog.SupportOf(mod) == MonsterModCatalog.Support.Full) continue;
+            string daemon = mods[row].TextOrNull("MonsterMetadata") ?? "";
+            if (daemon.Length > 0 || mod.GrantedEffects > 0 || mod.MonsterOnDeath.Length > 0
+                || mod.BuffTemplate is not null || mod.Stats.Any(s => s.Id == "essence_delirium_spawn_monster_on_death_variation"))
+                result[row] = mod.Id;
+        }
+        return result;
+    });
+
+    public static IReadOnlyList<string> PendingEffects(IEnumerable<int> essences) => [.. essences.Select(Find)
+        .OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct()
+        .Where(PendingBehaviours.Value.ContainsKey).Select(row => PendingBehaviours.Value[row])];
+
     static IReadOnlyList<Essence> Load()
     {
         if (!ClientTables.Has("Essences") || !ClientTables.Has("EssenceType")) return [];
