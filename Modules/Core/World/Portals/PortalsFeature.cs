@@ -9,6 +9,19 @@ static class PortalsFeature
     static MapDevice.Origin? MapReturnOrigin(ClientState conn) =>
         MapDevice.ForInstance(conn) is { } map ? map.ReturnTo ?? map.Entrance : null;
 
+    // Whether an area's instance is made again on the next entry: a town (one live instance per league) or a character's
+    // hideout (one per character), while a map's own instance is never remade (InstanceRegistry).
+    internal static bool RecreatedOnEntry(ushort area) =>
+        WaypointCatalog.Areas.Find(area) is { IsTown: true } || HideoutCatalog.ByArea(area) is not null;
+
+    // A click on a portal back: at its cell by the device, in the instance the portal was opened from while that instance
+    // is live, else in a new one of the area when it is gone and the area is recreated on entry (a hideout is always seed 1,
+    // so the cell is the same, and the run's portals follow to its device: FollowDeviceToThisInstance). A transfer to an
+    // instance Auth no longer has is refused ("instance N unavailable in this league") and leaves the player in the map
+    // with a portal that does nothing (live 2026-11-18: the Simulacrum, six minutes after its hideout stood empty).
+    internal static PendingTransfer ReturnTransfer(MapDevice.Origin origin, bool instanceGone) =>
+        new(origin.Area, instanceGone ? 0 : origin.Instance, false, ArriveAt: (origin.X, origin.Y));
+
     // In a map's area (one a map item opens): a portal back to the hideout next to the arrival point, listed in 0x8f without
     // a device once the world is active (21-hideouts.md §5). It is not used up.
     internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -167,8 +180,17 @@ static class PortalsFeature
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
         if (MapReturnOrigin(conn) is { } origin)
-            await ChangeArea(remote, stream, ciphers, conn,
-                new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)), "return to the map device");
+        {
+            bool gone = false;
+            if (RecreatedOnEntry(origin.Area) && origin.Instance != 0)
+            {
+                var listed = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = origin.Area });
+                gone = OriginExpired(listed, origin.Instance);
+            }
+            if (!PlayerActionCurrent(conn, action)) return;   // the instance list took a moment
+            await ChangeArea(remote, stream, ciphers, conn, ReturnTransfer(origin, gone),
+                gone ? "return to the map device: its instance is gone, a new one" : "return to the map device");
+        }
         else if (conn.ReturnPortalTo is ushort town and not 0)
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(town, 0, false, AtSpawn: true), "portal to town");
         else

@@ -212,6 +212,10 @@ public static class GameEvents
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
 
+    /// <summary>A gamble window as it opens (an NPC whose shop is the black market, window kind 10): add, remove or reprice
+    /// its offers.</summary>
+    public static readonly GameEvent<Action<GambleWindow>> Gambles = new();
+
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
 
@@ -305,6 +309,13 @@ public static class GameEvents
             if (await GameEventOwners.Guard(owner, $"Packet 0x{opcode:x4}", async () => taken = await run(conn, bytes)) && taken) return true;
         }
         return false;
+    }
+
+    /// <summary>Every subscriber of this league sees the window's offers in turn.</summary>
+    public static void RunGambles(GambleWindow window)
+    {
+        foreach (var (owner, run) in Gambles.Subscribers(window.Conn))
+            GameEventOwners.Guard(owner, nameof(Gambles), () => run(window));
     }
 
     /// <summary>The subscribers' changes to a kill's drops; null when none of this league's changes drops.</summary>
