@@ -75,7 +75,7 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         bool immune = conn.Immune || chaosImmune || Get("base_cannot_be_damaged") != 0;
         if (immune) { state.Damage.DiscardDamageCarry(); state.TakenCarry = 0; }
-        double factor = immune ? 0 : DamageModel.Mitigate(1, Resistance(conn, DamageType.Chaos), MaxResistance(conn, DamageType.Chaos))
+        double factor = immune ? 0 : DamageModel.Mitigate(1d, Resistance(conn, DamageType.Chaos), MaxResistance(conn, DamageType.Chaos))
             * conn.ElementalAilments.DamageTakenFactor(now, 0) * dotTakenFactor;
         int damage = state.Damage.Advance(now, factor);
         if (!state.Damage.Burning) DecayIcon(conn, state, now);

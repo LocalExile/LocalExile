@@ -263,6 +263,18 @@ public sealed class EssenceCorruptionTests
         Assert.False(ClientTables.Table("BuffDefinitions")[766].Bool("IsRecovery"));
         var source = new SpawnedMonster("decay", new(0, 0, 0), 60, 8, 100)
             { Mods = RealMod("DecayOnHitEssenceMonster1") };
+        foreach (int resistance in new[] { -50, 25, 50, 75, 100 })
+        {
+            var resisted = CombatClient();
+            resisted.Pools = resisted.Pools with { ChaosResistance = resistance };
+            var stats = new Dictionary<uint, int>();
+            Game.ApplyMonsterDecayLocked(resisted, 42, source, false, 0, stats);
+            int first = Game.AdvancePlayerDecayLocked(resisted, 1, stats, false, 1);
+            int second = Game.AdvancePlayerDecayLocked(resisted, 2, stats, false, 1);
+            Assert.Equal((int)(500 * (1 - Math.Min(resistance, 75) / 100d)), first + second);
+            Game.ClearPlayerDecay(resisted);
+            resisted.Closed = true;
+        }
         var scaled = source.Mods.Effects.Combine(new Dictionary<string, int>
         {
             ["damage_+%"] = 100, ["chaos_damage_+%"] = 25, ["damage_over_time_+%"] = 25,
