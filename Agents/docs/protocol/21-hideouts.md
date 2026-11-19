@@ -297,7 +297,7 @@ made again and entered at the same cell by its device (seed 1), while a map's ow
 Before this the transfer to the gone instance was refused and the click did nothing (live 2026-11-18, the same
 Simulacrum run).
 The death screen's "Resurrect at Checkpoint" in a map asks that list too, for the area the map device stood in: an
-instance that is gone is made again and entered at its waypoint, instead of a refused transfer that left the dead
+instance that is gone is made again and entered by its device, instead of a refused transfer that left the dead
 character in the map (live 2026-11-18, the same run).
 
 **Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),

@@ -96,7 +96,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   the instance the character enters, so its portals left stand at the new device (2026-11-18).
   A click on a portal back into a hideout or town whose instance expired enters a new one of that area, by its
   device, instead of a transfer that was refused (2026-11-18).
-  "Resurrect at Checkpoint" from a map whose hideout instance is gone enters a new instance of it at its waypoint, not
+  "Resurrect at Checkpoint" from a map whose hideout instance is gone enters a new instance of it by its device, not
   a refused transfer that left the dead character in the map (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.

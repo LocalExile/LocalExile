@@ -1707,10 +1707,11 @@ public static partial class Game
             // The area the map was entered from is remade on the next entry (a town or a hideout) and an empty instance is
             // gone six minutes after its last player leaves, so the instance the device recorded may be gone: Auth refuses
             // that transfer ("instance N unavailable in this league") and leaves the dead player in the map (live
-            // 2026-11-18, the Simulacrum). Then enter a new instance of that area at its waypoint.
+            // 2026-11-18, the Simulacrum). Then enter a new instance of that area by its device, as the portal back does
+            // (PortalsFeature.ReturnTransfer): it is seed 1, so the cell is the same, and the run's portals follow there.
             if (exit.Instance != 0 && AreaInstances.RecreatedOnEntry(exit.Area)
                 && await AreaInstances.Gone(conn, exit.Area, exit.Instance))
-                exit = new PendingTransfer(exit.Area, 0, false, AtWaypoint: true);
+                exit = exit with { Instance = 0 };
             await ChangeArea(remote, stream, ciphers, conn, exit, "resurrect at checkpoint: out of the map, where it was entered from");
             await GameEvents.RunResurrected(conn);
             return;
