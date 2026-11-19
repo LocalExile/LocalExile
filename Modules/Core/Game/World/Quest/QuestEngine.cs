@@ -618,9 +618,9 @@ public static partial class Game
                 uint next = conn.TakeObjectId();
                 lock (conn.QuestObjects) { conn.QuestObjects.Remove(id); conn.QuestObjects[next] = (rule, at, info); }
                 await Game.SendWorldRemoval(conn, id, null);
-                await SendWorldCreate(conn, next, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(conn, rule, at, info)),
-                    $"0x02bb quest object 0x{next:x} {rule.ObjectType.Split('/')[^1]} again (was 0x{id:x}), {(done ? "transitioned, unblocked" : "blocked")}");
-                await SendWorldRecord(conn, next, InstanceProtocol.EnterWakeZone(next), null);
+                await SendWorldCreate(conn, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(conn, rule, at, info)),
+                    $"0x02bb quest object 0x{next:x} {rule.ObjectType.Split('/')[^1]} again (was 0x{id:x}), {(done ? "transitioned, unblocked" : "blocked")}",
+                    wake: true, awaitBirth: false);
                 continue;
             }
             if (QuestObject.TransitionableIndex(info.Components) is int index and >= 0)
