@@ -684,8 +684,8 @@ public static partial class Quests
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
         /// VillageKingsmarchUnlocked, HeistVisitedHub, ChayulaLeagueAreaUnlocked, AncestralHallsOfDeadUnlocked,
-        /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140aa7530).</summary>
-        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
+        /// NecropolisAreaUnlocked (0x140aa7530).</summary>
+        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
             DelveEncounterComplete, .. WorldPanelPins];
