@@ -212,8 +212,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Sovereign, and after that first visit the Deepwater pin and `/boat` do too.
   The hub is generated, with its waypoint, the boat gates between the deck and below deck, the stash, the guild stash,
   Valerie and Vesper ([16](../docs/protocol/16-waypoints.md) §4, [17](../docs/protocol/17-npcs.md)).
-  Charts start the runs from the deck as 3.29 did; not verified live yet ([03](../docs/protocol/03-area-and-world.md)
-  §8, [05](../docs/protocol/05-inventories-and-ui.md) §3).
+  Charts start the runs from the deck as 3.29 did ([03](../docs/protocol/03-area-and-world.md) §8,
+  [05](../docs/protocol/05-inventories-and-ui.md) §3); verified live 2026-11-19 up to the start of the first Voyage
+  (tutorial chart, a Chart run and its failure, the pity Sulphur, the locker across a relog, the 2 × 2 board with a
+  rotation at its level, and the 3 × 3 border mods and a reroll); the first Voyage's extraction is not.
   Charts drop normal, magic or rare with the Mods domain 39 affixes, the drop area's level and a room; Valerie gives
   the tutorial's level 2 magic Sandy Seabed chart.
   The Chart Locker (inventory 112, one tab region per base), Valerie's "Chart Area" (103, Descend) and "Plan Voyage"

@@ -150,7 +150,9 @@ The deck's chart windows (0x7b kinds; all need ruleset 172 before 0x21, [03](03-
 | 0x6e | DeepwaterLockerWindow (Chart Locker) | 112 | the first u32 goes to its listeners (`0x140401df0`); the Gateway sends the ChartLocker's object id (M) |
 | 0x72 | DeepwaterActiveVoyageWindow | 109 (not read) | the running chart; the Gateway does not open it |
 
-0x67/0x6a/0x72 ignore the u32s. A finished Chart moves 103 → 109 → 104 (M: the Descend gate needs room in 104);
+0x67/0x6a/0x72 ignore the u32s. Valerie's tutorial chart (reward offer 130) can be picked from the reward window only
+while 0x67 is open: without it the client sends no 0x88 or 0x8a (live 2026-11-19).
+A finished Chart moves 103 → 109 → 104 (M: the Descend gate needs room in 104);
 "charted" is not an item field. The locker window (`0x140427f30`, layout reader `0x14042b930`) cuts 112 into tabs by
 `DeepwaterLockerLayout`: `__col7`/`__col8` the tab's first column and row, `__col5` × `__col6` a page, `__col12` the
 pages (0 = one), `__col4` the cell size in pixels. Rows 0-2 are the Sandy, Coral Forest and Coral Reef charts (12 × 25
