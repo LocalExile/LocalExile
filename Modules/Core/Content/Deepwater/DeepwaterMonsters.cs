@@ -83,7 +83,7 @@ internal static class DeepwaterMonsters
     static List<(PackCatalog.Pack Pack, int Weight)> Pool(string biome, int level) => [.. (Packs.For(biome)?.Scattered ?? [])
         .Where(p => MinLevels.Value.GetValueOrDefault(p.Pack.Row) <= level && p.Pack.Entries.Any(e => Spawnable(e.Variety)))];
 
-    static MonsterRarity Rarity(Random random)
+    internal static MonsterRarity Rarity(Random random)
     {
         int roll = random.Next(100);
         return roll < AreaPopulation.RareChance ? MonsterRarity.Rare

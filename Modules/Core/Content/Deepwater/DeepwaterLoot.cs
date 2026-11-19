@@ -63,8 +63,8 @@ internal static class DeepwaterLoot
         (Kind.Kindling, Objects + "DeepwaterLanternReplenishEncounter", "deepwater_weight_allflame_kindling", true),
     ];
 
-    /// <summary>A world.db <c>system_settings</c> weight; 0 (none placed) without its row.</summary>
-    static int Setting(string key) => SystemSettings.Default.Values.TryGetValue(key, out var v) && double.IsFinite(v) ? (int)Math.Clamp(v, 0, 10_000) : 0;
+    /// <summary>A world.db <c>system_settings</c> value (0-10000); 0 without its row.</summary>
+    internal static int Setting(string key) => SystemSettings.Default.Values.TryGetValue(key, out var v) && double.IsFinite(v) ? (int)Math.Clamp(v, 0, 10_000) : 0;
 
     // G: the spacing of the scattered objects and nodes, and the clear ring around the start Bathysphere.
     const int ThingsApart = 15, NodesApart = 12, StartClear = 20, Tries = 200;
@@ -72,11 +72,14 @@ internal static class DeepwaterLoot
     const double BottleDelay = 2.3;
 
     static readonly Lazy<Dictionary<string, StateMachineData?>> States = new(() =>
+        StatesOf(Nodes.Select(n => n.Type).Concat(Scattered.Select(s => s.Type)).ToHashSet(StringComparer.Ordinal)));
+
+    /// <summary>These types' StateMachine defaults (their .ot's shared states), by type.</summary>
+    internal static Dictionary<string, StateMachineData?> StatesOf(IReadOnlySet<string> types)
     {
         var shared = ObjectTypes.SharedStates();
-        var types = Nodes.Select(n => n.Type).Concat(Scattered.Select(s => s.Type)).ToHashSet(StringComparer.Ordinal);
         return ObjectTypes.All().Where(t => types.Contains(t.Type)).ToDictionary(t => t.Type, t => ObjectTypes.StateMachine(t.Row, shared));
-    });
+    }
 
     // Chests rows by Id: __col7 (read as a spawn weight, G) and AOFiles.
     static readonly Lazy<Dictionary<string, (int Weight, string[] Models)>> ChestRows = new(() => ClientTables.TableOrEmpty("Chests")
@@ -451,18 +454,23 @@ internal static class DeepwaterLoot
         }
     }
 
-    static async Task Drop(ClientState conn, Thing thing, IReadOnlyList<ItemDrops.Drop> drops)
+    static Task Drop(ClientState conn, Thing thing, IReadOnlyList<ItemDrops.Drop> drops) =>
+        Drop(conn, thing.X, thing.Y, Info(thing.Type)?.Size ?? 1, $"Allflame {thing.Kind} 0x{thing.Id:x}", drops);
+
+    /// <summary>Items on the ground in a ring around an object of this size, as just dropped (nothing when the area allows
+    /// no loot).</summary>
+    internal static async Task Drop(ClientState conn, int x, int y, int size, string label, IReadOnlyList<ItemDrops.Drop> drops)
     {
         if (!GameEvents.AllowsLoot(conn) || Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var (remote, stream, ciphers) = conn.Wire;
-        int ring = Math.Max(2, (Info(thing.Type)?.Size ?? 1) / 2 + 2);
+        int ring = Math.Max(2, size / 2 + 2);
         for (int i = 0; i < drops.Count; i++)
         {
             double angle = i * 2.399963229728653 + Random.Shared.NextDouble();
-            var at = conn.Layout.Near((thing.X + (int)Math.Round(Math.Cos(angle) * ring), thing.Y + (int)Math.Round(Math.Sin(angle) * ring)));
+            var at = conn.Layout.Near((x + (int)Math.Round(Math.Cos(angle) * ring), y + (int)Math.Round(Math.Sin(angle) * ring)));
             var ground = new WorldItemObject(at.X, at.Y, drops[i].Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground, $"Allflame {thing.Kind} 0x{thing.Id:x} drops {drops[i].Type.Name} ×{drops[i].Item.StackSize}", justDropped: true);
+            await SendGroundItem(remote, stream, ciphers, conn, id, ground, $"{label} drops {drops[i].Type.Name} ×{drops[i].Item.StackSize}", justDropped: true);
         }
     }
 

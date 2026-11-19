@@ -113,11 +113,15 @@ public sealed partial class DeepwaterModule : IModule
         {
             await SpawnRowboat(module, conn);
             await StartRun(module, conn);
+            // The Coral Nest, Cursed Treasure and Brinerot Plunder rooms of an ordinary area.
+            string area = PlayerOf(conn).AreaId;
+            if (area != HubId && !DeepwaterGrid.IsEncounter(area)) await DeepwaterEncounters.Enter(module, conn);
         });
         // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons).
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, (conn, bytes) => RulesetAction(module, conn, bytes));
         GameEvents.Tick.Add(id, async (conn, _) =>
         {
+            await DeepwaterEncounters.Tick(module, conn);
             if (RunOf(conn) is not { } run) return;
             await _light.Tick(module, conn, run);
             await DeepwaterCollapse.Tick(module, conn, run);
@@ -156,12 +160,24 @@ public sealed partial class DeepwaterModule : IModule
             return true;
         });
         GameEvents.PlayerStatSources.Add(id, _light.WithSlow);
-        GameEvents.StateBuilding.Add(id, RunState);
-        // The run's chests and interactables; the league's monsters' map-related drops and the Golden Lantern stacks.
-        GameEvents.Drops.Add(id, roll => { if (RunOf(roll.Conn) is { } run) DeepwaterLoot.Drops(roll, run); });
+        GameEvents.StateBuilding.Add(id, (conn, json) =>
+        {
+            RunState(conn, json);
+            DeepwaterEncounters.State(conn, json);
+        });
+        // The league's monsters' map-related drops and the Golden Lantern stacks in a run; a Brinerot Plunder guard's Ducat.
+        GameEvents.Drops.Add(id, roll =>
+        {
+            if (RunOf(roll.Conn) is { } run) DeepwaterLoot.Drops(roll, run);
+            DeepwaterEncounters.Drops(roll);
+        });
+        // A warcry or the caster mastery opens a cleared encounter chest (3.29.1).
+        GameEvents.ChestsOpened.Add(id, (conn, at, radius) => DeepwaterEncounters.OpenNear(module, conn, at, radius));
+        // The run's chests, interactables and capsules; the encounters' chests; the rowboat.
         GameEvents.ObjectUse.Add(id, async (conn, use, at) =>
         {
             if (RunOf(conn) is { } run && (await DeepwaterLoot.Use(module, conn, run, use, at) || await DeepwaterExtraction.Use(module, conn, run, use, at))) return true;
+            if (await DeepwaterEncounters.Use(module, conn, use, at)) return true;
             var player = PlayerOf(conn);
             if (!_states.TryGetValue(player, out var state) || state.Boat == 0 || use.TargetId != state.Boat) return false;
             // The client offers the boat only after Valerie's introduction; an early click is refused quietly.
