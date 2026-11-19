@@ -162,7 +162,8 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `AreaGenerated` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
 | `ObjectUse` | a click on an object the Gateway's own objects did not take | `true`: it was this owner's |
 | `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
-| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them), `Made` (extra items, already made and rolled) |
+| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled) |
+| `FeatureFilled` | asked with an `ExtraTerrainFeatures` row's Id when a map links that row's sub-area to it (the Sacred Grove) | `true`: this owner fills it; without one the gates into it are not shown |
 | `InventorySlot` | each of the player's inventories as it is registered with the client on entering an area (S→C 0xc0) | another kind or flags for the row; the first answer wins |
 | `InventoryRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a) | a reason refuses it; the first one wins |
 | `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |

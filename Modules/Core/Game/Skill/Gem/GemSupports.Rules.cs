@@ -267,6 +267,9 @@ public static partial class Game
                     own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
+        if (GolemStat(own, "skill_is_blessing_skill") != 0 && GolemStat(own, "support_aura_duration_base_buff_duration") > 0)
+            foreach (string instantStat in new[] { "base_skill_is_instant", "skill_is_instant" })
+                if (Stats.Key(instantStat) is uint instant) own[instant] = 0;
         foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "es_cost", "base_es_cost",
             "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
@@ -324,7 +327,7 @@ public static partial class Game
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var skill = SupportedSkill(conn, skillId);
-        return MergeSkillStats(player, skill.Stats, SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
+        return MergeSkillStats(player, WithBlessingCost(conn, skill), SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
     }
 
     static double SkillCostMore(ClientState conn, IReadOnlyDictionary<uint, int> own)
@@ -651,6 +654,7 @@ public static partial class Game
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
         else if (area is false) types.Remove(7);
+        if (IsSmite(gem.Effect) && area is true) types.Remove(19);
         bool molten = GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect));
         if (molten)
         {
@@ -809,6 +813,7 @@ public static partial class Game
     {
         var gem = SupportedSkill(conn, skillId);
         if (SkillsFor(conn).EffectId(gem.Effect) is not { } effectId) return null;
+        if (IsBlessing(gem)) return null;
         var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
         if (CurseCatalog.Hex(effectId) || effectId == "TemporalChains")
         {

@@ -566,6 +566,10 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// open for a script to gate (Izaro's arena's ways out until he falls). Server side only.</summary>
     public bool LayoutDisabled { get; init; }
 
+    /// <summary>The ExtraTerrainFeatures row whose sub-area this gate links to its map (HarvestEncounter's Sacred Grove), or
+    /// null. Server side only.</summary>
+    public string? Feature { get; init; }
+
     /// <summary>Whether the exit stands in a town. Only then does the client read the compact int (<see cref="Index"/>)
     /// after the destination: 0x141e5fdc0 reads it when the state is 0 and the byte at +0x14 of the current area's
     /// WorldAreas row (entity +8 → world +0x78 → +0xb0) is set, which is IsTown; the server-side writer 0x141e5fcf0
@@ -692,9 +696,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Components a type may add after the base list that this blob can write. StateMachine (per-type state
     /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x1435a7888 and Timer's
     /// only vtable 0x1435ab790 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
-    /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC.</summary>
+    /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC;
+    /// TriggerableBlockage (Oshabi's Root Wall) is the one component registration whatever the object, read by
+    /// 0x141e47880 as <see cref="QuestObject"/> writes it.</summary>
     static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
-        "NPC", "InteractionAction", "Timer"];
+        "NPC", "InteractionAction", "Timer", "TriggerableBlockage"];
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec8df0; the Monster type parses the number after the last '@').</summary>
@@ -763,6 +769,9 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
+                // 0x141e47880: u8 blocked (then, only while blocked, a u8 count of sections). A monster is created
+                // unblocked: its own body is what stands in the way.
+                case "TriggerableBlockage": w.U8(0); break;
                 // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
                 // Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }

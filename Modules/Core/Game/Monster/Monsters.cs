@@ -594,8 +594,21 @@ public static partial class Game
         var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
         // Any other room of a generated layout places its pack points the same way: the rooms the layout gives a magic
         // or rare pack of their own (The Chamber of Innocence: twelve magic packs).
+        // A sub-area an ExtraTerrainFeatures row adds is that row's world area; the map's population stays out (the
+        // Sacred Grove beside a map: ServerLevels.Level.FeatureAreas).
+        var featureAreas = layout.Level?.FeatureAreas ?? [];
+        bool InFeatureArea(int x, int y)
+        {
+            for (int i = 0; i < featureAreas.Count; i++)
+            {
+                var a = featureAreas[i];
+                if (x >= a.X0 && y >= a.Y0 && x < a.X1 && y < a.Y1) return true;
+            }
+            return false;
+        }
         var layoutPacks = (layout.Level?.PackRooms ?? [])
-            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase))).SelectMany(r => r.Points);
+            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase)))
+            .SelectMany(r => r.Points).Where(p => !InFeatureArea(p.X, p.Y));
         var trapClear = new HashSet<(int X, int Y)>();
         // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
         var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
@@ -627,6 +640,8 @@ public static partial class Game
         }
         var mapMods = MapModsOf(conn);
         var scale = mapMods?.Packs ?? default;
+        Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
+            : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
         Phase("shrines, traps, later forms");
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
@@ -634,7 +649,7 @@ public static partial class Game
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
-            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
+            scatterable: scatterable,
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
@@ -2153,6 +2168,7 @@ public static partial class Game
         AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
+        ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
@@ -2232,9 +2248,16 @@ public static partial class Game
 
     // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
-    public static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now) =>
-        m.Attack is not { } a ? 0
-        : now - m.HitPlayerAt <= RecentlySeconds ? m.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
+    public static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now)
+    {
+        if (m.Attack is not { } a) return 0;
+        var effects = m.Effects;
+        int extra = MonsterOnLowLife(m) ? effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] : 0;
+        if (!a.Spell && now - m.HitPlayerAt <= RecentlySeconds) extra += conn.Pools.AttackerSlowPct;
+        if (extra == 0) return a.Seconds;
+        int increased = effects[a.Spell ? "base_cast_speed_+%" : "attack_speed_+%"];
+        return a.Seconds * Math.Max(.1, 1 + increased / 100d) / Math.Max(.1, 1 + (increased + extra) / 100d);
+    }
 
     // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
     // its attack time changes or goes back, so the client's swing can follow the server's. Called from the player tick
@@ -2248,15 +2271,18 @@ public static partial class Game
             bool slows = conn.Pools.AttackerSlowPct != 0;
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Attack is not { } a || m.SwingSecondsSent is null && (!slows || now - m.HitPlayerAt > RecentlySeconds)) continue;
+                if (m.Dead || m.Attack is not { } a) continue;
+                if (m.SwingSecondsSent is null && (a.Spell || !slows || now - m.HitPlayerAt > RecentlySeconds)
+                    && (!MonsterOnLowLife(m) || m.Effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] == 0)) continue;
                 double seconds = MonsterSwingSeconds(conn, m, now);
                 if (seconds == (m.SwingSecondsSent ?? a.Seconds)) continue;
                 m.SwingSecondsSent = seconds == a.Seconds ? null : seconds;
-                changed.Add((id, seconds, (a with { Seconds = seconds }).Stats()));
+                var current = a with { Seconds = seconds };
+                changed.Add((id, seconds, a.Spell ? current.InPlaceSkillStats() : current.Stats()));
             }
         }
         foreach (var (id, seconds, stats) in changed)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, stats),
-                $"0x01b3 monster 0x{id:x} attack time {seconds:0.000} s (enemies that hit you recently)");
+                $"0x01b3 monster 0x{id:x} action time {seconds:0.000} s (conditional speed)");
     }
 }

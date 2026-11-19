@@ -513,7 +513,8 @@ public static partial class Game
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
-        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
+        return GolemStat(own, "base_spell_cast_time_ms_override") is int basis and > 0
+            ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
     }
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
@@ -1026,6 +1027,7 @@ public static partial class Game
             {
                 // A stationary, full-resource ally may otherwise send no stats or mana at all.
                 // Reconcile shared auras on the periodic gate too, so entry/exit never needs another action.
+                await SendTemporaryAuraExpiry(remote, stream, ciphers, conn);
                 if (conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
                     || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
@@ -1240,6 +1242,7 @@ public static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
+                    ClearPlayerDecay(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
                         conn.ChaosDotBypassCarry = 0;

@@ -1064,6 +1064,7 @@ public static partial class Game
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
+        aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         int CatInput(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
         var cat = CatAspectPhaseStatsLocked(conn, bonus.AuraEffectPct, CatInput);

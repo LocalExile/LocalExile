@@ -146,6 +146,16 @@ The Gateway spawns at **(197, 261)**, the walkable cell farthest from any edge (
 Result: [../re/evidence/2026-10-16-spawn-on-land.jpg](../re/evidence/2026-10-16-spawn-on-land.jpg) (beach, pier,
 minimap marker inside the town outline). The character model is not visible yet.
 
+## 8. S→C 0x1f: add a ruleset
+
+`u16 0x001f, u8 Rulesets.dat row, u32` (big-endian; the factories ignore it). Instance dispatcher 0x142150ae0 case 8 calls
+the instance's slot 8 (0x1415a6800), which builds the row's ruleset from the factory table and appends it to the
+instance's ruleset list, unless one of that row is already there; a row without a factory logs "Failed to create
+ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset` column is not read. Client code finds
+a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
+when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
+HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
+
 ## Open
 
 - The real player start position for each town (area data, or a real capture).

@@ -196,6 +196,8 @@ public static partial class Game
     // they do not, so a league without them has the layout as generated.
     public static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
+        // A gate into an ExtraTerrainFeatures sub-area stands only where a module of the league fills it.
+        if (transition.Feature is { } feature && !GameEvents.FillsFeature(conn, feature)) return false;
         if (Sirus.GateShown(conn, transition) is bool sirusShown) return sirusShown;
         if (DepravedTrinity.GateShown(conn, id, transition) is bool shown) return shown;
         if (KitavaActFive.GateShown(conn, transition) is bool kitavaShown) return kitavaShown;

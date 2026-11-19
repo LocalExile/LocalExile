@@ -7,6 +7,23 @@ public static partial class Game
         new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
             m.Rarity, at.X, at.Y) { ObjectId = m.ObjectId };
 
+    // A mod's stacks (DropRoll.Stacks): each stackable item type with its count, split at the type's stack size.
+    public static IEnumerable<ItemDrops.Drop> ModStacks(ClientState conn, DropRoll? modded)
+    {
+        if (modded is null || modded.Stacks.Count == 0) yield break;
+        foreach (var (query, count) in modded.Stacks)
+        {
+            if (count <= 0) continue;
+            if (ItemsFor(conn).Find(query) is not { Supported: true, Stackable: true } type)
+            {
+                Console.WriteLine($"[mods] a mod's stack \"{query}\" is no stackable item type the server can create");
+                continue;
+            }
+            for (int left = count; left > 0; left -= type.MaxStack)
+                yield return new(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(left, type.MaxStack) }, type);
+        }
+    }
+
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
     public static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)
     {

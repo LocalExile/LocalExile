@@ -88,7 +88,7 @@ Modules sit in three folders, and each module in exactly one.
 | Folder | Holds | Today |
 |---|---|---|
 | `Modules/Core/` | the current game as GGG runs it, shared by many leagues | the systems below, `Ruthless` |
-| `Modules/Legacy/` | like Core, for GGG's past leagues and content | `PhreciaAscendancies`, `Idols` |
+| `Modules/Legacy/` | like Core, for GGG's past leagues and content | `PhreciaAscendancies`, `Idols`, `HarvestHeartOfTheGrove` |
 | `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/`, `PlayerBots`, `NessaDevelopmentTabs` |
 
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
