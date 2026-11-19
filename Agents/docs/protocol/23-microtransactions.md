@@ -302,3 +302,21 @@ Verified live 2026-10-23: skins, attachments, character effects, footprints, por
   (`ignite_art_variation`, `damage_hit_effect_index`, `skill_surge_type_override`) ride on the skill but are not acted
   on by the server.
 - Skill slots are per gem type (the first socket holding it), not per socketed gem.
+
+
+## Native skin transfer
+
+Retained 3.29.3b capture: `0x207`, 22 bytes, names the MTX record, donor item, target item, donor inventory and target
+inventory (five network-order u32s after the opcode). `0x122`, 10 bytes, reclaims the target's donor (inventory, item).
+The donor is a complete nested item payload under Base flag `0x40`, before the vendor-price list, without a length
+prefix. Ordinary inventory changes reconcile both items, including refused picks.
+
+Live 3.29.3c (3.29.3.5 hotfix): the ordinary **Skin Transfer** record is 6072 (resolve it by HASH32, not this id).
+The similarly named packs send `0x206` and are not the single-item picker.
+The native picker refuses a donor whose sockets contain gems before sending `0x207`.
+An empty-socket donor bound through the picker and confirmation, changed the worn visual, survived reentry and was
+returned through `0x122`; protocol-driven donors containing gems also round-tripped intact.
+The shift-click gesture and 3.29.3d picker were not exercised in that run.
+
+The native target owns its sockets and ordinary modifiers. A donor remains separately saved by the target and is
+returned to an empty cursor. No additional numerical stats are enabled by native binding alone.
