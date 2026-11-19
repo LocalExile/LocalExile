@@ -35,6 +35,10 @@ internal static class DeepwaterConstants
     public const ushort LanternTask = 0xc4df;
     /// <summary>GameObjectTasks 155 <c>DeepwaterBathysphereDrop</c> (HASH16): f32, f32 (LE).</summary>
     public const ushort BathysphereDropTask = 0x2387;
+    /// <summary>The <c>this.RandomNumber</c> script variable (<c>QuestObject.VariableHash("RandomNumber")</c>) a Sulphur
+    /// corpse's <c>ResourceChest*.ot</c> picks its <c>set_animated_0..7</c> pose with; without it the client logs a GEAL
+    /// error and draws the bare corpse.</summary>
+    public const uint RandomNumberVariable = 0xe70679eb;
 
     /// <summary>BuffDefinitions 2716 <c>deepwater_lantern_buff</c> (invisible; grants in_range_of_deepwater_lantern).</summary>
     public const ushort LanternBuff = 2716;

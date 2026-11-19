@@ -30,6 +30,8 @@ internal static class DeepwaterLoot
         public int Sulphur { get; init; }
         /// <summary>Placed by the room itself (Level.RoomObjects), not scattered.</summary>
         public bool FromRoom { get; init; }
+        /// <summary>A Sulphur corpse's pose, its <c>this.RandomNumber</c> (0..7). Kept, so a re-entry shows the same corpse.</summary>
+        public int Pose { get; init; }
         public bool Done { get; set; }
     }
 
@@ -116,7 +118,11 @@ internal static class DeepwaterLoot
     public static void Plan(ClientState conn, DeepwaterRun run, Action<string> log)
     {
         var layout = conn.Layout;
-        var random = new Random(AreaPopulation.PopulationSeed(layout.Hash, conn.Seed) ^ 0x44574c54);
+        int seed = AreaPopulation.PopulationSeed(layout.Hash, conn.Seed);
+        var random = new Random(seed ^ 0x44574c54);
+        // The corpses' poses come from their own sequence, so the placement above stays the same. G: uniform over the
+        // .ot's eight set_animated brackets; GGG's distribution is unknown.
+        var poses = new Random(seed ^ 0x504f5345);
         var start = run.Board.Cells[0].Point("bathysphere") ?? run.Board.Cells[0].Point("default") ?? (layout.SpawnX, layout.SpawnY);
         int found = Stats.Key(ResourceFound) is uint key && conn.Instance?.KeptAreaStats?.GetValueOrDefault(key) is int f ? f : 0;
         var taken = new List<(int X, int Y)>();
@@ -127,7 +133,8 @@ internal static class DeepwaterLoot
         {
             if (Scattered.FirstOrDefault(s => s.Type == o.Type) is not { Type: not null } s || s.VoyageOnly && !run.Voyage
                 || run.Board.CellAt((o.X, o.Y)) is not { } cell || Info(o.Type) is null) continue;
-            things.Add(new Thing { Kind = s.Kind, Type = o.Type, X = o.X, Y = o.Y, Cell = cell.Index, Rotation = o.Rotation, Model = ModelOf(o.Type, random), FromRoom = true, Id = conn.TakeObjectId() });
+            things.Add(new Thing { Kind = s.Kind, Type = o.Type, X = o.X, Y = o.Y, Cell = cell.Index, Rotation = o.Rotation, Model = ModelOf(o.Type, random), FromRoom = true,
+                Pose = IsCorpse(o.Type) ? poses.Next(Poses) : 0, Id = conn.TakeObjectId() });
             taken.Add((o.X, o.Y));
         }
         if (things.Count > 0) notes.Add($"{things.Count} from rooms");
@@ -146,7 +153,8 @@ internal static class DeepwaterLoot
                 if (Spot(layout, cell, start, taken, NodesApart, 1, random) is not { } at) continue;
                 string type = Pick(nodes.Select(n => (n.Type, n.Share)).ToList(), random);
                 int multiplier = States.Value.GetValueOrDefault(type) is { } st && st.IndexOf("base_resource_multiplier") is int m and >= 0 ? st.SharedStates[m] : 100;
-                things.Add(new Thing { Kind = Kind.Node, Type = type, X = at.X, Y = at.Y, Cell = cell.Index, Sulphur = Amount(multiplier, run.Level, found), Id = conn.TakeObjectId() });
+                things.Add(new Thing { Kind = Kind.Node, Type = type, X = at.X, Y = at.Y, Cell = cell.Index, Sulphur = Amount(multiplier, run.Level, found),
+                    Pose = poses.Next(Poses), Id = conn.TakeObjectId() });
                 taken.Add(at);
                 placedNodes++;
             }
@@ -206,6 +214,12 @@ internal static class DeepwaterLoot
 
     // ---- the objects ----
 
+    /// <summary>The Sulphur corpses' poses: <c>set_animated_0..7</c> in <c>ResourceChest*.ot</c>.</summary>
+    const int Poses = 8;
+
+    /// <summary>A Sulphur corpse (ResourceChestSmall/Base/Large/Huge), whose script reads <c>this.RandomNumber</c>.</summary>
+    static bool IsCorpse(string type) => type.StartsWith(Objects + "ResourceChest", StringComparison.Ordinal);
+
     static byte[]? Blob(Thing thing, QuestObjectTypes.Info info)
     {
         var states = States.Value.GetValueOrDefault(thing.Type);
@@ -217,7 +231,11 @@ internal static class DeepwaterLoot
                 : states.Set("activated", thing.Done ? 1 : 0).Set("located", thing.Done || thing.Kind == Kind.SoothingCoral ? 1 : 0)
                     .Set("collected", thing.Done ? 1 : 0);
         return new QuestObject(thing.X, thing.Y, info.Components, thing.Rotation, null, thing.Model,
-            TransitionState: (byte)(thing.Done ? info.States : 1), Opened: thing.Done) { StateMachine = states }.Blob();
+            TransitionState: (byte)(thing.Done ? info.States : 1), Opened: thing.Done)
+        {
+            StateMachine = states,
+            IntVariables = IsCorpse(thing.Type) ? new Dictionary<uint, int> { [DeepwaterConstants.RandomNumberVariable] = thing.Pose } : new Dictionary<uint, int>(),
+        }.Blob();
     }
 
     static async Task Create(ClientState conn, Thing thing, uint id)
