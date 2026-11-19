@@ -48,17 +48,14 @@ public static partial class Game
 
     public static AvatarOfFireRotation AvatarRotationOf(Player conn) => AvatarRotations.GetOrCreateValue(conn);
 
-    static Dictionary<string, bool> RequalifyAvatarOfFire(Player conn, IReadOnlyDictionary<string, bool> flags,
+    static IReadOnlyDictionary<string, bool> RequalifyAvatarOfFire(Player conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
         int Get(uint key) => raw.GetValueOrDefault(key);
         var equipment = ItemsOf(conn).EquipmentSnapshot();
         var active = activeItems?.ToArray();
-        if (conn.LeavingArea) return new(flags)
-        {
-            ["_while_you_have_avatar_of_fire"] = false,
-            ["_while_you_do_not_have_avatar_of_fire"] = false,
-        }; // The transfer owner captures the frozen interval before retiring it.
+        // The transfer owner captures the frozen interval before retiring it.
+        if (conn.LeavingArea) return WithFlags(flags, ("_while_you_have_avatar_of_fire", false), ("_while_you_do_not_have_avatar_of_fire", false));
         bool alive = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0;
         uint[] hosts = alive && Get(AvatarRotationStat) > 0 ? [.. equipment
             .Where(e => active is null ? !IsInactive(conn, e.Item.Id)
@@ -72,11 +69,7 @@ public static partial class Game
         var phase = state.Read(now);
         if (alive && hosts.Length > 0 && phase.Until > now) StatsChangeAt(phase.Until, () => ResourceEffectsTime(conn));
         bool avatar = alive && (Get(AvatarKeystone) > 0 || phase.Active);
-        return new(flags)
-        {
-            ["_while_you_have_avatar_of_fire"] = avatar,
-            ["_while_you_do_not_have_avatar_of_fire"] = alive && !avatar,
-        };
+        return WithFlags(flags, ("_while_you_have_avatar_of_fire", avatar), ("_while_you_do_not_have_avatar_of_fire", alive && !avatar));
     }
 
     static Dictionary<uint, int> WithAvatarOfFire(Player conn, Dictionary<uint, int> sources)

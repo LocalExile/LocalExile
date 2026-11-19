@@ -35,10 +35,10 @@ public static partial class Game
     public static HerEmbraceState HerEmbraceOf(Player conn) => HerEmbraces.GetOrCreateValue(conn);
     public sealed record CarriedHerEmbrace(uint[] Hosts, double Seconds, double Pending, double TakenCarry, double BypassCarry);
 
-    static Dictionary<string, bool> RequalifyHerEmbrace(Player conn, IReadOnlyDictionary<string, bool> flags,
+    static IReadOnlyDictionary<string, bool> RequalifyHerEmbrace(Player conn, IReadOnlyDictionary<string, bool> flags,
         IEnumerable<Item>? activeItems = null, IReadOnlyDictionary<uint, int>? raw = null)
     {
-        if (conn.LeavingArea) return new(flags) { ["_while_in_her_embrace"] = false };
+        if (conn.LeavingArea) return WithFlags(flags, ("_while_in_her_embrace", false));
         var state = HerEmbraceOf(conn);
         var active = activeItems?.ToArray();
         bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
@@ -58,7 +58,7 @@ public static partial class Game
         state.Settle(now);
         bool embraced = alive && state.Hosts.Length > 0 && now < state.Until;
         if (embraced) StatsChangeAt(state.Until, () => ResourceEffectsTime(conn));
-        return new(flags) { ["_while_in_her_embrace"] = embraced };
+        return WithFlags(flags, ("_while_in_her_embrace", embraced));
     }
 
     public static void HerEmbraceOnIgniteLocked(Player conn, double now)

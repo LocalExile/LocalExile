@@ -39,7 +39,7 @@ public static partial class Game
         bool catAspect = CatAspectRootActiveLocked(conn);
         bool catsStealth = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Stealth;
         bool catsAgility = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Agility;
-        var flags = new Dictionary<string, bool>
+        var flags = new ConditionFlags
         {
             [RecentSavageHitItemFlag] = alive && !conn.Closed && !conn.LeavingArea
                 && conn.RecentEvents.Happened(StatConditions.TakenSavageHit, now),
@@ -81,8 +81,7 @@ public static partial class Game
         foreach (var (key, value) in ConditionalRings(ItemsOf(conn).EquipmentSnapshot(), activeRings).Flags) flags[key] = value;
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
         // The uniques spell the life/mana states with "when"; the same state answers both keys.
-        foreach (string state in new[] { "_on_full_life", "_on_low_life", "_not_on_low_life", "_on_full_mana", "_on_low_mana" })
-            flags["_when" + state] = flags["_while" + state];
+        foreach (var (when, whileKey) in WhenFlags) flags[when] = flags[whileKey];
         var weapons = WeaponProfileFor(conn);
         flags["_while_unarmed"] = weapons.Unarmed;
         flags["_while_wielding_staff"] = weapons.Staff;
@@ -137,8 +136,37 @@ public static partial class Game
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
             RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, activeItems);
-        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.RecentEvents.Snapshot(now),
+        var result = RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
+        // Sealed: whoever keeps it may pass it to a requalifying step again, which must copy it then.
+        if (result is ConditionFlags own) own.Open = false;
+        return result;
+    }
+
+    /// <summary>The flags one lookup builds (ItemConditionFlags): its requalifying steps set theirs in it while it is open,
+    /// instead of each copying all ~170 (8 MB a second of a busy instance's 40, PerfBench busy 2026-11-20).</summary>
+    static readonly (string When, string While)[] WhenFlags = [.. new[] { "_on_full_life", "_on_low_life", "_not_on_low_life",
+        "_on_full_mana", "_on_low_mana" }.Select(state => ("_when" + state, "_while" + state))];
+
+    sealed class ConditionFlags() : Dictionary<string, bool>(256)
+    {
+        public bool Open = true;
+    }
+
+    /// <summary>The flags with these values: the open map being built, set in place; any other the same map when it already
+    /// has them, else a copy (a caller may keep the map it passed).</summary>
+    static IReadOnlyDictionary<string, bool> WithFlags(IReadOnlyDictionary<string, bool> flags, params ReadOnlySpan<(string Key, bool Value)> changes)
+    {
+        if (flags is ConditionFlags { Open: true } building)
+        {
+            foreach (var (key, value) in changes) building[key] = value;
+            return building;
+        }
+        Dictionary<string, bool>? copy = null;
+        foreach (var (key, value) in changes)
+            if (copy is not null) copy[key] = value;
+            else if (!flags.TryGetValue(key, out bool had) || had != value) (copy = new(flags))[key] = value;
+        return copy ?? flags;
     }
 
     // Qualification can change the active item set after the coherent condition snapshot. Recompute only the

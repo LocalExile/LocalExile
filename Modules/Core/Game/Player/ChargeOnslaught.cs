@@ -19,12 +19,7 @@ public static partial class Game
         bool source = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
             && SourceOnslaughtPredicates.Any(row => Get(row.Stat) != 0 && captured.GetValueOrDefault(row.Condition));
         bool onslaught = source || captured.GetValueOrDefault("independent_onslaught");
-        return new Dictionary<string, bool>(captured)
-        {
-            ["source_onslaught"] = source,
-            ["_while_have_onslaught"] = onslaught,
-            ["_while_onslaught_is_active"] = onslaught,
-        };
+        return WithFlags(captured, ("source_onslaught", source), ("_while_have_onslaught", onslaught), ("_while_onslaught_is_active", onslaught));
     }
 
     public static bool ChargeOnslaughtActive(Player conn) => CurrentGameWork && !conn.Closed

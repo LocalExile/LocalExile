@@ -1,13 +1,20 @@
 public static partial class Game
 {
+    // Each charge type's flag names, made once: built per lookup they were ~20 strings an item-stat lookup.
+    static readonly Dictionary<ChargeType, (string None, string YouHaveNone, string Any, string AtMaximum)> ChargeFlagNames =
+        Charges.Types.ToDictionary(type => type, type => Charges.Name(type) is var name
+            ? ($"_while_no_{name}_charges", $"_while_you_have_no_{name}_charges", $"_while_have_any_{name}_charges",
+                $"_while_at_maximum_{name}_charges")
+            : default);
+
     static void SetChargeConditionFlags(Dictionary<string, bool> flags, ChargeType type,
         int effective, int maximum, bool converted, bool alive)
     {
-        string name = Charges.Name(type);
+        var names = ChargeFlagNames[type];
         int standard = converted ? 0 : effective;
-        flags[$"_while_no_{name}_charges"] = flags[$"_while_you_have_no_{name}_charges"] = alive && standard == 0;
-        flags[$"_while_have_any_{name}_charges"] = alive && standard > 0;
-        flags[$"_while_at_maximum_{name}_charges"] = alive && !converted && maximum >= 0 && effective >= maximum;
+        flags[names.None] = flags[names.YouHaveNone] = alive && standard == 0;
+        flags[names.Any] = alive && standard > 0;
+        flags[names.AtMaximum] = alive && !converted && maximum >= 0 && effective >= maximum;
     }
 
     static Dictionary<string, bool> RequalifyChargeConditions(Player conn,

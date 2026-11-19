@@ -39,11 +39,10 @@ public static partial class Game
     public static ElusiveState ElusiveOf(Player conn) => Elusives.GetOrCreateValue(conn);
     public sealed record CarriedElusive(string Source, double Age, double Initial, double Rate, double Minimum, double RisingSeconds);
 
-    static Dictionary<string, bool> RequalifyElusive(Player conn, IReadOnlyDictionary<string, bool> flags,
+    static IReadOnlyDictionary<string, bool> RequalifyElusive(Player conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
-        if (conn.LeavingArea) return new(flags)
-        { ["_while_affected_by_elusive"] = false, ["_while_elusive"] = false, ["_while_you_have_elusive"] = false };
+        if (conn.LeavingArea) return WithFlags(flags, ("_while_affected_by_elusive", false), ("_while_elusive", false), ("_while_you_have_elusive", false));
         var state = ElusiveOf(conn);
         bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
         int Get(uint n) => GolemStat(raw, n);
@@ -73,8 +72,7 @@ public static partial class Game
         double now = ResourceEffectsTime(conn);
         bool running = alive && state.Effect(now) > 0;
         conn.ElusiveUntil = running ? now + state.Remaining(now) : 0;
-        return new(flags)
-        { ["_while_affected_by_elusive"] = running, ["_while_elusive"] = running, ["_while_you_have_elusive"] = running };
+        return WithFlags(flags, ("_while_affected_by_elusive", running), ("_while_elusive", running), ("_while_you_have_elusive", running));
     }
 
     public static bool TryGainElusiveLocked(Player conn, bool critical, bool kill, double now, Random? random = null)
