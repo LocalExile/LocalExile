@@ -273,7 +273,8 @@ Microtransaction variants and independent Occupying Force archers remain unverif
 ## Remaining execution gaps
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.
-Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
+The cast determines which release is its final repeat. Its projectiles and delayed area hits retain that decision.
+Ice Nova expansions from Frostbolts remain open ([11](11-skills.md) "Spell repeats").
 Other trigger payloads, totems, mines, minion behaviour, attack repeats, projectile branching, leech and conditional effects
 still require their own execution paths.
 Second Wind uses the supported skill's cooldown/recovery inputs: non-instant skills gain its extra stored use,

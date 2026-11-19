@@ -25,7 +25,7 @@ public static partial class Game
 
     static async Task DarkBargainCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
-        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
+        int repeat, bool finalSpellRepeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
         double sealDelay = 0, double reoccurrenceMore = 1)
     {
         if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
@@ -106,8 +106,9 @@ public static partial class Game
             int addedChaos = paid;
             Console.WriteLine($"[gateway] {remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
-            await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore);
+            await AreaSkillHitForUse(null, remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
+                finalSpellRepeat: finalSpellRepeat, criticalRoll: criticalRoll, sacrifice: sacrifice,
+                baseChaos: paid, damageMore: more * reoccurrenceMore);
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>

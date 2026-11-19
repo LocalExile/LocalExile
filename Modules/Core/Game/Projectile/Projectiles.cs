@@ -520,7 +520,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Conn, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                     .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
+                        finalRepeat: shot.FinalSpellRepeat), shot.IntimidatingCryExerted)
                     .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,

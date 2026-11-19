@@ -1857,26 +1857,28 @@ public static partial class Game
         for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
             int repeat = Math.Max(0, release - seals);
+            bool finalSpellRepeat = repeat > 0 && repeat == spellRepeats;
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
             double more = reoccurrence ? reoccurrenceMore : 1;
             if (stormCall)
             {
                 foreach (var area in cascadeAreas.Prepend(to))
-                    jobs.Add(PlaceStormCall(remote, stream, ciphers, conn, skillId, gem, area, repeat, actionToken, cooldownUse,
-                        criticalRoll, sacrifice, sealDelay, more));
+                    jobs.Add(PlaceStormCallForUse(remote, stream, ciphers, conn, skillId, gem, area, repeat, finalSpellRepeat,
+                        actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
                 continue;
             }
             // Dark Bargain explodes at skeletons (or the player), not at the aim: each repeat pays and chains again.
             if (darkBargain)
             {
-                jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
+                jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, finalSpellRepeat,
+                    actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
                 continue;
             }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHitForUse(repeatRuthless, remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
-                repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: fistRadius, sacrifice: sacrifice,
+                repeatDelay: repeat * repeatInterval + sealDelay, finalSpellRepeat: finalSpellRepeat, radiusMore: fistRadius, sacrifice: sacrifice,
                 damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge, cryExerted: cryExerted));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
@@ -2086,7 +2088,8 @@ public static partial class Game
         AreaSkillHitForUse(null, remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken,
             cooldownUse, melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat,
             radiusOverride, once, repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer,
+            finalSpellRepeat: FinalSpellRepeat(conn, skillId, gem.Effect, repeat));
 
     static Task AreaSkillHitForUse(double? ruthlessMore, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2095,11 +2098,12 @@ public static partial class Game
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
-        ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null) =>
+        ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0,
+        HolySweepHammers.Settings? hammer = null, bool finalSpellRepeat = false) =>
         AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, finalSpellRepeat);
 
     private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2108,7 +2112,8 @@ public static partial class Game
         uint targetId, int repeat, int? radiusOverride, ISet<uint>? once, double repeatDelay,
         double radiusMore, SacrificeUse? sacrifice, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
-        uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer)
+        uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos,
+        HolySweepHammers.Settings? hammer, bool finalSpellRepeat)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -2490,7 +2495,7 @@ public static partial class Game
                     var gambler = GamblerFor(player);
                     var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(conn, player, m, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
-                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect)), cryExerted == true)
+                            .ForSkill(Stat, spell, finalSpellRepeat), cryExerted == true)
                             .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, Random.Shared)),
                         ProjectileWorldTime(conn));
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
@@ -2673,7 +2678,8 @@ public static partial class Game
                 repeat: repeat, radiusOverride: radiusOverride, once: null, repeatDelay: repeatDelay, radiusMore: radiusMore,
                 sacrifice: sacrifice, swingAt: null, triggeredCurrent: triggeredCurrent, discharge: discharge,
                 strikeIndex: 1, firstContactAt: next, ruthlessMore: ruthlessMore, priorTargets: alreadyHit, scaledBlastChaos: scaledBlastChaos,
-                singleStrikeTarget: singleStrikeTarget, onHit: onHit, scheduledSession: scheduledSession, cryExerted: cryExerted, prepaidRawExtra: prepaidRawExtra, baseChaos: baseChaos, hammer: hammer);
+                singleStrikeTarget: singleStrikeTarget, onHit: onHit, scheduledSession: scheduledSession, cryExerted: cryExerted, prepaidRawExtra: prepaidRawExtra, baseChaos: baseChaos,
+                hammer: hammer, finalSpellRepeat: finalSpellRepeat);
         }
     }
 

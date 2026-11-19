@@ -69,11 +69,13 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Cyclone with Increased Area of Effect was checked with the real client.
   Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
   Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
-- **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), Ice Nova's
-  repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
+- **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), repeated Ice Nova
+  expansions from Frostbolts, projectile branching,
   remaining totem payloads (Artillery/Focused Ballista, beams, channels and pulses; monsters do not attack totems;
   [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
   native data and live behaviour.
+  Greater Spell Echo scales ordinary Ice Nova on each repeat. Dark Bargain still needs its per-repeat damage and area.
+  Greater and Awakened Spell Echo still need native checks.
   Barrage still needs sequential release, cancellation and per-projectile hit admission beyond its attack-time penalty.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.

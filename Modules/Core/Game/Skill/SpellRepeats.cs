@@ -14,6 +14,9 @@ public static partial class Game
             : Math.Max(0, get("base_spell_repeat_count") + get("skill_repeat_count")
                 + (get("skill_is_mined") != 0 ? get("skill_repeat_count_if_mined") : 0));
 
+    static bool FinalSpellRepeat(ClientState conn, ushort skillId, int effect, int repeat) =>
+        repeat > 0 && repeat == SpellRepeats(conn, skillId, effect);
+
     public static double GreaterEchoHitMore(int repeat, Func<string, int> own) => repeat <= 0 ? 1 :
         Math.Max(0, 1 + repeat * (own("support_greater_spell_echo_spell_damage_+%_final_per_repeat") / 100d));
 
