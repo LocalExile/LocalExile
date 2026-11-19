@@ -43,6 +43,10 @@ internal static class DeepwaterMonsters
     /// the column is the pack count), each a weighted pick from the cell's biome's scattered packs whose MinLevel is at
     /// most the run's level, centred on a walkable cell with clearance 3, 25 cells from the others and 36 from the start.
     /// The area-0 packs (crab buff, octopus, starfish, coral crab, quill crab) belong to special rooms and are not placed.</summary>
+    /// <remarks>A planned run's cell (its own stats and the Voyage-wide ones, DeepwaterPlan.Effective) changes its packs:
+    /// <c>map_number_of_magic/rare_packs_+%</c> scale the magic and rare chances, <c>map_all_monster_packs_magic_and_allow_rare_chance_%</c>
+    /// makes its normal packs magic, and each <c>chart_contains_x_additional_*_packs</c> adds that many packs of its kind
+    /// (all G: the counts and the kinds' packs are not in the client data).</remarks>
     public static List<Pack> Plan(AreaLayout layout, uint seed, DeepwaterRun run, Action<string> log)
     {
         var random = new Random(AreaPopulation.PopulationSeed(layout.Hash, seed) ^ 0x44575052);
@@ -57,13 +61,19 @@ internal static class DeepwaterMonsters
             if (count <= 0 || cell.BiomeArea is not { } biome) continue;
             var pool = Pool(biome, run.Level);
             if (pool.Count == 0) { notes.Add($"cell {cell.Index} {biome}: no packs"); continue; }
+            var stats = run.Plan?.Effective(cell.Index);
+            var extra = stats is null ? [] : Additional(stats, pool);
+            int magic = stats is null ? 100 : Math.Max(0, 100 + stats.GetValueOrDefault("map_number_of_magic_packs_+%"));
+            int rare = stats is null ? 100 : Math.Max(0, 100 + stats.GetValueOrDefault("map_number_of_rare_packs_+%"));
+            bool allMagic = stats?.GetValueOrDefault("map_all_monster_packs_magic_and_allow_rare_chance_%") > 0;
             var kinds = new List<string>();
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count + extra.Count; i++)
             {
                 if (Centre(layout, cell, start, centres, random) is not { } at) break;
                 centres.Add(at);
-                var kind = Pick(pool, random);
-                var rarity = Rarity(random);
+                var kind = i < count ? Pick(pool, random) : extra[i - count];
+                var rarity = Rarity(random, magic, rare);
+                if (allMagic && rarity == MonsterRarity.Normal) rarity = MonsterRarity.Magic;
                 var members = AreaPopulation.AtPacks([(kind, at.X, at.Y, rarity)], (x, y) => layout.WalkableFor(x, y, 1),
                     Spawnable, random.Next(), occupied: taken);
                 if (members.Count == 0) continue;
@@ -83,11 +93,50 @@ internal static class DeepwaterMonsters
     static List<(PackCatalog.Pack Pack, int Weight)> Pool(string biome, int level) => [.. (Packs.For(biome)?.Scattered ?? [])
         .Where(p => MinLevels.Value.GetValueOrDefault(p.Pack.Row) <= level && p.Pack.Entries.Any(e => Spawnable(e.Variety)))];
 
-    internal static MonsterRarity Rarity(Random random)
+    internal static MonsterRarity Rarity(Random random) => Rarity(random, 100, 100);
+
+    /// <summary>A pack's rarity with the magic and rare chances scaled by <paramref name="magic"/> and
+    /// <paramref name="rare"/> percent (100: unchanged).</summary>
+    static MonsterRarity Rarity(Random random, int magic, int rare)
     {
-        int roll = random.Next(100);
-        return roll < AreaPopulation.RareChance ? MonsterRarity.Rare
-            : roll < AreaPopulation.RareChance + AreaPopulation.MagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
+        int rareChance = AreaPopulation.RareChance * rare, magicChance = AreaPopulation.MagicChance * magic;
+        int roll = random.Next(10000);
+        return roll < rareChance ? MonsterRarity.Rare : roll < rareChance + magicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
+    }
+
+    // The kinds of chart_contains_x_additional_<kind>_packs and the MonsterPacks they take, the cell's own pool first (G).
+    static readonly (string Stat, string[] Packs)[] AdditionalKinds =
+    [
+        ("chart_contains_x_additional_crab_packs", ["DeepwaterSandyCrabPack", "DeepwaterCoralCrabPack"]),
+        ("chart_contains_x_additional_starfish_packs", ["DeepwaterStarfishStatPack"]),
+        ("chart_contains_x_additional_octopus_packs", ["DeepwaterOctopusStatPack"]),
+        ("chart_contains_x_additional_drowned_packs", ["DeepwaterDrownedPack", "DeepwaterDrownedPackSlam"]),
+        ("chart_contains_x_additional_sea_beast_packs", ["DeepwaterSandyBeastPackStarfish", "DeepwaterSandyBeastPackNoStarfish"]),
+    ];
+
+    /// <summary>The extra packs a cell's stats ask for, in order.</summary>
+    static List<PackCatalog.Pack> Additional(Dictionary<string, int> stats, List<(PackCatalog.Pack Pack, int Weight)> pool)
+    {
+        var extra = new List<PackCatalog.Pack>();
+        foreach (var (stat, ids) in AdditionalKinds)
+        {
+            int count = Math.Clamp(stats.GetValueOrDefault(stat), 0, 20);
+            if (count == 0) continue;
+            var kind = pool.Select(p => p.Pack).FirstOrDefault(p => ids.Contains(p.Id))
+                ?? ids.Select(id => Packs.Find(id)).FirstOrDefault(p => p is not null && p.Entries.Any(e => Spawnable(e.Variety)));
+            if (kind is null) continue;
+            for (int i = 0; i < count; i++) extra.Add(kind);
+        }
+        return extra;
+    }
+
+    /// <summary>A run's monster mods at <paramref name="level"/>: its more life and a Voyage cell's map effects (null when
+    /// there are none).</summary>
+    public static MonsterModSet? ModsFor(int level, IReadOnlyDictionary<string, int>? cell)
+    {
+        var stats = new Dictionary<string, int>(cell ?? new Dictionary<string, int>());
+        if (LifeAt(Math.Clamp(level, 1, MaxLevel)) is int life and not 0) stats[LevelMoreLife] = stats.GetValueOrDefault(LevelMoreLife) + life;
+        return stats.Count == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(stats));
     }
 
     static PackCatalog.Pack Pick(List<(PackCatalog.Pack Pack, int Weight)> pool, Random random)
@@ -141,8 +190,7 @@ internal static class DeepwaterMonsters
     static async Task<int> Spawn(ClientState conn, DeepwaterRun run, IEnumerable<AreaPopulation.Spawn> members)
     {
         byte level = (byte)Math.Clamp(run.Level, 1, MaxLevel);
-        int life = LifeAt(level);
-        var extraMods = life == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int> { [LevelMoreLife] = life }));
+        var runMods = ModsFor(level, null);
         var extraStats = new List<(uint Key, int Value)>();
         foreach (string stat in (string[])["is_near_deepwater_lantern", "deepwater_lantern_touched"])
             if (Stats.Key(stat) is uint key) extraStats.Add((key, 1));
@@ -152,6 +200,8 @@ internal static class DeepwaterMonsters
         {
             if (conn.Closed || conn.LeavingArea) break;
             if (Monsters.Find(m.Variety.ToString()) is not { Supported: true } variety) continue;
+            // A Voyage cell's own mods (DeepwaterRun.CellMods, precomputed with the more life).
+            var extraMods = run.CellMods is { } cells && run.CellIndex(m.X, m.Y) is int cell and >= 0 && cell < cells.Length ? cells[cell] : runMods;
             uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, m.Rarity, m.X, m.Y, log: false,
                 alone: false, extraStats: extraStats, extraMods: extraMods, instanceOwned: true);
             if (id != 0) spawned++;

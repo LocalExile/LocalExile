@@ -655,6 +655,7 @@ internal static class DeepwaterExtraction
             await SendCount(member);
         }
         if (deck is not null && sulphur > 0 && members.Contains(conn)) await DropSulphur(module, conn, sulphur);
+        if (run.OnEnd is { } ended) await ended(members, success);
         return members;
     }
 
@@ -741,6 +742,7 @@ internal static class DeepwaterExtraction
             await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageDefend], on: false);
             await SendEnd(member, success: false);
         }
+        if (run.OnEnd is { } ended) await ended(members, false);
         return members;
     }
 

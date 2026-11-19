@@ -58,6 +58,7 @@ public sealed partial class DeepwaterModule
         var player = PlayerOf(conn);
         var state = _states.GetOrCreateValue(player);
         (state.Locker, state.Portal, state.LockerOpen) = (0, 0, false);
+        (state.Armed, state.ArmedPlan, state.PortalOpenAt, state.Confirm) = (null, null, 0, null);
         if (player.AreaId != HubId) return;
         var lines = conn.Layout.Level?.RoomObjects ?? [];
         if (lines.FirstOrDefault(o => o.Type == DeepwaterLocker.ChartLocker) is { } locker
@@ -120,11 +121,7 @@ public sealed partial class DeepwaterModule
                 $"0x007b open DeepwaterLockerWindow (kind 0x{DeepwaterLocker.LockerUi:x2}, inventory {DeepwaterLocker.LockerRow}) at the ChartLocker 0x{state.Locker:x} (M: the u32)");
             return true;
         }
-        if (state.Portal != 0 && use.TargetId == state.Portal)
-        {
-            module.Log($"{player.Character} <= 0x0024 the deck's Bathysphere 0x{state.Portal:x}: no chart run is armed");
-            return true;
-        }
+        if (state.Portal != 0 && use.TargetId == state.Portal) return await UsePortal(module, conn, state, at);
         return false;
     }
 
@@ -132,7 +129,9 @@ public sealed partial class DeepwaterModule
     /// when the window closes).</summary>
     async Task TickDeck(ClientState conn)
     {
-        if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.LockerOpen) return;
+        if (!_states.TryGetValue(PlayerOf(conn), out var state)) return;
+        await TickPortal(conn, state);
+        if (!state.LockerOpen) return;
         var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         long dx = here.X - state.LockerAt.X, dy = here.Y - state.LockerAt.Y, far = state.LockerReach + 30;
         if (conn.ModuleWindow == DeepwaterLocker.LockerWindow && dx * dx + dy * dy <= far * far) return;
@@ -240,6 +239,15 @@ public sealed partial class DeepwaterModule
                 break;
             case DeepwaterHubRuleset.Op.DeleteStoredChart when a.Args.Length >= 1:
                 await DeepwaterPlanner.Delete(module, conn, a.Args[0]);
+                break;
+            case DeepwaterHubRuleset.Op.Open1x1Mission:
+                await StartChart(module, conn);
+                break;
+            case DeepwaterHubRuleset.Op.OpenMission:
+                await StartVoyage(module, conn, a.Args);
+                break;
+            case DeepwaterHubRuleset.Op.ConfirmEnterMission:
+                await ConfirmStart(module, conn);
                 break;
             case DeepwaterHubRuleset.Op.RerollBorderModifiers:
                 await DeepwaterPlanner.Reroll(module, conn);

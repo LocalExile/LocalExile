@@ -108,6 +108,12 @@ internal static class DeepwaterBoardRules
         return stats;
     }
 
+    /// <summary>The chance (0..100) that a Voyage keeps the chart of cell <paramref name="i"/>: its border mods'
+    /// <c>deepwater_border_mod_chance_%_to_not_consume_affected_chart</c> summed (G: the corner's two segments add).</summary>
+    public static int KeepChance(ModCatalog mods, int i, int n, IReadOnlyList<ItemMod> border) =>
+        Math.Clamp(BorderOf(i, n, border).Sum(m => Value(mods, m, KeepChart)), 0, 100);
+
+    const string KeepChart = "deepwater_border_mod_chance_%_to_not_consume_affected_chart";
     const string ChartEffect = "deepwater_border_mod_affected_chart_modifier_effect_+%";
     const string Adjacent = "local_deepwater_mod_applies_to_adjacent_charts", Global = "local_deepwater_mod_applies_globally";
     static readonly (int Dx, int Dy)[] Sides = [(1, 0), (-1, 0), (0, 1), (0, -1)];

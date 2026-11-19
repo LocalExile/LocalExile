@@ -25,6 +25,9 @@ public sealed partial class DeepwaterModule
             // The Sovereign's owner keeps IsMapOwner (DeepwaterHub).
             if (player.AreaId == HubId) await SyncHub(conn, on);
             if (on.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, on, on: false);
+            // A chart left active by a crash or a relog (no run waits for it on this connection) goes back (G).
+            if (ItemsOf(conn).Items(DeepwaterLocker.ActiveRow).Count > 0 && (!_states.TryGetValue(player, out var deck) || deck.Armed is null))
+                await ReturnActive(module, conn, "no run is waiting for it");
             return;
         }
         if (conn.Instance is not { } instance) return;
@@ -41,11 +44,21 @@ public sealed partial class DeepwaterModule
                     return;
                 }
                 bool voyage = player.AreaId == DeepwaterConstants.VoyageArea;
+                // A run started from the deck plays its plan (DeepwaterStart): its owner holds the lanterns, at its level.
+                var planned = PlanOf(instance.Map);
+                if (planned is not null && planned.Size != board.Size)
+                {
+                    module.Log($"{player.Character}: the plan's {planned.Size}×{planned.Size} board generated as {board.Size}×{board.Size}; its cell effects are not applied");
+                }
+                int level = planned?.Level ?? Math.Clamp((int)conn.Pools.Level, 1, DeepwaterMonsters.MaxLevel);
+                var effects = planned is { Voyage: true } && planned.Size == board.Size ? CellEffects(planned, level) : null;
                 run = new DeepwaterRun
                 {
-                    Voyage = voyage, Board = board, Controller = player.Character, Total = DeepwaterLanterns.Total(conn, voyage),
-                    Level = Math.Clamp((int)conn.Pools.Level, 1, DeepwaterMonsters.MaxLevel),
+                    Voyage = voyage, Board = board, Controller = planned?.Owner ?? player.Character, Total = DeepwaterLanterns.Total(conn, voyage),
+                    Level = level, Plan = planned,
+                    CellMods = effects,
                 };
+                if (planned is not null) run.OnEnd = (members, success) => Finish(module, planned, members, success);
                 var plan = DeepwaterMonsters.Plan(conn.Layout, conn.Seed, run, module.Log);
                 run.Planned.AddRange(plan);
                 run.PlannedPacks = plan.Count;
@@ -60,7 +73,8 @@ public sealed partial class DeepwaterModule
                 made = true;
             }
         }
-        if (made) module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns");
+        if (made) module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns, level {run.Level}"
+            + (run.Plan is null ? " (no plan: a random grid)" : $" (planned by {run.Plan.Owner})"));
         foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
         await DeepwaterLoot.Show(conn, run);
@@ -77,6 +91,16 @@ public sealed partial class DeepwaterModule
         if (player.Character.Equals(run.Controller, StringComparison.OrdinalIgnoreCase) && run.Phase != DeepwaterRun.RunPhase.Ended)
             await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner]);
         await DeepwaterExtraction.SyncFlags(conn, run);
+    }
+
+    /// <summary>What each cell of a Voyage adds on its own, precomputed once so the spawn path only indexes an array: the
+    /// monsters' map mods with the level's more life.</summary>
+    static MonsterModSet?[] CellEffects(DeepwaterPlan plan, int level)
+    {
+        var mods = new MonsterModSet?[plan.CellStats.Count];
+        for (int i = 0; i < mods.Length; i++)
+            mods[i] = DeepwaterMonsters.ModsFor(level, global::Game.MapMonsterEffects(new MapMods(DeepwaterPlan.Named(plan.CellStats[i]))));
+        return mods;
     }
 
     async Task<bool> RulesetAction(IModuleContext module, ClientState conn, byte[] bytes)

@@ -27,7 +27,7 @@ internal static class DeepwaterConstants
     /// <summary>The smallest radius a lit lantern draws (the client's lerp from 10 to <see cref="BaseLanternRadius"/>).</summary>
     public const int MinimumLanternRadius = 10;
 
-    public const string VoyageArea = "DeepwaterEncounterVoyage";
+    public const string ChartArea = "DeepwaterEncounter", VoyageArea = "DeepwaterEncounterVoyage";
 
     const string Objects = "Metadata/Terrain/Leagues/Deepwater/Objects/";
     public const string Lantern = Objects + "Lantern";

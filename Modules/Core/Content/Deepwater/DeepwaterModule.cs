@@ -10,8 +10,9 @@ namespace GameServer.Modules.Deepwater;
 /// (the World panel pin, /boat, the rowboat on The Coast), the hub's ruleset and its quest table (DeepwaterQuests), and the
 /// encounter areas' grid (DeepwaterGrid), ruleset and run (DeepwaterRun: the lanterns and their light, the monsters, the
 /// Sulphur nodes, chests and interactables of DeepwaterLoot, the collapse, and the capsules and Bathysphere of
-/// DeepwaterExtraction), and charts as items (DeepwaterCharts). Starting a chart run from the deck and Allflame crafting are not
-/// built yet (Agents/roadmap/world.md).</summary>
+/// DeepwaterExtraction), charts as items (DeepwaterCharts), and The Sovereign's deck (DeepwaterHub: the Chart Locker, the chart
+/// device and the Voyage planner) where a chart or a board starts a run (DeepwaterStart). Allflame crafting is not built yet
+/// (Agents/roadmap/world.md).</summary>
 public sealed partial class DeepwaterModule : IModule
 {
     /// <summary>The Sovereign (<c>WorldAreas</c> DeepwaterHub, area type 53).</summary>
@@ -63,6 +64,12 @@ public sealed partial class DeepwaterModule : IModule
         public bool LockerOpen;
         // Valerie's "Take Chart": the chart device opens once its reward is taken.
         public bool DeviceAfterReward;
+        // A started Chart or Voyage waiting at the deck's Bathysphere (DeepwaterStart), when its opening ends (instance
+        // seconds, 0 once open), and a start waiting for the collection's confirmation (op 8).
+        public MapDevice.Run? Armed;
+        public DeepwaterPlan? ArmedPlan;
+        public double PortalOpenAt;
+        public Func<Task>? Confirm;
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
@@ -83,7 +90,8 @@ public sealed partial class DeepwaterModule : IModule
         InstanceEvents.LeagueCategory.Add(id, _ => Category.Value);
         InstanceEvents.AreaStats.Add(id, _ => Stats.Key("map_deepwater_league") is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
         // An encounter area's grid (0x1d extra data), chosen once per instance.
-        InstanceEvents.TerrainPluginStates.Add(id, request => DeepwaterGrid.For(request.Area));
+        // A run started from the deck gets its chart's or board's grid; any other (a /goto) a random one.
+        InstanceEvents.TerrainPluginStates.Add(id, request => PlanOf(request.Map) is { } plan ? DeepwaterGrid.For(plan) : DeepwaterGrid.For(request.Area));
         // Row 172 DeepwaterHubRules on the hub and in the encounter areas, before 0x21: the in-game UI looks it up once as it
         // attaches to the area (0x140dba5d0), and the deck's Loot window (0x7b kind 0x6f, shown without attaching again)
         // builds its grid over inventory 114 only with it (0x1404244b0); sent after 0x21 the window stayed empty (live

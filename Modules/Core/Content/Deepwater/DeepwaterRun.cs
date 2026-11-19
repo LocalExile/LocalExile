@@ -59,9 +59,30 @@ internal sealed class DeepwaterRun
     /// <summary>Lanterns placed by the player (the first, free one is not counted).</summary>
     public int Placed { get; set; }
     public int Total { get; set; }
-    /// <summary>The run's monster level: the controller's character level clamped to 1..84 until charts carry one (G;
-    /// WorldAreas gives the encounter areas level 1).</summary>
+    /// <summary>The run's monster level: the plan's area level when a chart or a board started it (DeepwaterStart), else
+    /// (a /goto) the controller's character level clamped to 1..84 (G; WorldAreas gives the encounter areas level 1).</summary>
     public required int Level { get; init; }
+    /// <summary>The chart or board that started the run (null for a /goto run), and per board cell (the board's index) what
+    /// a Voyage's cell adds on its own: its monsters' mods (with the level's more life). Null for a Chart, whose stats are
+    /// the instance's area stats already, and for a /goto run.</summary>
+    public DeepwaterPlan? Plan { get; init; }
+    public MonsterModSet?[]? CellMods { get; init; }
+    /// <summary>Called once when the run ends (DeepwaterExtraction.End or Fail) with the players it ended for and whether it
+    /// succeeded.</summary>
+    public Func<IReadOnlyList<ClientState>, bool, Task>? OnEnd { get; set; }
+
+    // The board's cell rectangles as x0, y0, x1, y1 per cell, for CellIndex.
+    int[]? _rects;
+
+    /// <summary>The board cell at (x, y), or −1: a plain loop over at most 9 rectangles in one array, for the spawn
+    /// path.</summary>
+    public int CellIndex(int x, int y)
+    {
+        var r = _rects ??= [.. Board.Cells.SelectMany(c => new[] { c.X0, c.Y0, c.X1, c.Y1 })];
+        for (int i = 0; i + 3 < r.Length; i += 4)
+            if ((uint)(x - r[i]) < (uint)(r[i + 2] - r[i]) && (uint)(y - r[i + 1]) < (uint)(r[i + 3] - r[i + 1])) return i >> 2;
+        return -1;
+    }
     /// <summary>The league's packs not yet woken by a lantern (DeepwaterMonsters), and how many were planned and woken.</summary>
     public readonly List<DeepwaterMonsters.Pack> Planned = [];
     public int PlannedPacks { get; set; }
