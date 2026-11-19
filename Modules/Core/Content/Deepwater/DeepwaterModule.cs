@@ -48,10 +48,9 @@ public sealed partial class DeepwaterModule : IModule
     // that plugin: the client creates it there at every generation (0x141eca930). On The Sovereign and The Twilight Strand
     // it closed the client (Agents/docs/protocol/03 §8).
 
-    /// <summary>The pin and /boat reach The Sovereign only after the first boarding from The Coast (QuestFlags 3556, set on
-    /// arrival): an earlier trip would remove ValerieTutorial before her introduction sets <see cref="IntroductionSeen"/>.
-    /// (The real rule is probably league quest flag 1834 DeepwaterBoatUnlocked, which the World panel's pin shows by.)</summary>
-    static bool Unlocked(ClientState conn) => ClientHasQuestFlag(conn, HubVisited);
+    /// <summary>The pin and /boat reach The Sovereign once Valerie's Coast introduction sets <c>LQF 1834</c>
+    /// (<c>DeepwaterBoatUnlocked</c>), or for legacy saves that already visited (<see cref="HubVisited"/>).</summary>
+    static bool Unlocked(ClientState conn) => DeepwaterProgression.BoatUnlocked(conn);
 
     sealed class State
     {
@@ -136,6 +135,7 @@ public sealed partial class DeepwaterModule : IModule
             await SpawnRowboat(module, conn);
             await SpawnDeck(module, conn);
             await StartRun(module, conn);
+            await DeepwaterFairgraves.Enter(module, conn);
             // The Coral Nest, Cursed Treasure and Brinerot Plunder rooms of an ordinary area.
             string area = PlayerOf(conn).AreaId;
             if (area != HubId && !DeepwaterGrid.IsEncounter(area)) await DeepwaterEncounters.Enter(module, conn);
@@ -156,21 +156,33 @@ public sealed partial class DeepwaterModule : IModule
         GameEvents.Tick.Add(id, async (conn, _) =>
         {
             await DeepwaterBuffs.Tick(module, conn);
+            await DeepwaterUpgrades.TickAdrenaline(module, conn);
+            await DeepwaterFairgraves.Tick(module, conn);
             await DeepwaterEncounters.Tick(module, conn);
             await TickDeck(conn);
             if (RunOf(conn) is not { } run) return;
             await _light.Tick(module, conn, run);
             await DeepwaterCollapse.Tick(module, conn, run);
             await DeepwaterExtraction.Tick(module, conn, run, (c, why) => RunFailed(module, c, why));
+            await DeepwaterVelka.Tick(module, conn, run);
+            await TickAutoLantern(module, conn, run);
             await DeepwaterDredge.Tick(module, conn);
         });
-        // Dredge: a pickup from the ground during a run, or in a failed run's dead instance, is noted; the Game module
-        // picks it up. What is noted after a failure goes at the next entry elsewhere (StartRun). The first chart picked up
-        // sets DeepwaterChartFound (QuestFlags 3560, the tracker's "found a Chart"; G: the trigger is unsourced).
+        // Dredge: a pickup from the ground during a run, or in a failed run's dead instance, is noted (never for quest items,
+        // upgrade pieces, Cursed Ducats, or Fairgraves'/Velka's Allflame); the Game module picks it up. What is noted after
+        // a failure goes at the next entry elsewhere (StartRun). The first chart picked up sets DeepwaterChartFound
+        // (QuestFlags 3560, the tracker's "found a Chart"; G: the trigger is unsourced).
         GameEvents.GroundItemUse.Add(id, async (conn, groundId, ground, _, _) =>
         {
-            if (RunOf(conn) is { } run && (run.Phase != DeepwaterRun.RunPhase.Ended || run.Failed)) DeepwaterDredge.Noted(conn, groundId, ground);
-            if (!conn.HasQuestFlag(DeepwaterCharts.ChartFound) && DeepwaterCharts.IsChart(ItemsFor(conn), ground.Item))
+            var catalog = ItemsFor(conn);
+            bool questPickup = DeepwaterVelka.IsQuestDrop(catalog, ground.Item)
+                || DeepwaterUpgrades.IsUpgradePiece(ground.Item)
+                || DeepwaterCursedDucats.IsCursedDucat(ground.Item)
+                || ground.Item.TypeHash == DeepwaterFairgraves.AllflameItemHash;
+            if (!questPickup && RunOf(conn) is { } run && (run.Phase != DeepwaterRun.RunPhase.Ended || run.Failed))
+                DeepwaterDredge.Noted(conn, groundId, ground);
+            if (questPickup) await DeepwaterVelka.OnQuestItemPickup(module, conn, ground.Item);
+            if (!conn.HasQuestFlag(DeepwaterCharts.ChartFound) && DeepwaterCharts.IsChart(catalog, ground.Item))
             {
                 var (remote, stream, ciphers) = conn.Wire;
                 await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterCharts.ChartFound]);
@@ -178,8 +190,9 @@ public sealed partial class DeepwaterModule : IModule
             }
             return false;
         });
-        // A quest reward chart (Valerie's tutorial chart) gets its component.
-        GameEvents.RewardItem.Add(id, DeepwaterCharts.RewardItem);
+        // Quest reward items: Valerie's tutorial chart component + Offers#131–138 tutorial rings & Sulphur stacks.
+        GameEvents.RewardItem.Add(id, (conn, offer, item, type) =>
+            DeepwaterProgression.ResolveRewardItem(conn, offer, DeepwaterCharts.RewardItem(conn, offer, item, type), type));
         // The encounter areas are not maps, so "Resurrect at Checkpoint" revives in the instance: after a failed run the
         // player goes to The Sovereign instead (G).
         GameEvents.Resurrected.Add(id, async conn =>
@@ -191,6 +204,8 @@ public sealed partial class DeepwaterModule : IModule
         {
             _light.Forget(conn);
             DeepwaterBuffs.Forget(conn);
+            DeepwaterUpgrades.ForgetAdrenaline(conn);
+            DeepwaterLanterns.ForgetAuto(conn);
             // Leaving a run any way but the Bathysphere ends it as a failure.
             if (RunOf(conn) is { Phase: not DeepwaterRun.RunPhase.Ended }) await RunFailed(module, conn, $"left ({reason})");
         });
@@ -205,33 +220,49 @@ public sealed partial class DeepwaterModule : IModule
             await DeepwaterExtraction.QuickMove(module, conn, run, InstanceItems.ReadLeagueWindowMove(bytes));
             return true;
         });
-        // The Drowning slow; the encounter buffs' chances (Craiceann's Call, Sailor's Lantern).
-        GameEvents.PlayerStatSources.Add(id, (conn, sources) => DeepwaterBuffs.PlayerStats(conn, _light.WithSlow(conn, sources)));
-        // Craiceann's Call: a rare or unique kill brings crabs.
-        GameEvents.MonsterKilled.Add(id, DeepwaterBuffs.Killed);
+        // The Drowning slow; the encounter buffs' chances (Craiceann's Call, Sailor's Lantern); final-lantern Adrenaline.
+        GameEvents.PlayerStatSources.Add(id, (conn, sources) =>
+            DeepwaterUpgrades.PlayerStats(conn, DeepwaterBuffs.PlayerStats(conn, _light.WithSlow(conn, sources))));
+        // Craiceann's Call crabs; Act 1 Deepwater Fairgraves (1_1_9); Kishara's Rest Velka & Cressie (#30).
+        GameEvents.MonsterKilled.Add(id, async kill =>
+        {
+            await DeepwaterBuffs.Killed(kill);
+            await DeepwaterFairgraves.OnMonsterKilled(module, kill);
+            if (RunOf(kill.Conn) is { } run) await DeepwaterVelka.OnMonsterKilled(module, kill, run);
+        });
         GameEvents.StateBuilding.Add(id, (conn, json) =>
         {
             RunState(conn, json);
             DeepwaterEncounters.State(conn, json);
         });
-        // The league's monsters' map-related drops, Cursed Ducat IIQ/IIR and unlocks, special-room Ducats and the Golden Lantern
-        // stacks in a run; a Brinerot Plunder guard's Ducat; Sailor's Lantern's duplicated gold.
+        // The league's monsters' map-related drops, Cursed Ducat IIQ/IIR and unlocks, upgrade pieces, special-room Ducats
+        // and the Golden Lantern stacks in a run; a Brinerot Plunder guard's Ducat; Sailor's Lantern's duplicated gold.
         GameEvents.Drops.Add(id, roll =>
         {
             if (RunOf(roll.Conn) is { } run)
             {
                 DeepwaterLoot.Drops(roll, run);
                 DeepwaterCursedDucats.Drops(module, roll);
+                if (roll.Monster.Rarity >= MonsterRarity.Rare)
+                {
+                    int cell = run.CellIndex(roll.Monster.X, roll.Monster.Y);
+                    int roomId = cell >= 0 && cell < run.Board.Cells.Count ? run.Board.Cells[cell].Room : -1;
+                    DeepwaterUpgrades.Drops(module, roll, run.Level, run.Voyage, roomId, DeepwaterLoot.IsSpecialRoom(roomId));
+                }
             }
             DeepwaterEncounters.Drops(roll);
             DeepwaterBuffs.Drops(module, roll);
         });
         // A warcry or the caster mastery opens a cleared encounter chest (3.29.1).
         GameEvents.ChestsOpened.Add(id, (conn, at, radius) => DeepwaterEncounters.OpenNear(module, conn, at, radius));
-        // The run's chests, interactables and capsules; the encounters' chests; the rowboat.
+        // Sovereign below-deck stash click-swap (returns false so Game.OpenStash/OpenGuildStash opens it natively);
+        // the run's chests, interactables, capsules, ArenaTeleporter & VelkaDescensionObject; encounters; deck; rowboat.
         GameEvents.ObjectUse.Add(id, async (conn, use, at) =>
         {
-            if (RunOf(conn) is { } run && (await DeepwaterLoot.Use(module, conn, run, use, at) || await DeepwaterExtraction.Use(module, conn, run, use, at))) return true;
+            if (PlayerOf(conn).AreaId == HubId && DeepwaterProgression.PickHubStash(conn, use.TargetId)) return false;
+            if (RunOf(conn) is { } run && (await DeepwaterLoot.Use(module, conn, run, use, at)
+                || await DeepwaterExtraction.Use(module, conn, run, use, at)
+                || await DeepwaterVelka.Use(module, conn, run, use, at))) return true;
             if (await DeepwaterEncounters.Use(module, conn, use, at) || await UseDeck(module, conn, use, at)) return true;
             var player = PlayerOf(conn);
             if (!_states.TryGetValue(player, out var state) || state.Boat == 0 || use.TargetId != state.Boat) return false;

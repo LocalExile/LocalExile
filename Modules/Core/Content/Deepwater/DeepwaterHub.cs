@@ -31,8 +31,12 @@ public sealed partial class DeepwaterModule
         GameEvents.EnterMessages.Add(id, conn =>
             PlayerOf(conn).AreaId == HubId && DeepwaterPlanner.Message(conn, DeepwaterPlanner.Current(conn)) is { } border
                 ? [("0x02c9 DeepwaterHubRules mode 1 (border modifiers)", border)] : []);
+        GameEvents.NpcUsesLeagueFlags.Add(id, DeepwaterProgression.UsesLeagueFlags);
         GameEvents.NpcOptionPicked.Add(id, async (conn, talk) =>
-            await DeepwaterCrafting.TryOpenOption(module, conn, talk, HubOwner(conn))
+            await DeepwaterUpgrades.TryTurnIn(module, conn, talk)
+            && await DeepwaterCrafting.TryOpenOption(module, conn, talk, HubOwner(conn))
+            && await DeepwaterProgression.OnNpcOption(module, conn, talk, HubOwner(conn),
+                onVesperAwoke: c => DeepwaterUpgrades.UpdateStage1Bench(c, disableTargetable: true))
             && await ValerieOption(module, conn, talk));
         // Offer 130 (Valerie's tutorial chart): the chart device opens with the reward window, as her 3930's script says
         // (FinishNPCChat, open_deepwater_device_1x1). The client lets the chart be picked from the reward window only while
@@ -41,6 +45,9 @@ public sealed partial class DeepwaterModule
         GameEvents.MessagesHandled.Add(id, async (conn, ids) =>
         {
             await DeepwaterCursedDucats.OnMessagesHandled(conn, ids);
+            await DeepwaterUpgrades.OnMessagesHandled(conn, ids);
+            await DeepwaterProgression.OnMessagesHandled(module, conn, ids);
+            await DeepwaterFairgraves.OnMessagesHandled(conn, ids);
             if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.DeviceAfterReward) return;
             if (conn.NpcRewardOffer is not null)
             {
@@ -113,6 +120,8 @@ public sealed partial class DeepwaterModule
             && await SpawnStateObject(module, conn, portal, "ready", 0) is { } p)
             (state.Portal, state.PortalAt, state.PortalReach) = (p.Id, (portal.X, portal.Y), OffFloorReach(conn, (portal.X, portal.Y), p.Reach));
         await DeepwaterCrafting.SpawnVats(module, conn, HubOwner(conn));
+        await DeepwaterProgression.SpawnHub(module, conn);
+        await DeepwaterUpgrades.SpawnBenchProps(module, conn);
     }
 
     /// <summary>The Bathysphere hangs over the water, about 32 cells from the nearest deck cell (live 2026-11-19): a walk-up
@@ -183,6 +192,7 @@ public sealed partial class DeepwaterModule
         }
         if (state.Portal != 0 && use.TargetId == state.Portal) return await UsePortal(module, conn, state, at);
         if (await DeepwaterCrafting.UseVat(module, conn, use, at, HubOwner(conn))) return true;
+        if (await DeepwaterUpgrades.UseStage1Bench(module, conn, use, at, HubOwner(conn))) return true;
         return false;
     }
 
@@ -246,30 +256,22 @@ public sealed partial class DeepwaterModule
         if (!unlocked) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.BoatUnlockedLeagueFlag]);
         await FourCharts(module, conn, live: true);
         await DeepwaterCursedDucats.SyncFlags(conn);
+        await DeepwaterUpgrades.TryGrantHubSulphurPurifier(module, conn);
+        await DeepwaterUpgrades.SyncHeldQuestFlags(conn);
+        await DeepwaterVelka.SyncVelkaQuestFlags(conn);
     }
 
     // ---- Valerie ----
 
-    /// <summary>GameEvents.NpcOptionPicked for Valerie's rows: the row's league quest flag columns (NPCTalk <c>__col15/16/18</c>,
-    /// which the server applies only for its own NPCs), and her device rows: "Chart Area" opens the chart device (0x7b
-    /// 0x67) and "Plan Voyage" the planner (mode 1, then 0x7b 0x6a) after FinishNPCChat (M: the ruleset event names are
-    /// server-side). "Take Chart" (3930) opens the device with its reward window and again once the reward is taken.
-    /// <c>CallOnClient( ChartCallout )</c> (a voice line) has no known message and is skipped.</summary>
+    /// <summary>GameEvents.NpcOptionPicked for Valerie's device rows ("Chart Area" opens 0x7b 0x67, "Plan Voyage" opens
+    /// 0x7b 0x6a after FinishNPCChat; "Take Chart" 3930 opens the device alongside its reward window and again once taken).
+    /// League-flag filtering and <c>LeagueFlagsSet</c> application are handled by <c>Npcs.RunNpcOption</c> via
+    /// <see cref="DeepwaterProgression.UsesLeagueFlags"/>. <c>CallOnClient( ChartCallout )</c> (a voice line) has no known
+    /// message and is skipped.</summary>
     async Task<bool> ValerieOption(IModuleContext module, ClientState conn, NpcCatalog.Talk talk)
     {
         if (Array.IndexOf(ValerieNpcs, talk.Npc) < 0) return true;
         var player = PlayerOf(conn);
-        var (remote, stream, ciphers) = conn.Wire;
-        string? missing;
-        lock (conn.Monsters)
-            missing = talk.LeagueFlagsRequired.FirstOrDefault(f => !conn.LeagueQuestFlags.Contains(f)) is int need and > 0 ? $"needs league flag {need}"
-                : talk.LeagueFlagsRefused.FirstOrDefault(conn.LeagueQuestFlags.Contains) is int refused and > 0 ? $"refused by league flag {refused}" : null;
-        if (missing is not null)
-        {
-            module.Log($"{player.Character} <= Valerie NPCTalk {talk.Row} \"{talk.Option}\": refused ({missing})");
-            return false;
-        }
-        if (talk.LeagueFlagsSet.Count > 0) await SetLeagueQuestFlags(remote, stream, ciphers, conn, talk.LeagueFlagsSet);
         bool device = talk.Script.Contains(DeviceEvent, StringComparison.Ordinal);
         bool chart = talk.Script.Contains(DeviceEvent1x1, StringComparison.Ordinal);
         if (talk.Script.Contains("ChartCallout", StringComparison.Ordinal))
@@ -282,6 +284,11 @@ public sealed partial class DeepwaterModule
             return true;
         }
         if (!device) return true;
+        if (talk.LeagueFlagsSet.Count > 0)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await SetLeagueQuestFlags(remote, stream, ciphers, conn, talk.LeagueFlagsSet);
+        }
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;

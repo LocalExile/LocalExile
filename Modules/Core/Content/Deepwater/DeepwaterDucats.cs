@@ -405,7 +405,7 @@ public static class DeepwaterDucats
     {
         if (!DeepwaterCharts.IsChart(targetType) || DeepwaterLocker.Charted(catalog, target) || target.Chart is not { } chart)
             return null;
-        return target with { Chart = chart with { Room = DeepwaterCharts.Room(targetType.Row, random) } };
+        return target with { Chart = chart with { Room = DeepwaterCharts.Room(targetType.Row, random, areaLevel: chart.AreaLevel) } };
     }
 
     // 9. The Genteel's Ducat (#5439): replaces 1 non-fractured explicit single-attribute mod with a same-tier counterpart of

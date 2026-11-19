@@ -133,6 +133,7 @@ public sealed partial class DeepwaterModule
         var mods = catalog.Mods;
         var global = DeepwaterBoardRules.GlobalStats(mods, cells);
         int cursed = DeepwaterCursedDucats.InjectPlanStats(conn, global);
+        int upgrades = DeepwaterUpgrades.InjectPlanStats(conn, global);
         var plan = new DeepwaterPlan
         {
             Voyage = false, Owner = player.Character, Size = 1, Cells = cells,
@@ -142,7 +143,8 @@ public sealed partial class DeepwaterModule
             ChartItem = active.Id,
         };
         module.Log($"{what}: item {active.Id} ({catalog.ByHash(active.Item.TypeHash)?.Name}, room {cell.Chart.Room}, rotation {cell.Chart.Rotation}) at level {plan.Level}"
-            + (cursed > 0 ? $", {cursed} Cursed Ducats" : ""));
+            + (cursed > 0 ? $", {cursed} Cursed Ducats" : "")
+            + (upgrades > 0 ? $", {upgrades} ship upgrades" : ""));
         // The tracker's "enter the Bathysphere" (QuestFlags 3568, G: set by the accepted Descend).
         var (remote, stream, ciphers) = conn.Wire;
         await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart]);
@@ -191,18 +193,35 @@ public sealed partial class DeepwaterModule
         }
         if (!asked && await AskFirst(module, conn, state, () => StartVoyage(module, conn, args, asked: true))) return;
         var mods = catalog.Mods;
+        int level = DeepwaterBoardRules.Level(cells);
+        bool velkaArena = false;
+        if (DeepwaterVelka.CanEnterArena(conn, level))
+        {
+            for (int i = 0; i < cells.Length; i++)
+            {
+                if (cells[i] is { } c && c.Chart.Room == DeepwaterVelka.BarrierRoom)
+                {
+                    cells[i] = c with { Chart = c.Chart with { Room = DeepwaterVelka.ArenaRoom } };
+                    velkaArena = true;
+                }
+            }
+        }
         var border = n == 3 ? DeepwaterPlanner.Current(conn).Border : [];
         var global = DeepwaterBoardRules.GlobalStats(mods, cells);
         int cursed = DeepwaterCursedDucats.InjectPlanStats(conn, global);
+        int upgrades = DeepwaterUpgrades.InjectPlanStats(conn, global);
         var plan = new DeepwaterPlan
         {
             Voyage = true, Owner = player.Character, Size = n, Cells = cells, Border = border,
-            Level = DeepwaterBoardRules.Level(cells),
+            Level = level,
             CellStats = [.. Enumerable.Range(0, cells.Length).Select(i => DeepwaterBoardRules.CellStats(mods, cells, n, i, border))],
             Global = global,
             Picked = picked,
         };
-        module.Log($"{what}: {n}×{n} at level {plan.Level}, {border.Count} border mods" + (cursed > 0 ? $", {cursed} Cursed Ducats" : ""));
+        module.Log($"{what}: {n}×{n} at level {plan.Level}, {border.Count} border mods"
+            + (cursed > 0 ? $", {cursed} Cursed Ducats" : "")
+            + (upgrades > 0 ? $", {upgrades} ship upgrades" : "")
+            + (velkaArena ? ", Kishara's Rest -> Boss Arena (#30)" : ""));
         await Arm(module, conn, state, plan, ItemRarity.Normal);
     }
 
@@ -406,7 +425,11 @@ public sealed partial class DeepwaterModule
         if (plan.Voyage)
         {
             // The Maiden Voyage's end: the first Voyage that succeeded completes it and opens the 3 × 3 board (G: the trigger).
-            if (success) await SetTutorialFlags(module, owner, live, DeepwaterConstants.FirstVoyageLeagueFlag, DeepwaterConstants.VoyagesEnabledLeagueFlag);
+            if (success)
+            {
+                await SetTutorialFlags(module, owner, live, DeepwaterConstants.FirstVoyageLeagueFlag, DeepwaterConstants.VoyagesEnabledLeagueFlag);
+                await DeepwaterUpgrades.TryGrantRunCompletionPiece(module, owner, voyage: true, live);
+            }
             return;
         }
         // The tutorial's first Chart: a failure before any success is the pity path ("saved from drowning", Valerie's 3928),
@@ -441,6 +464,7 @@ public sealed partial class DeepwaterModule
             await SendRow(owner, DeepwaterLocker.ChartedRow, [], [placed], $"add item {placed.Id} (charted)");
         }
         await FourCharts(module, owner, live);
+        await DeepwaterUpgrades.TryGrantRunCompletionPiece(module, owner, voyage: false, live);
     }
 
     static bool HasLeagueFlag(ClientState conn, int flag)

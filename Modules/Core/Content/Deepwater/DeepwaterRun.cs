@@ -156,9 +156,11 @@ internal sealed class DeepwaterRun
 
     public Lantern[] Snapshot() { lock (Gate) return [.. Lanterns]; }
 
-    /// <summary>Whether the cell is inside a lantern's light (<c>dx² + dy² ≤ r²</c>, the client's test <c>0x141684a00</c>).</summary>
+    /// <summary>Whether the cell is inside a lantern's light (<c>dx² + dy² ≤ r²</c>, the client's test <c>0x141684a00</c>)
+    /// or inside Velka's boss arena safe zone (<c>InvisibleLantern</c>).</summary>
     public bool InLight((int X, int Y) at, double now)
     {
+        if (DeepwaterVelka.InArenaLight(this, at)) return true;
         lock (Gate)
             foreach (var l in Lanterns)
             {

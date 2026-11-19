@@ -303,6 +303,102 @@ public sealed class DeepwaterLeagueTests
         var divineReward = DeepwaterBottles.BuildReward(divineOutcome, catalog, uniques, _ => 1.0, 68, rng);
         Assert.NotNull(divineReward);
         Assert.Equal("Metadata/Items/Currency/CurrencyModValues", catalog.ByHash(divineReward.Item.TypeHash)!.Id);
+
+        // Phase 7: QuestStates league-flag completion (Q209–211) & Quests.League.EveryCharacter drops LQF 1834.
+        Assert.False(QuestStates.Default.Value.Complete("DeepwaterTutorial", _ => false));
+        Assert.True(QuestStates.Default.Value.Complete("DeepwaterTutorial", _ => false, f => f == 1823));
+        Assert.False(QuestStates.Default.Value.Complete("DeepwaterFairgravesAllflameQuest", _ => false));
+        Assert.True(QuestStates.Default.Value.Complete("DeepwaterFairgravesAllflameQuest", _ => false, f => f == 1859));
+        Assert.False(QuestStates.Default.Value.Complete("DeepwaterVelkaQuest", _ => false));
+        Assert.True(QuestStates.Default.Value.Complete("DeepwaterVelkaQuest", _ => false, f => f == 1888));
+        Assert.DoesNotContain(1834, Quests.League.EveryCharacter);
+
+        // Phase 7: AreaTransitionObject optional trailing StateMachine (Boat_AreaTransition_Animate).
+        string[] boatTransitionComponents = [.. AreaTransitionObject.ComponentOrder, "StateMachine"];
+        Assert.True(AreaTransitionObject.CanSerialize(boatTransitionComponents));
+        byte[] boatTransitionBlob = new AreaTransitionObject(259, 213, 0x1234) { StateMachine = new StateMachineData([], 0) }.Blob();
+        Assert.Equal("000000", Convert.ToHexString(boatTransitionBlob[^3..]));
+
+        // Phase 7: NPCTalk league-flag opt-in (Valerie #3932 sets LQF 1834; #3955 uses __col17 = 1 manual sentinel).
+        var npcCatalog = NpcCatalog.Load();
+        var valerieTalks = npcCatalog.TalksOf(valerie).ToDictionary(t => t.Row);
+        Assert.Contains(1834, valerieTalks[3932].LeagueFlagsSet);
+        Assert.Null(valerieTalks[3955].StartLeagueFlag);
+
+        // Phase 7: Ship upgrades (DeepwaterUpgrades#0–4), turn-in copy-cap progression, and bench stage props.
+        Assert.Equal(5, DeepwaterUpgrades.ShipUpgradeRows.Count);
+        Assert.All(DeepwaterUpgrades.ShipUpgradeRows, u => Assert.NotEmpty(u.Stats));
+        var upgradeStats = new Dictionary<uint, int>();
+        Assert.Equal(5, DeepwaterUpgrades.InjectStats(DeepwaterUpgrades.TotalTurnedInLeagueFlags.ToHashSet(), upgradeStats));
+        Assert.Equal(1, DeepwaterUpgrades.ExtraLanternsFromStats(upgradeStats));
+        var (count1, flags1) = DeepwaterUpgrades.ComputeTurnInFlags(new HashSet<int>(), 0);
+        Assert.Equal(1, count1);
+        Assert.Contains(1824, flags1);
+        Assert.Contains(1829, flags1);
+        Assert.Contains(DeepwaterUpgrades.ThreeOutputCraftLeagueFlag, flags1);
+        var (count3, flags3) = DeepwaterUpgrades.ComputeTurnInFlags(new HashSet<int> { 1824, 1825, 1829, 1830, 1876 }, 2);
+        Assert.Equal(3, count3);
+        Assert.Contains(1826, flags3);
+        Assert.Contains(1831, flags3);
+        Assert.Contains(DeepwaterUpgrades.FourOutputCraftLeagueFlag, flags3);
+        Assert.Contains(DeepwaterUpgrades.EndgameCraftLeagueFlag, flags3);
+        Assert.Contains(DeepwaterUpgrades.SpecialCraftsUnlockedLeagueFlag, flags3);
+        var (count5, flags5) = DeepwaterUpgrades.ComputeTurnInFlags(new HashSet<int> { 1824, 1825, 1826, 1827, 1829, 1830, 1831, 1832, 1876, 1877, 1878, 1818 }, 4);
+        Assert.Equal(5, count5);
+        Assert.Contains(1828, flags5);
+        Assert.Contains(1833, flags5);
+        for (int stage = 1; stage <= DeepwaterUpgrades.BenchStageTypes.Length; stage++)
+        {
+            var comps = DeepwaterUpgrades.BenchStageComponents(stage);
+            var sm = DeepwaterUpgrades.BenchStageStateMachine(stage);
+            Assert.True(QuestObject.CanSerialize(comps, haveStateMachine: true));
+            Assert.NotEmpty(new QuestObject(331, 146, comps) { StateMachine = sm }.Blob());
+        }
+
+        // Phase 7: Act 1 Deepwater Fairgraves (1_1_9) & Kishara's Rest bosses (#551, #10582, #10583) + Velka drops & Bloodline.
+        Assert.True(QuestObject.CanSerialize(DeepwaterFairgraves.BarrierComponents(), haveStateMachine: false));
+        Assert.NotEmpty(DeepwaterFairgraves.BuildBarrierObject(100, 100, 0f, null, null, open: false).Blob());
+        Assert.NotEmpty(DeepwaterFairgraves.BuildBarrierObject(100, 100, 0f, null, null, open: true).Blob());
+        var monsters = new MonsterCatalog("data");
+        foreach (int varietyRow in new[] { 551, DeepwaterVelka.CressieRow, DeepwaterVelka.VelkaRow })
+        {
+            var monster = monsters.Find(varietyRow.ToString());
+            Assert.NotNull(monster);
+            Assert.True(monster.Supported);
+        }
+        Assert.Equal(100, DeepwaterVelka.UniqueDropWeights.Sum(w => w.Weight));
+        var stormSapphire = DeepwaterVelka.CreateVelkaUnique(uniques, catalog, "Stormblood Sapphire Flask", rng);
+        var stormTopaz = DeepwaterVelka.CreateVelkaUnique(uniques, catalog, "Stormblood Topaz Flask", rng);
+        Assert.NotNull(stormSapphire);
+        Assert.NotNull(stormTopaz);
+        Assert.NotEqual(stormSapphire.TypeHash, stormTopaz.TypeHash);
+        Assert.NotNull(DeepwaterVelka.CreateVelkaUnique(uniques, catalog, "Seablister", rng));
+        Assert.NotNull(DeepwaterVelka.CreateVelkaUnique(uniques, catalog, "The Crustacean's Call", rng));
+        var pearlOne = DeepwaterVelka.CreateVelkaUnique(uniques, catalog, "Pearl of Tsoatha", rng, twoSupportPearl: false);
+        var pearlTwo = DeepwaterVelka.CreateVelkaUnique(uniques, catalog, "Pearl of Tsoatha", rng, twoSupportPearl: true);
+        Assert.NotNull(pearlOne);
+        Assert.NotNull(pearlTwo);
+        ushort secondSupportHash = catalog.Mods.ById(DeepwaterVelka.PearlSupportTwoModId)!.Hash;
+        Assert.DoesNotContain(pearlOne.Mods, m => m.Hash == secondSupportHash);
+        Assert.Contains(pearlTwo.Mods, m => m.Hash == secondSupportHash);
+        Assert.True(catalog.Find(DeepwaterVelka.CoursingCurrentSupportId)?.Supported);
+        Assert.True(DeepwaterVelka.IsQuestDrop(catalog, ItemCatalog.Create(catalog.Find(DeepwaterVelka.BossAllflameId)!)));
+        Assert.False(DeepwaterVelka.IsQuestDrop(catalog, primaryItem));
+        Assert.Equal(DeepwaterVelka.BloodlineRow, new DescendancyCatalog().Find(DeepwaterVelka.BloodlineId)?.Index);
+        foreach (string objType in new[]
+        {
+            DeepwaterVelka.DescensionObjectType,
+            DeepwaterVelka.BarrierType,
+            DeepwaterVelka.FightBarrierType,
+            DeepwaterVelka.ArenaTeleporterType,
+            DeepwaterVelka.InvisibleLanternType,
+            "Metadata/Terrain/Leagues/Deepwater/Objects/CorpseBattery",
+        })
+        {
+            var info = QuestObjectTypes.Find(objType);
+            Assert.NotNull(info);
+            Assert.True(QuestObject.CanSerialize(info.Components, haveStateMachine: info.Components.Contains("StateMachine")));
+        }
     }
 
     static byte[] Tick()

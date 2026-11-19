@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -24,13 +25,97 @@ internal static class DeepwaterLanterns
         .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates())).FirstOrDefault());
 
     /// <summary>The run's lantern count: a Chart's or a Voyage's, a Voyage 40 more once the league's first Voyage is done
-    /// (league quest flag 1893; G that this flag is the one, the wiki gives 65).</summary>
+    /// (league quest flag 1893; G that this flag is the one, the wiki gives 65), plus ship upgrade row 0
+    /// (<c>LQF 1829</c>, <c>map_deepwater_max_lanterns +1</c>).</summary>
     public static int Total(ClientState conn, bool voyage)
     {
-        if (!voyage) return DeepwaterConstants.BaseLanternCount1x1;
+        int extra = DeepwaterUpgrades.ExtraLanterns(conn);
+        if (!voyage) return DeepwaterConstants.BaseLanternCount1x1 + extra;
         bool more;
         lock (conn.Monsters) more = conn.LeagueQuestFlags.Contains(DeepwaterConstants.VoyagesEnabledLeagueFlag);
-        return DeepwaterConstants.BaseLanternCountVoyage + (more ? DeepwaterConstants.VoyagesEnabledExtraLanterns : 0);
+        return DeepwaterConstants.BaseLanternCountVoyage + (more ? DeepwaterConstants.VoyagesEnabledExtraLanterns : 0) + extra;
+    }
+
+    static readonly ConditionalWeakTable<ClientState, StrongBox<double>> AutoCooldowns = new();
+    const double AutoCooldownSeconds = 0.5;
+    const int AutoEdgeMargin = 20;
+
+    /// <summary>Clears any cached Auto-Lanterns cooldown when a connection leaves an area.</summary>
+    public static void ForgetAuto(ClientState conn) => AutoCooldowns.Remove(conn);
+
+    /// <summary>Server-side Auto-Lanterns (<c>LQF 1841</c>): when enabled, on a <c>0.5 s</c> cooldown while exploring,
+    /// places a lantern automatically as the controller approaches the edge of light (<c>BaseLanternRadius − 20</c>),
+    /// outside the deck and Velka's boss arena. Zero allocations when <c>LQF 1841</c> is off.</summary>
+    public static (int X, int Y)? TryAutoLantern(ClientState conn, DeepwaterRun run, double now, out string note)
+    {
+        note = "";
+        if (run.Phase != DeepwaterRun.RunPhase.Exploring || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea)
+            return null;
+        bool auto;
+        lock (conn.Monsters) auto = conn.LeagueQuestFlags.Contains(DeepwaterConstants.AutoLanternsLeagueFlag);
+        if (!auto) return null;
+        if (!CharacterName(conn).Equals(run.Controller, StringComparison.OrdinalIgnoreCase)
+            || !ClientHasQuestFlag(conn, DeepwaterConstants.LanternController))
+            return null;
+        lock (run.Gate) if (run.Placed >= run.Total) return null;
+
+        var gate = AutoCooldowns.GetValue(conn, _ => new StrongBox<double>(0));
+        if (now < gate.Value) return null;
+
+        var player = conn.Walk.Position(now);
+        if (run.Board.OnDeck(player) || DeepwaterVelka.InArenaLight(run, player)) return null;
+
+        int threshold = Math.Max(DeepwaterConstants.MinimumLanternRadius, DeepwaterConstants.BaseLanternRadius - AutoEdgeMargin);
+        long thresholdSq = (long)threshold * threshold;
+        var anchors = run.Snapshot();
+        for (int i = 0; i < anchors.Length; i++)
+        {
+            var l = anchors[i];
+            if (l.Radius(now) <= 0) continue;
+            long dx = player.X - l.X, dy = player.Y - l.Y;
+            if (dx * dx + dy * dy <= thresholdSq) return null;
+        }
+
+        gate.Value = now + AutoCooldownSeconds;
+        if (Snap(conn, run, player, out note) is { } snapped) return snapped;
+
+        // Fallback: project BaseLanternPlacementRange from the closest anchor toward the player when the player walked
+        // slightly past Snap's cursor reach.
+        int range = DeepwaterConstants.BaseLanternPlacementRange;
+        long apart = (long)(range - 5) * (range - 5);
+        long maxReach = (long)(PlayerReach + Slack) * (PlayerReach + Slack);
+        (int X, int Y)? best = null;
+        long bestDistSq = long.MaxValue;
+        for (int i = 0; i < anchors.Length; i++)
+        {
+            var a = anchors[i];
+            int vx = player.X - a.X, vy = player.Y - a.Y;
+            float len = MathF.Sqrt((float)vx * vx + (float)vy * vy);
+            if (len < 1f) continue;
+            float s = range / len;
+            var p = (X: a.X + (int)MathF.Floor(vx * s + 0.5f), Y: a.Y + (int)MathF.Floor(vy * s + 0.5f));
+            long dx = p.X - player.X, dy = p.Y - player.Y;
+            long d2 = dx * dx + dy * dy;
+            if (d2 > maxReach || d2 >= bestDistSq) continue;
+            bool tooClose = false;
+            for (int j = 0; j < anchors.Length; j++)
+            {
+                long bx = anchors[j].X - p.X, by = anchors[j].Y - p.Y;
+                if (bx * bx + by * by <= apart) { tooClose = true; break; }
+            }
+            if (!tooClose) (best, bestDistSq) = (p, d2);
+        }
+        if (best is not { } target) return null;
+        if (conn.Layout.WalkableFor(target.X, target.Y, 3)) return target;
+        for (int r = 1; r <= 9; r++)
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
+                    if (conn.Layout.WalkableFor(target.X + dx, target.Y + dy, 3))
+                        return (target.X + dx, target.Y + dy);
+                }
+        return null;
     }
 
     /// <summary>Creates a lantern on this connection: the object (StateMachine <c>drop</c> = the animation for a new one,

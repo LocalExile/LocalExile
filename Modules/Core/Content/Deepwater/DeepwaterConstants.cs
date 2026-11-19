@@ -103,6 +103,10 @@ internal static class DeepwaterConstants
     /// <summary>League quest flag 1834 <c>DeepwaterBoatUnlocked</c> (Valerie's "Ready for Adventure?" sets it): the
     /// ChartLocker is targetable with it.</summary>
     public const int BoatUnlockedLeagueFlag = 1834;
+    /// <summary>League quest flag 1841 <c>DeepwaterAutoLanternsActive</c>: Valerie's toggle for server-side Auto-Lanterns.</summary>
+    public const int AutoLanternsLeagueFlag = 1841;
+    /// <summary>League quest flag 1857 <c>DeepwaterCraftingTutorialCompleted</c>: set on the first Allflame craft.</summary>
+    public const int CraftingTutorialCompletedLeagueFlag = 1857;
     /// <summary>League quest flag 1820 <c>DeepwaterQuestChartTaken</c>.</summary>
     public const int ChartTakenLeagueFlag = 1820;
     // The Maiden Voyage's league quest flags (QuestStates 209 __col13/__col14; G: when the server set them, R1 §6).

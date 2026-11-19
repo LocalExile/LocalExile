@@ -19,13 +19,13 @@ internal static class DeepwaterBoardRules
     /// <summary>The 12 border segments: a 3 × 3 board's cell i gets these (the window's table at <c>0x140414970</c>).</summary>
     static readonly int[][] Segments = [[0, 11], [1], [2, 3], [10], [], [4], [8, 9], [7], [5, 6]];
 
-    sealed record RoomInfo(int Mask, bool Boss, (uint Key, int Value)[] Stats);
+    sealed record RoomInfo(int Mask, bool Boss, bool BossEntry, (uint Key, int Value)[] Stats);
 
     static readonly Lazy<RoomInfo[]> Rooms = new(() => [.. ClientTables.TableOrEmpty("DeepwaterRooms").Select(r =>
     {
         int[] stats = r.IsNull("Stats") ? [] : r.Ints("Stats");
         int[] values = r.IsNull("StatValues") ? [] : r.Ints("StatValues");
-        return new RoomInfo(r.IntOrNull("__col2") ?? 0, r.BoolOrNull("__col17") == true,
+        return new RoomInfo(r.IntOrNull("__col2") ?? 0, r.BoolOrNull("__col17") == true, !r.IsNull("__col14"),
             [.. stats.Select((s, i) => ((uint)s + 1, i < values.Length ? values[i] : 0))]);
     })]);
 
@@ -50,8 +50,9 @@ internal static class DeepwaterBoardRules
             if (x + 1 < n && ((open & 4) != 0) != ((Open(cells[i + 1]!.Value.Chart) & 1) != 0)) return Connections;
             if (y + 1 < n && ((open & 2) != 0) != ((Open(cells[i + n]!.Value.Chart) & 8) != 0)) return Connections;
         }
+        int kishara = cells.Count(c => Room(c!.Value.Chart.Room) is { } r && (r.Boss || r.BossEntry));
+        if (kishara > 1) return TwoBosses;
         int bosses = cells.Count(c => Room(c!.Value.Chart.Room)?.Boss == true);
-        if (bosses > 1) return TwoBosses;
         if (bosses == 1 && Level(cells) < BossMinimumLevel) return BossLevel;
         return null;
     }

@@ -512,6 +512,13 @@ public static class DeepwaterCrafting
                     [], placedOutputs),
                 $"0x00bf inventory {PlayerInventories.InventoryId(OutputRow)}: {placedOutputs.Count} Ghostly Copies stored");
 
+        var (remote, stream, ciphers) = conn.Wire;
+        if (!HasLeagueFlag(conn, DeepwaterConstants.CraftingTutorialCompletedLeagueFlag))
+        {
+            await SetLeagueQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.CraftingTutorialCompletedLeagueFlag]);
+            await DeepwaterProgression.RefreshHubNpcs(module, conn);
+        }
+
         if (destroyed)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: {currencyType.Name} ({cost} Sulphur) destroyed {targetType?.Name}");
@@ -520,7 +527,6 @@ public static class DeepwaterCrafting
             return;
         }
 
-        var (remote, stream, ciphers) = conn.Wire;
         await SetQuestFlags(remote, stream, ciphers, conn, [CraftInProgress]);
         module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: {currencyType.Name} on {targetType?.Name ?? "(none)"} for {cost} Sulphur → {placedOutputs.Count} copies"
             + (intangTriggered ? $" (Intangibility {targetInvItem!.Item.Intangibility}% triggered → 1 copy)" : ""));

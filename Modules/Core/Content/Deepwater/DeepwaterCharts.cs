@@ -36,7 +36,7 @@ internal static class DeepwaterCharts
     public static Item Create(ClientState conn, ItemCatalog.BaseType type, int areaLevel, ItemRarity? rarity, Random random)
     {
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
-        var item = ItemCatalog.Create(type, random: random) with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, random)) };
+        var item = ItemCatalog.Create(type, random: random) with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, random, areaLevel: level)) };
         var rolled = rarity ?? RollRarity(random);
         if (rolled is not (ItemRarity.Magic or ItemRarity.Rare)) return item;
         return RollsFor(conn).Roll(item, rolled, random) with { Identified = Setting("deepwater_chart_unidentified") == 0 };
@@ -67,7 +67,7 @@ internal static class DeepwaterCharts
         }
         if (item.Chart is not null) return item;
         byte level = (byte)Math.Clamp((int)item.ItemLevel, 1, 100);
-        return item with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, Random.Shared)) };
+        return item with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, Random.Shared, areaLevel: level)) };
     }
 
     internal static readonly Lazy<int> TutorialOfferRow = new(() =>
@@ -108,8 +108,9 @@ internal static class DeepwaterCharts
 
     sealed record RoomRow(byte Row, long Biome, int Mask, bool Special, string Name, string Id);
 
-    // The rooms a chart may get: those of the shipped charts' biomes, never a linked or attached room (Kishara's Rest and its
-    // arena: the boss encounter is not built), a [DNT] row, Lost Shipment or Runes of the Deep (nobody reports them, rules §3.2).
+    // The rooms a chart may get: those of the shipped charts' biomes, including Kishara's Rest (#29 SandyCrashedShip1,
+    // eligible at area level >= 81) while excluding its boss arena (#30, __col17 = true), [DNT] rows, Lost Shipment and
+    // Runes of the Deep (nobody reports them, rules §3.2).
     static readonly Lazy<(Dictionary<int, long> BiomeOf, RoomRow[] Rooms)> Rooms = new(() =>
     {
         var biomeOf = new Dictionary<int, long>();
@@ -120,7 +121,8 @@ internal static class DeepwaterCharts
                 biomeOf[item] = biome;
         var shipped = biomeOf.Values.ToHashSet();
         var rooms = ClientTables.TableOrEmpty("DeepwaterRooms")
-            .Where(r => r.Index < 0xff && r.LongOrNull("Biome") is { } b && shipped.Contains(b) && r.IsNull("__col14") && r.BoolOrNull("__col17") != true
+            .Where(r => r.Index < 0xff && r.LongOrNull("Biome") is { } b && shipped.Contains(b)
+                && (r.IsNull("__col14") || r.Index == DeepwaterVelka.BarrierRoom) && r.BoolOrNull("__col17") != true
                 && r.Text("Name") is { } name && !name.StartsWith("[DNT]", StringComparison.Ordinal)
                 && r.Text("Id") is { } id && !id.Contains("LostShipment", StringComparison.Ordinal) && !id.Contains("StoneCircle", StringComparison.Ordinal))
             .Select(r => new RoomRow((byte)r.Index, r.Long("Biome"), r.Int("__col2"), r.BoolOrNull("Special") == true, r.Text("Name")!, r.Text("Id")!))
@@ -130,11 +132,11 @@ internal static class DeepwaterCharts
 
     /// <summary>A room for a new chart of this base (rules §3.2, every weight G: the real ones are server-side and unknown):
     /// the chart's biome 90 %, another shipped biome 10 %; then a generic room 95 % or a special area 5 % (Anchorfield,
-    /// Infested Bathyspheres and Hazardous Depths twice as likely as the others, the wiki's "more common"); a generic room by
-    /// shape, ends and straights 0.6 against 1 (3.29.0b "somewhat less common"). <paramref name="generic"/> keeps the chart's
-    /// own biome and a generic room (Valerie's chart). The client crashes drawing a chart whose room names no row, so row 0
-    /// is the fallback.</summary>
-    public static byte Room(int baseRow, Random random, bool generic = false)
+    /// Infested Bathyspheres and Hazardous Depths twice as likely as the others, the wiki's "more common"; Kishara's Rest
+    /// #29 only at <paramref name="areaLevel"/> ≥ 81); a generic room by shape, ends and straights 0.6 against 1 (3.29.0b
+    /// "somewhat less common"). <paramref name="generic"/> keeps the chart's own biome and a generic room (Valerie's chart).
+    /// The client crashes drawing a chart whose room names no row, so row 0 is the fallback.</summary>
+    public static byte Room(int baseRow, Random random, bool generic = false, int areaLevel = 1)
     {
         var (biomeOf, rooms) = Rooms.Value;
         if (!biomeOf.TryGetValue(baseRow, out long own) || rooms.Length == 0) return 0;
@@ -145,7 +147,8 @@ internal static class DeepwaterCharts
             if (others.Length > 0) biome = others[random.Next(others.Length)];
         }
         var inBiome = rooms.Where(r => r.Biome == biome).ToArray();
-        var specials = inBiome.Where(r => r.Special).ToArray();
+        var specials = inBiome.Where(r => r.Special
+            && (r.Row != DeepwaterVelka.BarrierRoom || areaLevel >= DeepwaterVelka.MinChartRoomLevel)).ToArray();
         bool special = !generic && specials.Length > 0 && random.Next(100) < 5;
         if (special)
         {

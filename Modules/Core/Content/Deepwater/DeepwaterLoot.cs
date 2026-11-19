@@ -107,6 +107,12 @@ internal static class DeepwaterLoot
     static readonly Lazy<Dictionary<int, (int Min, int Max, int Packs)>> RoomRanges = new(() => ClientTables.TableOrEmpty("DeepwaterRooms")
         .ToDictionary(r => r.Index, r => (r.IntOrNull("__col10") ?? 0, r.IntOrNull("__col11") ?? 0, r.IntOrNull("__col8") ?? 0)));
 
+    static readonly Lazy<HashSet<int>> SpecialRooms = new(() => ClientTables.TableOrEmpty("DeepwaterRooms")
+        .Where(r => r.BoolOrNull("Special") == true).Select(r => r.Index).ToHashSet());
+
+    /// <summary>Whether <paramref name="roomId"/> is a special <c>DeepwaterRooms</c> room (O(1) lookup).</summary>
+    public static bool IsSpecialRoom(int roomId) => roomId >= 0 && SpecialRooms.Value.Contains(roomId);
+
     static readonly Lazy<Dictionary<int, int>> Balance = new(() => ClientTables.TableOrEmpty("DeepwaterBalancePerLevel")
         .Where(r => r.IntOrNull("__col0") is not null).ToDictionary(r => r.Int("__col0"), r => r.IntOrNull("__col1") ?? 0));
 
@@ -175,7 +181,8 @@ internal static class DeepwaterLoot
         foreach (var cell in run.Board.Cells)
         {
             if (!RoomRanges.Value.TryGetValue(cell.Room, out var range) || range.Packs <= 0 || range.Max <= 0) continue;
-            int nodeCount = random.Next(range.Min, range.Max + 1), objectCount = random.Next(range.Min, range.Max + 1);
+            int nodeCount = random.Next(range.Min, range.Max + 1);
+            int objectCount = random.Next(range.Min, range.Max + 1) + DeepwaterUpgrades.ExtraScatteredObjects(conn, random);
             int placedNodes = 0, placedObjects = 0;
             for (int i = 0; i < nodeCount && nodes.Count > 0; i++)
             {
@@ -435,14 +442,21 @@ internal static class DeepwaterLoot
                 };
                 if (bonusDucat is not null && catalog.Find(bonusDucat) is { Supported: true } ducatType)
                     drops.Add(new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType));
+                if (DeepwaterUpgrades.TryChestPiece1(module, conn, run.Voyage, IsSpecialRoom(room), level) is { } piece1)
+                    drops.Add(piece1);
                 await Drop(conn, thing, ItemDrops.Stacked(drops));
                 break;
             }
             case Kind.PiratesLocker:
             {
+                var drops = new List<ItemDrops.Drop>(2);
                 string id = DeepwaterDucats.AllDucats[Random.Shared.Next(DeepwaterDucats.AllDucats.Length)];
                 if (catalog.Find(id) is { Supported: true } ducatType)
-                    await Drop(conn, thing, [new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType)]);
+                    drops.Add(new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType));
+                int room = thing.Cell >= 0 && thing.Cell < run.Board.Cells.Count ? run.Board.Cells[thing.Cell].Room : -1;
+                if (DeepwaterUpgrades.TryChestPiece1(module, conn, run.Voyage, IsSpecialRoom(room), level) is { } piece1)
+                    drops.Add(piece1);
+                if (drops.Count > 0) await Drop(conn, thing, drops);
                 break;
             }
             case Kind.DrownedOffering:
