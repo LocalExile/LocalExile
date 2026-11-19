@@ -80,13 +80,13 @@ public sealed class PackCatalog(string folder = "data")
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
     public const int MapPackWeight = 100;
 
-    private readonly Lazy<(List<Pack> Packs, List<(string Id, int Level, int[] Bosses)> Areas, Dictionary<int, List<int>> MapPacks)?> _data = new(() => Load(folder));
+    private sealed record AreaRow(int Row, int Level, bool IsMap, int[] Bosses);
+    private readonly Lazy<(List<Pack> Packs, Dictionary<string, AreaRow> Areas, Dictionary<int, List<int>> MapPacks)?> _data = new(() => Load(folder));
 
     public AreaPacks? For(string areaId)
     {
-        if (_data.Value is not { } d) return null;
-        int row = d.Areas.FindIndex(a => a.Id == areaId);
-        if (row < 0) return null;
+        if (_data.Value is not { } d || !d.Areas.TryGetValue(areaId, out var area)) return null;
+        int row = area.Row;
         var scattered = new List<(Pack, int)>();
         var named = new Dictionary<string, Pack>();
         var direct = new Dictionary<string, Pack>(StringComparer.Ordinal);
@@ -121,8 +121,12 @@ public sealed class PackCatalog(string folder = "data")
                         new Dictionary<int, int>()), MapPackWeight));
             }
         }
-        return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses) { Density = density, DirectPacks = direct };
+        return new AreaPacks(areaId, area.Level, scattered, named, area.Bosses) { Density = density, DirectPacks = direct };
     }
+
+    /// <summary>The WorldAreas boss rows in their authored order, including later forms.</summary>
+    public IReadOnlyList<int> BossesFor(string areaId, bool mapsOnly = false) =>
+        _data.Value is { } d && d.Areas.TryGetValue(areaId, out var area) && (!mapsOnly || area.IsMap) ? area.Bosses : [];
 
     public Pack? Find(string id) => _data.Value?.Packs.FirstOrDefault(p => p.Id == id);
 
@@ -137,7 +141,7 @@ public sealed class PackCatalog(string folder = "data")
         return rows;
     });
 
-    private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
+    private static (List<Pack>, Dictionary<string, AreaRow>, Dictionary<int, List<int>>)? Load(string folder)
     {
         if (!ClientTables.Has("MonsterPacks") || !ClientTables.Has("MonsterPackEntries") || !ClientTables.Has("WorldAreas")) return null;
         var byPack = ClientTables.Table("MonsterPackEntries")
@@ -166,10 +170,9 @@ public sealed class PackCatalog(string folder = "data")
                     ? [.. entries.Where(e => e.Weighted).Select(e => (e.Variety, e.Value))] : null,
             });
         }
-        var areaRows = new List<(string, int, int[])>();
+        var areaRows = new Dictionary<string, AreaRow>(StringComparer.Ordinal);
         foreach (var a in ClientTables.Table("WorldAreas"))
-            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"),
-                [.. a.Ints("Bosses_MonsterVarietiesKeys")]));
+            areaRows.Add(a.Text("Id")!, new(areaRows.Count, a.Int("AreaLevel"), a.Bool("IsMapArea"), [.. a.Ints("Bosses_MonsterVarietiesKeys")]));
         // Maps.dat: a map's area → its packs (optional table: without it maps have no packs of their own).
         var mapPacks = new Dictionary<int, List<int>>();
         if (ClientTables.Has("Maps"))

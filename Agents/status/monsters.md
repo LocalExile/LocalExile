@@ -41,10 +41,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   1 / 0..50 / 51..255 text thresholds were verified with native `/raw` messages.
   Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §2.
-- Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
-  `MonsterMapDifficulty`, added as percentages (level 83: ×20.73 life, ×1.15 damage). The King in the Mists' humanoid
-  form therefore has 45,614,731 life at level 83, matching poedb's display.
-  Code: `MonsterCatalog.MapBossScaling`, `SpawnMonster`.
+- Unique bosses listed for their map receive the map and boss difficulty increases and the map's boss modifiers.
+  Strand's two bosses have no dedicated health bar. Re-entry restores the saved current life up to the recalculated
+  maximum and applies the map and party bonuses once.
+  Code: `MonsterCatalog.MapBossDifficulty`, `SpawnMonster`, `BossKits`.
   Docs: [king-in-the-mists](../docs/game/king-in-the-mists.md).
 - Emerge monsters (Gravel Eaters, Dripping Dead, the Twilight Strand's Drowned …) are created buried, cannot be hit
   while buried, and rise when the player comes within 24 cells: the client plays their emerge clip (Emerge action

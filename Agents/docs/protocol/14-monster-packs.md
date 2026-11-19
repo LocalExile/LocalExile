@@ -272,9 +272,11 @@ population. Other areas, rarity rolls, life and damage retain their existing beh
 placement algorithms remain unknown.
 
 - Pack density and magic/rare chances are guesses (§1); so are the mod counts (§5).
-- Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
-  (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
-  future map-affix system may add more.
+- Unique bosses in the map's WorldAreas list get the life and damage increases from `MonsterMapBossDifficulty` and
+  `MonsterMapDifficulty`. Their level sets the factors (×6.75 life and ×1.07 damage at 75, ×20.73 and ×1.15 at 83).
+  Both tables name Stats rows 2500 and 2501, the hidden life and damage stats already sent for the map tier. The
+  boss's percentage adds to each tier value. All 152 boss entries across the 110 layouts in the 3.29.3c atlas
+  selector lack a dedicated health bar. Rolled boss modifiers also affect the ordinary AI's secondary skills.
 - The official pack sampler at mixed-ground boundaries and the priority of ground restrictions for explicitly named
   encounters are unknown. Captured walk maps carry no ground names for the weighted draw.
 - Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within

@@ -211,13 +211,24 @@ public sealed class MonsterCatalog(string folder = "data")
     /// <c>LifePercentIncrease</c>/<c>DamagePercentIncrease</c>, added as percentages (level 83: 1 + 18.64 + 1.09 = 20.73
     /// life). Poedb's level-83 King in the Mists life (45,614,731) is this multiplier over 15,319 x 18 x 7.98.
     /// </summary>
-    public (double Life, double Damage) MapBossScaling(int level) =>
-        _mapBoss.Value is { } s && level >= 1 && level < s.BossLife.Length
-            ? (1 + (s.BossLife[level] + s.MapLife[level]) / 100.0,
-               1 + (s.BossDamage[level] + s.MapDamage[level]) / 100.0)
-            : (1, 1);
+    public (double Life, double Damage) MapBossScaling(int level)
+    {
+        var (life, damage) = MapBossDifficulty(level, MonsterModEffects.None.Stats);
+        return (1 + life / 100d, 1 + damage / 100d);
+    }
 
-    private sealed record MapBossScalingTable(double[] BossLife, double[] BossDamage, double[] MapLife, double[] MapDamage)
+    /// <summary>Both difficulty tables use the same two hidden stat IDs. A map load already publishes
+    /// its ordinary tier contribution. Direct entries use MonsterMapDifficulty for that contribution.</summary>
+    public (int Life, int Damage) MapBossDifficulty(int level, IReadOnlyDictionary<string, int> areaStats)
+    {
+        const string life = MonsterModCatalog.MapHiddenLifeStat, damage = MonsterModCatalog.MapHiddenDamageStat;
+        if (_mapBoss.Value is not { } s || level < 1 || level >= s.BossLife.Length)
+            return (areaStats.GetValueOrDefault(life), areaStats.GetValueOrDefault(damage));
+        return (s.BossLife[level] + areaStats.GetValueOrDefault(life, s.MapLife[level]),
+            s.BossDamage[level] + areaStats.GetValueOrDefault(damage, s.MapDamage[level]));
+    }
+
+    private sealed record MapBossScalingTable(int[] BossLife, int[] BossDamage, int[] MapLife, int[] MapDamage)
     {
         public static MapBossScalingTable? Load(string folder)
         {
@@ -225,13 +236,13 @@ public sealed class MonsterCatalog(string folder = "data")
             var b = ClientTables.Table("MonsterMapBossDifficulty");
             var m = ClientTables.Table("MonsterMapDifficulty");
             var bossRows = b
-                .Select(r => (Level: r.Int("MapLevel"), Life: r.Real("BossLifePercentIncrease"),
-                    Damage: r.Real("BossDamagePercentIncrease"))).ToArray();
+                .Select(r => (Level: r.Int("MapLevel"), Life: r.Int("BossLifePercentIncrease"),
+                    Damage: r.Int("BossDamagePercentIncrease"))).ToArray();
             var mapRows = m
-                .Select(r => (Level: r.Int("MapLevel"), Life: r.Real("LifePercentIncrease"),
-                    Damage: r.Real("DamagePercentIncrease"))).ToArray();
+                .Select(r => (Level: r.Int("MapLevel"), Life: r.Int("LifePercentIncrease"),
+                    Damage: r.Int("DamagePercentIncrease"))).ToArray();
             int size = Math.Max(bossRows.Max(r => r.Level), mapRows.Max(r => r.Level)) + 1;
-            var result = new MapBossScalingTable(new double[size], new double[size], new double[size], new double[size]);
+            var result = new MapBossScalingTable(new int[size], new int[size], new int[size], new int[size]);
             foreach (var r in bossRows) if (r.Level >= 0 && r.Level < size) { result.BossLife[r.Level] = r.Life; result.BossDamage[r.Level] = r.Damage; }
             foreach (var r in mapRows) if (r.Level >= 0 && r.Level < size) { result.MapLife[r.Level] = r.Life; result.MapDamage[r.Level] = r.Damage; }
             return result;

@@ -231,21 +231,22 @@ public static partial class Game
             mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
         // Additional encounter scaling composes with rolled rarity and map effects.
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
-        if (!friendly && MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
-            mods = mods with { Effects = mods.Effects.Combine(mapStats) };
-        // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
-        if (!friendly && PartyMonsterLife(conn, rarity) is int party and > 0)
-            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<string, int> { ["maximum_life_+%"] = party }) };
-        // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
-        // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
-        // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
-        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety))
-            && MapDevices.Value.IsMapArea(conn.Layout.Hash);
-        if (mapBoss && MapModsOf(conn) is { } bossMap)
-            mods = mods with { Effects = mods.Effects.Combine(MapBossEffects(bossMap)) };
-        var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
+        // WorldAreas lists a map's bosses, including ones without a dedicated health bar (both in Strand).
+        bool mapBoss = !friendly && rarity == MonsterRarity.Unique && MapDevices.Value.IsMapArea(conn.Layout.Hash)
+            && (variety.BossHealthBar || Packs.BossesFor(conn.Layout.Id, mapsOnly: true).Contains(variety.Row) || MapScarabBosses.IsBoss(variety));
+        var map = friendly ? null : MapModsOf(conn);
+        var instanceEffects = MonsterModEffects.None;
+        if (map is not null || mapBoss)
+        {
+            var mapStats = map is null ? [] : MapMonsterEffects(map);
+            if (mapBoss)
+                (mapStats[MonsterModCatalog.MapHiddenLifeStat], mapStats[MonsterModCatalog.MapHiddenDamageStat]) = Monsters.MapBossDifficulty(level, mapStats);
+            instanceEffects = new(mapStats);
+            if (mapBoss && map is not null) instanceEffects = instanceEffects.Combine(MapBossEffects(map));
+        }
+        if (!friendly) instanceEffects = instanceEffects.Plus("maximum_life_+%", PartyMonsterLife(conn, rarity));
+        mods = mods.WithInstanceEffects(instanceEffects);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
-        if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
         uint life = (uint)mods.Effects.MaxLife(baseLife);
         if (ownedMaximumLife is uint ownLife) life = ownLife;
         // A part of its full life (Izaro's later Aspirant's Trials start with what the earlier ones left).
@@ -259,11 +260,6 @@ public static partial class Game
         // The mods' damage and speed: the rarity's more damage per hit and faster attacks with that much less damage, the
         // affixes' increased damage, attack speed and extra elemental / chaos damage (MonsterModEffects.Hit).
         var (baseMin, baseMax) = Monsters.BaseDamage(variety, level) ?? (1, 1);
-        if (mapBoss)
-        {
-            baseMin = Math.Max(1, (int)Math.Round(baseMin * mapBossScaling.Damage));
-            baseMax = Math.Max(1, (int)Math.Round(baseMax * mapBossScaling.Damage));
-        }
         var catalog = SkillsFor(conn);
         // The King's actors keep their first granted effect, reach and official ids: KingInMists.cs plays their actions
         // itself. Every other monster takes its combat effect (MavenNucleus.CombatEffect).
@@ -341,7 +337,7 @@ public static partial class Game
         // A monster the campaign places as a boss, or one with a bar of its own, and that has no encounter controller:
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
-        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack, mapBoss ? mods.Effects : null);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills

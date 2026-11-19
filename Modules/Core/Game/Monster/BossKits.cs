@@ -80,7 +80,11 @@ public static class BossKits
     /// <param name="defaultAttack">The attack the monster would have swung without a kit: the kit's first entry is that
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect = -1, MonsterAttack? defaultAttack = null)
+        int defaultEffect = -1, MonsterAttack? defaultAttack = null) =>
+        Kit(conn, variety, level, defaultEffect, defaultAttack, null);
+
+    internal static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
+        int defaultEffect, MonsterAttack? defaultAttack, MonsterModEffects? mapBossEffects)
     {
         var catalog = SkillsFor(conn);
         if (!IsKitBoss(catalog, variety)) return [];
@@ -92,7 +96,15 @@ public static class BossKits
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             ushort id = (ushort)(0x4000 + kit.Count);
-            var attack = kit.Count == 0 && defaultAttack is not null ? defaultAttack with { SkillId = id } : AttackFor(conn, variety, level, effect, id);
+            MonsterAttack attack;
+            if (kit.Count == 0 && defaultAttack is not null) attack = defaultAttack with { SkillId = id };
+            else
+            {
+                attack = AttackFor(conn, variety, level, effect, id);
+                if (mapBossEffects is not null)
+                    attack = attack with { Damage = mapBossEffects.Hit(attack.Damage),
+                        Seconds = attack.Summon is null ? mapBossEffects.AttackSeconds(attack.Seconds) : attack.Seconds };
+            }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own

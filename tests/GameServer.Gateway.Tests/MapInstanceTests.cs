@@ -1,12 +1,22 @@
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using GameServer.Modding;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class MapInstanceTests
 {
     [Fact]
-    public void A_map_instance_keeps_the_map_it_was_opened_with()
+    public async Task A_map_instance_keeps_the_map_it_was_opened_with()
     {
-        var strand = new MapDevice.MapArea(0x1234, "MapWorldsStrand", "Strand Map", 3) { Level = 70 };
-        var first = new MapMods(new Dictionary<string, int> { ["map_monsters_life_+%"] = 40 });
+        var layout = Game.MapDevices.Value.Atlas!.Find("Strand")!;
+        var strand = new MapDevice.MapArea(layout.Hash16, layout.Id, "Strand Map", 3) { Level = 70 };
+        var first = new MapMods(new Dictionary<string, int>
+        {
+            ["map_monsters_life_+%"] = 40, ["map_boss_maximum_life_+%"] = 30,
+            ["map_boss_damage_+%"] = 30, ["map_boss_attack_and_cast_speed_+%"] = 20,
+            [MonsterModCatalog.MapHiddenLifeStat] = 13, [MonsterModCatalog.MapHiddenDamageStat] = 2,
+        });
         var second = new MapMods(new Dictionary<string, int> { ["map_monsters_damage_+%"] = 25 });
         var store = new InstanceStore(TimeProvider.System, TimeSpan.FromMinutes(8));
         const string owner = "MapInstanceRegressionOwner";
@@ -27,6 +37,7 @@ public sealed class MapInstanceTests
             Assert.Same(first, MapDevice.Admit(store.Enter(41, 1), 0xa2, strand.Hash16, 41)!.Mods);
             Assert.Equal(owner, instance.Map!.Owner);
             Assert.Equal(70, instance.Map.Area.Level);
+            await CheckBossOnReentry(instance, strand);
 
             // Its last portal closes the device, but the player it takes in still gets the map, and so does a guest after.
             MapDevice.Entered(owner, strand, 42);
@@ -75,5 +86,64 @@ public sealed class MapInstanceTests
             Assert.Equal(40, Game.ComposeMapAreaStats(first, 3, atlas, new HashSet<string>(), 0, false)[life]);
         }
         finally { MapDevice.Close(owner); }
+    }
+
+    static async Task CheckBossOnReentry(InstanceState instance, MapDevice.MapArea map)
+    {
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        await using var wire = await ScarabEncounterTests.Wire.Open(instance, new(map.Hash16, map.Id, 100, 100, 20, 20, null, []), 1);
+        var conn = wire.Conn;
+        var (remote, stream, ciphers) = conn.Wire;
+        try
+        {
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+            var variety = Game.Monsters.Find(Game.Packs.BossesFor(map.Id)[0].ToString())!;
+            Assert.False(variety.BossHealthBar);
+            byte level = (byte)map.Level;
+            conn.PartySize = 2;
+            uint id = await Game.SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, 25, 25, bulk: true);
+            var boss = conn.Monsters[id];
+            Assert.Equal(170, boss.Mods.Effects["maximum_life_+%"]); // Map 40, boss 30, second player 100.
+            Assert.Equal(30, boss.Mods.Effects["damage_+%"]);
+            int baseLife = Game.Monsters.BaseLife(variety, level)!.Value;
+            Assert.Equal(229, boss.Mods.Effects[MonsterModCatalog.MapHiddenLifeStat]); // At level 70, 216 + 13.
+            Assert.Equal(2, boss.Mods.Effects[MonsterModCatalog.MapHiddenDamageStat]);
+            Assert.Equal((uint)boss.Mods.Effects.MaxLife(baseLife), boss.MaxLife);
+            var secondary = boss.Kit[1];
+            var raw = BossKits.AttackFor(conn, variety, level, secondary.Effect, secondary.Attack.SkillId);
+            var hit = boss.Mods.Effects.Hit(raw.Damage);
+            Assert.True(hit.MinTotal > raw.Damage.MinTotal);
+            Assert.Equal(hit[DamageType.Physical], secondary.Attack.Damage[DamageType.Physical]);
+            Assert.Equal(boss.Mods.Effects.AttackSeconds(raw.Seconds), secondary.Attack.Seconds);
+
+            boss.Life /= 2;
+            boss.Mods = boss.Mods with { Effects = boss.Mods.Effects.Plus("damage_+%", 7) }; // Acquired after spawning.
+            var saved = Assert.Single(SavedMonster.Save([boss], 0));
+            conn.PartySize = 1;
+            var restored = conn.Monsters[await Game.RestoreMonster(remote, stream, ciphers, conn, variety, saved, bulk: true)];
+            Assert.Equal(70, restored.Mods.Effects["maximum_life_+%"]);
+            Assert.Equal(37, restored.Mods.Effects["damage_+%"]);
+            Assert.Equal((uint)restored.Mods.Effects.MaxLife(baseLife), restored.MaxLife);
+            Assert.Equal(boss.Life, restored.Life);
+
+            var visitor = Game.Monsters.Find(Game.Packs.BossesFor("MapWorldsCourtyard")[0].ToString())!;
+            var other = conn.Monsters[await Game.SpawnMonster(remote, stream, ciphers, conn, visitor, level, MonsterRarity.Unique, 40, 40, bulk: true)];
+            Assert.Equal(40, other.Mods.Effects["maximum_life_+%"]);
+            Assert.Equal(0, other.Mods.Effects["damage_+%"]);
+            Assert.Equal(13, other.Mods.Effects[MonsterModCatalog.MapHiddenLifeStat]);
+            Assert.Equal((uint)other.Mods.Effects.MaxLife(Game.Monsters.BaseLife(visitor, level)!.Value), other.MaxLife);
+            Assert.Contains(5698, Game.Packs.BossesFor("2_7_5_map")); // Black Death in Act 7's quest map.
+            Assert.Empty(Game.Packs.BossesFor("2_7_5_map", mapsOnly: true));
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            PlayerInventories.Forget(conn.Character!);
+        }
     }
 }
