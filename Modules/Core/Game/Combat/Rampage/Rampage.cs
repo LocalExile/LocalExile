@@ -156,17 +156,33 @@ public static partial class Game
         return value;
     }
 
+    static bool RampageEnabled(IReadOnlyDictionary<uint, int> stats) =>
+        (Stats.Key(RampageSession.Source) is uint meleeKey && stats.GetValueOrDefault(meleeKey) != 0)
+        || (Stats.Key(RampageSession.KillSource) is uint killKey && stats.GetValueOrDefault(killKey) != 0);
+
+    // The streak as the stats allow it (PlayerStatsUpdated): cleared without a source, the movement speed and worker.
+    static void ReconcileRampageSource(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CurrentRampageWork) return;
+            double now = conn.LeavingArea && conn.RampageTransferAt is double frozen ? frozen : ProjectileWorldTime(conn);
+            ReconcileRampage(conn, RampageEnabled(stats), now);
+        }
+    }
+
     static void WithRampage(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
         {
             if (!CurrentRampageWork) return;
-            bool enabled = (Stats.Key(RampageSession.Source) is uint meleeKey && stats.GetValueOrDefault(meleeKey) != 0)
-                || (Stats.Key(RampageSession.KillSource) is uint killKey && stats.GetValueOrDefault(killKey) != 0);
+            if (Stats.Key("max_rampage_stacks") is uint maximumStacks) stats[maximumStacks] = RampageState.MaximumStacks;
+            if (!RampageEnabled(stats) || conn.PlayerLife == 0) return;
             // Pausing holds the game clock; it does not remove a streak.
             double now = conn.LeavingArea && conn.RampageTransferAt is double frozen ? frozen : ProjectileWorldTime(conn);
-            var value = ReconcileRampage(conn, enabled, now);
-            if (value.ExpiresAt is double expires) StatsChangeAt(expires, () => ProjectileWorldTime(conn));
+            var value = conn.Rampage.Current;
+            if (value.ExpiresAt is not double expires || now >= expires) return;
+            StatsChangeAt(expires, () => ProjectileWorldTime(conn));
             void Add(string name, int amount)
             {
                 if (amount != 0 && Stats.Key(name) is uint key)

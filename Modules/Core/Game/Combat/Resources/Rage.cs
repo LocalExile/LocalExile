@@ -18,9 +18,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameWork) return;
-            if (conn.RageRetired || conn.PlayerLife == 0) conn.Rage.Clear();
-            if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state))
-                state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200));
+            if (conn.RageRetired || conn.PlayerLife == 0) return;
             var inputs = RageStats.Inputs(name => RageStat(stats, name));
             // Stat projections must not advance Rage past an unprocessed projectile contact.
             var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);

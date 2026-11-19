@@ -14,8 +14,7 @@ public enum PlayerStatStep : byte
     Pools, Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
     AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
-    ActorScale, IncomingAilments, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, ElementalAilments,
-    TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
+    ActorScale, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
 }
 
 /// <summary>
@@ -213,20 +212,8 @@ public static partial class Game
         Step(PlayerStatStep.MaximumPoolItems, (conn, stats, _) =>
             MaximumPoolItemSources.Apply(stats, Stats, conn.Pools.Life, conn.Pools.Mana));
         Step(PlayerStatStep.ActorScale, (conn, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(conn)));
-        // A conditional source can invalidate a live stack (poison immunity, for example): the stats it changes are built
-        // again from the stacks as they are now.
-        Step(PlayerStatStep.IncomingAilments, (conn, stats, _) =>
-        {
-            bool reconciled;
-            lock (conn.Monsters) reconciled = conn.IncomingAilments.Reconcile(name => GetIn(stats, name));
-            if (reconciled)
-            {
-                EnsureConditionalItemPools(conn);
-                MarkPlayerStats(conn, PlayerStatStep.Sources);
-            }
-        });
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below; the
-        // leech and fortification configuration from these stats; the unmodified recovery baseline.
+        // unmodified recovery baseline.
         Step(PlayerStatStep.Recovery, (conn, stats, outputs) =>
         {
             int Get(string name) => GetIn(stats, name);
@@ -235,9 +222,6 @@ public static partial class Game
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stats.Key("evasion_rating") is uint evasionKey)
                 stats[evasionKey] = PlayerEvasion(conn, statsAt);
-            ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
-            ConfigureLeech(conn, Get, CriticalOnLowLife(conn, stats));
-            ConfigureKillOnslaught(conn, Get);
             WithLeechConditions(conn, stats);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
             // Fortification separately across exact expiry boundaries.
@@ -266,8 +250,6 @@ public static partial class Game
         Step(PlayerStatStep.TailPanels, (conn, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(conn, stats), StatSnapshotStage.Panels));
         Step(PlayerStatStep.Rampage, (conn, stats, _) => WithRampage(conn, stats));
         Step(PlayerStatStep.TailOffence, (conn, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(conn, stats), StatSnapshotStage.Offence));
-        // Derived immunity and action-speed floors are resolved before the final stage reads the ailments.
-        Step(PlayerStatStep.ElementalAilments, (conn, stats, _) => conn.ElementalAilments.Reconcile(name => GetIn(stats, name)));
         Step(PlayerStatStep.TailCritical, (conn, stats, _) =>
         {
             int Get(string name) => GetIn(stats, name);
@@ -293,10 +275,10 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                conn.Ward.Advance(now);
-                if (conn.Ward.Broken) StatsChangeIn(conn.Ward.RestoresAt - now);
+                bool brokenNow = conn.Ward.Broken && now < conn.Ward.RestoresAt;
+                if (brokenNow) StatsChangeIn(conn.Ward.RestoresAt - now);
                 if (Stats.Key("ward") is uint ward) stats[ward] = (int)conn.Ward.Maximum;
-                if (Stats.Key("ward_broken") is uint broken) stats[broken] = conn.Ward.Broken ? 1 : 0;
+                if (Stats.Key("ward_broken") is uint broken) stats[broken] = brokenNow ? 1 : 0;
             }
         });
         for (int i = 0; i < steps.Length; i++)

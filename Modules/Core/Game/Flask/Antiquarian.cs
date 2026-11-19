@@ -16,13 +16,20 @@ public static partial class Game
             int Get(string name) => Stats.Key(name) is uint key
                 ? sources.GetValueOrDefault(key) : 0;
             double now = conn.Clock.Elapsed.TotalSeconds;
-            conn.Antiquarian.Observe(now, Get(AntiquarianEffects.AdrenalineSource) > 0,
-                Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);
-            if (conn.Antiquarian.Adrenaline(now))
+            if (Get(AntiquarianEffects.AdrenalineSource) > 0 && conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(now))
                 foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
                     sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
             return sources;
         }
+    }
+
+    // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
+    static void ObserveAntiquarian(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        lock (conn.Monsters)
+            conn.Antiquarian.Observe(conn.Clock.Elapsed.TotalSeconds, Get(AntiquarianEffects.AdrenalineSource) > 0,
+                Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);
     }
 
     public static void EnsureAntiquarianPools(ClientState conn)

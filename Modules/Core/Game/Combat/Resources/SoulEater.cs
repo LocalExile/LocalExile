@@ -50,7 +50,6 @@ public static partial class Game
     public static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         if (!SoulEaterActive(conn, stats)) return 0;
-        conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
         return 5 * SoulEaterStacks(conn);
     }
 
@@ -64,7 +63,8 @@ public static partial class Game
         return stacks;
     }
 
-    public static void WithSoulEater(ClientState conn, StatMap stats)
+    // The sources as the stats give them (PlayerStatsUpdated): which ones feed souls, and the maximum.
+    static void ConfigureSoulEater(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         bool flask = SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
         int hitCooldown = SoulEaterHitCooldownMs(stats);
@@ -75,9 +75,14 @@ public static partial class Game
         conn.SoulEater.HitCooldownSeconds = hitCooldown / 1000.0;
         if (!active) { conn.SoulEater.Clear(); return; }
         conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
+    }
+
+    public static void WithSoulEater(ClientState conn, StatMap stats)
+    {
+        if (!SoulEaterActive(conn, stats)) return;
         // The buff's ShowCount reads this virtual: the base maximum plus the Soul Ascension gloves' increase.
         if (Stats.Key("virtual_soul_eater_maximum_stacks") is uint maximumKey)
-            stats[maximumKey] = conn.SoulEater.Limit;
+            stats[maximumKey] = SoulEaterMaximum(stats);
         int stacks = SoulEaterStacks(conn);
         if (stacks <= 0) return;
         void Add(string name, int amount)

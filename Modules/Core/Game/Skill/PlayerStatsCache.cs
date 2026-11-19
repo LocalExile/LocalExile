@@ -36,6 +36,8 @@ public static partial class Game
         public PlayerStatChange? Publish;
         // The graph's values changed: the stats (and the skills that follow them) go to the client.
         public bool PublishValues;
+        // The values or a condition changed: PlayerStatsUpdated runs after the step.
+        public volatile bool Updated;
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
         // Game_TRACE=budget: the runs of each step in the window.
@@ -121,9 +123,8 @@ public static partial class Game
         readers[(int)PlayerStatChange.Minions] = [PlayerStatStep.Sources, PlayerStatStep.Golems, PlayerStatStep.Offerings];
         readers[(int)PlayerStatChange.Leech] =
             [PlayerStatStep.Sources, PlayerStatStep.AttackSpeed, PlayerStatStep.Recovery, PlayerStatStep.LeechingDefences];
-        readers[(int)PlayerStatChange.ElementalAilments] =
-            [PlayerStatStep.Sources, PlayerStatStep.ElementalAilments, PlayerStatStep.TailCritical];
-        readers[(int)PlayerStatChange.IncomingAilments] = [PlayerStatStep.Sources, PlayerStatStep.IncomingAilments];
+        readers[(int)PlayerStatChange.ElementalAilments] = [PlayerStatStep.Sources, PlayerStatStep.TailCritical];
+        readers[(int)PlayerStatChange.IncomingAilments] = [PlayerStatStep.Sources];
         readers[(int)PlayerStatChange.God] = [PlayerStatStep.Sources, PlayerStatStep.God];
         readers[(int)PlayerStatChange.Panel] = [];
         return readers;
@@ -201,6 +202,7 @@ public static partial class Game
             | (PetrifiedBloodCapped(conn, stats) ? 64L : 0)
             | (conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds) ? 128L : 0);
         if (Interlocked.Exchange(ref frame.Conditions, conditions) == conditions) return;
+        frame.Updated = true;
         foreach (var step in ConditionReaders) graph.MarkRule((int)step);
     }
 
@@ -245,6 +247,11 @@ public static partial class Game
         try { built = graph.Step(); }
         finally { runningFrame = null; }
         if (frame.Conditions < 0 || built) CheckConditions(conn, frame, graph);
+        if (built || frame.Updated)
+        {
+            frame.Updated = false;
+            PlayerStatsUpdated(conn, graph.Values);
+        }
         if (VerifyFrameStats) VerifyFrame(conn, frame);
         frame.ByFrame = true;
         if (built) frame.Builds++;
