@@ -5,6 +5,74 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class LabyrinthLayoutTests
 {
+    [Fact]
+    public void CruelAdmissionRequiresLevelNormalCompletionAndThreeTrials()
+    {
+        var plaza = new AreaLayout(0, LabyrinthDay.Plaza, 100, 100, 10, 10, null, []);
+        var player = new ClientState(plaza, 0, 0);
+        var trials = LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2)
+            .OrderBy(t => t.Area, StringComparer.Ordinal).ToArray();
+        Assert.Equal(["2_6_7_1", "2_7_4", "2_7_5_2"], trials.Select(t => t.Area));
+        player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 39);
+        player.QuestFlags.UnionWith(["LabyrinthComplete1", trials[0].Flag]);
+        player.LeagueQuestFlags.UnionWith(trials.Skip(1).Select(t => t.LeagueFlag));
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
+
+        player.Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40);
+        player.QuestFlags.Remove("LabyrinthComplete1");
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
+        player.QuestFlags.Add("LabyrinthComplete1");
+        player.LeagueQuestFlags.Remove(trials[2].LeagueFlag);
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 2));
+        player.LeagueQuestFlags.Add(trials[2].LeagueFlag);
+        Assert.Null(Game.LabyrinthAdmissionFailure(player, 2));
+        Assert.NotNull(Game.LabyrinthAdmissionFailure(player, 3));
+    }
+
+    [GameFilesFact]
+    public void PlazaEntryStartsEachPlayersSelectedDayAndDifficulty()
+    {
+        const uint day = 20764;
+        const uint portalId = AreaTransitionCatalog.FirstId;
+        var portal = new GameServer.Core.Protocol.Instance.AreaTransitionObject(20, 20, 0)
+        { SourceType = LabyrinthDay.Entrance };
+        var plaza = new AreaLayout(0, LabyrinthDay.Plaza, 100, 100, 10, 10, null, [(portalId, portal)]);
+        var normal = new ClientState(plaza, 1, 0);
+        var cruel = new ClientState(plaza, 2, 0) { Pools = CharacterStats.For(Program.Skills.ClassFor(0), 40) };
+        normal.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 1).Select(t => t.Flag));
+        cruel.QuestFlags.Add("LabyrinthComplete1");
+        cruel.QuestFlags.UnionWith(LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == 2).Select(t => t.Flag));
+
+        Assert.False(Game.ClientHasQuestFlag(normal, LabyrinthDay.PlazaDoorOpen));
+        Assert.False(Game.TransitionShown(normal, portalId, portal));
+        Assert.Null(Game.OpenLabyrinthEntrance(cruel, 2, day));
+        Assert.False(Game.ClientHasQuestFlag(normal, LabyrinthDay.PlazaDoorOpen));
+        Assert.Null(Game.OpenLabyrinthEntrance(normal, 1, day));
+        Assert.NotNull(Game.OpenLabyrinthEntrance(cruel, 1, day + 1));
+        Assert.Equal(0, portal.DestinationHash16);
+
+        foreach (var (player, tier) in new[] { (normal, 1), (cruel, 2) })
+        {
+            string character = $"Labyrinth entry test {tier}";
+            var transition = Assert.Single(player.Layout.AreaTransitions).Transition;
+            var entry = Assert.IsType<LabyrinthDay.Entry>(player.LabyrinthEntry);
+            var layout = LabyrinthDay.For(day, tier);
+            var area = Assert.IsType<string>(layout.Areas[0]);
+            Assert.Equal(AreaTransitionCatalog.HashOf(area), transition.DestinationHash16);
+            Assert.True(Game.ClientHasQuestFlag(player, LabyrinthDay.PlazaDoorOpen));
+            Assert.True(Game.TransitionShown(player, portalId, transition));
+            Assert.False(Game.TransitionShown(player, portalId, portal));
+            Assert.Null(LabyrinthDay.Transfer(character, plaza.Id, 0, portal.SourceType, transition.DestinationHash16, area));
+            var transfer = Assert.IsType<PendingTransfer>(LabyrinthDay.Transfer(character, plaza.Id, 0, portal.SourceType,
+                transition.DestinationHash16, area, entry: entry));
+            Assert.True(transfer.New);
+            Assert.Equal(transition.DestinationHash16, transfer.Area);
+            Assert.Equal(new LabyrinthNodeKey(day, layout.Layout.Nodes[0].Row, tier), LabyrinthDay.NodeFor(area, transfer.Seed));
+            Assert.NotNull(LabyrinthDay.Enter(character, area, transfer.Seed));
+            Assert.Null(LabyrinthDay.Enter(character, plaza.Id, 0));
+        }
+    }
+
     // The client's own layout for seed 0, Normal (scripts/re/frida/lab-layout.py): its rooms, connections (-1: out) and
     // secrets with their numbers; the port matched all 168 dumped (42 seeds × 4 tiers, lg.ps1 lablayout).
     [GameFilesFact]
