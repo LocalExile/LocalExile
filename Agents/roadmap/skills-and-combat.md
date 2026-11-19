@@ -15,6 +15,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Fortification extensions:** other conditional sources, permanent grants and monster ailment thresholds.
   See [Fortification](../docs/game/fortification.md).
 - **Aura caster art:** confirm the received buff's top-left icon live; radius-scaled aura rings need their radius.
+- **Ordinary Ice Shot:** verify the cone's damage aperture and contact boundaries, including successive pierced
+  targets, before implementing the fully cold area hit. Check the three impact art tiers in an isolated client
+  with quality and helmet changes. [#925](https://github.com/LocalExile/LocalExile/issues/925)
 - **Spark start cell:** the server flies each spark on the client's wander but from the server's walk position, so a
   drawn spark can still hit with no damage.
   Start: trace the client's start cell and each leg's start time per frame (`scripts/re/frida/trace-spark-legs.js`)

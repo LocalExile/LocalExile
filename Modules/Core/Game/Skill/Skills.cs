@@ -748,6 +748,13 @@ public static partial class Game
             // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
             // came with the player's stats.
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+            // Ice Shot's impact art reads the combined angle. Quality supplies it directly and the helmet supplies
+            // the Ice Shot input mapped to it by ActiveSkills.ice_shot.
+            if (SkillsFor(conn).EffectId(effect) == "IceShot" && Get("ice_shot_area_angle_+%") is int iceAngle and not 0)
+            {
+                uint angle = Stats.Key("skill_area_angle_+%")!.Value;
+                stats[angle] = stats.GetValueOrDefault(angle) + iceAngle;
+            }
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
             if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stats.Key("spell_repeat_count") is uint repeatKey)
                 stats[repeatKey] = repeats;

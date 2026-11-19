@@ -97,7 +97,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
   Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
   Desperation's life loss, the debuff in Survivors.
-- Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
+- Ordinary Ice Shot's primary arrows (`IceArrow`) hit. The skill record combines gem quality and helmet cone angle,
+  and scales the 24-cell impact radius with Ice Shot's increased area. Cone damage and native rendering remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.

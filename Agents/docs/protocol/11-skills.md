@@ -2500,7 +2500,18 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   These observations establish projectile and impact behavior; the later captures above verify variant selection.
 - **Rows the name rules miss** (`SkillCatalog.ProjectileFallbacks`): Tornado Shot fires `TornadoShotArrow`, Split
   Arrow `SplitArrowDefault`, Kinetic Bolt `ZigZagWandProjectile` and Ice Shot `IceArrow`; before, every use was
-  refused and the server walked on while the client stopped. Ice Shot's cone splash is not modelled.
+  refused and the server walked on while the client stopped.
+- **Ordinary Ice Shot impact.** The primary arrow converts 60% of physical damage to cold. The gem describes
+  a separate fully converted cone behind the struck target. The cone excludes the object actually struck, even
+  when the player aimed at another monster beyond it. [GGG's explanation](https://www.pathofexile.com/forum/view-thread/1110694/page/1#p9378267)
+  The 3.29.3c Ice Shot action takes the impact cell from the struck object when present and orients the effect
+  from the start of the current projectile leg. Its impact reader (`0x141332e40`) selects one of three art rows
+  from `skill_area_angle_+%`: up to 15, 16–45, or above 45. Gem quality supplies four points per quality.
+  `ActiveSkills.ice_shot` maps the helmet's `ice_shot_area_angle_+%` to the same stat and `ice_shot_radius_+%`
+  to increased area. The latter scales the base radius of 24 through the usual area formula. On the local Gateway,
+  a quality-4 gem with the 30% angle enchant publishes 46, and the 24% area enchant alone publishes radius 26.
+  The three art tiers establish visual selection. The damage aperture, edge admission, overlaps on piercing
+  contacts and live rendering remain open in [#925](https://github.com/LocalExile/LocalExile/issues/925).
 - **Lightning Arrow**: each hit calls secondary strikes on up to 3 nearby enemies within 18 cells (`ContactTargets`,
   `lightning_arrow_maximum_number_of_extra_targets`), scaled by area of effect.
 - **Rolling Magma**: its base radius 14 and the 16 cells between impacts are estimates, not read from the client; its
