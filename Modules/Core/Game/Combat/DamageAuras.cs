@@ -43,7 +43,7 @@ public static partial class Game
         {
             Follows = new EntityId(conn.PeerId),
             Radius = aura.Radius,
-            Reach = id => conn.Monsters.GetValueOrDefault(id.Value) is { Dead: false, Life: > 0, Hostile: true } m ? m.StopRange : null,
+            Reach = ReachesHostileMonsters(conn),
             Entered = id =>
             {
                 if (!aura.Running() || aura.Marks.ContainsKey(id.Value) || conn.Monsters.GetValueOrDefault(id.Value) is not { } m) return;
