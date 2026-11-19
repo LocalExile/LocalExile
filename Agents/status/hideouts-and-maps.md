@@ -190,7 +190,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Niko and Kirac in the hideout (verified live, 2026-10-21):** Niko to Nessa's right, Kirac to her left.
   Faustus uses his native hideout NPC alongside them in every template, with the existing dialogue and saved editor placement.
   Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);
-  Purchase Items sells maps. Kirac records the Elder, Elderslayers and Zana conversations when chosen.
+  Purchase Items sells maps. Kirac marks a conversation heard when chosen (NPCTalk column 15 league flags), which opens his next ones.
   Niko's Delve options need quest flag ThisIsMyHideout (sent in hideouts and the Mine Encampment) and league quest
   flag 68 DelveEncounterComplete (every character): NPCTalk columns 15-18 are league quest flag ids.
   See [21](../docs/protocol/21-hideouts.md).

@@ -134,10 +134,10 @@ public sealed class AtlasModule : IModule
         // with no item. Hand the matching MavenFights invitation into the bag first; the empty FinishNPCChat still closes.
         GameEvents.NpcOptionPicked.Add(module.Manifest.Id, async (conn, talk) =>
         {
-            if (AtlasFeature.KiracConversationFlag(talk.Row) is { } heard && !conn.HasQuestFlag(heard))
+            if (AtlasFeature.KiracHeardFlags(conn, talk) is { Count: > 0 } heard)
             {
                 var (remote, stream, ciphers) = conn.Wire;
-                await SetQuestFlags(remote, stream, ciphers, conn, [heard]);
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, heard);
             }
             await AtlasFeature.GiveMavenInvitation(conn, talk.Script);
             return true;
@@ -193,14 +193,13 @@ static class AtlasFeature
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // The base Kirac rows are also used by the hideout speaker. These dialogues have no flag in NPCTalk.
-    internal static string? KiracConversationFlag(int row) => row switch
+    // Kirac's rows (NPCs.dat 410, also the hideout Kirac's) mark their conversation heard with league quest flags
+    // (NPCTalk column 15), which open his next ones. Reward rows are left to their reward offer.
+    internal static List<int> KiracHeardFlags(ClientState conn, NpcCatalog.Talk talk)
     {
-        2282 => "KiracOnTheElderSeen",
-        2283 => "KiracOnTheElderslayersSeen",
-        2286 => "KiracOnZanaCaeseriusSeen",
-        _ => null,
-    };
+        if (talk.Npc != 410 || talk.RewardOffer is not null) return [];
+        lock (conn.Monsters) return [.. talk.HeardLeagueFlags.Where(f => !conn.LeagueQuestFlags.Contains(f))];
+    }
 
     internal static async Task<int> EnsureUnlocked(ClientState conn)
     {
