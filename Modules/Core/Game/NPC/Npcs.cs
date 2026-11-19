@@ -219,7 +219,10 @@ public static partial class Game
         var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
             .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), RollsFor(conn))))
-            .Where(c => c.Item is not null).ToArray();
+            .Where(c => c.Item is not null)
+            .Select(c => ItemsFor(conn).ByHash(c.Item!.TypeHash) is { } type
+                ? (c.Choice, Item: (Item?)GameEvents.ResolveRewardItem(conn, offer, c.Item!, type)) : c)
+            .ToArray();
         if (rewardCatalog.Find(offer) is not { } rewardOffer) return false;
         // An offer none of whose choices can be built yet (unique gear, jewels) still counts as taken, so its quest completes
         // (campaign-quests.md E10): its taken flag is set without an item, and the options come back.

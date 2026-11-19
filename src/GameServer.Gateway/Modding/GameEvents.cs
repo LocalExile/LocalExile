@@ -379,6 +379,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, bool>> LootAllowed = new();
     /// <summary>True when an optional system handled closing the native reward dialogue.</summary>
     public static readonly GameEvent<Func<ClientState, Task<bool>>> RewardClosing = new();
+    /// <summary>A quest reward choice the server built for this QuestRewardOffers row; a module completes its league's
+    /// item parts. Return the item unchanged for no opinion; the first answer that changes it wins.</summary>
+    public static readonly GameEvent<Func<ClientState, int, Item, ItemCatalog.BaseType, Item>> RewardItem = new();
     /// <summary>A league encounter may refuse unrelated travel while its gate is closed.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, string?>> TravelRefusal = new();
     /// <summary>The Auth transfer answer, after failed-transfer recovery and before a successful ticket is sent.</summary>
@@ -404,6 +407,17 @@ public static class GameEvents
     {
         foreach (var run in RewardClosing.For(conn)) if (await run(conn)) return true;
         return false;
+    }
+
+    public static Item ResolveRewardItem(ClientState conn, int offer, Item item, ItemCatalog.BaseType type)
+    {
+        foreach (var (owner, run) in RewardItem.Subscribers(conn))
+        {
+            Item answer = item;
+            GameEventOwners.Guard(owner, nameof(RewardItem), () => answer = run(conn, offer, item, type));
+            if (answer != item) return answer;
+        }
+        return item;
     }
 
     public static async Task RunResurrected(ClientState conn)
