@@ -284,13 +284,16 @@ public static partial class Game
                     var point = PlacedThrowPoint(aim, count, circle, Random.Shared);
                     if (!conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
                     uint id = conn.TakeObjectId();
-                    // The object's trap_throw_arm_time_override is the length of the client's own throw arc, so the arc
-                    // and the glide below end together.
-                    double flight = flightOverride > 0 ? flightOverride : PlacedFlightSeconds(from, point, admission.Mine);
+                    // The object's trap_throw_arm_time_override is the length the client plays its whole throw_arm clip in:
+                    // the flight is the part before the clip's hit_ground, so the glide below ends as the clip lands, and
+                    // the object is armed when the clip ends.
+                    double share = PlacedFlightShare(admission.Mine);
+                    double throwArm = flightOverride > 0 ? flightOverride : PlacedFlightSeconds(from, point, admission.Mine) / share;
+                    double flight = throwArm * share;
                     List<(uint, int)> thrownStats = Stats.Key("trap_throw_arm_time_override") is uint armTime
-                        ? [.. stats, (armTime, (int)Math.Round(flight * 1000))] : stats;
+                        ? [.. stats, (armTime, (int)Math.Round(throwArm * 1000))] : stats;
                     double land = now + flight;
-                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + .5,
+                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, now + throwArm,
                         land + Math.Max(0, Get(admission.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : admission.Mine ? 5 : 4)
                             * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
@@ -433,27 +436,31 @@ public static partial class Game
     {
         if (placed.Landed || now < placed.LandAt) return;
         placed.Landed = true;
+        // No Arm: BeThrown's clip is the throw and the arming in one (the .act's Emerge: throw_arm), and goes on after
+        // the landing by itself. Arm is the placed-in-place clip (LayTrap: a trap's "place", a mine's "re_arm").
         bytes.World(placed.Id, InstanceProtocol.Teleport(placed.Id, placed.At.X, placed.At.Y));
-        if (SkillsFor(conn).ActionSkillId("Arm") is ushort arm)
-            bytes.World(placed.Id, PlacedActionNow(placed.Id, placed.At, placed.At, arm));
     }
 
-    // A trap's or mine's own action (BeThrown, Arm) with its 0x1ac in the same packet: a server-created action waits
-    // for that 0x1ac before it plays (11 section 6). BeThrown's was sent only at the landing, so the object slid to its
+    // A trap's or mine's own action (BeThrown) with its 0x1ac in the same packet: a server-created action waits for
+    // that 0x1ac before it plays (11 section 6). BeThrown's was sent only at the landing, so the object slid to its
     // place in its armed, translucent look and the throw never showed (live 2026-11-19).
     static byte[] PlacedActionNow(uint id, (int X, int Y) at, (int X, int Y) to, ushort skill) =>
         [.. InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, skill, 0xffff, 0x0408), .. InstanceProtocol.ActionEnded(id)];
 
     /// <summary>How long a thrown trap or mine is in the air. Measured on the official client at 30 frames a second
-    /// (2026-11-19, no throwing speed): a trap lands in 0.15 s at the thrower's feet, 0.25 s at 12 cells, 0.4 s at 29 and
-    /// 0.43 s at 32; a mine in 0.13 s at 25 cells and 0.18 s at 46. The cells are the screen distance at 9.1 pixels a
-    /// cell (a throw of this server's measured the same way), so the fit is approximate. A trap's is never longer than
-    /// its rig's "throw" clip (trap_02/trap_trigger/rig.amd: 466 ms), which the longest measured throws came to.</summary>
+    /// (2026-11-19, no throwing speed): a trap lands in 0.15 s at the thrower's feet, 0.25 s at 12 cells and 0.4 to 0.43 s
+    /// from 29 cells on; a mine in 0.13 s at 25 cells and 0.18 s at 46. The cells are the screen distance at 9.1 pixels a
+    /// cell, so the fit is approximate. The longest is the clip's own flight at its natural speed (0.4 s to hit_ground).</summary>
     public static double PlacedFlightSeconds((int X, int Y) from, (int X, int Y) to, bool mine) =>
-        mine ? Math.Min(.07 + Dist(from, to) / 400, .6) : Math.Min(.15 + Dist(from, to) / 110, .466);
+        Math.Min(mine ? .07 + Dist(from, to) / 400 : .15 + Dist(from, to) / 110, .4);
 
-    /// <summary>The client starts a thrown object's glide a little after the server does, so the landing's Arm is sent this
-    /// much after the flight: sent on time, a mine's arming pulse was drawn part-way along its path (live 2026-11-19).</summary>
+    /// <summary>The part of the throw_arm clip before its hit_ground event (0.4 s in both rigs): of a trap's 0.833 s
+    /// (trap_02/trap_trigger/rig.amd; shadOff, the armed look, at 0.645 s) and of a mine's 1.233 s (landmine_new/rig.amd,
+    /// whose aura starts at hit_ground). Other skins' rigs are taken to keep these times.</summary>
+    public static double PlacedFlightShare(bool mine) => mine ? .4 / 1.233 : .4 / .833;
+
+    /// <summary>The client starts a thrown object's glide a little after the server does, so the landing is sent this much
+    /// after the flight.</summary>
     public const double PlacedLandingDelay = .07;
 
     // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
