@@ -208,7 +208,11 @@ no null check). Sent on The Sovereign or The Twilight Strand, the client closed 
 encounter areas (WorldAreas `TerrainPlugin` DeepwaterPlugin: DeepwaterEncounter, DeepwaterEncounterVoyage) always have
 the plugin at world `+0xe0`, with or without the server's state (§1, extra data), so the Allflame module sends row 171
 there only, after 0x7d; the client keeps it there (3.29.3d, 2026-11-18). Whether the real server did is unknown. The Sovereign takes row 172
-DeepwaterHubRules alone (no per-frame code). Row 171's area type 53 checks are for the Sovereign that the plugin adds
+DeepwaterHubRules alone (no per-frame code). The encounter areas take it too, and both get it before 0x21: the in-game
+UI attaches its windows to the area once (`0x140dba5d0`), and the deck's Loot window (0x7b kind 0x6f, shown by
+`0x140dac350` without attaching again) builds its grid over inventory 114 only if row 172 was there then
+(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The capsule window attaches again when
+shown (`0x140425400`), so row 171 after 0x21 is enough for it. Row 171's area type 53 checks are for the Sovereign that the plugin adds
 inside an encounter as a secondary area (`0x141f32870`).
 
 ## Open

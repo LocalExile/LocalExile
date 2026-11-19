@@ -82,20 +82,20 @@ public sealed partial class DeepwaterModule : IModule
         InstanceEvents.AreaStats.Add(id, _ => Stats.Key("map_deepwater_league") is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
         // An encounter area's grid (0x1d extra data), chosen once per instance.
         InstanceEvents.TerrainPluginStates.Add(id, request => DeepwaterGrid.For(request.Area));
-        // The hub's ruleset on the hub; in an encounter area the encounter's and the hub's, before the area's objects. The
-        // deck's Loot window (0x7b kind 0x6f) builds its grid over inventory 114 only when row 172 is in the area
-        // (0x1404244b0 returns early without it), and ClientDeepwaterHub has no per-frame code (03 §8).
-        GameEvents.EnterMessages.Add(id, conn =>
+        // Row 172 DeepwaterHubRules on the hub and in the encounter areas, before 0x21: the in-game UI looks it up once as it
+        // attaches to the area (0x140dba5d0), and the deck's Loot window (0x7b kind 0x6f, shown without attaching again)
+        // builds its grid over inventory 114 only with it (0x1404244b0); sent after 0x21 the window stayed empty (live
+        // 2026-11-19). ClientDeepwaterHub has no per-frame code (03 §8).
+        GameEvents.BeforeEnterMessages.Add(id, conn =>
         {
             string area = PlayerOf(conn).AreaId;
-            var hub = HubRules.Value is { } h ? ($"0x001f ruleset DeepwaterHubRules (row {h})", InstanceProtocol.AddRuleset(h)) : default((string, byte[])?);
-            if (area == HubId) return hub is { } only ? [only] : [];
-            if (!DeepwaterGrid.IsEncounter(area)) return [];
-            var messages = new List<(string, byte[])>();
-            if (DeepwaterRuleset.Row.Value is { } rules) messages.Add(($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules)));
-            if (hub is { } deck) messages.Add(deck);
-            return messages;
+            return (area == HubId || DeepwaterGrid.IsEncounter(area)) && HubRules.Value is { } hub
+                ? [($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub))] : [];
         });
+        // Row 171 DeepwaterRules in an encounter area, after 0x21 and before the area's objects.
+        GameEvents.EnterMessages.Add(id, conn =>
+            DeepwaterGrid.IsEncounter(PlayerOf(conn).AreaId) && DeepwaterRuleset.Row.Value is { } rules
+                ? [($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules))] : []);
         // C→S 0x183: the World panel's Deepwater pin (enabled by the league category, disabled on The Sovereign itself).
         GameEvents.Packet(InstanceWaypoints.VisitDeepwaterHubId).Add(id, async (conn, bytes) =>
         {
