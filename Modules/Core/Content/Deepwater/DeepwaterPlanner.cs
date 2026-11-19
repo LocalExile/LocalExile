@@ -36,6 +36,9 @@ internal static class DeepwaterPlanner
         return new([], 0);
     }
 
+    /// <summary>Saves a plan as it was (a Voyage whose entry failed gets its border back).</summary>
+    public static void Put(ClientState conn, Plan plan) => Save(conn, plan);
+
     static void Save(ClientState conn, Plan plan)
     {
         var mods = ItemsFor(conn).Mods;

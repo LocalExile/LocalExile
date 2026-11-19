@@ -7,7 +7,8 @@ namespace GameServer.Modules.Deepwater;
 
 /// <summary>A Chart or a Voyage started from the deck: its owner, its board (cell y·N + x, y up, cell 0 the start), the
 /// area level, the border modifiers it took, each cell's stats (by client stat key) and the Voyage-wide ones, the chart
-/// waiting in DeepwaterActiveMission (109) for a Chart, and the charts a Voyage took from 104.</summary>
+/// waiting in DeepwaterActiveMission (109) for a Chart, and a Voyage's charts in 104: the ones on its board, and the ones
+/// its entry took (with the planner's border from before that entry, given back if the transfer fails).</summary>
 internal sealed class DeepwaterPlan
 {
     public required bool Voyage { get; init; }
@@ -19,7 +20,11 @@ internal sealed class DeepwaterPlan
     public required IReadOnlyList<Dictionary<uint, int>> CellStats { get; init; }
     public required Dictionary<uint, int> Global { get; init; }
     public uint ChartItem { get; init; }
-    public IReadOnlyList<InventoryItem> Consumed { get; init; } = [];
+    public IReadOnlyList<InventoryItem?> Picked { get; init; } = [];
+    public IReadOnlyList<InventoryItem> Consumed { get; set; } = [];
+    public DeepwaterPlanner.Plan? PreviousBorder { get; set; }
+    /// <summary>The run's end was handled (DeepwaterModule.Finish).</summary>
+    public bool Finished { get; set; }
 
     /// <summary>Stats by client key as stats by name (the Stats Id).</summary>
     public static Dictionary<string, int> Named(IEnumerable<KeyValuePair<uint, int>> stats)
@@ -145,8 +150,8 @@ public sealed partial class DeepwaterModule
 
     /// <summary>Op 0 (Set Forth): u8 n, n × u8 (per board slot y·3 + x the chart's x in 104, 0xff empty). The board is
     /// 2 × 2 before the 3 × 3 board is open (slots 0, 1, 3, 4, or n = 4 in board order) and 3 × 3 after it (G for the 2 × 2
-    /// wire form). The client's validator decides; the level, the consumption (rolled now: each chart leaves 104 unless
-    /// its border mods' keep chance succeeds), the border mods carried into the run and new ones rolled for the next.</summary>
+    /// wire form). The client's validator decides; the level and the border mods carried into the run. The charts stay in
+    /// 104 until the Bathysphere's entry (TakeCharts), so a run that is never entered costs nothing.</summary>
     async Task StartVoyage(IModuleContext module, ClientState conn, byte[] args, bool asked = false)
     {
         var player = PlayerOf(conn);
@@ -184,34 +189,15 @@ public sealed partial class DeepwaterModule
         if (!asked && await AskFirst(module, conn, state, () => StartVoyage(module, conn, args, asked: true))) return;
         var mods = catalog.Mods;
         var border = n == 3 ? DeepwaterPlanner.Current(conn).Border : [];
-        // The consumption, rolled now (G: the wiki's "chance to not consume" with no timing).
-        var consumed = new List<InventoryItem>();
-        var kept = new List<string>();
-        for (int i = 0; i < picked.Length; i++)
-        {
-            int keep = DeepwaterBoardRules.KeepChance(mods, i, n, border);
-            if (keep > 0 && Random.Shared.Next(100) < keep) kept.Add($"cell {i} ({keep}%)");
-            else consumed.Add(picked[i]!);
-        }
-        var removed = new List<uint>();
-        Saves.Atomically(() =>
-        {
-            foreach (var it in consumed)
-                if (items.Remove(DeepwaterLocker.ChartedRow, it.Id) is not null) removed.Add(it.Id);
-        });
-        if (removed.Count > 0) await SendRow(conn, DeepwaterLocker.ChartedRow, removed, [], $"{removed.Count} charts taken by the Voyage");
         var plan = new DeepwaterPlan
         {
             Voyage = true, Owner = player.Character, Size = n, Cells = cells, Border = border,
             Level = DeepwaterBoardRules.Level(cells),
             CellStats = [.. Enumerable.Range(0, cells.Length).Select(i => DeepwaterBoardRules.CellStats(mods, cells, n, i, border))],
             Global = DeepwaterBoardRules.GlobalStats(mods, cells),
-            Consumed = [.. consumed.Where(c => removed.Contains(c.Id))],
+            Picked = picked,
         };
-        // New border modifiers for the next Voyage, and no rerolls made on them.
-        await DeepwaterPlanner.Send(conn, DeepwaterPlanner.Renew(conn));
-        module.Log($"{what}: {n}×{n} at level {plan.Level}, {border.Count} border mods, {removed.Count} charts consumed"
-            + (kept.Count > 0 ? $", kept {string.Join(", ", kept)}" : ""));
+        module.Log($"{what}: {n}×{n} at level {plan.Level}, {border.Count} border mods");
         await Arm(module, conn, state, plan, ItemRarity.Normal);
     }
 
@@ -255,6 +241,9 @@ public sealed partial class DeepwaterModule
         if (state.Armed is not { } run || state.ArmedPlan is not { } plan) return;
         (state.Armed, state.ArmedPlan, state.PortalOpenAt) = (null, null, 0);
         await SetPortalReady(conn, 0);
+        if (plan.Voyage && !await TakeCharts(module, conn, plan)) return;
+        // The Chart's chart is in its run from here: a run left by a crash or a relog loses it (ReturnActive).
+        if (!plan.Voyage) CharacterSaves.ChangeModuleData(plan.Owner, EnteredChartKey, _ => plan.ChartItem.ToString());
         var (remote, stream, ciphers) = conn.Wire;
         module.Log($"{plan.Owner}: Allflame {(plan.Voyage ? "Voyage" : "Chart")} enters {run.Area.Id} at level {plan.Level}");
         var transfer = new PendingTransfer(run.Area.Hash16, 0, New: true)
@@ -265,12 +254,57 @@ public sealed partial class DeepwaterModule
         await ChangeArea(remote, stream, ciphers, conn, transfer, "Allflame Bathysphere");
     }
 
-    /// <summary>A run that did not start: a Chart's chart goes back from 109 to 103, a Voyage's charts back to 104.</summary>
+    /// <summary>Character module data: the id of the chart whose run was entered, until the run ends ("" for none).</summary>
+    const string EnteredChartKey = "deepwater.entered-chart";
+
+    /// <summary>A Voyage's entry: its board's charts must still be in 104 as planned. Each leaves 104 unless its border
+    /// mods' keep chance succeeds (G: rolled at the entry; the wiki's "chance to not consume" gives no timing), and the
+    /// planner gets new border modifiers and no rerolls. False (nothing taken) when a chart moved, turned or left.</summary>
+    async Task<bool> TakeCharts(IModuleContext module, ClientState conn, DeepwaterPlan plan)
+    {
+        var items = ItemsOf(conn);
+        var mods = ItemsFor(conn).Mods;
+        var stored = items.Items(DeepwaterLocker.ChartedRow);
+        if (plan.Picked.OfType<InventoryItem>().FirstOrDefault(p => !stored.Any(s => s.Id == p.Id && s.Item.Chart == p.Item.Chart)) is { } gone)
+        {
+            module.Log($"{plan.Owner}: the Voyage is not entered (chart {gone.Id} moved, turned or left the charted inventory)");
+            return false;
+        }
+        var consumed = new List<InventoryItem>();
+        var kept = new List<string>();
+        for (int i = 0; i < plan.Picked.Count; i++)
+        {
+            if (plan.Picked[i] is not { } chart) continue;
+            int keep = DeepwaterBoardRules.KeepChance(mods, i, plan.Size, plan.Border);
+            if (keep > 0 && Random.Shared.Next(100) < keep) kept.Add($"cell {i} ({keep}%)");
+            else consumed.Add(chart);
+        }
+        var removed = new List<uint>();
+        Saves.Atomically(() =>
+        {
+            foreach (var it in consumed)
+                if (items.Remove(DeepwaterLocker.ChartedRow, it.Id) is not null) removed.Add(it.Id);
+        });
+        plan.Consumed = [.. consumed.Where(c => removed.Contains(c.Id))];
+        if (removed.Count > 0) await SendRow(conn, DeepwaterLocker.ChartedRow, removed, [], $"{removed.Count} charts taken by the Voyage");
+        // New border modifiers for the next Voyage, and no rerolls made on them.
+        if (plan.Size == 3)
+        {
+            plan.PreviousBorder = DeepwaterPlanner.Current(conn);
+            await DeepwaterPlanner.Send(conn, DeepwaterPlanner.Renew(conn));
+        }
+        module.Log($"{plan.Owner}: the Voyage takes {removed.Count} charts" + (kept.Count > 0 ? $", kept {string.Join(", ", kept)}" : ""));
+        return true;
+    }
+
+    /// <summary>A run that did not start: a Chart's chart goes back from 109 to 103, a Voyage's charts back to 104 with the
+    /// border it had.</summary>
     async Task Restore(IModuleContext module, ClientState conn, DeepwaterPlan plan, string reason)
     {
         var items = ItemsOf(conn);
         if (!plan.Voyage)
         {
+            CharacterSaves.ChangeModuleData(plan.Owner, EnteredChartKey, _ => "");
             if (!conn.Closed && conn.HasQuestFlag(DeepwaterConstants.EnterTheChart))
             {
                 var (remote, stream, ciphers) = conn.Wire;
@@ -291,16 +325,37 @@ public sealed partial class DeepwaterModule
         });
         module.Log($"{plan.Owner}: the Voyage did not start ({reason}); {back.Count}/{plan.Consumed.Count} charts back in the charted inventory");
         if (back.Count > 0 && !conn.Closed) await SendRow(conn, DeepwaterLocker.ChartedRow, [], back, "the Voyage's charts back");
+        if (plan.PreviousBorder is { } previous)
+        {
+            DeepwaterPlanner.Put(conn, previous);
+            if (!conn.Closed) await DeepwaterPlanner.Send(conn, previous);
+        }
     }
 
-    /// <summary>The chart in 109 goes back to 103 (or the main inventory when 103 is taken): a run that did not start, or
-    /// one left behind by a crash or a relog (G).</summary>
+    /// <summary>The chart in 109 goes back to 103 (or the main inventory when 103 is taken) when its run never started
+    /// (G). One whose run was entered and left by a crash, a relog or a death is lost, as a failed Chart (the research's
+    /// "Failure → lost"), and counts as the tutorial's failed first Chart.</summary>
     async Task ReturnActive(IModuleContext module, ClientState conn, string reason)
     {
         var items = ItemsOf(conn);
         var left = items.Items(DeepwaterLocker.ActiveRow).ToList();
+        string me = CharacterName(conn);
+        string entered = CharacterSaves.ModuleData(me, EnteredChartKey) ?? "";
         foreach (var it in left)
         {
+            if (entered == it.Id.ToString())
+            {
+                // Its run has not ended yet (the player relogged while it goes on, or rides up without a deck): it decides.
+                if (RunningChart(me, it.Id)) continue;
+                CharacterSaves.ChangeModuleData(me, EnteredChartKey, _ => "");
+                if (items.Remove(DeepwaterLocker.ActiveRow, it.Id) is null) continue;
+                module.Log($"{CharacterName(conn)}: the active chart {it.Id}'s run was left unfinished; the chart is lost (G)");
+                bool live = !conn.Closed && !conn.LeavingArea;
+                if (!HasLeagueFlag(conn, DeepwaterConstants.FirstChartLeagueFlag))
+                    await SetTutorialFlags(module, conn, live, DeepwaterConstants.FailedFirstChartLeagueFlag);
+                if (live) await SendRow(conn, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id} (the chart is lost)");
+                continue;
+            }
             InventoryItem? placed = null;
             byte row = DeepwaterLocker.UnchartedRow;
             Saves.Atomically(() =>
@@ -317,11 +372,22 @@ public sealed partial class DeepwaterModule
         }
     }
 
+    /// <summary>A Chart run of this owner and chart whose end is not handled yet.</summary>
+    bool RunningChart(string owner, uint chart)
+    {
+        lock (_runs)
+            foreach (var (_, run) in _runs)
+                if (run.Plan is { Voyage: false, Finished: false } p && p.ChartItem == chart && p.Owner.Equals(owner, StringComparison.OrdinalIgnoreCase))
+                    return true;
+        return false;
+    }
+
     /// <summary>A planned run's end: a Chart's success charts its chart (109 → 104 with a rolled implicit), its failure
-    /// loses it (G); a Voyage took its charts at the start. The owner must be among the players it ended for; otherwise
-    /// the chart waits in 109 and goes back to 103 at the next entry.</summary>
+    /// loses it (G); a Voyage took its charts at its entry. The owner must be among the players it ended for; otherwise
+    /// the chart waits in 109 and is lost at the owner's next entry (ReturnActive).</summary>
     async Task Finish(IModuleContext module, DeepwaterPlan plan, IReadOnlyList<ClientState> members, bool success)
     {
+        plan.Finished = true;
         var owner = members.FirstOrDefault(m => CharacterName(m).Equals(plan.Owner, StringComparison.OrdinalIgnoreCase));
         if (owner is null)
         {
@@ -331,6 +397,7 @@ public sealed partial class DeepwaterModule
         }
         var items = ItemsOf(owner);
         bool live = !owner.Closed && !owner.LeavingArea;
+        if (!plan.Voyage) CharacterSaves.ChangeModuleData(plan.Owner, EnteredChartKey, v => v == plan.ChartItem.ToString() ? "" : null);
         if (plan.Voyage)
         {
             // The Maiden Voyage's end: the first Voyage that succeeded completes it and opens the 3 × 3 board (G: the trigger).
