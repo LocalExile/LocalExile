@@ -118,10 +118,10 @@ public static partial class Game
                 var player = CharacterPlayerStats(conn);
                 int milliseconds = Math.Max(SkillsFor(conn).CooldownMs(gem.Effect, gem.Level),
                     SkillsFor(conn).CooldownMs(support.Gem.Effect, support.Gem.Level));
-                double rate = Math.Max(0, 1 + ((Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey
+                double rate = Math.Max(0, 1 + ((Stat.VirtualCooldownSpeedPlusPct is var recoveryKey
                     ? player.GetValueOrDefault(recoveryKey) : 0)
-                    + (Stats.Key("base_cooldown_speed_+%") is uint baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
-                    + (Stats.Key("virtual_cooldown_speed_+%") is uint ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
+                    + (Stat.BaseCooldownSpeedPlusPct is var baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
+                    + (Stat.VirtualCooldownSpeedPlusPct is var ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
                 bool Current() => state.Epoch == conn.ProjectileEpoch && CurrentGameRules
                     && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !conn.Paused
                     && conn.PlayerLife > 0 && !conn.LeavingArea && conn.PendingTransfer is null

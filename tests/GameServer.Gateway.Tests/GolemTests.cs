@@ -39,13 +39,13 @@ public sealed class GolemTests
         }
         // One-row monster spells must use actor level, not leave the row's level-3 values in a level-70 golem.
         var low = catalog.Skill(skills, 5025, 34); var high = catalog.Skill(skills, 5025, 70);
-        uint cold = Program.Stats.Key("spell_minimum_base_cold_damage")!.Value;
+        uint cold = Stat.SpellMinimumBaseColdDamage;
         Assert.True(high.Stats[cold] > low.Stats[cold] * 3);
         var cone = catalog.Skill(skills, 5056, 34);
         Assert.Equal(1, cone.Level);
-        Assert.Equal(133, cone.Stats[Program.Stats.Key("spell_minimum_base_fire_damage")!.Value]);
+        Assert.Equal(133, cone.Stats[Stat.SpellMinimumBaseFireDamage]);
         Assert.Equal(20, catalog.Skill(skills, 5056, 70).Level);
-        Assert.Equal(522, catalog.Skill(skills, 4336, 3).Stats[Program.Stats.Key("base_chaos_damage_to_deal_per_minute")!.Value]);
+        Assert.Equal(522, catalog.Skill(skills, 4336, 3).Stats[Stat.BaseChaosDamageToDealPerMinute]);
         var flame = catalog.Find("SummonFlameGolem")!;
         var minion = new GolemState.Golem(1, null!, flame, 1);
         var varietyFlame = monsters.Find(flame.Variety)!;
@@ -120,7 +120,7 @@ public sealed class GolemTests
         Assert.Equal(200u, replacementPool.Current);
         // Recovery buffs have conditional fields absent from ordinary golem buff packets.
         var safeguarding = new GolemState.Golem(0x4000000, null!, catalog.Find("SummonStoneGolemAltY")!, 1);
-        safeguarding.OwnerBuff[Program.Stats.Key("melee_damage_removed_from_stone_golem_before_life_or_es_%")!.Value] = 18;
+        safeguarding.OwnerBuff[Stat.MeleeDamageRemovedFromStoneGolemBeforeLifeOrEsPct] = 18;
         byte[] guard = Game.GolemOwnerBuffPacket(7, 592, safeguarding);
         Assert.Equal(33, guard.Length);
         Assert.Equal(new byte[] { 0, 0, 0, 0, 0, 18, 0, 0, 0, 0 }, guard[23..]);

@@ -63,8 +63,8 @@ public sealed class MapInstanceTests
                 new Dictionary<uint, int> { [1] = 7 }));
             Assert.Equal(seedB, ServerLevels.PlayableSeed("MapRuleIsolationTest", 12345, 70, areaRule));
 
-            uint life = Program.Stats.Key("map_monsters_life_+%")!.Value;
-            uint effect = Program.Stats.Key("map_mod_effect_+%_for_non_unique_maps")!.Value;
+            uint life = Stat.MapMonstersLifePlusPct;
+            uint effect = Stat.MapModEffectPlusPctForNonUniqueMaps;
             var explicitStats = new Dictionary<string, int> { ["map_monsters_life_+%"] = 40 };
             var atlas = new Dictionary<uint, int> { [effect] = 50 };
             var unique = new MapMods(explicitStats) { MapRarity = GameServer.Core.Protocol.Instance.ItemRarity.Unique,

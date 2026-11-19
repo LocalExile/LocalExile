@@ -150,12 +150,12 @@ public static partial class Game
                 if (Stats.Key(stat) is uint key) stats[key] = value;
             // Petrified Blood: the client's Life step reads life_recovery_per_minute, not the display total, and it
             // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
-            if (inputs.PetrifiedBloodRecoveryCapped && Stats.Key("life_recovery_per_minute") is uint lifeRecovery)
+            if (inputs.PetrifiedBloodRecoveryCapped && Stat.LifeRecoveryPerMinute is var lifeRecovery)
                 stats[lifeRecovery] = 0;
             // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
-                && Stats.Key("attack_damage_+%") is uint attackDamage)
+                && Stat.AttackDamagePlusPct is var attackDamage)
                 stats[attackDamage] = ArmourAttackDamage.Total(Get("attack_damage_+%"),
                     Get("physical_damage_reduction_rating"), Get(ArmourAttackDamage.Per450Armour),
                     Get("evasion_rating"), Get(ArmourAttackDamage.Per450Evasion));
@@ -164,9 +164,9 @@ public static partial class Game
         if (stage == StatSnapshotStage.Offence)
         {
             // Release calculations and the panel use the same active-hand types, including after weapon swaps.
-            if (Stats.Key("main_hand_weapon_type") is uint mainType)
+            if (Stat.MainHandWeaponType is var mainType)
                 stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
-            if (Stats.Key("off_hand_weapon_type") is uint offType)
+            if (Stat.OffHandWeaponType is var offType)
                 stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
@@ -174,7 +174,7 @@ public static partial class Game
                 stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
                     Get("strength"), Get(SkillDurationModifiers.PerTenStrength));
             // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
-            if (Get(LowestAttributeDamage) is int perFive and not 0 && Stats.Key("damage_+%") is uint damageKey)
+            if (Get(LowestAttributeDamage) is int perFive and not 0 && Stat.DamagePlusPct is var damageKey)
                 stats[damageKey] = (int)Math.Clamp(Get("damage_+%") + (long)perFive
                     * (Math.Min(Get("strength"), Math.Min(Get("dexterity"), Get("intelligence"))) / 5), int.MinValue, int.MaxValue);
             // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
@@ -185,7 +185,7 @@ public static partial class Game
             // The Offence tab's per-hand damage rows (issue #75): the hit the default attack actually swings with, so the panel
             // agrees with the damage the server applies. Only the main hand: the server attacks with it. Those rows are gated by
             // skill_uses_main_hand, which nothing sent before, so the numbers alone would leave them blank.
-            if (Stats.Key("skill_uses_main_hand") is uint usesMainHand) stats[usesMainHand] = 1;
+            if (Stat.SkillUsesMainHand is var usesMainHand) stats[usesMainHand] = 1;
             var attackConversion = DamageStats.Conversion(stats, Stats, attack: true);
             var attack = AttackHitConverted(WeaponFor(), stats, MeleeAttack(), attackConversion);
             foreach (var (stat, value) in PanelStats.HandDamage(attack, "main_hand"))
@@ -207,16 +207,16 @@ public static partial class Game
         // positive value goes through. A freeze stays on is_frozen: -100 there would divide the native clip by zero.
         foreach (var (name, value) in new[] { "is_ignited", "is_chilled", "is_frozen", "is_shocked" }.Zip(inputs.Ailments))
             if (Stats.Key(name) is uint key && value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
-        if (Stats.Key("action_speed_-%") is uint actionSpeedKey)
+        if (Stat.ActionSpeedMinusPct is var actionSpeedKey)
             stats[actionSpeedKey] = (int)Math.Round(100 * (1 - inputs.ActionFactor));
-        if (Stats.Key("intermediary_combined_action_speed_+%") is uint actionCombinedKey)
+        if (Stat.IntermediaryCombinedActionSpeedPlusPct is var actionCombinedKey)
             stats[actionCombinedKey] = (int)Math.Round(100 * (inputs.ActionFactor - 1));
-        if (Stats.Key("virtual_action_speed_+%") is uint virtualActionKey && inputs.ActionFactor > 0)
+        if (Stat.VirtualActionSpeedPlusPct is var virtualActionKey && inputs.ActionFactor > 0)
             stats[virtualActionKey] = (int)Math.Round(100 * (inputs.ActionFactor - 1));
         // The conditions as they are now: full life, full Energy Shield and moving are stat conditions, and "hit an
         // enemy recently" marks and times the step (StatInput.EnemyHit).
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
-        if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
+        if (Stat.MainHandCriticalStrikeMultiplier is var multiplier)
             stats[multiplier] = AttackMultiplier(stats);
         var accuracy = OrdinaryAccuracy(inputs.Skills, inputs.AttackEffectId, pools, stats, mainLocal) with { Rating = TimedBlind.Apply(pools.Accuracy, inputs.BlindLess) };
         foreach (var (name, evasion) in new[]
@@ -227,13 +227,13 @@ public static partial class Game
             if (Stats.Key(name) is uint key)
                 stats[key] = accuracy.Chance(evasion, false, false);
         // The Off Hand rows of a dual-wielded default attack; the flag clears when nothing is swung with the off hand.
-        if (Stats.Key("skill_uses_off_hand") is uint usesOffHand) stats[usesOffHand] = 0;
+        if (Stat.SkillUsesOffHand is var usesOffHand) stats[usesOffHand] = 0;
         foreach (var (name, value) in OffHandPanelStats(OffhandWeaponFor, ActiveOffHand, () => pools, Profile, inputs.Items,
-            () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own: null, blindLess: inputs.BlindLess) ?? [])
+            () => AttackMultiplier(stats), stats, mainLocal, offLocal, stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct), own: null, blindLess: inputs.BlindLess) ?? [])
             if (Stats.Key(name) is uint key) stats[key] = value;
-        if (Stats.Key("virtual_on_low_life") is uint lowLife)
+        if (Stat.VirtualOnLowLife is var lowLife)
             stats[lowLife] = OnLowLife(stats) ? 1 : 0;
-        if (Stats.Key("virtual_extra_critical_rolls") is uint rolls)
+        if (Stat.VirtualExtraCriticalRolls is var rolls)
             stats[rolls] = CriticalExtraRollsFor(OnLowLife(stats), stats);
         // The Offence tab's effective (and twice-) critical chance for spells: the pools' chance after the luck and
         // bifurcation policies; a selected spell gets its own (GemSkills).

@@ -237,7 +237,7 @@ public static partial class Game
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife != 0 || conn.IncomingHitEpoch != deathEpoch) return null;
             var records = new WorldRecordBuilder(conn, admission);
             records.World(PlayerId, PlayerLifeUpdate(conn), label);
-            records.World(PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]));
+            records.World(PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(Stat.HideMiniLifeBar, 1)]));
             records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(conn)));
             return records.Build();
         }
@@ -310,7 +310,7 @@ public static partial class Game
         // A client that pays its costs from Energy Shield (Eldritch Battery) spent some of it on a use this mana update
         // may answer (a cost given back): the pool goes out again even when the server's has not changed.
         lock (conn.Monsters)
-            if (Stats.Key("keystone_eldritch_battery") is uint battery && CharacterPlayerStats(conn).GetValueOrDefault(battery) != 0)
+            if (Stat.KeystoneEldritchBattery is var battery && CharacterPlayerStats(conn).GetValueOrDefault(battery) != 0)
                 conn.SentEnergyShield = null;
         await SendPlayerEnergyShield(conn);
     }
@@ -350,7 +350,7 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-                if (Stats.Key("life_recovery_per_minute") is not uint key) return null;
+                uint key = Stat.LifeRecoveryPerMinute;
                 int value = blocked ? 0 : CharacterPlayerStats(conn).GetValueOrDefault(key);
                 return InstanceEntities.StatsUpdate(PlayerId, [(key, value)]);
             }
@@ -380,7 +380,7 @@ public static partial class Game
                     return null;
                 bool rateChanged = conn.SentEsRecoveryRate != rate;
                 var resource = InstanceProtocol.LifeUpdate(PlayerId, current, pool: 2);
-                byte[][] packet = rateChanged && Stats.Key("energy_shield_recovery_per_minute") is uint key
+                byte[][] packet = rateChanged && Stat.EnergyShieldRecoveryPerMinute is var key
                     ? [resource, InstanceEntities.StatsUpdate(PlayerId, [(key, rate)])]
                     : [resource];
                 conn.SentEnergyShield = current;
@@ -394,7 +394,7 @@ public static partial class Game
     // start of every use, including a use that becomes a walk (attack-move), so the cost the server gives back must be
     // known outside the supported gem (ManaCostTests pins Holy Strike's 6).
     public static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
-        stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
+        Stat.ManaCost is var k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
@@ -410,16 +410,16 @@ public static partial class Game
         if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
             return false;
         player = SupportedStats(conn, skillId);
-        cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        cost = (uint)Math.Max(0, player.GetValueOrDefault(Stat.ManaCost));
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        int nativeLife = Math.Max(0, player.GetValueOrDefault(Stats.Key("life_cost") ?? 0));
+        int nativeLife = Math.Max(0, player.GetValueOrDefault(Stat.LifeCost));
         if (nativeLife > 0 && BloodCharges.Uses(Own))
             nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
                 * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges)));
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
-        bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
+        bool bloodMagic = Stat.KeystoneBloodMagic is var bloodKey && player.GetValueOrDefault(bloodKey) != 0;
         if (bloodMagic)
         {
             life = (int)Math.Min(cost, int.MaxValue);
@@ -439,14 +439,14 @@ public static partial class Game
                 && player.GetValueOrDefault(efficiency) != 0)
             {
                 var costStats = player;
-                lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stats.Key("mana_cost") ?? 0),
+                lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stat.ManaCost),
                     name => Stats.Key(name) is uint key ? costStats.GetValueOrDefault(key) : 0,
                     SkillsFor(conn).IsChannelled(SupportedSkill(conn, skillId).Effect), SkillCostMore(conn, own), applyManaEfficiency: false);
             }
             life = PetrifiedBlood.LifeCost(conn, lifeBasis);
         }
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
-        es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
+        es = (uint)Math.Max(0, player.GetValueOrDefault(Stat.EsCost));
         if (es > conn.EnergyShield.Current) return false;
         var paying = player;
         bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
@@ -511,7 +511,7 @@ public static partial class Game
         var own = skillId == 0 ? new Dictionary<uint, int>() : SupportedSkill(conn, skillId).Stats;
         var player = CharacterPlayerStats(conn);
         int speed = CastSpeedPct(player);
-        if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
+        if (Stat.BaseCastSpeedPlusPct is var k) speed += own.GetValueOrDefault(k);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
         return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
     }
@@ -529,7 +529,7 @@ public static partial class Game
 
     // cast_speed_+% is the total (PanelStats: base_cast_speed_+% and attack_and_cast_speed_+% are already in it).
     public static int CastSpeedPct(IReadOnlyDictionary<uint, int> stats) =>
-        Stats.Key("cast_speed_+%") is uint k ? stats.GetValueOrDefault(k) : 0;
+        Stat.CastSpeedPlusPct is var k ? stats.GetValueOrDefault(k) : 0;
 
     // "More" cast speed on the summed increases (the skill's own included), as the client's cast_speed_+% calculator
     // 0x1427101c0: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x14270ed40)
@@ -584,7 +584,7 @@ public static partial class Game
     // Calling SupportedSkill/CharacterPlayerStats here would recursively rebuild the sources it is projecting.
     private static Dictionary<uint, int> WithRighteousFireSpellBonus(Player conn, Dictionary<uint, int> sources)
     {
-        if (Stats.Key("righteous_fire_spell_damage_+%_final") is not uint key) return sources;
+        uint key = Stat.RighteousFireSpellDamagePlusPctFinal;
         int more;
         lock (conn.Monsters)
         {
@@ -674,7 +674,7 @@ public static partial class Game
             using (new PlayerStatScope(conn, fresh: true))
             {
                 var supported = SupportedSkill(conn, rf.Skill);
-                int more = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
+                int more = Stat.RighteousFireSpellDamagePlusPctFinal is var key
                     ? supported.Stats.GetValueOrDefault(key) : 0;
                 int radius = RighteousFireRadius(conn, supported.Stats);
                 bool changed = rf.SpellDamageMore != more || rf.Radius != radius;
@@ -731,7 +731,7 @@ public static partial class Game
     // The skill_art_variation of the skill effects worn in a gem type's Cosmetics tab slots (0: none), which picks the
     // skill's art (SkillArt).
     public static int SkillArtVariation(Player conn, uint gem) =>
-        Stats.Key("skill_art_variation") is not uint key ? 0
+        !(Stat.SkillArtVariation is var key) ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
             .Where(st => st.Stat == key).Select(st => st.Value).FirstOrDefault();
@@ -805,7 +805,7 @@ public static partial class Game
                     Ring = ring,
                     Radius = radius,
                     RingArt = ringAo,
-                    SpellDamageMore = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
+                    SpellDamageMore = Stat.RighteousFireSpellDamagePlusPctFinal is var key
                         ? supported.Stats.GetValueOrDefault(key) : 0,
                     AuraVisual = auraVisual,
                     EnergyShieldBurnPctPerMinute = Get("base_nonlethal_fire_damage_%_of_maximum_energy_shield_taken_per_minute", 4200),
@@ -1243,7 +1243,7 @@ public static partial class Game
             double perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
                 + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
             var stats = CharacterPlayerStats(conn);
-            if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
+            if (Stat.DeliriumAuraDamageOverTimePlusPctFinal is var moreDot)
                 perSecond *= Math.Max(0, 1 + stats.GetValueOrDefault(moreDot) / 100.0);
             perSecond *= ChargeDamageMore(stats);
             return (new SkillDamageContext(SkillHitKind.Spell, stats).OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds)), stats);
@@ -1416,7 +1416,7 @@ public static partial class Game
         conn.Walk.Teleport(x, y, conn.Clock.Elapsed.TotalSeconds);
         await SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, x, y),
             $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && conn.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
-        await SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(Stat.HideMiniLifeBar, 0)]),
             "0x01b3 player hide_mini_life_bar = 0");
         await GameEvents.RunResurrected(conn);
     }

@@ -592,7 +592,7 @@ public static partial class Game
             // At 0 the client's Life tick (0x141e70730) stops notifying its listeners, so the mini life bar would keep the last
             // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
-                await SendWorldRecord(conn, targetId, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await SendWorldRecord(conn, targetId, InstanceEntities.StatsUpdate(targetId, [(Stat.HideMiniLifeBar, 1)]),
                     $"0x01b3 monster 0x{targetId:x} hide_mini_life_bar = 1");
             // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2).
             await SendFlinch(conn, targetId, m, stun, log: true);
@@ -1993,7 +1993,7 @@ public static partial class Game
     // targeted location instead of around you"; the client's 0x2a6e).
     public static (int X, int Y) SpellCentre(Player conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
         !SkillsFor(conn).IsSelfTargeted(effect) || SkillsFor(conn).IsNova(effect)
-            && Stats.Key("nova_spells_cast_at_target_location") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
+            && Stat.NovaSpellsCastAtTargetLocation is var key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
             ? to : from;
 
     // A gem skill without a projectile (strikes, slams, area spells): a first, simple hit (2026-10-23). It lands once, after
@@ -2430,9 +2430,9 @@ public static partial class Game
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.
-                        if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+                        if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                             m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
-                        if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
+                        if (global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
@@ -2797,7 +2797,7 @@ public static partial class Game
         var (life, stageStarts) = hit;
         if (life == 0)
         {
-            await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+            await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]),
                 !log ? null : $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1");
             if (m.Poisons.Buff is ushort pbuff)
             {

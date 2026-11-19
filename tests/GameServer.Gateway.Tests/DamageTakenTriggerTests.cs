@@ -83,7 +83,7 @@ public class DamageTakenTriggerTests
             conn.Clock.Start(); EquipLinkedSpells(conn, awakened: true);
             var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
             var spell = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
-            Assert.Equal(10, Game.SupportedSkill(conn, spell.Id).Stats[Program.Stats.Key("base_spell_cooldown_speed_+%")!.Value]);
+            Assert.Equal(10, Game.SupportedSkill(conn, spell.Id).Stats[Stat.BaseSpellCooldownSpeedPlusPct]);
             using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
             using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
             using var reader = listener.AcceptTcpClient();

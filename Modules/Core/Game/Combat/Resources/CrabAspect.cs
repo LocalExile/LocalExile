@@ -46,7 +46,7 @@ public static partial class Game
             state.CrabBuff = conn.NextBuff++;
         }
         var rows = root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
-        int maximum = Stats.Key("max_crab_aspect_stacks") is uint key ? rows.FirstOrDefault(p => p.Key == key).Value : 0;
+        int maximum = Stat.MaxCrabAspectStacks is var key ? rows.FirstOrDefault(p => p.Key == key).Value : 0;
         maximum = (int)Math.Clamp((long)maximum + Get("crab_aspect_crab_barrier_max_+"), 0, int.MaxValue);
         changed |= state.CrabMaximum != maximum;
         state.CrabMaximum = maximum;
@@ -93,7 +93,7 @@ public static partial class Game
         var state = conn.Reservations;
         int Get(string name) => AspectInput(conn, raw, name);
         var rows = root.SkillStats ?? SkillsFor(conn).EffectStats(root.Effect, root.Level, root.Quality);
-        int perStack = Stats.Key("physical_damage_reduction_%_per_crab_aspect_stack") is uint reduction
+        int perStack = Stat.PhysicalDamageReductionPctPerCrabAspectStack is var reduction
             ? rows.FirstOrDefault(p => p.Key == reduction).Value : 0;
         int effect = Get("aspect_of_the_crab_buff_effect_+%");
         var result = new List<(uint, int)>();

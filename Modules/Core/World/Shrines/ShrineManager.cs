@@ -291,7 +291,7 @@ public static class ShrineManager
     /// long message and the client desyncs on it).</summary>
     static bool TouchesSkillPanel(ShrineInstance shrine)
     {
-        if (Stats.Key("skill_repeat_count") is not uint repeat || Stats.Key("base_spell_repeat_count") is not uint baseRepeat)
+        if (!(Stat.SkillRepeatCount is var repeat) || !(Stat.BaseSpellRepeatCount is var baseRepeat))
             return false;
         return shrine.Stats.Any(s => (s.Key == repeat || s.Key == baseRepeat) && s.Value > 0);
     }

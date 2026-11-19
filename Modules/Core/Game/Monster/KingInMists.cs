@@ -377,7 +377,7 @@ public static class KingInMists
                         $"0x01c1 King in the Mists 0x{id:x} intro immunity (BuffDefinitions row {CannotBeDamagedRow})");
                     // The mini life bar above the actor (the red unit bar, not the boss bar): hidden until the intro
                     // ends, because the client has no other flag for "spawned but not fighting yet".
-                    await Game.SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+                    await Game.SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]),
                         $"0x01b3 King in the Mists 0x{id:x} hides its overhead life bar during the intro");
                     await Game.SendWorldRecord(conn, id, InstanceProtocol.AnimationUpdate(id, 0, 3, 1f),
                         $"0x01b2 King in the Mists 0x{id:x} channels (call_loop_01)");
@@ -401,7 +401,7 @@ public static class KingInMists
                     await Say("Protect the ritual!");
                     await Game.SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, introInvulnerability),
                         $"0x01c2 King in the Mists 0x{id:x} intro immunity ends");
-                    await Game.SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]),
+                    await Game.SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 0)]),
                         $"0x01b3 King in the Mists 0x{id:x} shows its overhead life bar");
                     // The intro is over: damage now counts and the boss bar may open.
                     _graceUntil = conn.Clock.Elapsed.TotalSeconds;
@@ -1421,7 +1421,7 @@ public static class KingInMists
                 _fetishBuffs[i] = buff;
                 await Game.SendWorldRecord(conn, fetishId, InstanceEntities.AddBuff(fetishId, buff, CannotBeDamagedRow, fetishId),
                     $"0x01c1 Mystic Fetish {i + 1} intro immunity (BuffDefinitions row {CannotBeDamagedRow})");
-                await Game.SendWorldRecord(conn, fetishId, InstanceEntities.StatsUpdate(fetishId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await Game.SendWorldRecord(conn, fetishId, InstanceEntities.StatsUpdate(fetishId, [(Stat.HideMiniLifeBar, 1)]),
                     $"0x01b3 Mystic Fetish {i + 1} hides its overhead life bar until the ritual");
             }
         }
@@ -1438,7 +1438,7 @@ public static class KingInMists
                 await Game.SendWorldRecord(conn, fetishId, InstanceEntities.RemoveBuff(fetishId, buff),
                     $"0x01c2 Mystic Fetish {which + 1} immunity ends");
             }
-            await Game.SendWorldRecord(conn, fetishId, InstanceEntities.StatsUpdate(fetishId, [(StatKeys.HideMiniLifeBar, 0)]),
+            await Game.SendWorldRecord(conn, fetishId, InstanceEntities.StatsUpdate(fetishId, [(Stat.HideMiniLifeBar, 0)]),
                 $"0x01b3 Mystic Fetish {which + 1} shows its overhead life bar");
         }
 

@@ -14,7 +14,7 @@ public static partial class Game
         double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
     {
         var state = conn.Minions;
-        if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+        if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]),
             $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1", id, monster, WorldId: id));
         if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, Random.Shared))
             state.OutputQueue.Add(new([], $"0x01d1 monster 0x{id:x} TakeHit recovery", id, monster,

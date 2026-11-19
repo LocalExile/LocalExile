@@ -56,7 +56,7 @@ public static partial class Game
                 if (target.Value is not null && Dist(from, to) <= range)
                 {
                     var sources = CharacterStatSources(conn).Stats;
-                    int speed = Stats.Key("minion_attack_speed_+%") is uint k ? sources.GetValueOrDefault(k) : 0;
+                    int speed = Stat.MinionAttackSpeedPlusPct is var k ? sources.GetValueOrDefault(k) : 0;
                     double seconds = (actor.Variety?.AttackMs ?? 1500) / 1000.0 / Math.Max(.01, 1 + (40 + speed) / 100.0);
                     conn.RampageWorld.Actors[plan.Id] = plan with { NextActionAt = now + seconds };
                     actor.Walk.Order(from.X, from.Y, now); actor.LastTarget = null;
@@ -85,10 +85,10 @@ public static partial class Game
             var variety = swing.Actor.Variety!;
             var baseDamage = Monsters.BaseDamage(variety, (byte)swing.Plan.Level) ?? (1, 1);
             var sources = CharacterStatSources(conn).Stats;
-            int inc = Stats.Key("minion_damage_+%") is uint key ? sources.GetValueOrDefault(key) : 0;
+            int inc = Stat.MinionDamagePlusPct is var key ? sources.GetValueOrDefault(key) : 0;
             var packet = DamagePacket.Of(DamageType.Physical, baseDamage.Item1, baseDamage.Item2)
                 .Scale(Math.Max(0, 100L + inc) / 100.0);
-            int accuracyInc = Stats.Key("minion_accuracy_rating_+%") is uint ak ? sources.GetValueOrDefault(ak) : 0;
+            int accuracyInc = Stat.MinionAccuracyRatingPlusPct is var ak ? sources.GetValueOrDefault(ak) : 0;
             int accuracy = (int)Math.Clamp((long)(Monsters.BaseAccuracy((byte)swing.Plan.Level) ?? 0) * Math.Max(0L, 100L + accuracyInc) / 100, 0, int.MaxValue);
             if (swing.Plan.Weapon == RampageCatalog.WeaponKind.Bow)
             {

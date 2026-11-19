@@ -234,7 +234,7 @@ public static class DoedreSewers
                     if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                         c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { Skills = skills } };
                 await Send(c, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Doedre] complete actor skill list");
-                await Send(c, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, started ? 0 : 1)]), "[Doedre] overhead life bar");
+                await Send(c, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, started ? 0 : 1)]), "[Doedre] overhead life bar");
                 if (boss.States is { } states)
                     await Send(c, InstanceEntities.StateMachineUpdate(id,
                         (byte)boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine"), states), null);
@@ -276,8 +276,8 @@ public static class DoedreSewers
             lock (c.Monsters)
                 if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = boss.States,
-                        Stats = (origin.Object.Stats ?? []).Where(s => s.Item1 != StatKeys.HideMiniLifeBar).Append((StatKeys.HideMiniLifeBar, 0)).ToList() } };
-            await All(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]), true);
+                        Stats = (origin.Object.Stats ?? []).Where(s => s.Item1 != Stat.HideMiniLifeBar).Append((Stat.HideMiniLifeBar, 0)).ToList() } };
+            await All(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 0)]), true);
             if (boss.States is { } states)
                 await All(InstanceEntities.StateMachineUpdate(id, (byte)boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine"), states), true);
             await States();

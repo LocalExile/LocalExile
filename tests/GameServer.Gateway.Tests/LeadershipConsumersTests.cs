@@ -65,7 +65,7 @@ public sealed class LeadershipConsumersTests
         int plain = skills.EffectRow("Fireball");
         Assert.True(skills.IsTravel(travel));
         Assert.False(skills.IsTravel(plain));
-        var speed = Program.Stats.Key("travel_skill_cooldown_speed_+%")!.Value;
+        var speed = Stat.TravelSkillCooldownSpeedPlusPct;
         var player = new Dictionary<uint, int> { [speed] = 100 };
         var own = new Dictionary<uint, int>();
         Assert.Equal(100, Game.TravelSkillCooldownSpeed(skills, travel, player, own));
@@ -98,7 +98,7 @@ public sealed class LeadershipConsumersTests
         Assert.Equal(0, Game.PlayerActionFactorFrom(conn, Frozen), 6);
         // The Leadership itself carries the stat; the server's action-factor path reads it even though the raw source
         // cache does not (the buff is added by CharacterPlayerStats).
-        uint floorKey = Program.Stats.Key("action_speed_+%_minimum_value_from_rakiatas_leadership")!.Value;
+        uint floorKey = Stat.ActionSpeedPlusPctMinimumValueFromRakiatasLeadership;
         Assert.Equal(1, Game.PlayerActionFactor(conn), 6);
         Assert.True(conn.SpiritChieftains.TryTrigger(0, new SingleUseCooldown(80000, 0), 2274, [(floorKey, 10)], 12));
         Assert.Equal(1.1, Game.PlayerActionFactor(conn), 6);

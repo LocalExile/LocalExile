@@ -45,7 +45,7 @@ public static class AtlasStats
                 stats[key] = stats.GetValueOrDefault(key) + (int)Math.Clamp((long)value * effect / 100, int.MinValue, int.MaxValue);
         }
         if (Sum(nodes, "map_pack_size_+%_per_atlas_notable_passive_allocated") is int perNotable and not 0
-            && Key("map_pack_size_+%") is uint packSize)
+            && Stat.MapPackSizePlusPct is var packSize)
             stats[packSize] = stats.GetValueOrDefault(packSize) + perNotable * nodes.Count(n => n.IsNotable);
         return stats;
     }

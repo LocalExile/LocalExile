@@ -34,7 +34,7 @@ public static partial class Game
             PanelStats = (profile, stats) =>
             {
                 if (GatewayProjectileSkillProfiles.IsKineticBlast(effect) && profile.ContactArea is { } area
-                    && Stats.Key("virtual_kinectic_blast_number_of_clusters") is uint key)
+                    && Stat.VirtualKinecticBlastNumberOfClusters is var key)
                     stats[key] = area.Count;
             }
         };

@@ -75,7 +75,7 @@ public sealed class TattooLoyaltyTests
                 new Dictionary<uint, int>(), own);
             Assert.NotNull(plan);
             Assert.Equal(80000, plan!.Value.BaseMilliseconds);
-            Assert.True(own.GetValueOrDefault(Program.Stats.Key("base_skill_effect_duration")!.Value) > 0, name);
+            Assert.True(own.GetValueOrDefault(Stat.BaseSkillEffectDuration) > 0, name);
         }
 
         // "while a Unique Enemy is in your Presence": within 80 cells of the player, hostile and alive.
@@ -91,12 +91,12 @@ public sealed class TattooLoyaltyTests
         // level 1 Summon Spirit skill the Spirit chieftain path triggers (cooldown, Leadership, chieftain).
         conn.Passives.Add(21301);
         conn.Tattoos = new Dictionary<ushort, string> { [21301] = "Loyalty Tattoo of Kiloava" };
-        uint blockKey = Program.Stats.Key("has_trigger_on_block_hit_from_unique")!.Value;
+        uint blockKey = Stat.HasTriggerOnBlockHitFromUnique;
         var grants = Game.TattooTriggeredGrantsLocked(conn, blockKey).ToList();
         var grant = Assert.Single(grants);
         Assert.Equal(1, grant.Level);
         Assert.StartsWith("TriggerSummonedAncestorKiloava", grant.EffectId);
-        Assert.Empty(Game.TattooTriggeredGrantsLocked(conn, Program.Stats.Key("has_trigger_on_crit_by_unique_enemy")!.Value));
+        Assert.Empty(Game.TattooTriggeredGrantsLocked(conn, Stat.HasTriggerOnCritByUniqueEnemy));
         // Tattoos are saved apart from allocation: refunding the node ends its trigger.
         conn.Passives.Remove(21301);
         Assert.Empty(Game.TattooTriggeredGrantsLocked(conn, blockKey));

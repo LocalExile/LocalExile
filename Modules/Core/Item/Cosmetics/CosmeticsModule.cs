@@ -228,10 +228,10 @@ public static class CosmeticsFeature
         if (following && Dist(pet.Walk.Destination, to) > PetFollowRange)
         {
             pet.Walk.Teleport(to.X, to.Y, now);
-            return [.. InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]),
+            return [.. InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, percent)]),
                 .. InstanceProtocol.Teleport(id, to.X, to.Y)];
         }
-        return [.. InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]),
+        return [.. InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, percent)]),
             .. InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408)];
     }
 
@@ -250,7 +250,7 @@ public static class CosmeticsFeature
     {
         double previous = pet.Walk.Speed;
         int percent = ApplyPetSpeed(conn, id, pet, now);
-        return previous == pet.Walk.Speed ? null : InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]);
+        return previous == pet.Walk.Speed ? null : InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, percent)]);
     }
 
     // Pets follow the player, every frame (GameEvents.AreaTick): when one is farther than PetFollowRange from the player

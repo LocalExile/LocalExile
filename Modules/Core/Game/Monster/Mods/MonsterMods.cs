@@ -41,13 +41,13 @@ public static partial class Game
     /// walks it at the same speed), actor_scale_+% for its size and life_regeneration_rate_per_minute_%.</summary>
     public static IEnumerable<(uint Key, int Value)> MonsterModClientStats(MonsterModEffects e, uint maxLife, int baseLife)
     {
-        if (e["monster_life_+%_final_from_rarity"] is int rarity and not 0) yield return (StatKeys.MonsterLifeFromRarityPct, rarity);
+        if (e["monster_life_+%_final_from_rarity"] is int rarity and not 0) yield return (Stat.MonsterLifePlusPctFinalFromRarity, rarity);
         if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && Stats.Key(MonsterModCatalog.RarityTableLifeStat) is uint tk)
             yield return (tk, table);
-        if (maxLife != baseLife) yield return (StatKeys.MaximumLife, (int)maxLife);
-        if (e.MovementPct != 0) yield return (StatKeys.MovementVelocityPct, e.MovementPct);
-        if (e.ActorScalePct != 0 && Stats.Key("actor_scale_+%") is uint scale) yield return (scale, e.ActorScalePct);
-        if (e["life_regeneration_rate_per_minute_%"] is int regen and not 0 && Stats.Key("life_regeneration_rate_per_minute_%") is uint rk)
+        if (maxLife != baseLife) yield return (Stat.MaximumLife, (int)maxLife);
+        if (e.MovementPct != 0) yield return (Stat.MovementVelocityPlusPct, e.MovementPct);
+        if (e.ActorScalePct != 0 && Stat.ActorScalePlusPct is var scale) yield return (scale, e.ActorScalePct);
+        if (e["life_regeneration_rate_per_minute_%"] is int regen and not 0 && Stat.LifeRegenerationRatePerMinutePct is var rk)
             yield return (rk, regen);
     }
 

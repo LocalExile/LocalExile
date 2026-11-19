@@ -202,7 +202,7 @@ public static partial class Game
                 if (!current) continue;
                 m.Aggro = false; m.Dead = true; m.Life = 0;
                 conn.Minions.Bodies.Add((minion.Id, m, now + 1));
-                bytes.AddRange(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]));
+                bytes.AddRange(InstanceEntities.StatsUpdate(minion.Id, [(Stat.HideMiniLifeBar, 1)]));
                 bytes.AddRange(InstanceProtocol.LifeUpdate(minion.Id, 0));
                 Console.WriteLine($"[gateway] {CharacterName(conn)}: chieftain 0x{minion.Id:x} ({m.Label}) ends");
             }

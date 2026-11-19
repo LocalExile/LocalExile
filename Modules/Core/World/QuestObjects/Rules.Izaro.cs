@@ -135,7 +135,7 @@ static partial class QuestobjectsRules
     // He walks through his minions (the original, live): the client's Pathfinding reads this stat for its blocker filter
     // (0x141ea3618, as a Quartz Flask's, 13-items.md); without it they stopped his model while the server's walk went on.
     static IReadOnlyList<(uint Key, int Value)>? IzaroPhases =>
-        Stats.Key("virtual_phase_through_objects") is uint phases ? [(phases, 1)] : null;
+        Stat.VirtualPhaseThroughObjects is var phases ? [(phases, 1)] : null;
 
     // What Izaro says (S→C 0x1c7), from his object or (0) globally.
     static async Task IzaroSays(Player conn, uint from, string? line)
@@ -182,7 +182,7 @@ static partial class QuestobjectsRules
     // the overlay), cannot_be_damaged, base_cannot_be_damaged and the invisible cannot_be_damaged buff did not change the
     // bar (live 2026-11-08).
     static byte[] IzaroLifeFloor(uint izaro, IzaroFights.Trial trial) =>
-        !trial.Last && Stats.Key("cannot_drop_below_%_life") is uint key ? InstanceEntities.StatsUpdate(izaro, [(key, trial.LeavesAtPercent)]) : [];
+        !trial.Last && Stat.CannotDropBelowPctLife is var key ? InstanceEntities.StatsUpdate(izaro, [(key, trial.LeavesAtPercent)]) : [];
 
     // The Izaros this instance still has: the arena spawns his variety alone, so any monster of it is a leftover from an
     // earlier entry. He is retired rather than forgotten: dead, out of life so no hit lands on the body, with his actions
@@ -284,7 +284,7 @@ static partial class QuestobjectsRules
             // arena's doors shut. No life bar while he rises (the original, live): the boss bar waits for the fight
             // (EntranceGrace holds the AI's), the mini bar over him is hidden.
             await Send(conn, [.. LiftState(conn, lift, elevator, IzaroFights.Raising), .. IzaroLifeFloor(izaro, trial),
-                .. InstanceEntities.StatsUpdate(izaro, [(StatKeys.HideMiniLifeBar, 1)])],
+                .. InstanceEntities.StatsUpdate(izaro, [(Stat.HideMiniLifeBar, 1)])],
                 $"0x02bc Izaro's elevator 0x{lift:x} rises, his life's floor {(trial.Last ? 0 : trial.LeavesAtPercent)}%");
             if (Emerges.SkillId is ushort emerge)
                 await Send(conn, [.. InstanceProtocol.ActionStarted(izaro, elevator.X, elevator.Y, elevator.X, elevator.Y, emerge, 0xffff, conn.MonsterOrderFlags),
@@ -302,7 +302,7 @@ static partial class QuestobjectsRules
             if (!Here()) return;
             await Send(conn, [.. LiftState(conn, lift, elevator, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Fighting),
-                .. InstanceEntities.StatsUpdate(izaro, [(StatKeys.HideMiniLifeBar, 0)])], $"0x02bc Izaro 0x{izaro:x} fights");
+                .. InstanceEntities.StatsUpdate(izaro, [(Stat.HideMiniLifeBar, 0)])], $"0x02bc Izaro 0x{izaro:x} fights");
             lock (conn.Monsters)
             {
                 (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.BossBarShown) = (conn.Clock.Elapsed.TotalSeconds, true, false, true);

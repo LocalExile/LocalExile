@@ -192,7 +192,7 @@ public static class ItemModStats
         int conditionalES = SumValues(Values(items.Where(i => i.Corrupted), mods, local: true,
             subject: default, statExists: null, game: game))
             .GetValueOrDefault("local_maximum_energy_shield_+%_if_item_corrupted");
-        if (conditionalES != 0 && stats.Key("maximum_energy_shield_+%") is uint esKey)
+        if (conditionalES != 0 && Stat.MaximumEnergyShieldPlusPct is var esKey)
             result[esKey] = (int)Math.Clamp((long)result.GetValueOrDefault(esKey) + conditionalES, int.MinValue, int.MaxValue);
         return result;
     }

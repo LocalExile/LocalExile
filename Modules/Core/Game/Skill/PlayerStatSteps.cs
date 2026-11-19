@@ -89,7 +89,7 @@ public static partial class Game
         });
         Step(PlayerStatStep.CryMovement, (conn, stats, _) =>
         {
-            if (Stats.Key("base_movement_velocity_+%") is uint cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(conn));
+            if (Stat.BaseMovementVelocityPlusPct is var cryMovement) AddTo(stats, cryMovement, IntimidatingCryMovement(conn));
         });
         Step(PlayerStatStep.Golems, (conn, stats, _) => AddGolemStats(conn, stats));
         Step(PlayerStatStep.Offerings, (conn, stats, _) => AddSelfOfferingStats(conn, stats));
@@ -161,13 +161,13 @@ public static partial class Game
         // into the pools. Additive with whatever won above, as a derived stat source.
         Step(PlayerStatStep.OvercapCrit, (conn, stats, _) =>
         {
-            if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stats.Key("critical_strike_chance_+%") is uint critInc)
+            if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stat.CriticalStrikeChancePlusPct is var critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
         Step(PlayerStatStep.AttackSpeed, (conn, stats, _) =>
-            stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct
+            stats[Stat.MainHandAttackSpeedPlusPct] = conn.Pools.AttackSpeedPct
                 + SoulEaterAttackSpeed(conn, stats) + LeechingAttackSpeed(conn, stats));
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
@@ -180,7 +180,7 @@ public static partial class Game
         Step(PlayerStatStep.SelfVulnerability, (conn, stats, _) => AddSelfVulnerabilityStats(conn, stats));
         Step(PlayerStatStep.Onslaught, (conn, stats, _) =>
         {
-            if (Stats.Key("currently_has_onslaught") is uint onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
+            if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
         });
         Step(PlayerStatStep.VaalPrevention, (conn, stats, _) => WithVaalPrevention(conn, stats));
         Step(PlayerStatStep.VaalAura, (conn, stats, _) => WithVaalAura(conn, stats));
@@ -201,7 +201,7 @@ public static partial class Game
             double statsAt = conn.Clock.Elapsed.TotalSeconds;
             bool moving = conn.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
-            if (Stats.Key("evasion_rating") is uint evasionKey)
+            if (Stat.EvasionRating is var evasionKey)
                 stats[evasionKey] = PlayerEvasion(conn, statsAt);
             WithLeechConditions(conn, stats);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
@@ -216,7 +216,7 @@ public static partial class Game
                 if (conn.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
                 if (conn.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(conn.EnduringCryRecovery.Until - now);
                 // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
-                if (Stats.Key("base_life_regeneration_rate_per_minute") is uint turtle)
+                if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
                     stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
                         + (conn.Antiquarian.RecoveryPerSecond(now) + conn.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
                 var session = FortificationOf(conn);
@@ -261,8 +261,8 @@ public static partial class Game
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 bool brokenNow = conn.Ward.Broken && now < conn.Ward.RestoresAt;
                 if (brokenNow) StatsChangeIn(conn.Ward.RestoresAt - now);
-                if (Stats.Key("ward") is uint ward) stats[ward] = (int)conn.Ward.Maximum;
-                if (Stats.Key("ward_broken") is uint broken) stats[broken] = brokenNow ? 1 : 0;
+                if (Stat.Ward is var ward) stats[ward] = (int)conn.Ward.Maximum;
+                if (Stat.WardBroken is var broken) stats[broken] = brokenNow ? 1 : 0;
             }
         });
         for (int i = 0; i < steps.Length; i++)

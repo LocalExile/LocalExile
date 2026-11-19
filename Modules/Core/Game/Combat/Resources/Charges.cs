@@ -241,7 +241,7 @@ public static partial class Game
     public static double WarcryCastSeconds(Player conn, int effect, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own)
     {
-        long speed = Stats.Key("warcry_speed_+%") is uint key ? (long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
+        long speed = Stat.WarcrySpeedPlusPct is var key ? (long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
         return Math.Max(TickSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(conn));
     }
 

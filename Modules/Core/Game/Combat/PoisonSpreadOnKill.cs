@@ -148,7 +148,7 @@ public static partial class Game
     /// <summary>The regeneration's Life per minute while it applies (CharacterStatSources).</summary>
     static Dictionary<uint, int> WithSpreadPoisonRegeneration(Player conn, Dictionary<uint, int> sources)
     {
-        if (conn.PlayerLife == 0 || !SpreadPoisonRegenerationOf(conn).Applied || Stats.Key("base_life_regeneration_rate_per_minute") is not uint key)
+        if (conn.PlayerLife == 0 || !SpreadPoisonRegenerationOf(conn).Applied || !(Stat.BaseLifeRegenerationRatePerMinute is var key))
             return sources;
         var result = new Dictionary<uint, int>(sources);
         result[key] = result.GetValueOrDefault(key) + SpreadPoisonRegeneration.PerMinute;

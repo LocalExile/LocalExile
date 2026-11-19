@@ -34,7 +34,7 @@ public sealed class PartyFollowerTests
         first.MonsterViews[id] = new((110, 100), (110, 100), 0);
         sleeping.MonsterViews[id] = new((110, 100), (110, 100), 1000);
         sleeping.AsleepMonsters.Add(id);
-        string hide = Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
+        string hide = Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
         string zero = Convert.ToHexString(InstanceProtocol.LifeUpdate(id, 0));
         int Count(Wire wire, string hex) => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(hex, StringComparison.Ordinal));
         await Game.SyncInstanceMonsters(first);
@@ -50,7 +50,7 @@ public sealed class PartyFollowerTests
         Assert.Equal(0u, sleeping.MonsterViews[id].Life);
         monster.Dead = false; monster.Life = 500;
         await Game.SyncInstanceMonsters(first);
-        Assert.Equal(1, Count(firstWire, Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]))));
+        Assert.Equal(1, Count(firstWire, Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 0)]))));
     }
 
     [Fact]

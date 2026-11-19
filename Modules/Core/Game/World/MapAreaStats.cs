@@ -71,8 +71,8 @@ public static partial class Game
             foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
         // The scarab's legacy stat is not a CoreLeagues forced-count input. Publish its count in the input both
         // generators read, before the instance freezes its area stats; room placement and shrine ownership stay shared.
-        if (Stats.Key("map_leaguestone_additional_shrines") is uint shrineKey
-            && stats.GetValueOrDefault(shrineKey) > 0 && Stats.Key("map_num_extra_shrines") is uint countKey)
+        if (Stat.MapLeaguestoneAdditionalShrines is var shrineKey
+            && stats.GetValueOrDefault(shrineKey) > 0 && Stat.MapNumExtraShrines is var countKey)
             stats[countKey] = (int)Math.Min(int.MaxValue,
                 (long)stats.GetValueOrDefault(countKey) + stats[shrineKey]);
         // "Your Rare Maps contain …" (no area text): only on a map of that rarity, as the plain count.
@@ -81,7 +81,7 @@ public static partial class Game
                 && mods.MapRarity == rarity && value != 0)
                 Add($"map_contains_x_additional_{kind}_packs", value);
         // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
-        if (Stats.Key("map_item_drop_quantity_instead_applies_to_map_item_drop_rarity_at_3_times_value") is uint appraiser
+        if (Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue is var appraiser
             && stats.GetValueOrDefault(appraiser) != 0)
         {
             int quantity = 0;
@@ -114,7 +114,7 @@ public static partial class Game
         foreach (string family in families)
             if (MapLeagueBlocks.TryGetValue(family, out var block))
                 foreach (var (stat, value) in block) Add(stat, value);
-        if (Stats.Key("map_incursion_league") is uint incursion && stats.GetValueOrDefault(incursion) > 1) stats[incursion] = 1;
+        if (Stat.MapIncursionLeague is var incursion && stats.GetValueOrDefault(incursion) > 1) stats[incursion] = 1;
         // The three a map load always carries, 0 when nothing adds to them.
         foreach (string always in new[] { "map_item_drop_quantity_+%", "map_item_drop_rarity_+%", "map_pack_size_+%" })
             if (Stats.Key(always) is uint key) stats.TryAdd(key, 0);

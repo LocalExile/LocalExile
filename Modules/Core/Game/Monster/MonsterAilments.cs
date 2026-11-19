@@ -354,7 +354,7 @@ public static partial class Game
                 a.WalkFactor = walk;
             }
             int speed = (int)Math.Round(100 * (action - 1));
-            if (speed != a.SentActionSpeed && Stats.Key("virtual_action_speed_+%") is uint key)
+            if (speed != a.SentActionSpeed && Stat.VirtualActionSpeedPlusPct is var key)
             {
                 RetimeMonsterMeleeClockLocked(m, now, speed);
                 a.SentActionSpeed = speed;
@@ -369,7 +369,7 @@ public static partial class Game
             if (movementChanged)
             {
                 m.MaimedMovementShownPct = movement.Pct;
-                packets.Add((InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, movement.Pct)]),
+                packets.Add((InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, movement.Pct)]),
                     $"0x01b3 monster 0x{id:x} movement_velocity_+% = {movement.Pct}" + (m.MaimedMovementShown ? " (maimed)" : " (maim ends)")));
             }
             else if (!m.MaimedMovementShown)

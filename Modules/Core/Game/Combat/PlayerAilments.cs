@@ -226,7 +226,7 @@ public static partial class Game
     /// from attack/cast/movement increases so it is applied once.</summary>
     public static int ActionSpeedReduction(Player conn)
     {
-        if (Stats.Key("action_speed_-%") is not uint key) return 0;
+        uint key = Stat.ActionSpeedMinusPct;
                 return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
     }
 

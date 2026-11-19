@@ -194,7 +194,7 @@ public static partial class Game
         if (!Current()) return;
 
         var startStats = SupportedSkill(conn, skillId).Stats;
-        bool cannotCancel = Stats.Key("cannot_cancel_skill_before_contact_point") is uint cancelKey
+        bool cannotCancel = Stat.CannotCancelSkillBeforeContactPoint is var cancelKey
             && startStats.GetValueOrDefault(cancelKey) != 0;
         bool vaalBehaviour = SkillsFor(conn).BehaviourVariation(gem.Effect) == 2;
 
@@ -393,9 +393,9 @@ public static partial class Game
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(conn, ProjectilesFor(conn), criticalTrigger, critical, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
-                if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+                if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
-                if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
+                if (global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
                     m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                 SoulEaterHit(conn, m);
                 if (hit.Life == 0) DevourOnKill(conn, m, skillStats);
@@ -497,7 +497,7 @@ public static partial class Game
 
         var areaStats = MergeSkillStats(AreaPlayerStats(conn), own);
         int AreaGet(string name) => name == SkillArea.BaseIncreased
-            ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + (Stats.Key("molten_strike_radius_+%") is uint mk ? areaStats.GetValueOrDefault(mk) : 0)
+            ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + (Stat.MoltenStrikeRadiusPlusPct is var mk ? areaStats.GetValueOrDefault(mk) : 0)
             : Stats.Key(name) is uint ak ? areaStats.GetValueOrDefault(ak) : 0;
         int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
         var (minDist, maxDist) = MoltenStrikeGeometry.DistanceBounds(radiusPercent, Merged("projectile_speed_+%"), Merged("chaining_range_+%"));

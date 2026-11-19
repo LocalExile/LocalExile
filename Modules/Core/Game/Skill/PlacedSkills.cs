@@ -47,7 +47,7 @@ public static partial class Game
         foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
             ("is_trap_object", mine ? 0 : 1), ("is_remote_mine", mine ? 1 : 0) })
             if (Stats.Key(name) is uint key) stats.Add((key, value));
-        if (Stats.Key("trap_throw_arm_time_override") is uint armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
+        if (Stat.TrapThrowArmTimeOverride is var armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
         return stats;
     }
 
@@ -223,9 +223,9 @@ public static partial class Game
                 var payload = new Dictionary<uint, int>(gem.Stats);
                 foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
                     if (Stats.Key(flag) is uint key) payload[key] = 0;
-                if (Stats.Key("active_skill_area_of_effect_radius") is uint radius)
+                if (Stat.ActiveSkillAreaOfEffectRadius is var radius)
                     payload[radius] = (int)SkillRadius(conn, gem.Stats, true, gem.Effect);
-                if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius)
+                if (Stat.ActiveSkillBaseAreaOfEffectRadius is var baseRadius)
                     payload[baseRadius] = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect), Get);
                 var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
                 if (proxy is null) return null;

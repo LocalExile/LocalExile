@@ -10,9 +10,9 @@ public class DefensiveJewelTests
     {
         var jewel = new UniqueCatalog(Program.Items).Create("Melding of the Flesh", new Random(17))!;
         var sources = ItemModStats.Global([jewel], Program.Items.Mods, Program.Stats);
-        sources[Program.Stats.Key("base_maximum_fire_damage_resistance_%")!.Value] = 25;
-        sources[Program.Stats.Key("base_maximum_chaos_damage_resistance_%")!.Value] = 2;
-        sources[Program.Stats.Key("base_cold_damage_resistance_%")!.Value] = 200;
+        sources[Stat.BaseMaximumFireDamageResistancePct] = 25;
+        sources[Stat.BaseMaximumChaosDamageResistancePct] = 2;
+        sources[Stat.BaseColdDamageResistancePct] = 200;
         sources[Program.Stats.Key(ResistanceOvercap.ColdEvasionFlag)!.Value] = 1;
         var bonus = Game.PassiveBonus(sources, default, default);
         var result = ResistanceOvercap.Applied(bonus, sources, 0, Program.Stats);

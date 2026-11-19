@@ -13,7 +13,7 @@ public sealed class AnimatedAdmissionTests
     {
         var conn = new Player(new(1, "admission", 1000, 1000, 100, 100, null, []), 1, 1);
         var gem = new Game.SupportedGem(0, 20, 0, [], new()
-            { [Program.Stats.Key("animate_item_maximum_level_requirement")!.Value] = 100 });
+            { [Stat.AnimateItemMaximumLevelRequirement] = 100 });
         var catalog = new SummonCatalog();
         Item Make(string name) => ItemCatalog.Create(Program.Items.Find(name)!);
         var sword = Make("Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1");
@@ -30,7 +30,7 @@ public sealed class AnimatedAdmissionTests
         Assert.Equal(0, Slot("AnimateWeaponAltY", bow with { Sockets = six }));
         Assert.Equal(0, Slot("AnimateWeapon", sword with { Identified = false }));
         Assert.Equal(0, Slot("AnimateGuardian", sword with { Identified = false }));
-        var limited = gem with { Stats = new() { [Program.Stats.Key("animate_item_maximum_level_requirement")!.Value] = 1 } };
+        var limited = gem with { Stats = new() { [Stat.AnimateItemMaximumLevelRequirement] = 1 } };
         Assert.Equal(0, Game.AnimatedItemSlot(conn, catalog.Find("AnimateWeapon")!, limited, Make("Jewelled Foil")));
     }
 

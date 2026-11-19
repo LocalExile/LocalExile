@@ -34,12 +34,12 @@ public static partial class Game
     /// (a stat, not the server's evaluated stats): 1 while any effect is on. Soul Eater's soul visuals are one of them.</summary>
     public static void WithUsingFlask(Player conn, StatMap stats)
     {
-        if (Stats.Key("using_flask") is uint key) stats[key] = AnyFlaskEffect(conn) ? 1 : 0;
+        if (Stat.UsingFlask is var key) stats[key] = AnyFlaskEffect(conn) ? 1 : 0;
     }
 
     static int SoulEaterMaximum(IReadOnlyDictionary<uint, int> stats)
     {
-        int bonus = Stats.Key("soul_eater_maximum_stacks_+") is uint key ? stats.GetValueOrDefault(key) : 0;
+        int bonus = Stat.SoulEaterMaximumStacksPlus is var key ? stats.GetValueOrDefault(key) : 0;
         return (int)Math.Clamp(SoulEaterState.MaximumStacks + (long)bonus, 0, ushort.MaxValue);
     }
 
@@ -81,7 +81,7 @@ public static partial class Game
     {
         if (!SoulEaterActive(conn, stats)) return;
         // The buff's ShowCount reads this virtual: the base maximum plus the Soul Ascension gloves' increase.
-        if (Stats.Key("virtual_soul_eater_maximum_stacks") is uint maximumKey)
+        if (Stat.VirtualSoulEaterMaximumStacks is var maximumKey)
             stats[maximumKey] = SoulEaterMaximum(stats);
         int stacks = SoulEaterStacks(conn);
         if (stacks <= 0) return;
@@ -146,7 +146,7 @@ public static partial class Game
             var currentStats = CharacterPlayerStats(conn);
             double now = conn.Clock.Elapsed.TotalSeconds;
             bool active = conn.SoulEater.Enabled && conn.PlayerLife > 0;
-            bool usingFlask = Stats.Key("using_flask") is uint flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;
+            bool usingFlask = Stat.UsingFlask is var flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;
             int stacks = SoulEaterCount(conn, now);
             bool auraChanged = active != (conn.SoulEater.AuraBuff != 0);
             bool statsChanged = auraChanged || stacks != conn.SoulEater.SentStacks || usingFlask != conn.SoulEater.SentUsingFlask;

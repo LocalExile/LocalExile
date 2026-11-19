@@ -149,9 +149,9 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get).Count;
         return weapon.Bow
-            ? [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
-                (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n)]
-            : [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n)];
+            ? [(Stat.TotalNumberOfProjectilesToFire, n), (Stat.VirtualTotalNumberOfProjectiles, n),
+                (Stat.TotalNumberOfArrowsToFire, n), (Stat.VirtualTotalNumberOfArrows, n)]
+            : [(Stat.TotalNumberOfProjectilesToFire, n), (Stat.VirtualTotalNumberOfProjectiles, n)];
     }
 
     // The default attack's record, with the ordinary shot's count on a lockstep client (OrdinaryRangedCountStats), which

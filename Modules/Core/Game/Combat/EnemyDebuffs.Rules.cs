@@ -99,7 +99,7 @@ public static partial class Game
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
                 var here = conn.Walk.Position(now);
-                uint? elementalKey = Stats.Key("elemental_damage_taken_+%");
+                uint? elementalKey = Stat.ElementalDamageTakenPlusPct;
                 // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp
                 // is kept per monster.
                 AuraCatalog.Aura? pride = conn.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == "Pride");

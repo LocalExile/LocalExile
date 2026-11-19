@@ -10,7 +10,7 @@ public static partial class Game
     {
         int count;
         lock (conn.Monsters) count = conn.Links.Count;
-        if (count > 0 && Stats.Key("number_of_active_links") is uint key) sources[key] = sources.GetValueOrDefault(key) + count;
+        if (count > 0 && Stat.NumberOfActiveLinks is var key) sources[key] = sources.GetValueOrDefault(key) + count;
         return sources;
     }
 
@@ -144,7 +144,7 @@ public static partial class Game
             // Every target is a minion (no party play), so without link_skills_can_target_minions (Deep Connections refunded)
             // every link ends, without a death: our rule, as for an Elemental Valiance refund (paladin.md).
             string? all = conn.PlayerLife == 0 ? "the player died"
-                : Stats.Key("link_skills_can_target_minions") is not uint can || player.GetValueOrDefault(can) == 0
+                : !(Stat.LinkSkillsCanTargetMinions is var can) || player.GetValueOrDefault(can) == 0
                     ? "link_skills_can_target_minions is gone" : null;
             if (all is null && links.All.FirstOrDefault(l => !LinkTargetAliveLocked(conn, l.Target)) is { } lost)
             {
@@ -160,7 +160,7 @@ public static partial class Game
             }
             links.PaidAt = now;
             var here = conn.Walk.Position(now);
-            int range = LinkSkills.Range(Stats.Key("link_skill_range_+%") is uint r ? player.GetValueOrDefault(r) : 0);
+            int range = LinkSkills.Range(Stat.LinkSkillRangePlusPct is var r ? player.GetValueOrDefault(r) : 0);
             foreach (var link in links.All.ToArray())
             {
                 string? why = all;
@@ -228,6 +228,6 @@ public static partial class Game
         int pct = m.Mods.Effects.MovementPct + UtilityFlasks.Strongest(conn.Links.Flasks.Where(f => f.Target == target)
             .SelectMany(f => f.Stats)).Where(s => s.Stat == "base_movement_velocity_+%").Sum(s => s.Value);
         m.Walk.SetSpeed(Math.Max(1, variety.MovementSpeed * Math.Max(0, 100 + pct) / 100.0), now);
-        bytes.AddRange(InstanceEntities.StatsUpdate(target, [(StatKeys.MovementVelocityPct, pct)]));
+        bytes.AddRange(InstanceEntities.StatsUpdate(target, [(Stat.MovementVelocityPlusPct, pct)]));
     }
 }

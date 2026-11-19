@@ -537,8 +537,8 @@ public static partial class Game
         // Spectral Shield Throw (an approximation, not the in-game rule). The mastery's attack life and mana leech
         // uses ordinary generic stats and applies with any weapon, as the client's stat text does.
         bool wieldingWand = ActiveMainHand(conn)?.Type?.Class == "Wand";
-        uint wandProjectile = Stats.Key("wand_attacks_fire_an_additional_projectile") ?? 0;
-        uint attackProjectiles = Stats.Key("attacks_number_of_additional_projectiles") ?? 0;
+        uint wandProjectile = Stat.WandAttacksFireAnAdditionalProjectile;
+        uint attackProjectiles = Stat.AttacksNumberOfAdditionalProjectiles;
         static bool HasStat(PassiveTree.MasteryEffect effect, uint key) => key != 0 && effect.Stats.Any(s => s.Key == key);
         var passives = new Dictionary<uint, int>();
         foreach (ushort node in nodes)
@@ -631,7 +631,7 @@ public static partial class Game
                         && tree.Find(node) is { IsAscendancy: false, IsStart: false, IsJewelSocket: false,
                             IsMastery: false, IsProxy: false, IsExpansion: false })
                         meleeAttributes += RadiusJewelCatalogue.MeleeAttributes(stats);
-        if (meleeAttributes != 0 && Stats.Key("melee_physical_damage_+%") is uint meleeKey)
+        if (meleeAttributes != 0 && Stat.MeleePhysicalDamagePlusPct is var meleeKey)
             passives[meleeKey] = passives.GetValueOrDefault(meleeKey) + meleeAttributes / 5;
         // The allocated passives' self buffs (PassiveBuffAuras) add their stats like the passives themselves.
         PassiveBuffAuras.WithSelfBuffs(passives, nodes, LeagueFor(conn).HardMode);
@@ -753,7 +753,7 @@ public static partial class Game
         foreach (var (key, value) in ConditionalRings(equipment, active).Flags) qualifiedSlotFlags[key] = value;
         conditionFlags = qualifiedSlotFlags;
         var curseInputs = SelfCurseConditionInputs(conn, active, passives, conditionNow, recentEvents);
-        bool cursed = Stats.Key("cursed_by_vulnerability") is uint cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
+        bool cursed = Stat.CursedByVulnerability is var cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
         auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId)
             .Concat(cursed ? ["Vulnerability"] : []));
         bool lowLife = CriticalOnLowLife(conn, curseInputs);
@@ -767,7 +767,7 @@ public static partial class Game
             ["_while_cursed"] = conn.PlayerLife > 0 && cursed,
             ["_while_not_cursed"] = conn.PlayerLife > 0 && !cursed,
             ["_while_blinded"] = conditionFlags.GetValueOrDefault("_while_blinded")
-                && !(Stats.Key("cannot_be_blinded") is uint blindImmunity && curseInputs.GetValueOrDefault(blindImmunity) != 0),
+                && !(Stat.CannotBeBlinded is var blindImmunity && curseInputs.GetValueOrDefault(blindImmunity) != 0),
         };
         var phaseInputs = curseInputs;
         conditionFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
@@ -994,7 +994,7 @@ public static partial class Game
         if (CatAspectReconcileLocked(conn, AreaTime(conn), snapshot.Stats) && CatAspectRootActiveLocked(conn))
             snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
-        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
+        if (Stat.BaseMovementVelocityPlusPct is var cryMovement)
             sources[cryMovement] = ActorScale.Saturate((long)sources.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AvianReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
         CrabReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
@@ -1120,7 +1120,7 @@ public static partial class Game
         foreach (uint finalKey in BuffRows.FinalMovementKeys)
             if (sources.GetValueOrDefault(finalKey) is int slowFinal and not 0)
                 bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * Math.Max(0, 100 + slowFinal) / 100) - 100 };
-        if (Stats.Key("no_movement_speed") is uint stopKey && sources.GetValueOrDefault(stopKey) > 0)
+        if (Stat.NoMovementSpeed is var stopKey && sources.GetValueOrDefault(stopKey) > 0)
             bonus = bonus with { MovementVelocityPct = -100 };
         // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
         // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x142523780).
@@ -1161,7 +1161,7 @@ public static partial class Game
             {
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
             });
-        if (Stats.Key("spell_critical_strike_chance_+%") is uint)
+        if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
         conn.PlayerLifeCap = reservedLife.Unreserved;

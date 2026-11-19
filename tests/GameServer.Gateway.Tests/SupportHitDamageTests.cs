@@ -37,7 +37,7 @@ public sealed class SupportHitDamageTests
                 Assert.Equal(3, applied.Count);
                 var gmp = Assert.Single(applied, s => s.Gem.Effect == multiple);
                 Assert.Contains(applied, s => s.Gem.Effect == faster);
-                Assert.Equal(4, gmp.Stats.Single(s => s.Key == Program.Stats.Key("number_of_additional_projectiles")).Value);
+                Assert.Equal(4, gmp.Stats.Single(s => s.Key == Stat.NumberOfAdditionalProjectiles).Value);
                 var stats = applied.SelectMany(s => s.Stats).Select(s => (Name: Program.Stats.Name(s.Key)!, s.Value)).ToArray();
                 Assert.Equal(1d, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, stats,
                     new HashSet<int> { 0, 19 }).GeneralOrPhysical);

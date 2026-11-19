@@ -108,7 +108,7 @@ public sealed class RedSupportMechanicsTests
             new Random(1));
         bool MovementPacket(IEnumerable<(byte[] Packet, string Log)> packets, int pct, uint targetId = id) =>
             packets.Any(p => p.Packet.SequenceEqual(InstanceEntities.StatsUpdate(targetId,
-                [(StatKeys.MovementVelocityPct, pct)])));
+                [(Stat.MovementVelocityPlusPct, pct)])));
         var firstTick = Game.MonsterAilmentChangesLocked(conn, now: 11);
         Assert.Equal(baseSpeed * 1.2 * roll, ticked.Walk.Speed, 9);
         Assert.True(MovementPacket(firstTick, 20));

@@ -146,11 +146,11 @@ public static partial class Game
         // which greyed out Shield Charge beside a one-handed weapon (13-items.md "Client weapon-type stats").
         var mainHand = ActiveMainHand(conn);
         int mainType = WeaponTypeStats.Of(mainHand?.Type?.Class), offType = WeaponTypeStats.Of(ActiveOffHand(conn)?.Type?.Class);
-        if (Stats.Key("main_hand_weapon_type") is uint mainTypeKey) stats.TryAdd(mainTypeKey, mainType);
-        if (Stats.Key("off_hand_weapon_type") is uint offTypeKey) stats.TryAdd(offTypeKey, offType);
-        if (Stats.Key("is_dual_wielding") is uint dualKey)
+        if (Stat.MainHandWeaponType is var mainTypeKey) stats.TryAdd(mainTypeKey, mainType);
+        if (Stat.OffHandWeaponType is var offTypeKey) stats.TryAdd(offTypeKey, offType);
+        if (Stat.IsDualWielding is var dualKey)
             stats.TryAdd(dualKey, WeaponTypeStats.IsDualWielding(mainType, offType,
-                Stats.Key("unarmed_counts_as_dual_wielding") is uint unarmedKey && stats.GetValueOrDefault(unarmedKey) != 0) ? 1 : 0);
+                Stat.UnarmedCountsAsDualWielding is var unarmedKey && stats.GetValueOrDefault(unarmedKey) != 0) ? 1 : 0);
         // Both hands' weapon stats. A dual-wielded attack swings the off hand as well, and the client sets that strike's
         // weapon up from the off hand's own final stats (it derives nothing itself, 11-skills.md §4).
         foreach (var (k, v) in WeaponStats(conn, WeaponOf(conn, mainHand), stats)) stats[k] = v;
@@ -182,13 +182,13 @@ public static partial class Game
             AddHand(offHit, "off_hand");
             // The hands alternate: the panel's per-use, per-second and attacks-per-second rows average both, each hand
             // weighted by its own critical chance and chance to hit (the Off Hand rows, OffHandPanelStats).
-            int offSpeed = list.First(s => s.Item1 == StatKeys.OffHandAttackSpeedPct).Item2;
+            int offSpeed = list.First(s => s.Item1 == Stat.OffHandAttackSpeedPlusPct).Item2;
             var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(mainHit, weapon.AttackSeconds(stats),
                 offHit, DualWieldPanel.OffHandSeconds(off, offSpeed), damageFactor,
                 OffHandDamageFactor(conn, stats, n => Stats.Key(n) is uint key ? stats.GetValueOrDefault(key) : 0, own: null));
-            Put(StatKeys.DisplayHundredTimesDamagePerSkillUse, perUse);
-            Put(StatKeys.HundredTimesDamagePerSecond, perSecond);
-            Put(StatKeys.HundredTimesAttacksPerSecond, attacksPerSecond);
+            Put(Stat.DisplayHundredTimesDamagePerSkillUse, perUse);
+            Put(Stat.HundredTimesDamagePerSecond, perSecond);
+            Put(Stat.HundredTimesAttacksPerSecond, attacksPerSecond);
         }
         return list;
 
@@ -398,34 +398,34 @@ public static partial class Game
             if (SkillsFor(conn).IsAttack(effect) && SkillsFor(conn).RequiresShield(effect)
                 && ActiveOffHand(conn)?.Type?.Class == "Shield" && SkillsFor(conn).AttackTimeMs(effect, level) is int shieldMs and > 0)
             {
-                stats[StatKeys.OffHandAttackDurationMs] = shieldMs;
-                stats[StatKeys.OffHandTotalAttackDurationMs] = shieldMs;
+                stats[Stat.OffHandBaseWeaponAttackDurationMs] = shieldMs;
+                stats[Stat.OffHandTotalBaseWeaponAttackDurationMs] = shieldMs;
             }
-            if (Stats.Key("virtual_extra_critical_rolls") is uint criticalRolls)
+            if (Stat.VirtualExtraCriticalRolls is var criticalRolls)
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
             if (CooldownPlan(conn, supported, playerStats) is { } cooldown
-                && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
+                && Stat.VirtualCooldownSpeedPlusPct is var recoveryKey)
             {
                 stats[recoveryKey] = cooldown.RecoveryPercent;
                 // Otherwise the client propagates the use to the GEPL group before the second key can send its request.
-                if (SkillsFor(conn).CooldownGroup(effect, level) is 1 or 11 && Stats.Key("skill_cooldown_group_override") is uint group)
+                if (SkillsFor(conn).CooldownGroup(effect, level) is 1 or 11 && Stat.SkillCooldownGroupOverride is var group)
                     stats[group] = cooldown.SharedGroup ?? 36;
-                if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
+                if (Stat.VirtualTotalCooldownCount is var countKey) stats[countKey] = cooldown.Uses;
             }
             int additionalAttackMs = SkillsFor(conn).IsAttack(effect) ? SkillAttackTiming.AdditionalMilliseconds(stats) : 0;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
             // Spark's slot 0x310 selects its tornado art and repeat policy from this final stat. The Twister stat
             // set does not contain it; without the projection the native triggered action creates ordinary Spark.
-            if (SkillsFor(conn).EffectId(effect) == TwisterEffect && Stats.Key("skill_behaviour_variation") is uint tornadoMode)
+            if (SkillsFor(conn).EffectId(effect) == TwisterEffect && Stat.SkillBehaviourVariation is var tornadoMode)
                 stats[tornadoMode] = 4;
             // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             if (IsLeapSlam(conn, effect))
-                stats[StatKeys.SkillBehaviourVariation] = SkillsFor(conn).BehaviourVariation(effect);
+                stats[Stat.SkillBehaviourVariation] = SkillsFor(conn).BehaviourVariation(effect);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.
-            if (Stats.Key("base_skill_effect_duration") is uint baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
-                && Stats.Key("skill_effect_duration") is uint durationKey)
+            if (Stat.BaseSkillEffectDuration is var baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
+                && Stat.SkillEffectDuration is var durationKey)
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
                     name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
                     name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
@@ -434,21 +434,21 @@ public static partial class Game
             // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).
             if (new[] { "nova_spells_cast_at_target_location", "casting_spell", "skill_is_nova_skill" }
                     .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
-                && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
+                && Stat.VirtualSelfTargetedSkillsTargetLocationInstead is var novaKey)
                 stats[novaKey] = 1;
             // Parallel volley (0x141bbb460): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
             // without it the distance is zero and parallel projectiles collapse onto each other.
-            if (Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist") is uint virtualParallelXKey
+            if (Stat.VirtualAdditionalProjectilesFireParallelXDist is var virtualParallelXKey
                 && !stats.ContainsKey(virtualParallelXKey))
             {
                 int parallelX = 0;
-                if (Stats.Key("volley_additional_projectiles_fire_parallel_x_dist") is uint volleyX && stats.TryGetValue(volleyX, out int vx) && vx > 0)
+                if (Stat.VolleyAdditionalProjectilesFireParallelXDist is var volleyX && stats.TryGetValue(volleyX, out int vx) && vx > 0)
                     parallelX = vx;
-                else if (Stats.Key("greater_volley_additional_projectiles_fire_parallel_x_dist") is uint gVolleyX && stats.TryGetValue(gVolleyX, out int gvx) && gvx > 0)
+                else if (Stat.GreaterVolleyAdditionalProjectilesFireParallelXDist is var gVolleyX && stats.TryGetValue(gVolleyX, out int gvx) && gvx > 0)
                     parallelX = gvx;
                 if (parallelX > 0) stats[virtualParallelXKey] = parallelX;
             }
-            if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stats.Key("spell_critical_strike_chance") is uint critKey)
+            if (SkillsFor(conn).IsSpell(effect) && !SkillsFor(conn).IsAttack(effect) && Stat.SpellCriticalStrikeChance is var critKey)
                 stats[critKey] = SupportedCriticalChance(conn, id);
             // The skill effects worn in the gem's Cosmetics tab slots: their stats (skill_art_variation …) on this skill only.
             foreach (var (key, worn) in skillCosmetics)
@@ -463,35 +463,35 @@ public static partial class Game
                 && Stats.Key(CooldownBypass.PowerOverride) is uint overrideKey)
                 stats[overrideKey] = 1;
             // The worn effect's skill_art_variation counts from the skill's own (SkillArtBase: Holy Sweep's is 2).
-            if (Stats.Key("skill_art_variation") is uint artKey
+            if (Stat.SkillArtVariation is var artKey
                 && SkillArtBase.Variation(SkillsFor(conn).EffectId(effect), stats.GetValueOrDefault(artKey)) is int art and not 0)
                 stats[artKey] = art;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
-            int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
+            int supportCastSpeed = Stat.BaseCastSpeedPlusPct is var cs ? own.GetValueOrDefault(cs) : 0;
             int castSpeedTotal = FinalCastSpeedPct(conn, stats, CastSpeedPct(stats) + supportCastSpeed);
             if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal) is { } spellTiming)
             {
                 spellTiming.ApplyTo(stats, Stats);
                 // The native action divides by this skill's cast_speed_+% (0x1419e9f10): the total the server wait uses.
-                if (Stats.Key("cast_speed_+%") is uint castKey && castSpeedTotal != CastSpeedPct(stats))
+                if (Stat.CastSpeedPlusPct is var castKey && castSpeedTotal != CastSpeedPct(stats))
                     stats[castKey] = castSpeedTotal;
             }
             // Preserve the legacy non-spell/attack display path; attack timing is outside this fix.
             else if ((CastSpeedPct(stats) + supportCastSpeed) is int castSpeed and not 0 && SkillsFor(conn).CastMs(effect) is int castMs and > 0)
             {
                 int ms = (int)Math.Round(castMs / (1 + castSpeed / 100.0));
-                if (Stats.Key("virtual_base_spell_cast_time_ms") is uint vk) stats[vk] = ms;
-                if (Stats.Key("hundred_times_casts_per_second") is uint hk) stats[hk] = (int)Math.Round(100_000.0 / Math.Max(1, ms));
+                if (Stat.VirtualBaseSpellCastTimeMs is var vk) stats[vk] = ms;
+                if (Stat.HundredTimesCastsPerSecond is var hk) stats[hk] = (int)Math.Round(100_000.0 / Math.Max(1, ms));
             }
             // A spell's tooltip DPS is its own hit (SpellDamage) × casts per second, not the default attack's values that
             // came with the player's stats.
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
-            if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stats.Key("spell_repeat_count") is uint repeatKey)
+            if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stat.SpellRepeatCount is var repeatKey)
                 stats[repeatKey] = repeats;
             // Network stats run no calculators. The native melee action reads this final count (0x141b71600).
-            if (SkillsFor(conn).IsAttack(effect) && Stats.Key("attack_repeat_count") is uint attackRepeatKey)
+            if (SkillsFor(conn).IsAttack(effect) && Stat.AttackRepeatCount is var attackRepeatKey)
                 stats[attackRepeatKey] = MeleeAttackRepeats(conn, id);
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect)))
@@ -502,13 +502,13 @@ public static partial class Game
                 int increased = SkillArea.Increased(AreaGet, spell: false);
                 int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
                 int radius = SkillArea.Radius(baseRadius, AreaGet, spell: false);
-                if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseKey) stats[baseKey] = baseRadius;
-                if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
+                if (Stat.ActiveSkillBaseAreaOfEffectRadius is var baseKey) stats[baseKey] = baseRadius;
+                if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey)
                     stats[radiusKey] = radius;
                 // Channelled Cyclone's conditional-radius path reads these derived stats instead of 0x4876.
                 // Compute them before writing skill_area_of_effect_+%, or the base increase would count twice.
-                if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint scaleKey) stats[scaleKey] = radiusPercent;
-                if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
+                if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey) stats[scaleKey] = radiusPercent;
+                if (Stat.SkillAreaOfEffectPlusPct is var areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
             }
             // Molten Strike's client ballistic/explosion builders read 0x1591 (0x14193efd0) for both scatter range and
@@ -522,22 +522,22 @@ public static partial class Game
                 int increased = SkillArea.Increased(AreaGet, spell: false);
                 int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
                 int radius = SkillArea.Radius(baseRadius, AreaGet, spell: false);
-                if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey) stats[radiusKey] = radius;
-                if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint scaleKey) stats[scaleKey] = radiusPercent;
-                if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
+                if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey) stats[radiusKey] = radius;
+                if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey) stats[scaleKey] = radiusPercent;
+                if (Stat.SkillAreaOfEffectPlusPct is var areaKey) stats[areaKey] = increased;
             }
             // Other area skills: the client's effect builders read the final radius (0x4876) too; without it Ice Nova drew
             // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
-            else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stats.Key("active_skill_area_of_effect_radius") is uint finalRadius)
+            else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
                 stats[finalRadius] = SkillRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
             // The final secondary radius too (0x4879): Holy Sweep's hammer art scales to it over its base size
             // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
             if (Get("active_skill_base_secondary_area_of_effect_radius") > 0
-                && Stats.Key("active_skill_secondary_area_of_effect_radius") is uint secondaryRadius)
+                && Stat.ActiveSkillSecondaryAreaOfEffectRadius is var secondaryRadius)
                 stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect));
             // Hammerfalls' controller times its waves by the skill's combined_main_hand_attack_speed_+% (0x141b1a270); with
             // none sent its waves kept 0.7 s whatever the attack speed (live 2026-11-11). The server's waves read the same.
-            if (Get("holy_sweep_hammerfall_rate_ms") > 0 && Stats.Key("combined_main_hand_attack_speed_+%") is uint combinedSpeed)
+            if (Get("holy_sweep_hammerfall_rate_ms") > 0 && Stat.CombinedMainHandAttackSpeedPlusPct is var combinedSpeed)
                 stats[combinedSpeed] = SupportedMainHandAttackSpeedPct(conn, id);
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
@@ -583,8 +583,8 @@ public static partial class Game
                     // Additional base time belongs in the duration row, not in an equivalent attack-speed penalty.
                     int attackBaseMs = (shieldWeapon ?? WeaponFor(conn)).AttackMs;
                     if (additionalAttackMs != 0) attackBaseMs = SkillAttackTiming.BaseMilliseconds(attackBaseMs, additionalAttackMs);
-                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
-                    stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
+                    stats[Stat.MainHandAttackSpeedPlusPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
+                    stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {
                         ("main_hand_accuracy_rating", accuracy.Rating),
@@ -596,7 +596,7 @@ public static partial class Game
                     // A dual-wielded attack gem swings the off hand too: its own rows, with the same supports, and the
                     // per-use / per-second / attacks-per-second rows average both hands.
                     if (OffHandPanelStats(conn, playerStats, panelSources.MainHand, panelSources.OffHand,
-                            stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own, effect) is { } offHand
+                            stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct), own, effect) is { } offHand
                         && OffhandWeaponFor(conn) is { } offWeapon)
                     {
                         offInputs = SupportedHitInputsFor(conn, id, weapon: offWeapon);
@@ -615,9 +615,9 @@ public static partial class Game
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)
                                 stats[key] = value;
-                        stats[StatKeys.DisplayHundredTimesDamagePerSkillUse] = perUse;
-                        stats[StatKeys.HundredTimesDamagePerSecond] = perSecond;
-                        stats[StatKeys.HundredTimesAttacksPerSecond] = attacksPerSecond;
+                        stats[Stat.DisplayHundredTimesDamagePerSkillUse] = perUse;
+                        stats[Stat.HundredTimesDamagePerSecond] = perSecond;
+                        stats[Stat.HundredTimesAttacksPerSecond] = attacksPerSecond;
                     }
                 }
                 if (Stats.Key(SkillsFor(conn).IsAttack(effect) ? "main_hand_critical_strike_chance" : "spell_critical_strike_chance") is uint ck)
@@ -634,8 +634,8 @@ public static partial class Game
                 {
                     foreach (var (stat, value) in PanelStats.HandDamage(supportedHit, "secondary"))
                         if (Stats.Key(stat) is uint key) stats[key] = value;
-                    if (Stats.Key("secondary_critical_strike_chance") is uint sc) stats[sc] = criticalChance;
-                    if (Stats.Key("secondary_critical_strike_multiplier") is uint sm) stats[sm] = criticalMultiplier;
+                    if (Stat.SecondaryCriticalStrikeChance is var sc) stats[sc] = criticalChance;
+                    if (Stat.SecondaryCriticalStrikeMultiplier is var sm) stats[sm] = criticalMultiplier;
                 }
                 // The damaging-ailment rows of this skill's hit, per hand for a (dual-wielded) attack, from the same inputs.
                 string ailmentHand = SkillsFor(conn).IsAttack(effect) ? "main_hand" : secondary ? "secondary" : "spell";
@@ -649,14 +649,14 @@ public static partial class Game
                         stats[key] = value;
             }
             // Movement and other skills whose base flag asks the panel for Damage per Use rather than per second.
-            if (Stats.Key("skill_show_average_damage_instead_of_dps") is uint showAverage)
+            if (Stat.SkillShowAverageDamageInsteadOfDps is var showAverage)
                 stats[showAverage] = Get("base_skill_show_average_damage_instead_of_dps") != 0 ? 1 : 0;
             stats[OwnAuraRestriction.BaseAura] = own.GetValueOrDefault(OwnAuraRestriction.BaseAura);
             OwnAuraRestriction.PublishSkill(stats, OwnAuraRestrictionValue(conn));
             if (OwnAuraRestriction.IsAura(stats) && SublimeDisables(conn, effect, playerStats))
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             // Published like the own-aura reason (never zero over another); the client also derives it (FUN_1428d6330).
-            if (CastingSpell(conn, effect) && Stats.Key("your_spells_are_disabled") is uint spellsOff
+            if (CastingSpell(conn, effect) && Stat.YourSpellsAreDisabled is var spellsOff
                 && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
@@ -918,7 +918,7 @@ public static partial class Game
         }
         // Devout of Gruthkul: every spell, auras and triggered spells too (wiki: they cannot be cast or triggered).
         if (CastingSpell(conn, effect) && SpellsDisabled(conn)) return "spells are disabled";
-        return SkillsFor(conn).IsWarcry(effect) && Stats.Key("your_warcry_skills_are_disabled") is uint key
+        return SkillsFor(conn).IsWarcry(effect) && Stat.YourWarcrySkillsAreDisabled is var key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0 ? "warcry skills are disabled" : null;
     }
 
@@ -963,7 +963,7 @@ public static partial class Game
     static string? TravelSkillsExceptDashDisabled(Player conn, int effect, ushort skillId)
     {
         if (!SkillsFor(conn).IsTravel(effect) || IsDashEffect(SkillsFor(conn).EffectId(effect))
-            || Stats.Key("your_travel_skills_except_dash_are_disabled") is not uint travelKey) return null;
+            || !(Stat.YourTravelSkillsExceptDashAreDisabled is var travelKey)) return null;
         var gem = SupportedSkill(conn, skillId);
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null
             || gem.WornGrant is not null && !gem.RequirementsMet) return null;

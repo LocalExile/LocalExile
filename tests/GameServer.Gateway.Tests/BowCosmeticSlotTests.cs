@@ -75,7 +75,7 @@ public class BowCosmeticSlotTests
         try
         {
             CharacterSaves.SetCosmetic(character, 15, new(4935, Hash: goblinShamanSkin));
-            uint morphStat = Program.Stats.Key("mtx_virtual_morph_art_variation_index")!.Value;
+            uint morphStat = Stat.MtxVirtualMorphArtVariationIndex;
             var town = new Player(new(9052, "1_1_town", 100, 100, 20, 20, null, []), 1, 1) { Character = character };
             var morph = Game.WornMorph(town);
             Assert.Equal(28, morph!.Index);

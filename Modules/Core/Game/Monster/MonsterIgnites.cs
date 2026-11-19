@@ -312,7 +312,7 @@ public static partial class Game
         {
             if (life == 0)
             {
-                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]), null);
                 if (m.Poisons.Buff is ushort pbuff)
                 {
                     await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);

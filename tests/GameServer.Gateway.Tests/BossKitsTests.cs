@@ -81,7 +81,7 @@ public sealed class BossKitsTests
             Assert.Contains(arakaaliKit, entry => entry.Effect == 4438);
             Assert.Contains(arakaaliKit, entry => entry.Effect == 208);
             var arakaaliSkills = BossKits.SkillsOf(conn, arakaali, 55, arakaaliKit);
-            uint artKey = Program.Stats.Key("skill_art_variation")!.Value;
+            uint artKey = Stat.SkillArtVariation;
             foreach (var (effect, art) in new[] { (4259, 1), (4260, 2), (4261, 3) })
             {
                 int slot = arakaaliKit.ToList().FindIndex(entry => entry.Effect == effect);

@@ -102,7 +102,7 @@ public static partial class Game
     /// the server's objects: before, its two arrows flew on past the aim and never split.</summary>
     static ProjectileProfile MonsterTornadoShot(ProjectileProfile arrow, double toAim, IReadOnlyList<(uint, int)> stats)
     {
-        int secondary = Stats.Key("tornado_shot_num_of_secondary_projectiles") is uint key
+        int secondary = Stat.TornadoShotNumOfSecondaryProjectiles is var key
             && stats.FirstOrDefault(s => s.Item1 == key).Item2 is > 0 and var n ? Math.Min(n, 16) : 3;
         var child = arrow with
         {

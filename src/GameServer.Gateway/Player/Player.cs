@@ -171,21 +171,21 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
         int chaosMin = (int)Math.Floor(chaos.Min), chaosMax = (int)Math.Floor(chaos.Max);
         List<(uint, int)> stats =
         [
-            (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
-            (StatKeys.MainHandMinChaos, chaosMin), (StatKeys.MainHandMaxChaos, chaosMax),
-            (StatKeys.MainHandMinTotal, (int)Math.Floor(Damage.MinTotal)),
-            (StatKeys.MainHandMaxTotal, (int)Math.Floor(Damage.MaxTotal)),
-            (StatKeys.MainHandAttackDurationMs, ms), (StatKeys.MainHandTotalAttackDurationMs, ms),
-            (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 / Seconds)),
-            (StatKeys.MainHandBaseMaxAttackDistance, (int)Range), (StatKeys.MainHandMaxAttackDistance, (int)Range),
+            (Stat.MainHandMinimumPhysicalDamage, min), (Stat.MainHandMaximumPhysicalDamage, max),
+            (Stat.MainHandMinimumChaosDamage, chaosMin), (Stat.MainHandMaximumChaosDamage, chaosMax),
+            (Stat.MainHandMinimumTotalDamage, (int)Math.Floor(Damage.MinTotal)),
+            (Stat.MainHandMaximumTotalDamage, (int)Math.Floor(Damage.MaxTotal)),
+            (Stat.MainHandBaseWeaponAttackDurationMs, ms), (Stat.MainHandTotalBaseWeaponAttackDurationMs, ms),
+            (Stat.HundredTimesAttacksPerSecond, (int)Math.Round(100 / Seconds)),
+            (Stat.MainHandBaseMaximumAttackDistance, (int)Range), (Stat.MainHandMaximumAttackDistance, (int)Range),
         ];
         if (DualWielding)
             stats.AddRange(
             [
-                (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
-                (StatKeys.OffHandMinTotal, min), (StatKeys.OffHandMaxTotal, max),
-                (StatKeys.OffHandAttackDurationMs, ms), (StatKeys.OffHandTotalAttackDurationMs, ms),
-                (StatKeys.OffHandBaseMaxAttackDistance, (int)Range), (StatKeys.OffHandMaxAttackDistance, (int)Range),
+                (Stat.OffHandMinimumPhysicalDamage, min), (Stat.OffHandMaximumPhysicalDamage, max),
+                (Stat.OffHandMinimumTotalDamage, min), (Stat.OffHandMaximumTotalDamage, max),
+                (Stat.OffHandBaseWeaponAttackDurationMs, ms), (Stat.OffHandTotalBaseWeaponAttackDurationMs, ms),
+                (Stat.OffHandBaseMaximumAttackDistance, (int)Range), (Stat.OffHandMaximumAttackDistance, (int)Range),
             ]);
         return stats;
     }
@@ -206,16 +206,16 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>An attack's <see cref="Stats"/> or a spell's cast time, plus skill_is_non_pathing: the action starts at once
     /// where the actor stands (the Melee action's begin, 0x14193df80). Only on the skill: on the monster's Stats component
     /// it also stops its Move action from pathing (live 2026-10-17: the monsters stood still).</summary>
-    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Spell ? SpellStats() : Stats(), (StatKeys.SkillIsNonPathing, 1)];
+    public IReadOnlyList<(uint, int)> InPlaceSkillStats() => [.. Spell ? SpellStats() : Stats(), (Stat.SkillIsNonPathing, 1)];
 
     IReadOnlyList<(uint, int)> SpellStats()
     {
         int ms = Math.Max(1, (int)Math.Round(Seconds * 1000));
         return
         [
-            (StatKeys.BaseSpellCastTimeMs, ms), (StatKeys.VirtualBaseSpellCastTimeMs, ms),
-            (StatKeys.HundredTimesCastsPerSecond, (int)Math.Round(100_000.0 / ms)),
-            (StatKeys.CastingSpell, 1),
+            (Stat.BaseSpellCastTimeMs, ms), (Stat.VirtualBaseSpellCastTimeMs, ms),
+            (Stat.HundredTimesCastsPerSecond, (int)Math.Round(100_000.0 / ms)),
+            (Stat.CastingSpell, 1),
         ];
     }
 }

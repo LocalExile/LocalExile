@@ -140,15 +140,15 @@ static class IzaroSkills
             // The client takes neither from the effect's row: its art (the Upheaval's Ornaments, else Glacial Cascade's ice) and
             // the final radius its effect builders read (11-skills.md: without it Ice Nova drew nothing).
             List<(uint, int)> drawn = [.. own];
-            if (catalog.ArtVariation(move.Effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint artKey) drawn.Add((artKey, art));
-            if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
+            if (catalog.ArtVariation(move.Effect) is int art and > 0 && Stat.SkillArtVariation is var artKey) drawn.Add((artKey, art));
+            if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey)
                 drawn.Add((radiusKey, (int)(move.Shape is Shape.Line or Shape.Charge ? move.Width : move.Size)));
             // The Grasping Ornaments' action spaces them by the final duration and counts them by the final area (0x141b9df80,
             // 0x14193efd0): with no duration only his clip played, and the hits came from nothing (live).
             var effectStats = catalog.EffectStats(move.Effect, effectLevel);
-            if (Value(effectStats, "base_skill_effect_duration") is int duration and > 0 && Stats.Key("skill_effect_duration") is uint durationKey)
+            if (Value(effectStats, "base_skill_effect_duration") is int duration and > 0 && Stat.SkillEffectDuration is var durationKey)
                 drawn.Add((durationKey, duration));
-            if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint areaKey)
+            if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var areaKey)
                 drawn.Add((areaKey, Value(effectStats, "active_skill_area_of_effect_radius_+%_final")));
             var dropped = drawn.Select(s => s.Item1).Concat(finalStats).ToHashSet();
             var stats = WithBehaviourVariation(conn, move.Effect, [.. catalog.EffectStats(move.Effect, effectLevel).Where(s => !dropped.Contains(s.Item1)), .. drawn]);

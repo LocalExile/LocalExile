@@ -273,7 +273,7 @@ public sealed class ShrineTests
             Assert.True(await ShrineManager.Use(conn, new(shrine, 0, 1, 0), 0));
             Assert.True(await ShrineManager.Use(peer.Conn, new(shrine, 0, 1, 0), 0));
             Assert.Equal(1, effects.Sum(e => e.Applied));
-            Assert.Equal(1, ShrineManager.AddStats(conn, []).GetValueOrDefault(Program.Stats.Key("has_shrine_effect")!.Value));
+            Assert.Equal(1, ShrineManager.AddStats(conn, []).GetValueOrDefault(Stat.HasShrineEffect));
             // A second shrine replaces the old effect, including its owned objects.
             await ShrineManager.SpawnAroundPlayer(conn, ["Acceleration"]);
             uint second = uint.Parse(instance.ContentState["Shrines/id/124/100"]);
@@ -337,8 +337,8 @@ public sealed class ShrineTests
             {
                 if (ReferenceEquals(c, conn))
                 {
-                    values[Program.Stats.Key("enemies_explode_for_%_life_as_physical_damage")!.Value] = 10;
-                    values[Program.Stats.Key("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%")!.Value] = 100;
+                    values[Stat.EnemiesExplodeForPctLifeAsPhysicalDamage] = 10;
+                    values[Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct] = 100;
                 }
                 return values;
             });

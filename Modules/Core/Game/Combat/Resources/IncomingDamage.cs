@@ -11,7 +11,7 @@ public static partial class Game
         // "You cannot be Damaged or Killed": base_cannot_be_damaged (BuffDefinitions 261 shrine_godmode, the Divine
         // shrine's 20 s). It is the buff's own stat rather than a shrine-specific flag, so anything else that grants it
         // protects the player the same way.
-        if (Stats.Key("base_cannot_be_damaged") is uint cannotBeDamaged
+        if (Stat.BaseCannotBeDamaged is var cannotBeDamaged
             && player.GetValueOrDefault(cannotBeDamaged) > 0) return 0;
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state) || conn.LeavingArea) return 0;

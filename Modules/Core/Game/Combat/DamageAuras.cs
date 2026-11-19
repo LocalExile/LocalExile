@@ -125,7 +125,7 @@ public static partial class Game
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]), null);
             await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by {aura.Name}" : null);
             if (life == 0) await MonsterKilled(conn, id, m, byHit: false);

@@ -117,7 +117,7 @@ public static partial class Game
         : value >= int.MaxValue ? int.MaxValue : (uint)Math.Floor(value);
 
     static uint SnapshotMaximumEnergyShield(MonsterObject monster) =>
-        Stats.Key("maximum_energy_shield") is uint key
+        Stat.MaximumEnergyShield is var key
             ? (uint)Math.Max(0, monster.Stats?.FirstOrDefault(stat => stat.Key == key).Value ?? 0) : 0;
 
     internal static void PublishEnergyShieldLocked(Player conn, GolemState.Golem golem)
@@ -128,7 +128,7 @@ public static partial class Game
         var previousCurrent = origin.Object.EnergyShield;
         var previousMaximum = SnapshotMaximumEnergyShield(origin.Object);
         if (current == previousCurrent && maximum == previousMaximum) return;
-        var maximumKey = Stats.Key("maximum_energy_shield");
+        var maximumKey = Stat.MaximumEnergyShield;
         IReadOnlyList<(uint Key, int Value)>? stats = origin.Object.Stats;
         if (maximum != previousMaximum)
         {
@@ -155,7 +155,7 @@ public static partial class Game
         if (golem is null || !ReferenceEquals(golem.Monster, output.Target) || !GolemCurrent(conn, golem)) return null;
         var maximum = golem.MaximumShield;
         var current = Math.Min(maximum, golem.Shield);
-        var maximumStat = Stats.Key("maximum_energy_shield") is uint key
+        var maximumStat = Stat.MaximumEnergyShield is var key
             ? InstanceEntities.StatsUpdate(id, [(key, (int)maximum)]) : [];
         return maximumStat.Length == 0 ? [InstanceProtocol.LifeUpdate(id, current, pool: 2)]
             : [maximumStat, InstanceProtocol.LifeUpdate(id, current, pool: 2)];
@@ -372,7 +372,7 @@ public static partial class Game
         hash.Add(SkeletonShieldChaos(conn, golem, player));
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
-        if (Stats.Key("dexterity") is uint dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));
+        if (Stat.Dexterity is var dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(player));
         int inheritedCoefficient = GolemStat(player, "minions_gain_x_percent_of_your_resistances");
         GolemOwnerResistances? ownerResistances = inheritedCoefficient == 0 ? null : GolemOwnerResistancesFor(conn);
@@ -401,7 +401,7 @@ public static partial class Game
             golem.Hazards.Clear(); golem.Pulses.Clear();
             PublishEnergyShieldLocked(conn, golem);
             conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-                [(StatKeys.MaximumLife, 1)]), "golem maximum life (fatal conversion transport)", golem.Id, m, WorldId: golem.Id));
+                [(Stat.MaximumLife, 1)]), "golem maximum life (fatal conversion transport)", golem.Id, m, WorldId: golem.Id));
             GolemDieLocked(conn, golem, now);
             if (conn.MinionOrigins.TryGetValue(golem.Id, out var fatalOrigin))
                 conn.MinionOrigins[golem.Id] = fatalOrigin with
@@ -417,7 +417,7 @@ public static partial class Game
         bool lifeChanged = nextLife != m.Life;
         m.MaxLife = maximum; m.Life = nextLife;
         if (maximumChanged)
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id, [(StatKeys.MaximumLife, (int)maximum)]),
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id, [(Stat.MaximumLife, (int)maximum)]),
                 "golem maximum life", golem.Id, m));
         if (maximumChanged || lifeChanged)
             conn.Minions.OutputQueue.Add(new([], "golem life", golem.Id, m, PlayerMinions.OutputKind.Life));
@@ -429,7 +429,7 @@ public static partial class Game
         golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
         conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
+            [(Stat.MovementVelocityPlusPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out origin))
             conn.MinionOrigins[golem.Id] = origin with { Object = origin.Object with { Skills = golem.Skills } };
     }
@@ -439,10 +439,10 @@ public static partial class Game
         IReadOnlyList<(uint Key, int Value)>? stats = origin.Stats;
         int baseLife = monster.Variety is { } variety ? Monsters.BaseLife(variety, monster.Level) ?? 100 : 100;
         if (maximum != baseLife)
-            stats = [.. (stats ?? []).Where(stat => stat.Key != StatKeys.MaximumLife), (StatKeys.MaximumLife, (int)maximum)];
+            stats = [.. (stats ?? []).Where(stat => stat.Key != Stat.MaximumLife), (Stat.MaximumLife, (int)maximum)];
         else if (stats is not null)
         {
-            var rebuilt = stats.Where(stat => stat.Key != StatKeys.MaximumLife).ToList();
+            var rebuilt = stats.Where(stat => stat.Key != Stat.MaximumLife).ToList();
             stats = rebuilt.Count == 0 ? null : rebuilt;
         }
         return origin with { Life = maximum, Stats = stats };

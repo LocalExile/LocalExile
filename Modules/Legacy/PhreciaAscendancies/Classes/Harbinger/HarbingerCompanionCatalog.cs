@@ -92,7 +92,7 @@ sealed class HarbingerCompanionCatalog
             if (effect < 0 || !granted.Contains(effect) || !data.Effects.TryGetValue(effect, out var info)
                 || !data.Bindings.TryGetValue(info.SkillId, out var binding) || binding.Definition.Id != BuffIds[effectId]) return null;
             var own = _skills.EffectStats(effect, level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-            int duration = _stats.Key("base_skill_effect_duration") is uint durationKey ? own.GetValueOrDefault(durationKey) : 0;
+            int duration = Stat.BaseSkillEffectDuration is var durationKey ? own.GetValueOrDefault(durationKey) : 0;
             int cooldown = _skills.CooldownMs(effect, level);
             if (duration <= 0 || cooldown <= 0 || _skills.FindByRow(SkillCatalog.FirstSkillId, effect, level) is null)
                 return null;

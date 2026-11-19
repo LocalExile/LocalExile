@@ -240,7 +240,7 @@ public static partial class Game
                     requirementsMet = GemSkillInstanceDisabled(conn, g.Effect, g.Id) is null && SupportedSkill(conn, g.Id).RequirementsMet,
                     attack = SkillsFor(conn).IsAttack(g.Effect), inPlaceReach = ControlledInPlaceReach(conn, g.Id, g.Effect),
                     cooldownSeconds = Math.Max(0, conn.SkillReadyAt.GetValueOrDefault(g.Effect) - now), activeAura = conn.Auras.ContainsKey(g.Id),
-                    supportedManaCost = SupportedStats(conn, g.Id).GetValueOrDefault(Stats.Key("mana_cost") ?? 0),
+                    supportedManaCost = SupportedStats(conn, g.Id).GetValueOrDefault(Stat.ManaCost),
                     actionSeconds = SkillsFor(conn).IsAttack(g.Effect) ? SupportedAttackSeconds(conn, g.Id) : (CastMs(conn, g.Effect, g.Id) ?? 750) / 1000.0 }).ToArray(),
                 enemies = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Asleep: false }
                         && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), origin) <= ControlledFollowerLeash)

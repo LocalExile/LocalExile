@@ -52,7 +52,7 @@ public static partial class MonsterSkills
     /// <summary>The skill's own skill_travel_distance_+% at the monster's level (ExileQuickDodge's 20: its Dash goes 36
     /// cells, where the player's base Dash goes 30). StatsOf leaves skill_ stats out of a use's stats.</summary>
     static int TravelPct(Player conn, int effect, byte level) =>
-        Stats.Key("skill_travel_distance_+%") is uint key
+        Stat.SkillTravelDistancePlusPct is var key
             ? GolemData.Skill(SkillsFor(conn), effect, level).Stats.GetValueOrDefault(key) : 0;
 
     /// <summary>What the skill does beyond a hit; null for a plain hit and for an aura (which is up from the spawn).</summary>
@@ -437,7 +437,7 @@ public static partial class MonsterSkills
             chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
         }
         await SendWorldRecord(conn, id,
-            InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct + bonusPct)]), null);
+            InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]), null);
         double startedAt = 0, arrives = 0;
         ushort seq = conn.NextActionSequence();
         (int X, int Y) from = default, target = default;
@@ -481,7 +481,7 @@ public static partial class MonsterSkills
         }
         lock (conn.Monsters) { m.Walk.SetSpeed(walkSpeed, conn.Clock.Elapsed.TotalSeconds); m.Walk.ChargesThrough = false; }
         if (!conn.Closed && !m.Dead)
-            await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct)]), null);
+            await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, ownPct)]), null);
         if (arrived && !a.Damage.IsZero)
             await MonsterContact(conn, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
     }

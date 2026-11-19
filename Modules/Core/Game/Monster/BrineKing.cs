@@ -28,9 +28,9 @@ public static class BrineKing
     }
     public static Dictionary<uint, int> PlayerStats(Player conn, Dictionary<uint, int> sources)
     {
-        if (Tides.TryGetValue(conn, out var tide) && tide.Active && Stats.Key("action_speed_-%") is uint key)
+        if (Tides.TryGetValue(conn, out var tide) && tide.Active && Stat.ActionSpeedMinusPct is var key)
             sources[key] = sources.GetValueOrDefault(key) + 30;
-        if (Tides.TryGetValue(conn, out tide) && tide.MaimUntil > conn.Clock.Elapsed.TotalSeconds && Stats.Key("movement_velocity_+%") is uint movement)
+        if (Tides.TryGetValue(conn, out tide) && tide.MaimUntil > conn.Clock.Elapsed.TotalSeconds && Stat.MovementVelocityPlusPct is var movement)
             sources[movement] = sources.GetValueOrDefault(movement) - 30;
         return sources;
     }

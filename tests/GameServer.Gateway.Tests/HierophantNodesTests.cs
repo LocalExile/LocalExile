@@ -70,7 +70,7 @@ public sealed class HierophantNodesTests
         // The cast speed total counts the buff's; a totem's copy of the owner's stats loses its more Spell Damage.
         Assert.Contains("arcane_surge_cast_speed_+%",
             PanelStats.Sums.Single(s => s.Display == "cast_speed_+%").Sources.Select(s => s.Name));
-        Assert.DoesNotContain(Program.Stats.Key("spell_damage_+%_final_from_arcane_surge")!.Value,
+        Assert.DoesNotContain(Stat.SpellDamagePlusPctFinalFromArcaneSurge,
             Game.TotemCasterStats(stats).Keys);
     }
 }

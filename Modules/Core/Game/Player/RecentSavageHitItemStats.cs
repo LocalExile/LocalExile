@@ -9,7 +9,7 @@ public static partial class Game
         IReadOnlyDictionary<string, bool>? flags)
     {
         if (flags?.GetValueOrDefault(RecentSavageHitItemFlag) != true
-            || catalog.Key(SavageHitAttackSpeed) is not uint input || catalog.Key("attack_speed_+%") is not uint output) return;
+            || catalog.Key(SavageHitAttackSpeed) is not uint input || !(Stat.AttackSpeedPlusPct is var output)) return;
         int value = stats.GetValueOrDefault(input);
         if (value == 0) return;
         stats[output] = ActorScale.Saturate((long)stats.GetValueOrDefault(output) + value);

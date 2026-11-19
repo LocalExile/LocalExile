@@ -672,10 +672,10 @@ public static partial class Game
                 target.Walk.Position(at), at);
             else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
-            if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+            if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
             // Item Rarity Support: the same kill's drops read the skill's rarity share.
-            if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
+            if (Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
                 target.KilledWithItemRarityPct = shot.SkillStats.GetValueOrDefault(rarityKey);
             // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
             SoulEaterHit(Conn, target);

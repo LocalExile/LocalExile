@@ -60,11 +60,11 @@ public class AbyssJewelTests
             belt = belt with { Sockets = [belt.Sockets[0] with { Gem = eye }, belt.Sockets[1]] };
             var stats = Game.EquipmentStatSources(conn, [(10, new(105, 0, 0, belt))], [socket], 100).Sources;
             int effect = ItemModStats.Local(belt, items.Mods)["local_socketed_abyss_jewel_effect_+%"];
-            Assert.Equal(10 + RadiusJewelCatalogue.ScaleEffect(10, effect), stats[Program.Stats.Key("base_fire_damage_resistance_%")!.Value]);
-            Assert.Equal(2, stats[Program.Stats.Key("number_of_melee_abyss_jewels")!.Value]);
-            Assert.Equal(1, stats[Program.Stats.Key("number_of_abyss_jewel_types")!.Value]);
+            Assert.Equal(10 + RadiusJewelCatalogue.ScaleEffect(10, effect), stats[Stat.BaseFireDamageResistancePct]);
+            Assert.Equal(2, stats[Stat.NumberOfMeleeAbyssJewels]);
+            Assert.Equal(1, stats[Stat.NumberOfAbyssJewelTypes]);
             var removed = Game.EquipmentStatSources(conn, [], [], 100).Sources;
-            Assert.Equal(0, removed.GetValueOrDefault(Program.Stats.Key("number_of_abyss_jewels")!.Value));
+            Assert.Equal(0, removed.GetValueOrDefault(Stat.NumberOfAbyssJewels));
         }
         finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
     }

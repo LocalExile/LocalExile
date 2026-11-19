@@ -39,7 +39,7 @@ public static partial class Game
     /// client's pathfinder reads and the Phasing Buff icon.</summary>
     public static void GainPhasingOnKill(Player conn)
     {
-        if (Stats.Key("phasing_for_4_seconds_on_kill_%") is not uint key) return;
+        uint key = Stat.PhasingFor4SecondsOnKillPct;
         int chance = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
         if (chance <= 0 || Random.Shared.Next(100) >= Math.Min(100, chance)) return;
         // The game clock: projectile contacts carry their own quanta origin.
@@ -107,8 +107,8 @@ public static partial class Game
     static byte[] PhaseStat(bool on)
     {
         var stats = new List<(uint Key, int Value)>();
-        if (Stats.Key("virtual_phase_through_objects") is uint virtualKey) stats.Add((virtualKey, on ? 1 : 0));
-        if (Stats.Key("phase_through_objects") is uint phaseKey) stats.Add((phaseKey, on ? 1 : 0));
+        if (Stat.VirtualPhaseThroughObjects is var virtualKey) stats.Add((virtualKey, on ? 1 : 0));
+        if (Stat.PhaseThroughObjects is var phaseKey) stats.Add((phaseKey, on ? 1 : 0));
         return InstanceEntities.StatsUpdate(PlayerId, stats);
     }
 }

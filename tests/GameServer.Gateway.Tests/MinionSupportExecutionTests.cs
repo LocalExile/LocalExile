@@ -30,7 +30,7 @@ public sealed class MinionSupportExecutionTests
         Invoke("RefreshGolemLocked", f.Conn, fighter, Game.CharacterPlayerStats(f.Conn), (double?)0d);
         fighter.Monster.Mods = fighter.Monster.Mods with { Effects = new(new Dictionary<string, int>
             { ["accuracy_rating"] = 1000000, ["never_crit"] = 1,
-                ["support_melee_splash_damage_+%_final_for_splash"] = fighter.Own.GetValueOrDefault(Program.Stats.Key("support_melee_splash_damage_+%_final_for_splash")!.Value) }) };
+                ["support_melee_splash_damage_+%_final_for_splash"] = fighter.Own.GetValueOrDefault(Stat.SupportMeleeSplashDamagePlusPctFinalForSplash) }) };
         f.Conn.Walk.Teleport(100, 100, 0);
         return fighter;
     }
@@ -54,7 +54,7 @@ public sealed class MinionSupportExecutionTests
             var fighter = await Skeleton(f, "Multistrike Support", "Ruthless Support");
             fighter.Gear["global_minimum_added_chaos_damage"] = fighter.Gear["global_maximum_added_chaos_damage"] = 100;
             fighter.Gear["base_deal_no_physical_damage"] = 1;
-            fighter.Own[Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100;
+            fighter.Own[Stat.BaseChanceToPoisonOnHitPct] = 100;
             fighter.Abilities = Game.GolemAbilities(f.Conn, fighter.Monster.Variety!, fighter.Monster.Level, fighter, fighter.Player);
             var ability = fighter.Abilities.First(a => !a.Attack.Spell && Program.Skills.IsMelee(a.Effect));
             var enemy = new SpawnedMonster("target", new(105, 100, 0), 100, 3, 1000000) { Hostile = true };

@@ -17,7 +17,7 @@ public class PetRoomTests
         var order = CosmeticsFeature.PetMove(conn, 123, pet, to, 1, following);
         if (following)
         {
-            Assert.Equal([.. InstanceEntities.StatsUpdate(123, [(StatKeys.MovementVelocityPct, 0)]),
+            Assert.Equal([.. InstanceEntities.StatsUpdate(123, [(Stat.MovementVelocityPlusPct, 0)]),
                 .. InstanceProtocol.Teleport(123, to.X, to.Y)], order);
             Assert.Equal(to, pet.Walk.Position(1));
         }
@@ -25,7 +25,7 @@ public class PetRoomTests
 
         var sameRoom = new SpawnedPet(conn.NewWalk(50, 10, 10), 1);
         var walk = CosmeticsFeature.PetMove(conn, 124, sameRoom, to, 1, following);
-        Assert.Equal([.. InstanceEntities.StatsUpdate(124, [(StatKeys.MovementVelocityPct, 0)]),
+        Assert.Equal([.. InstanceEntities.StatsUpdate(124, [(Stat.MovementVelocityPlusPct, 0)]),
             .. InstanceProtocol.ActionStarted(124, 50, 10, 65, 10, 0x2909, 0xffff, 0x0408)], walk);
         Assert.Equal(to, sameRoom.Walk.Destination);
     }
@@ -47,10 +47,10 @@ public class PetRoomTests
             var bytes = CosmeticsFeature.PetMove(conn, id, pet, (158, 10), 0, following);
             Assert.Equal(74, pet.Walk.Speed);
             Assert.Equal(2, pet.Walk.ArrivesAt);
-            Assert.True(bytes.AsSpan().StartsWith(InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, 100)])));
+            Assert.True(bytes.AsSpan().StartsWith(InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, 100)])));
             var before = pet.Walk.Position(1);
             speed.Dispose();
-            Assert.Equal(InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, 0)]),
+            Assert.Equal(InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, 0)]),
                 CosmeticsFeature.PetSpeedUpdate(conn, id, pet, 1));
             Assert.Equal(before, pet.Walk.Position(1));
             Assert.Equal(37, pet.Walk.Speed);

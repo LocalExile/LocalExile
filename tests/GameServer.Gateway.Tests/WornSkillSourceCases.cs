@@ -48,8 +48,8 @@ static class WornSkillSourceCases
             // A socketed melee area gem takes Blood and Sand's stance area once, through the stance owner's own stat.
             var melee = Assert.Single(Game.GemSkillEffects(conn), s => s.Effect == cleaveType.Variant.Effect);
             var stanceSkill = Assert.Single(Game.GemSkillEffects(conn), s => s.Effect == stanceType.Variant.Effect);
-            uint areaKey = Program.Stats.Key("active_skill_area_of_effect_+%_final")!.Value;
-            uint stanceAreaKey = Program.Stats.Key("blood_sand_stance_melee_skills_area_of_effect_+%_final")!.Value;
+            uint areaKey = Stat.ActiveSkillAreaOfEffectPlusPctFinal;
+            uint stanceAreaKey = Stat.BloodSandStanceMeleeSkillsAreaOfEffectPlusPctFinal;
             var plain = Game.SupportedSkill(conn, melee.Id).Stats;
             conn.Auras[stanceSkill.Id] = new AuraCatalog.Aura(stanceSkill.Id, stanceSkill.Effect, "BloodAndSand", "Blood and Sand", 1,
                 AuraCatalog.BuffRow("BloodAndSand", "Sand"), 0, 0, Level: stanceSkill.Level, Stance: "Sand");

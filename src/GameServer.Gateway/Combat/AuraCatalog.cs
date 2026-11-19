@@ -348,11 +348,11 @@ public static class AuraCatalog
                 {
                     case "AvianMightShared":
                         Add("chance_to_deal_double_damage_%"); Add("minion_chance_to_deal_double_damage_%");
-                        if (stats.Key("has_avians_might") is uint might) family[might] = 1;
+                        if (Stat.HasAviansMight is var might) family[might] = 1;
                         break;
                     case "AvianFlightShared":
                         Add("base_movement_velocity_+%"); Add("minion_movement_speed_+%");
-                        if (stats.Key("has_avians_flight") is uint flight) family[flight] = 1;
+                        if (Stat.HasAviansFlight is var flight) family[flight] = 1;
                         break;
                     case "PurityOfElements":
                         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
@@ -363,14 +363,14 @@ public static class AuraCatalog
                         break;
                     case "TemporalRift":
                         Add("base_cooldown_speed_+%");
-                        if (stats.Key("unaffected_by_temporal_chains") is uint temporal) family[temporal] = 1;
+                        if (Stat.UnaffectedByTemporalChains is var temporal) family[temporal] = 1;
                         break;
                     case "SummonSkitterbots":
                         Add("skitterbots_trap_mine_damage_+%_final");
                         break;
                     case "TempestShield":
                         Add("shield_spell_block_%");
-                        if (stats.Key("base_immune_to_shock") is uint shock) family[shock] = 1;
+                        if (Stat.BaseImmuneToShock is var shock) family[shock] = 1;
                         break;
                     case "HeraldOfAsh":
                         Add("physical_damage_%_to_add_as_fire");

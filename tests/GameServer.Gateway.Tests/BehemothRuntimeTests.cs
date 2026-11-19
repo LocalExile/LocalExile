@@ -65,7 +65,7 @@ public sealed class BehemothRuntimeTests
         Assert.True(AscendancyPolicies.Available(conn, identity));
         var rampager = definition.Nodes[49937];
         Assert.Contains(AscendancyPolicies.NodeStats(conn, definition, rampager.Id, rampager.Stats),
-            stat => stat.Key == Program.Stats.Key("melee_hits_grant_rampage_stacks") && stat.Value != 0);
+            stat => stat.Key == Stat.MeleeHitsGrantRampageStacks && stat.Value != 0);
         optIn.Set(false);
         Assert.Null(AscendancyPolicies.SourceOwner(conn)); Assert.False(AscendancyPolicies.Available(conn, identity));
         optIn.Set(true);

@@ -242,7 +242,7 @@ public static class RadiusJewelCatalogue
                 }
                 if (id == "local_unique_jewel_skills_in_radius_grant_%_unarmed_melee_attack_speed")
                 {
-                    if (Program.Stats.Key("unarmed_melee_attack_speed_+%") is uint key)
+                    if (Stat.UnarmedMeleeAttackSpeedPlusPct is var key)
                         additionStats.Add((key, mod.Values[i]));
                     continue;
                 }
@@ -351,7 +351,7 @@ public static class RadiusJewelCatalogue
         if (radius <= 0) return null;
         (uint From, uint To)? swap = null;
         if (physicalToCold && coldToPhysical)
-            swap = (Program.Stats.Key("physical_damage_+%")!.Value, Program.Stats.Key("cold_damage_+%")!.Value);
+            swap = (Stat.PhysicalDamagePlusPct, Stat.ColdDamagePlusPct);
         else
         {
             if (physicalToCold) AddMove(moves, "physical_damage_+%", "cold_damage_+%");
@@ -385,8 +385,8 @@ public static class RadiusJewelCatalogue
     /// damage bonus (1% per 5 points, the same rate Strength itself uses in <see cref="CharacterStats"/>).</summary>
     public static int MeleeAttributes(IReadOnlyList<(uint Key, int Value)> stats)
     {
-        uint? dexterity = Program.Stats.Key("base_dexterity");
-        uint? intelligence = Program.Stats.Key("base_intelligence");
+        uint? dexterity = Stat.BaseDexterity;
+        uint? intelligence = Stat.BaseIntelligence;
         int total = 0;
         foreach (var (key, value) in stats)
             if (key == dexterity || key == intelligence) total += value;
@@ -446,9 +446,8 @@ public static class RadiusJewelCatalogue
     static ResistanceAddition? MakeResistance(string source, string target, int scale)
     {
         if (Program.Stats.Key(source) is not uint sourceKey
-            || Program.Stats.Key("base_resist_all_elements_%") is not uint allKey
             || Program.Stats.Key(target) is not uint targetKey) return null;
-        return new([sourceKey, allKey], targetKey, scale <= 1 ? 100 : scale);
+        return new([sourceKey, Stat.BaseResistAllElementsPct], targetKey, scale <= 1 ? 100 : scale);
     }
 
     public static bool IsRadius(Item item, ModCatalog mods) => ReadConversion(item, mods) is not null;

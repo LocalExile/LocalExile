@@ -49,7 +49,7 @@ public static partial class Game
         if (shown.ExpiryPercent != expiry)
         {
             shown.ExpiryPercent = expiry;
-            if (Stats.Key("rupture_debuff_bleeding_time_passed_+%_final") is uint key)
+            if (Stat.RuptureDebuffBleedingTimePassedPlusPctFinal is var key)
                 packets.Add(InstanceEntities.StatsUpdate(id, [(key, expiry)]));
         }
         foreach (var rupture in set.Active)

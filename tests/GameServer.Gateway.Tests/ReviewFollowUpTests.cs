@@ -64,8 +64,8 @@ public sealed class ReviewFollowUpTests
         // The skill's own Knockback Support stats (25-44% chance, 50% increased distance) add to the character's.
         var conn = Connection();
         var target = conn.Monsters[1];
-        uint chance = Program.Stats.Key("base_global_chance_to_knockback_%")!.Value;
-        uint distance = Program.Stats.Key("knockback_distance_+%")!.Value;
+        uint chance = Stat.BaseGlobalChanceToKnockbackPct;
+        uint distance = Stat.KnockbackDistancePlusPct;
         var skill = new Dictionary<uint, int> { [chance] = 100, [distance] = 50 };
         Assert.True(Game.KnockbackOnHitLocked(conn, target, new Dictionary<uint, int>(), skill, 0, new Random(1)));
         Assert.Equal((111, 100), target.Walk.Position(0));

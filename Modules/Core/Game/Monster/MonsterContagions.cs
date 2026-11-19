@@ -272,7 +272,7 @@ static partial class Game
         foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]), null);
             await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of contagion" : null);
             // The owner's kill (on its own frame when it is another player); with the owner gone, the death without any

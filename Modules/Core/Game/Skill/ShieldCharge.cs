@@ -19,7 +19,7 @@ public static partial class Game
     // A movement skill that needs a shield and carries its own movement bonus: it walks there faster, it does not blink.
     public static int ShieldChargeBonusPct(Player conn, ushort skillId, int effect) =>
         SkillsFor(conn).IsMovement(effect) && SkillsFor(conn).RequiresShield(effect)
-            && Stats.Key("base_movement_velocity_+%") is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
+            && Stat.BaseMovementVelocityPlusPct is var key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
 
     // The client's setup 0x141a6e4f0 stops a charge aimed further away at 75 cells × (1 + shield_charge_range_+% / 100)
     // from where it starts (integer, (100 + range) * 75 / 100), along the aim: the "Maximum Charge Distance" of the gem's
@@ -28,7 +28,7 @@ public static partial class Game
     const int ShieldChargeBaseDistance = 75;
 
     public static int ShieldChargeMaxDistance(Player conn, ushort skillId) =>
-        (100 + (Stats.Key("shield_charge_range_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0))
+        (100 + (Stat.ShieldChargeRangePlusPct is var k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0))
             * ShieldChargeBaseDistance / 100;
 
     // In the use's StartAction: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
@@ -90,7 +90,7 @@ public static partial class Game
         // "{0}% more Damage with Hits at Maximum Charge Distance" (shield_charge_damage_+%_maximum, 100): each hit's share
         // of it is the distance charged so far over the maximum. shortcut: a linear ramp, not read from the client.
         var (start, maxDistance) = ShieldChargeRuns.TryGetValue(conn, out var begun) ? (begun.Start, begun.MaxDistance) : default;
-        int maximumMore = Stats.Key("shield_charge_damage_+%_maximum") is uint moreKey
+        int maximumMore = Stat.ShieldChargeDamagePlusPctMaximum is var moreKey
             ? SupportedStats(conn, skillId).GetValueOrDefault(moreKey) : 0;
         double More((int X, int Y) at) => maxDistance > 0 ? 1 + maximumMore / 100.0 * Math.Min(1, Dist(start, at) / maxDistance) : 1;
         if (ShieldWeapon(conn, skillId) is { } shieldWeapon)

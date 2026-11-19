@@ -250,7 +250,7 @@ public static partial class Game
     public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(Player conn, IReadOnlyDictionary<uint, int> worn)
     {
         int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
-        if (WornMorph(conn) is { } morph && Stats.Key("mtx_virtual_morph_art_variation_index") is uint morphKey)
+        if (WornMorph(conn) is { } morph && Stat.MtxVirtualMorphArtVariationIndex is var morphKey)
             yield return (morphKey, morph.Index);
         foreach (var (output, skin, sources) in ChargeArt)
         {

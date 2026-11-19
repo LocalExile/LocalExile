@@ -110,10 +110,10 @@ public static class BossKits
     /// (<c>cast_on_damage_taken_threshold</c>, at least 1); 0 when the effect is no trigger on damage taken.</summary>
     public static int DamageTakenThreshold(SkillCatalog catalog, int effect, int level)
     {
-        if (effect < 0 || Stats.Key("cast_on_damage_taken_%") is not uint chance) return 0;
+        if (effect < 0 || !(Stat.CastOnDamageTakenPct is var chance)) return 0;
         var stats = catalog.EffectStats(effect, level);
         if (!stats.Any(stat => stat.Item1 == chance && stat.Item2 > 0)) return 0;
-        uint? threshold = Stats.Key("cast_on_damage_taken_threshold");
+        uint? threshold = Stat.CastOnDamageTakenThreshold;
         return Math.Max(1, stats.FirstOrDefault(stat => stat.Item1 == threshold).Item2);
     }
 
@@ -326,7 +326,7 @@ public static class BossKits
         var attack = AttackFor(conn, body, level, effect, id) with { Effect = effect, Proxy = true };
         if (Shaped(conn, body, level, effect, attack, body: true) is not { } shaped) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
-        if (Stats.Key("base_totem_range") is uint key && stats.GetValueOrDefault(key) is > 0 and var range)
+        if (Stat.BaseTotemRange is var key && stats.GetValueOrDefault(key) is > 0 and var range)
             shaped = shaped with { Range = range };
         return Acts(shaped) ? shaped : null;
     }
@@ -358,7 +358,7 @@ public static class BossKits
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
         // A nova (projectiles_nova: Lightning Trap's) fires its projectiles around the full turn.
-        bool nova = Stats.Key("projectiles_nova") is uint novaKey && stats.GetValueOrDefault(novaKey) != 0;
+        bool nova = Stat.ProjectilesNova is var novaKey && stats.GetValueOrDefault(novaKey) != 0;
         return new(art.Id, art.Speed, false, art.CollisionRadius) { Count = Math.Max(1, count), SpreadRadians = nova ? Math.Tau : Math.PI / 6 };
     }
 

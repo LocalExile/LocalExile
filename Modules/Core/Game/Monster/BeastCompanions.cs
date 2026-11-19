@@ -285,7 +285,7 @@ public static partial class Game
         m.Life = 0;
         conn.Minions.Bodies.Add((id, m, now + 1));
         if (!output) return;
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+        conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]),
             "beast companion ends", id, m));
         conn.Minions.OutputQueue.Add(new([], "beast companion life 0", id, m, PlayerMinions.OutputKind.Life));
     }

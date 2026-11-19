@@ -52,7 +52,7 @@ public sealed class TattooHonouredTests
         Assert.Equal(30, conn.SupportGems.ArcaneSurgeManaRegenPct);
         var chance = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("gain_arcane_surge_on_hit_%_chance")!.Value] = 100,
+            [Stat.GainArcaneSurgeOnHitPctChance] = 100,
         };
         Game.ArcaneSurgeOnSpellHitLocked(conn, chance, 30, new Random(1));
         Assert.Equal(34, conn.SupportGems.ArcaneSurgeUntil);

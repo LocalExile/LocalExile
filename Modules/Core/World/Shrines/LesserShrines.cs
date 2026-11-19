@@ -70,7 +70,7 @@ public static class LesserShrines
     {
         if (grant is null) return 0;
         var stats = CharacterPlayerStats(conn);
-        int recovery = Stats.Key("virtual_cooldown_speed_+%") is uint key ? stats.GetValueOrDefault(key) : 0;
+        int recovery = Stat.VirtualCooldownSpeedPlusPct is var key ? stats.GetValueOrDefault(key) : 0;
         double rate = Math.Max(0, 1 + recovery / 100.0)
             * Math.Max(0, 1 + (MapModsOf(conn)?.Get("map_player_cooldown_speed_+%_final") ?? 0) / 100.0);
         return rate > 0 ? SkillsFor(conn).CooldownMs(grant.Effect, grant.Level) / 1000.0 / rate : double.PositiveInfinity;

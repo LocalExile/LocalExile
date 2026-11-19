@@ -62,16 +62,16 @@ public static class SkillAttackTiming
     // total base duration before global speed; GEPL inherent speed remains in the final percent, not the duration.
     public static void Apply(Dictionary<uint, int> stats, int inherentPercent, int localSpeedInPercent = 0)
     {
-        if (!stats.TryGetValue(StatKeys.MainHandAttackDurationMs, out int main) || main <= 0) return;
+        if (!stats.TryGetValue(Stat.MainHandBaseWeaponAttackDurationMs, out int main) || main <= 0) return;
         int additional = AdditionalMilliseconds(stats);
         if (additional != 0)
         {
-            stats[StatKeys.MainHandTotalAttackDurationMs] = BaseMilliseconds(main, additional);
-            if (stats.TryGetValue(StatKeys.OffHandAttackDurationMs, out int off) && off > 0)
-                stats[StatKeys.OffHandTotalAttackDurationMs] = BaseMilliseconds(off, additional);
+            stats[Stat.MainHandTotalBaseWeaponAttackDurationMs] = BaseMilliseconds(main, additional);
+            if (stats.TryGetValue(Stat.OffHandBaseWeaponAttackDurationMs, out int off) && off > 0)
+                stats[Stat.OffHandTotalBaseWeaponAttackDurationMs] = BaseMilliseconds(off, additional);
         }
-        stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100
-            / Seconds(main, stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), inherentPercent, additional,
+        stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100
+            / Seconds(main, stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct), inherentPercent, additional,
                 localSpeedInPercent: localSpeedInPercent));
     }
 }

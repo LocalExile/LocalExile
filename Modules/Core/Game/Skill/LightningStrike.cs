@@ -96,7 +96,7 @@ static partial class Game
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        if (hit.Life == 0) session.Packet(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
+        if (hit.Life == 0) session.Packet(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
         if (HitReaction.TryFlinch(monster, stun, now, Random.Shared))
         {
             double until = monster.FlinchUntil;

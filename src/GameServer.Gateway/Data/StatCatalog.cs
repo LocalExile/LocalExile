@@ -65,6 +65,17 @@ public sealed class StatCatalog
     /// <summary>Whether an id is the client's (sent in packets) rather than the server's own.</summary>
     public static bool IsClientId(uint id) => id < FirstServerId;
 
+    /// <summary>FNV-1a over the names joined by newlines: the table <see cref="Stat"/> was generated from has the same.</summary>
+    public ulong Checksum
+    {
+        get
+        {
+            ulong h = 0xcbf29ce484222325;
+            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(string.Join('\n', _names))) h = (h ^ b) * 0x100000001b3;
+            return h;
+        }
+    }
+
     /// <summary>Whether this build has a stat by this name. Uses the same name cache as <see cref="Key(string)"/>, so a
     /// repeated question costs a dictionary lookup; a name that is absent stays cached as a miss.</summary>
     public bool Has(string name) => Key(name) is not null;

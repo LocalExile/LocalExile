@@ -53,12 +53,12 @@ public class ClusterJewelTests
         int small = layout.ByOffset.First(p => p.Value == ClusterJewelLayout.Kind.Small).Key;
         conn.ClusterPassives.Add((ushort)(layout.Base + small));
         var granted = ClusterJewelStats.For(conn, placed, items.Mods, Program.Stats).ToDictionary(s => s.Key, s => s.Value);
-        Assert.Equal(12, granted[Program.Stats.Key("fire_damage_+%")!.Value]);
-        Assert.Equal(7, granted[Program.Stats.Key("base_maximum_life")!.Value]);
+        Assert.Equal(12, granted[Stat.FireDamagePlusPct]);
+        Assert.Equal(7, granted[Stat.BaseMaximumLife]);
         // A jewel from before the server wrote themes names none: only its "also grant" counts, as it did.
         InventoryItem[] old = [new(12, 20, 0, plain with { Mods = [.. plain.Mods, new ItemMod(ModSection.Enchant, items.Mods.ById("AfflictionJewelSmallPassivesGrantLife_")!.Hash, [3])] })];
         var before = Assert.Single(ClusterJewelStats.For(conn, old, items.Mods, Program.Stats));
-        Assert.Equal((Program.Stats.Key("base_maximum_life")!.Value, 3), before);
+        Assert.Equal((Stat.BaseMaximumLife, 3), before);
 
         // What a tool composes: a jewel that does not say its passives keeps a new one's enchantments; one that does is
         // taken as given. A unique has its own lists.

@@ -6,7 +6,7 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 
 public static partial class Game
 {
-    public static bool PlayerAlwaysHits(Player conn) => Stats.Key("global_always_hit") is uint key
+    public static bool PlayerAlwaysHits(Player conn) => Stat.GlobalAlwaysHit is var key
         && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
 
     public static Dictionary<uint, int> WithAntiquarian(Player conn, Dictionary<uint, int> sources)

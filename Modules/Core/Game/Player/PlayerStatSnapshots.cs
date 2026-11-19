@@ -10,8 +10,8 @@ public static partial class Game
     {
         // Under a trap's degeneration the pools only fall: the client steps them up by these rates between updates.
         if ((conn.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(conn) || ChargeDegenerationActive(conn)
-            || HerEmbraceOf(conn).Until > ResourceEffectsTime(conn)) && Stats.Key("life_recovery_per_minute") is uint lifeKey
-            && Stats.Key("energy_shield_recovery_per_minute") is uint shieldKey)
+            || HerEmbraceOf(conn).Until > ResourceEffectsTime(conn)) && Stat.LifeRecoveryPerMinute is var lifeKey
+            && Stat.EnergyShieldRecoveryPerMinute is var shieldKey)
             stats = [.. stats.Select(s => s.Key == lifeKey || s.Key == shieldKey ? (s.Key, 0) : s)];
         var packet = InstanceEntities.StatsUpdate(PlayerId, stats);
         uint? counterKey = Stats.Key(RecentEnemyHits.Counter), chanceKey = Stats.Key(RecentEnemyHits.VirtualChance);
@@ -27,7 +27,7 @@ public static partial class Game
 
     // The stats whose arrival makes the client lay a walking actor's piece again (0x141ea3840): movement_velocity_+%
     // and the two the client's speed and stop tests read beside it.
-    static readonly uint[] WalkRelayStats = [StatKeys.MovementVelocityPct, 0xce6, 0x7b5];
+    static readonly uint[] WalkRelayStats = [Stat.MovementVelocityPlusPct, 0xce6, 0x7b5];
 
     // A player stats message (S→C 0x1b3) at its send gate on a lockstep client, under conn.Monsters. The client sets
     // each stat it lists and tells the stat's listeners whether the value changed or not; for a movement stat the Actor

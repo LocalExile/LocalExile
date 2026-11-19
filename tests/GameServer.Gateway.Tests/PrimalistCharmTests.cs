@@ -34,7 +34,7 @@ public class PrimalistCharmTests
             conn.DescendancyNodes.Add(node);
             Assert.Null(Game.PassiveJewelRefusal(conn, cell, 0, charm));
 
-            uint fire = Program.Stats.Key("base_maximum_fire_damage_resistance_%")!.Value;
+            uint fire = Stat.BaseMaximumFireDamageResistancePct;
             int before = Game.CharacterStatSources(conn).Stats.GetValueOrDefault(fire);
             Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(90, (byte)cell, 0, charm));
             Assert.Equal(before + 2, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(fire));

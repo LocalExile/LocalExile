@@ -38,9 +38,9 @@ public sealed class CrueltySupportTests
         };
         var skill = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("supported_by_cruelty")!.Value] = 1,
-            [Program.Stats.Key("cruelty_effect_+%")!.Value] = 0,
-            [Program.Stats.Key("support_base_cruelty_duration_ms")!.Value] = 4000,
+            [Stat.SupportedByCruelty] = 1,
+            [Stat.CrueltyEffectPlusPct] = 0,
+            [Stat.SupportBaseCrueltyDurationMs] = 4000,
         };
         const ushort skillId = 0x1234;
         var monster = new SpawnedMonster("target", new(0, 0, 0), 0, 0, 1000) { Hostile = true };
@@ -68,7 +68,7 @@ public sealed class CrueltySupportTests
         Assert.Equal((25, 8.0), state.CrueltyActiveAt(5));
 
         // A skill without the supported_by_cruelty stat never gains the buff.
-        var plain = new Dictionary<uint, int> { [Program.Stats.Key("cruelty_effect_+%")!.Value] = 0 };
+        var plain = new Dictionary<uint, int> { [Stat.CrueltyEffectPlusPct] = 0 };
         lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x9999, 1000, 1000, 1000, plain, 6);
         Assert.Equal((25, 8.0), state.CrueltyActiveAt(6));
     }

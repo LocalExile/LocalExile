@@ -17,7 +17,7 @@ public sealed class OverheatSupportTests
         const ushort skillId = 0x5678;
         var skill = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("support_overheat_ailment_damage_+%_final_per_3_fortification_consumed")!.Value] = 6,
+            [Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed] = 6,
         };
 
         // 6 stacks consumed -> 2 groups of three -> 1 + 6*2/100 = 1.12.
@@ -66,7 +66,7 @@ public sealed class OverheatSupportTests
         Assert.True(session.State.GrantExplicitStacks(0, 2, 0));
         var skill = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("support_overheat_ailment_damage_+%_final_per_3_fortification_consumed")!.Value] = 6,
+            [Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed] = 6,
         };
         lock (conn.Monsters) Game.OverheatConsumeLocked(conn, skillId, name => skill.GetValueOrDefault(Program.Stats.Key(name)!.Value), 0);
         Assert.False(conn.SupportGems.OverheatMore.ContainsKey(skillId));

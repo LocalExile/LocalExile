@@ -21,8 +21,8 @@ public class KalandrasTouchTests
                 Mods = [new(ModSection.Explicit, items.Mods.ById("FireResist1")!.Hash, [10]),
                     new(ModSection.Explicit, items.Mods.ById("DexterityUnique__3")!.Hash, [40])],
             };
-            uint fire = Program.Stats.Key("base_fire_damage_resistance_%")!.Value;
-            uint dex = Program.Stats.Key("additional_dexterity")!.Value;
+            uint fire = Stat.BaseFireDamageResistancePct;
+            uint dex = Stat.AdditionalDexterity;
             uint id = 200;
             (int Fire, int Dex) Worn(params (byte Row, Item Item)[] worn)
             {

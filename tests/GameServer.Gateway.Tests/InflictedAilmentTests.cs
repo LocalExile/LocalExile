@@ -131,7 +131,7 @@ public class InflictedAilmentTests
         AuraCatalog.Aura Running(string id) => new(0x999, 0, id, id, 1, 0, 0, 0);
         var watchersEye = Raw(("reduce_enemy_lightning_resistance_%_while_affected_by_wrath", 15),
             ("reduce_enemy_cold_resistance_%_while_affected_by_hatred", 12));
-        Assert.Equal(new[] { (Program.Stats.Key("base_reduce_enemy_lightning_resistance_%")!.Value, 15) },
+        Assert.Equal(new[] { (Stat.BaseReduceEnemyLightningResistancePct, 15) },
             AuraCatalog.WhileAffectedPenetration([Running("Wrath"), Running("Anger")], watchersEye, Program.Stats).ToArray());
         Assert.Empty(AuraCatalog.WhileAffectedPenetration([Running("Anger")], watchersEye, Program.Stats));
 

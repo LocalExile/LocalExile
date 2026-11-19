@@ -79,7 +79,7 @@ public static partial class Game
     /// <summary>Whether this skill is one that summons a totem: a dedicated totem skill or a skill Spell Totem Support
     /// totemified, both of which carry the `is_totem` stat on the instance.</summary>
     public static bool IsTotemSkill(Player conn, ushort skill) =>
-        SupportedSkill(conn, skill).Stats.GetValueOrDefault(Stats.Key("is_totem") ?? 0) != 0;
+        SupportedSkill(conn, skill).Stats.GetValueOrDefault(Stat.IsTotem) != 0;
 
     /// <summary>The totem variety a gem skill summons, or null. A dedicated totem skill (its ActiveSkills row carries
     /// <see cref="TotemSkillType"/>) summons the sprite its own SkillTotemVariations entry (skin 0) names — every
@@ -153,7 +153,7 @@ public static partial class Game
     {
         double factor, speed;
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
-        speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
+        speed = Stat.SummonTotemCastSpeedPlusPct is var k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
         // 3.28 changed ranged totem placement from 0.35 to 0.5 seconds (PoEDB version notes).
         double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) || NativeProjectileTotem(conn, effect) ? .6
             : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
@@ -237,8 +237,8 @@ public static partial class Game
             // The spell totems' proxy (totem flags cleared, cast time and speed its own): with the gem's own stats
             // (is_totem, base_skill_is_totemified) the client takes the action for a totem placement and plays nothing.
             var payload = (granted.Stats ?? []).ToList();
-            if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey) payload.Add((radiusKey, radius));
-            payload.Add((StatKeys.SkillIsNonPathing, 1));
+            if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey) payload.Add((radiusKey, radius));
+            payload.Add((Stat.SkillIsNonPathing, 1));
             action = granted with { Stats = payload };
             if (TotemNova(conn, effect)) strike = new(TotemActionSkill, radius);
         }
@@ -294,8 +294,8 @@ public static partial class Game
                 if (conn.MonsterTypes.Add((variety.Row, level)))
                     bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
                 var objectStats = new List<(uint, int)>();
-                if (life != baseLife) objectStats.Add((StatKeys.MaximumLife, (int)life));
-                if (spellTotem && Stats.Key("uses_no_mana") is uint noMana) objectStats.Add((noMana, 1));
+                if (life != baseLife) objectStats.Add((Stat.MaximumLife, (int)life));
+                if (spellTotem && Stat.UsesNoMana is var noMana) objectStats.Add((noMana, 1));
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
                     Stats: objectStats) { LifeData = variety.LifeData };

@@ -16,7 +16,7 @@ static partial class QuestobjectsRules
             return;
         }
         uint id = await SpawnMonster(conn, variety, level, MonsterRarity.Unique, at.X, at.Y,
-            placement: MonsterPlacement.Established, extraStats: [(StatKeys.HideMiniLifeBar, 1)], attachTo: (izaro, IzaroGoddess.Bone, IzaroGoddess.AttachKind, IzaroGoddess.AttachFlags));
+            placement: MonsterPlacement.Established, extraStats: [(Stat.HideMiniLifeBar, 1)], attachTo: (izaro, IzaroGoddess.Bone, IzaroGoddess.AttachKind, IzaroGoddess.AttachFlags));
         lock (conn.Monsters)
         {
             if (conn.Monsters.GetValueOrDefault(id) is not { } goddess) return;

@@ -88,7 +88,7 @@ public sealed class SupportExecutionTests
             // PoEDB's level-20 penalty (-5) and 20% quality recovery (+5) cancel in the installed native data.
             var qualityStats = Game.SkillsFor(conn).EffectStats(Game.SkillsFor(conn).EffectRow("SupportSecondWind"), 20, 20)
                 .ToDictionary(s => s.Item1, s => s.Item2);
-            Assert.Equal(0, qualityStats[Program.Stats.Key("base_cooldown_speed_+%")!.Value]);
+            Assert.Equal(0, qualityStats[Stat.BaseCooldownSpeedPlusPct]);
         }
         finally
         {

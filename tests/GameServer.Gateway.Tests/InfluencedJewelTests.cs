@@ -20,7 +20,7 @@ public class InfluencedJewelTests
         var both = baseItem with { Influences = ItemInfluence.Elder | ItemInfluence.Warlord };
         var elder = baseItem with { Influences = ItemInfluence.Elder };
         var warlord = baseItem with { Influences = ItemInfluence.Warlord };
-        uint life = Program.Stats.Key("maximum_life_+%")!.Value;
+        uint life = Stat.MaximumLifePlusPct;
         var nearby = jewel with { Mods = [
             new(ModSection.Explicit, items.Mods.ById("NearbyEnemiesAreBlinded2RedeemerItemsUnique__1")!.Hash, [1]),
             new(ModSection.Explicit, items.Mods.ById("NearbyEnemiesAreIntimidated2WarlordItemsUnique__1")!.Hash, [1]),

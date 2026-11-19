@@ -53,7 +53,7 @@ public sealed class MinionTacticsTests
             f.Conn.Walk.Teleport(100, 100, 0); fighter.Monster.Walk.Teleport(100, 100, 0);
             ushort signal = Source(f, "SignalPrey"); var gem = Game.SupportedSkill(f.Conn, signal);
             Assert.Equal(800, Program.Skills.CooldownMs(gem.Effect, gem.Level));
-            Assert.Equal(8000, gem.Stats[Program.Stats.Key("base_skill_effect_duration")!.Value]);
+            Assert.Equal(8000, gem.Stats[Stat.BaseSkillEffectDuration]);
             var near = Enemy(f, 900, 105); var prey = Enemy(f, 901, 110);
             uint before = near.Life;
             Assert.True(Hit(f, fighter, 900, near, clock.Time));
@@ -62,7 +62,7 @@ public sealed class MinionTacticsTests
             before = prey.Life;
             Assert.True(Hit(f, fighter, 901, prey, clock.Time));
             Assert.InRange(before - prey.Life, 138u, 139u);
-            uint focusKey = Program.Stats.Key("support_minion_use_focussed_target")!.Value;
+            uint focusKey = Stat.SupportMinionUseFocussedTarget;
             int focus = fighter.Own[focusKey]; fighter.Own.Remove(focusKey);
             before = prey.Life; Assert.True(Hit(f, fighter, 901, prey, clock.Time));
             Assert.Equal(112u, before - prey.Life);

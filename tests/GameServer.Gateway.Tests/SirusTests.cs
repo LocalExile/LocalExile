@@ -56,12 +56,12 @@ public sealed class SirusTests
         FreezeBeam(false, .1, new Dictionary<uint, int>());
         Assert.Empty(c.FlaskAutomation.Events); // Refreshing an existing ailment is not a new flask activation.
         c.ElementalAilments.Clear(); c.RecentEvents.Clear();
-        var cannotFreeze = new Dictionary<uint, int> { [Program.Stats.Key("cannot_be_frozen")!.Value] = 1 };
+        var cannotFreeze = new Dictionary<uint, int> { [Stat.CannotBeFrozen] = 1 };
         FreezeBeam(false, .2, cannotFreeze);
         Assert.False(c.ElementalAilments.Snapshot(.2).Freeze);
         Assert.False(c.RecentEvents.Happened(StatConditions.BeenFrozen, .2));
         Assert.DoesNotContain(c.FlaskAutomation.Events, e => e.Trigger == FlaskEnchantments.Trigger.Freeze);
-        var avoidFreeze = new Dictionary<uint, int> { [Program.Stats.Key("avoid_freeze_%")!.Value] = 50 };
+        var avoidFreeze = new Dictionary<uint, int> { [Stat.AvoidFreezePct] = 50 };
         foreach (bool critical in new[] { false, true })
         {
             c.ElementalAilments.Clear(); c.FlaskAutomation.Discard();

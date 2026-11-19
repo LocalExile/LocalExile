@@ -763,10 +763,10 @@ public class LockstepMonsterTests : IDisposable
                 var stats = Game.MonsterProjectileSkillStats(conn, effect, 70,
                     new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = mortar });
                 int Stat(uint key) => Assert.Single(stats, s => s.Item1 == key).Item2;
-                Assert.Equal(row, Stat(StatKeys.SkillBehaviourVariation));
-                Assert.Equal(count, Stat(StatKeys.TotalProjectilesToFire));
-                Assert.Equal(count, Stat(StatKeys.VirtualTotalProjectiles));
-                Assert.Equal(count, Stat(StatKeys.VirtualTotalArrows));
+                Assert.Equal(row, Stat(global::Stat.SkillBehaviourVariation));
+                Assert.Equal(count, Stat(global::Stat.TotalNumberOfProjectilesToFire));
+                Assert.Equal(count, Stat(global::Stat.VirtualTotalNumberOfProjectiles));
+                Assert.Equal(count, Stat(global::Stat.VirtualTotalNumberOfArrows));
                 var profile = Game.MonsterProjectileProfile(mortar, 5, 10, 30);
                 Assert.True(profile.HideVisual, effectId);
                 Assert.Equal(count, profile.Count);
@@ -778,12 +778,12 @@ public class LockstepMonsterTests : IDisposable
             Assert.Equal((0, 5), (spell!.Variation, spell.Count));
             Assert.DoesNotContain(Game.MonsterProjectileSkillStats(conn, spellEffect, 70,
                     new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = spell }),
-                s => s.Item1 is StatKeys.SkillBehaviourVariation or StatKeys.VirtualTotalProjectiles);
+                s => s.Item1 is Stat.SkillBehaviourVariation or Stat.VirtualTotalNumberOfProjectiles);
             Assert.False(Game.MonsterProjectileProfile(spell, 5, 10, 30).HideVisual);
             var bugs = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/BugSoulrend", 200, Lobbed: false, 3) { Count = 6 };
             var straight = Game.MonsterProjectileSkillStats(conn, skills.EffectRow("MMASandSpitterProjectile"), 70,
                 new MonsterAttack(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true, Projectile = bugs });
-            Assert.DoesNotContain(straight, s => s.Item1 is StatKeys.SkillBehaviourVariation or StatKeys.VirtualTotalProjectiles);
+            Assert.DoesNotContain(straight, s => s.Item1 is Stat.SkillBehaviourVariation or Stat.VirtualTotalNumberOfProjectiles);
             Assert.False(Game.MonsterProjectileProfile(bugs, 5, 10, 30).HideVisual);
         }
         var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;

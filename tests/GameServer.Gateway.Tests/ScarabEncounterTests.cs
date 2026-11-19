@@ -34,8 +34,8 @@ public sealed class ScarabEncounterTests
         Assert.Equal(6, Base(Compose(catalog.Of([slot, slot], Program.Items.Mods))));
         Assert.Equal(5, Base(Compose(mods, new()
         {
-            [Program.Stats.Key("map_num_extra_shrines")!.Value] = 2,
-            [Program.Stats.Key("map_mod_effect_+%_for_non_unique_maps")!.Value] = 100,
+            [Stat.MapNumExtraShrines] = 2,
+            [Stat.MapModEffectPlusPctForNonUniqueMaps] = 100,
         })));
         Assert.Equal(3, mods.Get("map_leaguestone_additional_shrines"));
         Assert.Equal(0, mods.Get("map_num_extra_shrines"));

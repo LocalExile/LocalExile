@@ -29,7 +29,7 @@ public static partial class Game
 {
     static bool BlindImmune(Player conn, IReadOnlyDictionary<uint, int>? player = null)
     {
-        if (Stats.Key("cannot_be_blinded") is not uint key) return false;
+        uint key = Stat.CannotBeBlinded;
         return (player ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key) != 0;
     }
     static (int Less, double Until) PlayerBlindValue(Player conn, IReadOnlyDictionary<uint, int>? player = null)
@@ -75,7 +75,7 @@ public static partial class Game
         }
     }
     static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
-        (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stats.Key("blind_effect_+%") is uint key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
+        (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stat.BlindEffectPlusPct is var key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
     static (int Less, double Until) MonsterBlindValue(Player conn, uint id, SpawnedMonster target, double at, int smokeLess)
     {
         var owner = ResourceEffectsOf(conn);

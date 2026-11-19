@@ -134,7 +134,7 @@ public sealed class HitSummonTests
                 else
                 {
                     Assert.Equal(5, shots.Select(shot => shot.Direction).Distinct().Count());
-                    int speed = ghost.Own[Program.Stats.Key("base_projectile_speed_+%")!.Value];
+                    int speed = ghost.Own[Stat.BaseProjectileSpeedPlusPct];
                     Assert.True(speed > 0);
                     Assert.Equal(baselineSpeed * (1 + speed / 100d), shots[0].Speed, 3);
                 }
@@ -236,7 +236,7 @@ public sealed class HitSummonTests
                 Assert.Equal((ushort)(0xc000 | vaal.Id), owned.Source);
                 var proxy=Game.PlayerSkills(f.Conn).Single(s=>s.Id==owned.Source);
                 var active=Game.PlayerSkills(f.Conn).Single(s=>s.Id==vaal.Id);
-                Assert.Equal(absolution?0:1, active.Stats!.Single(s=>s.Key==Program.Stats.Key("skill_behaviour_variation")).Value);
+                Assert.Equal(absolution?0:1, active.Stats!.Single(s=>s.Key==Stat.SkillBehaviourVariation).Value);
                 Assert.Equal(((uint)0x1000, source), proxy.Parent!.Value);
                 Assert.Equal(absolution ? 50 : 3, owned.Type);
                 Assert.Null(Game.SentinelOwnershipPresentation(f.Conn));
@@ -249,10 +249,10 @@ public sealed class HitSummonTests
                 Assert.Equal(source,ascended.Source); Assert.Same(normal.InheritedMods,ascended.InheritedMods);
                 Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 Assert.Equal(absolution ? 51 : 4,Assert.Single(f.Conn.Summons.PresentedOwnership).Value.Type);
-                Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
-                Assert.Equal(-70,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_taken_+%_final")!.Value]);
+                Assert.Equal(300,ascended.Own[Stat.VaalUpgradeMinionDamagePlusPctFinal]);
+                Assert.Equal(-70,ascended.Own[Stat.VaalUpgradeMinionDamageTakenPlusPctFinal]);
                 clock.Time++; await Game.SummonsTick(f.Conn,clock.Time);
-                Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
+                Assert.Equal(300,ascended.Own[Stat.VaalUpgradeMinionDamagePlusPctFinal]);
                 if (!absolution)
                     for (uint extra=941;extra<=942;extra++)
                     {

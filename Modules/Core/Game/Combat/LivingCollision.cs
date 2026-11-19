@@ -130,7 +130,7 @@ public static partial class Game
         if (conn.PeerTemplate is not { } template) return;
         if (template.Experience != conn.Experience)
             conn.PeerTemplate = template = template with { Experience = conn.Experience };
-        if (Stats.Key("level") is uint levelKey)
+        if (Stat.Level is var levelKey)
         {
             int level = Progression.LevelFor(conn.Experience, CharacterStats.LevelStarts);
             if ((template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value != level)
@@ -240,7 +240,7 @@ public static partial class Game
                         packets.World(peer.Id, InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
                     if (previous.Template.Experience != peer.Template.Experience)
                         packets.World(peer.Id, InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
-                    if (Stats.Key("level") is uint levelKey)
+                    if (Stat.Level is var levelKey)
                     {
                         int level = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
                         int oldLevel = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;

@@ -95,7 +95,7 @@ public static partial class Game
     {
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
-        uint? enables = Stats.Key("can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique");
+        uint? enables = Stat.CanTriggerSummonElementalRelicOnNearbyAllyKillOrOnHitRareOrUnique;
         if (PassiveBuffAuras.AllyAurasFor(nodes, LeagueFor(conn).HardMode).FirstOrDefault(a => a.Stats.Any(s => s.Key == enables && s.Value != 0))
             is not { } buff) return null;
         var grant = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes).FirstOrDefault(g => IsRelicSkill(g.EffectId));
@@ -126,7 +126,7 @@ public static partial class Game
             if (allyAt is { } ally && Dist(ally, conn.Walk.Position(now)) > radius) return false;
             if (now < conn.SkillReadyAt.GetValueOrDefault(grant.Effect) - 1e-9) return false;
             var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
-            int chance = Stats.Key("skill_triggered_by_nearby_allies_kill_or_hit_rare_unique_%_chance") is uint c ? own.GetValueOrDefault(c) : 0;
+            int chance = Stat.SkillTriggeredByNearbyAlliesKillOrHitRareUniquePctChance is var c ? own.GetValueOrDefault(c) : 0;
             if (conn.Minions.Random.Next(100) >= chance) return false;
             if (SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, grant.Effect, grant.Level, CharacterPlayerStats(conn), own)
                 is not { } plan) return false;

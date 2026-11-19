@@ -26,8 +26,8 @@ internal sealed partial class HarbingerGameplay
     {
         int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
         var self = state.Curses.SelfStats(Now(conn), conn.PlayerLife > 0, Get);
-        if (Stats.Key("temporal_chains_action_speed_+%_final") is uint slow) raw[slow] = raw.GetValueOrDefault(slow) + self.Slow;
-        if (Stats.Key("buff_time_passed_+%_other_than_temporal_chains") is uint other) raw[other] = raw.GetValueOrDefault(other) + self.OtherEffects;
+        if (Stat.TemporalChainsActionSpeedPlusPctFinal is var slow) raw[slow] = raw.GetValueOrDefault(slow) + self.Slow;
+        if (Stat.BuffTimePassedPlusPctOtherThanTemporalChains is var other) raw[other] = raw.GetValueOrDefault(other) + self.OtherEffects;
     }
     void ReconcileCurses(Player conn, State state, double now, List<byte> bytes)
     {

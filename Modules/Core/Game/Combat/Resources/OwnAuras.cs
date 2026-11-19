@@ -90,7 +90,7 @@ public static partial class Game
     // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428d6330).
     static bool SpellsDisabled(Player conn, Dictionary<uint, int>? sources = null)
     {
-        if (Stats.Key("your_spells_are_disabled") is not uint key) return false;
+        uint key = Stat.YourSpellsAreDisabled;
         lock (conn.Monsters)
             return ((sources ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key)) != 0;
     }

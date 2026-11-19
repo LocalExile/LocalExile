@@ -1397,7 +1397,7 @@ static partial class QuestobjectsRules
             kind: 0x03, code: HitCode(taken)), null);
         await SendPlayerEnergyShield(conn);
         if (life == 0)
-            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(Stat.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
         await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player hit by {trap} for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");

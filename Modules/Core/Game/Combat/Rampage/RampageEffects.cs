@@ -20,7 +20,7 @@ public static partial class Game
     static DamagePacket RampageSpellPacket(Player conn, int effect, int level)
     {
         var owner = CharacterStatSources(conn).Stats;
-        int increased = Stats.Key("minion_damage_+%") is uint key ? owner.GetValueOrDefault(key) : 0;
+        int increased = Stat.MinionDamagePlusPct is var key ? owner.GetValueOrDefault(key) : 0;
         // The daemon is a separate caster. Rampager's spell-skills-deal-no-damage and owner Rage do not apply.
         return SkillsFor(conn).HitDamage(effect, level).Scale(Math.Max(0, 100L + increased) / 100.0);
     }
@@ -38,7 +38,7 @@ public static partial class Game
         var skill = SkillsFor(conn).FindByRow(SkillCatalog.FirstSkillId, effect, level, own.Select(s => (s.Key, s.Value)).ToArray());
         if (skill is null) return null;
         var blob = new MonsterObject(at.X, at.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-            Team: 0, Skills: [skill], Stats: [(StatKeys.MaximumLife, (int)life)]) { LifeData = variety.LifeData };
+            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData };
         await SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)

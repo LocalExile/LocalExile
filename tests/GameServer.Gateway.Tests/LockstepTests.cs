@@ -155,7 +155,7 @@ public class LockstepTests : IDisposable
         {
             Game.RelayWalkForStats(told, InstanceEntities.StatsUpdate(0x1000, [(0x2fec, 0)]));
             Assert.Equal(turned, Sideways(told.Walk, 101));
-            Game.RelayWalkForStats(told, InstanceEntities.StatsUpdate(0x1000, [(0x2fec, 0), (StatKeys.MovementVelocityPct, 0)]));
+            Game.RelayWalkForStats(told, InstanceEntities.StatsUpdate(0x1000, [(0x2fec, 0), (Stat.MovementVelocityPlusPct, 0)]));
             Assert.True(Sideways(told.Walk, 101) > turned);
         }
 

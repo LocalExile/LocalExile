@@ -5,7 +5,7 @@ using GameServer.Core.World;
 public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDictionary<uint, int> ActualCaster)
 {
     public bool Suppressed => Kind == SkillHitKind.Spell
-        && ActualCaster.GetValueOrDefault(StatKeys.SpellSkillsDealNoDamage) != 0
+        && ActualCaster.GetValueOrDefault(Stat.SpellSkillsDealNoDamage) != 0
         || Get("keystone_ancestral_bond") != 0 || Get("deal_no_damage_yourself") != 0;
 
     int Get(string name) => Program.Stats.Key(name) is uint key ? ActualCaster.GetValueOrDefault(key) : 0;

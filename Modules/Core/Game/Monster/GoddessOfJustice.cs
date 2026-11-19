@@ -44,10 +44,10 @@ static class GoddessOfJustice
             return catalog.FindByRow(id, effect, effectLevel, [.. catalog.EffectStats(effect, effectLevel).Where(s => !taken.Contains(s.Item1)), .. own]);
         }
         int count = IzaroGoddess.MortarCount;
-        List<(uint, int)> mortarStats = [(StatKeys.TotalProjectilesToFire, count), (StatKeys.VirtualTotalProjectiles, count), (StatKeys.VirtualTotalArrows, count)];
+        List<(uint, int)> mortarStats = [(Stat.TotalNumberOfProjectilesToFire, count), (Stat.VirtualTotalNumberOfProjectiles, count), (Stat.VirtualTotalNumberOfArrows, count)];
         foreach (var (name, value) in new[] { ("monster_projectile_variation", 0), ("distribute_projectiles_over_contact_points", 1) })
             if (Stats.Key(name) is uint key) mortarStats.Add((key, value));
-        List<(uint, int)> awakenStats = Stats.Key("skill_effect_duration") is uint duration ? [(duration, (int)(IzaroGargoyles.BeamSeconds * 1000))] : [];
+        List<(uint, int)> awakenStats = Stat.SkillEffectDuration is var duration ? [(duration, (int)(IzaroGargoyles.BeamSeconds * 1000))] : [];
         var list = new List<GrantedSkill>();
         if (skill is not null) list.Add(skill);
         if (Spell(MortarSkillId, IzaroGoddess.MortarEffect, mortarStats) is { } mortar) list.Add(mortar);

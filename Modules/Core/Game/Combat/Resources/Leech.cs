@@ -41,7 +41,7 @@ public static partial class Game
     public static int LeechingAttackSpeed(Player conn, IReadOnlyDictionary<uint, int> stats)
     {
         var state = LeechContext(conn);
-        return (state.Life || state.Mana || state.EnergyShield) && Stats.Key("attack_speed_+%_while_leeching") is uint key
+        return (state.Life || state.Mana || state.EnergyShield) && Stat.AttackSpeedPlusPctWhileLeeching is var key
             ? stats.GetValueOrDefault(key) : 0;
     }
 
@@ -51,9 +51,9 @@ public static partial class Game
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool leeching = Get("is_leeching") != 0;
-        if (Stats.Key("cannot_be_stunned") is uint stun
+        if (Stat.CannotBeStunned is var stun
             && leeching && Get("cannot_be_stunned_while_leeching") != 0) stats[stun] = 1;
-        if (Stats.Key("virtual_unaffected_by_bleeding") is uint bleed)
+        if (Stat.VirtualUnaffectedByBleeding is var bleed)
             stats[bleed] = Get("base_unaffected_by_bleeding") != 0 || leeching && Get("unaffected_by_bleeding_while_leeching") != 0
                 ? 1 : 0;
     }

@@ -55,7 +55,7 @@ public sealed class SkillCatalog
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
 
     public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
-        _stats.Key("cast_on_death_%") is uint key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
+        Stat.CastOnDeathPct is var key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
 
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
@@ -1502,12 +1502,12 @@ public sealed class SkillCatalog
             var (min, max) = ((int)Math.Floor(physical.Min), (int)Math.Floor(physical.Max));
             return
             [
-                (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
-                (StatKeys.OffHandMinTotal, totalHit is null ? min : (int)Math.Floor(totalHit.MinTotal)),
-                (StatKeys.OffHandMaxTotal, totalHit is null ? max : (int)Math.Floor(totalHit.MaxTotal)),
-                (StatKeys.OffHandAttackDurationMs, AttackMs), (StatKeys.OffHandTotalAttackDurationMs, AttackMs),
-                (StatKeys.OffHandAttackSpeedPct, OffHandAttackSpeedPct(IncreasedAttackSpeed(player), mainHandLocalAttackSpeedPct)),
-                (StatKeys.OffHandBaseMaxAttackDistance, Range), (StatKeys.OffHandMaxAttackDistance, Range),
+                (Stat.OffHandMinimumPhysicalDamage, min), (Stat.OffHandMaximumPhysicalDamage, max),
+                (Stat.OffHandMinimumTotalDamage, totalHit is null ? min : (int)Math.Floor(totalHit.MinTotal)),
+                (Stat.OffHandMaximumTotalDamage, totalHit is null ? max : (int)Math.Floor(totalHit.MaxTotal)),
+                (Stat.OffHandBaseWeaponAttackDurationMs, AttackMs), (Stat.OffHandTotalBaseWeaponAttackDurationMs, AttackMs),
+                (Stat.OffHandAttackSpeedPlusPct, OffHandAttackSpeedPct(IncreasedAttackSpeed(player), mainHandLocalAttackSpeedPct)),
+                (Stat.OffHandBaseMaximumAttackDistance, Range), (Stat.OffHandMaximumAttackDistance, Range),
             ];
         }
 
@@ -1524,9 +1524,9 @@ public sealed class SkillCatalog
         {
             // The server's stats carry the final value (passives, weapon conditions, dual wielding's 10% more).
             // The fallback is for callers that only have the raw stats.
-            if (player?.TryGetValue(StatKeys.MainHandAttackSpeedPct, out int final) == true) return final;
+            if (player?.TryGetValue(Stat.MainHandAttackSpeedPlusPct, out int final) == true) return final;
             int increased = DualWieldAttackSpeedPct;
-            foreach (uint k in StatKeys.AttackSpeedInputs)
+            foreach (uint k in Stat.AttackSpeedInputs)
                 increased += player?.GetValueOrDefault(k) ?? 0;
             return increased;
         }
@@ -1536,10 +1536,10 @@ public sealed class SkillCatalog
         public long IncreasedDamage(IReadOnlyDictionary<uint, int>? player)
         {
             long increased = 0;
-            foreach (uint k in (uint[])[StatKeys.DamagePct, StatKeys.AttackDamagePct, StatKeys.PhysicalDamagePct])
+            foreach (uint k in (uint[])[Stat.DamagePlusPct, Stat.AttackDamagePlusPct, Stat.PhysicalDamagePlusPct])
                 increased += player?.GetValueOrDefault(k) ?? 0;
-            if (Melee) increased += (long)(player?.GetValueOrDefault(StatKeys.MeleeDamagePct) ?? 0)
-                + (player?.GetValueOrDefault(StatKeys.MeleePhysicalDamagePct) ?? 0);
+            if (Melee) increased += (long)(player?.GetValueOrDefault(Stat.MeleeDamagePlusPct) ?? 0)
+                + (player?.GetValueOrDefault(Stat.MeleePhysicalDamagePlusPct) ?? 0);
             return increased;
         }
 
@@ -1583,17 +1583,17 @@ public sealed class SkillCatalog
             var display = SpellDamage.Display((totalHit?.MinTotal ?? min, totalHit?.MaxTotal ?? max), attacksPerSecond, damageFactor);
             return
             [
-                (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
-                (StatKeys.MainHandMinTotal, totalHit is null ? min : (int)Math.Floor(totalHit.MinTotal)),
-                (StatKeys.MainHandMaxTotal, totalHit is null ? max : (int)Math.Floor(totalHit.MaxTotal)),
-                (StatKeys.MainHandAttackDurationMs, AttackMs), (StatKeys.MainHandTotalAttackDurationMs, AttackMs),
-                (StatKeys.MainHandAttackSpeedPct, IncreasedAttackSpeed(player)),
-                (StatKeys.SkillUsesMainHand, 1),
-                (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 * attacksPerSecond)),
+                (Stat.MainHandMinimumPhysicalDamage, min), (Stat.MainHandMaximumPhysicalDamage, max),
+                (Stat.MainHandMinimumTotalDamage, totalHit is null ? min : (int)Math.Floor(totalHit.MinTotal)),
+                (Stat.MainHandMaximumTotalDamage, totalHit is null ? max : (int)Math.Floor(totalHit.MaxTotal)),
+                (Stat.MainHandBaseWeaponAttackDurationMs, AttackMs), (Stat.MainHandTotalBaseWeaponAttackDurationMs, AttackMs),
+                (Stat.MainHandAttackSpeedPlusPct, IncreasedAttackSpeed(player)),
+                (Stat.SkillUsesMainHand, 1),
+                (Stat.HundredTimesAttacksPerSecond, (int)Math.Round(100 * attacksPerSecond)),
                 // The character panel's DPS and Damage per Use rows read these; the client derives neither.
-                (StatKeys.HundredTimesDamagePerSecond, display.PerSecond),
-                (StatKeys.DisplayHundredTimesDamagePerSkillUse, display.PerUse),
-                (StatKeys.MainHandBaseMaxAttackDistance, Range), (StatKeys.MainHandMaxAttackDistance, Range),
+                (Stat.HundredTimesDamagePerSecond, display.PerSecond),
+                (Stat.DisplayHundredTimesDamagePerSkillUse, display.PerUse),
+                (Stat.MainHandBaseMaximumAttackDistance, Range), (Stat.MainHandMaximumAttackDistance, Range),
             ];
         }
     }

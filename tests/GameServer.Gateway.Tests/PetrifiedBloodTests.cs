@@ -140,7 +140,7 @@ public sealed class PetrifiedBloodTests
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 11, now: 0);
         var recoupStats = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("damage_taken_goes_to_life_over_4_seconds_%")!.Value] = 30,
+            [Stat.DamageTakenGoesToLifeOver4SecondsPct] = 30,
         };
         Game.RecoupHitLocked(recoupPlayer, DamagePacket.Of(DamageType.Physical, 1000, 1000), 0, recoupStats);
         Assert.Equal(75, recoupPlayer.LifeRecoup.Take(1), 6);

@@ -12,8 +12,8 @@ public sealed class OnslaughtStatTests
 
         var stats = new Dictionary<uint, int>();
         UtilityFlasks.AddRawStats(new PlainStatMap(stats), sources, Program.Stats);
-        Assert.Equal(20, stats[Program.Stats.Key("attack_speed_+%")!.Value]);
-        Assert.Equal(20, stats[Program.Stats.Key("cast_speed_+%")!.Value]);
+        Assert.Equal(20, stats[Stat.AttackSpeedPlusPct]);
+        Assert.Equal(20, stats[Stat.CastSpeedPlusPct]);
 
         var bonus = UtilityFlasks.Apply(CharacterStats.Bonus.None, sources);
         Assert.Equal(20, bonus.AttackSpeedPct);

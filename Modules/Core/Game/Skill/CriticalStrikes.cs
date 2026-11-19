@@ -2,7 +2,7 @@
 public static partial class Game
 {
     public static bool CriticalHitsDealNoExtraDamage(IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int>? own = null) => Stats.Key("no_critical_strike_multiplier") is uint key
+        IReadOnlyDictionary<uint, int>? own = null) => Stat.NoCriticalStrikeMultiplier is var key
             && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
 
     public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
@@ -18,7 +18,7 @@ public static partial class Game
     public static (bool LowLife, bool Focused, int ExtraRolls) CriticalContext(Player conn)
     {
         var player = CharacterPlayerStats(conn);
-        bool focused = Stats.Key("has_focus") is uint key && player.GetValueOrDefault(key) != 0;
+        bool focused = Stat.HasFocus is var key && player.GetValueOrDefault(key) != 0;
         return (CriticalOnLowLife(conn, player), focused, CriticalExtraRollsFor(conn, player));
     }
 

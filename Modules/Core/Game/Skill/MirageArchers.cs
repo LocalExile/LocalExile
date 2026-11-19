@@ -5,7 +5,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static double MirageDamageFactor(IReadOnlyDictionary<uint, int> stats) =>
-        Stats.Key("support_mirage_archer_damage_+%_final") is uint k ? Math.Max(0, 1 + stats.GetValueOrDefault(k) / 100d) : 1;
+        Stat.SupportMirageArcherDamagePlusPctFinal is var k ? Math.Max(0, 1 + stats.GetValueOrDefault(k) / 100d) : 1;
 
     static ProjectileOffense MirageOffense(Player conn, ProjectileOffense shot)
     {
@@ -59,7 +59,7 @@ public static partial class Game
                 if (!Current()) return;
                 var at = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
                 var stats = new Dictionary<uint, int>(current.Source.Stats);
-                if (Stats.Key("skill_used_by_mirage_archer") is uint mirage) stats[mirage] = 1;
+                if (Stat.SkillUsedByMirageArcher is var mirage) stats[mirage] = 1;
                 var skill = SkillsFor(Conn).FindByRow(current.Skill, current.Source.Effect, current.Source.Level,
                     [.. stats.Select(p => (p.Key, p.Value))]);
                 await SpawnMonster(Conn, variety, (byte)Math.Clamp(Conn.Pools.Level, 1, 100),

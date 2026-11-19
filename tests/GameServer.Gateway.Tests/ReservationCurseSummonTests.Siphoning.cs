@@ -78,7 +78,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(1, Stat("current_siphoning_charges")); // Charges outlive the four-second degeneration window.
             Game.SiphoningSkillUsedLocked(conn, 105, new AspectRoll(99));
             Assert.True(Game.SiphoningDegenerationActive(conn)); // A failed gain still refreshes skill recency.
-            uint recoveryKey = Program.Stats.Key("life_recovery_per_minute")!.Value;
+            uint recoveryKey = global::Stat.LifeRecoveryPerMinute;
             Assert.Equal(InstanceEntities.StatsUpdate(Program.PlayerId, [(recoveryKey, 0)]),
                 Game.PlayerStatsUpdateAtGate(conn, [(recoveryKey, 600)]));
             conn.EnergyShield.SetMaximum(1000); conn.EnergyShield.Recover(1000);

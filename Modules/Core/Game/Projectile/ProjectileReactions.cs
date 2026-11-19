@@ -25,7 +25,7 @@ public static partial class Game
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
-            session.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
+            session.World(id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
         // Native Actor TakeHit recovery (0x1d1), as the melee path sends: a rig-only clip (0x1b2) leaves the client
         // monster walking while the server's estimate has stopped (11-skills.md "Hit reaction").
         // Built in the send gate, which places a lockstep client's recovery in its frames (TakeHitPacket).

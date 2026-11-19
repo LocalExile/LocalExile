@@ -40,19 +40,19 @@ public sealed class BowProjectileCountTests
         Assert.True(tornado >= 0);
         var panel = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("base_number_of_projectiles")!.Value] = 1,
-            [Program.Stats.Key("number_of_additional_arrows")!.Value] = 1,
+            [Stat.BaseNumberOfProjectiles] = 1,
+            [Stat.NumberOfAdditionalArrows] = 1,
         };
         Game.ApplyProjectilePanelStats(tornado, panel);
-        Assert.Equal(2, panel[Program.Stats.Key("total_number_of_projectiles_to_fire")!.Value]);
-        Assert.Equal(2, panel[Program.Stats.Key("total_number_of_arrows_to_fire")!.Value]);
+        Assert.Equal(2, panel[Stat.TotalNumberOfProjectilesToFire]);
+        Assert.Equal(2, panel[Stat.TotalNumberOfArrowsToFire]);
 
         var fireball = new Dictionary<uint, int>
         {
-            [Program.Stats.Key("number_of_additional_arrows")!.Value] = 1,
+            [Stat.NumberOfAdditionalArrows] = 1,
         };
         Game.ApplyProjectilePanelStats(skills.EffectRow("Fireball"), fireball);
-        Assert.Equal(1, fireball[Program.Stats.Key("total_number_of_projectiles_to_fire")!.Value]);
+        Assert.Equal(1, fireball[Stat.TotalNumberOfProjectilesToFire]);
         // A native mouse-triggered Burning Arrow creates a client primary even though its existing simulation
         // does not take the spell/Spectral Throw geometry path. Do not generalize this to unverified attacks.
         Assert.True(Game.ClientDrawsPrimaryProjectile(false, skills.EffectId(skills.EffectRow("BurningArrow"))));
@@ -84,16 +84,16 @@ public sealed class BowProjectileCountTests
         var meleeConn = Holding("OrdinaryMeleeChar", null);
         try
         {
-            var character = new Dictionary<uint, int> { [Program.Stats.Key("number_of_additional_arrows")!.Value] = 1 };
-            Assert.Equal([(StatKeys.TotalProjectilesToFire, 2), (StatKeys.VirtualTotalProjectiles, 2),
-                (StatKeys.TotalArrowsToFire, 2), (StatKeys.VirtualTotalArrows, 2)], Game.OrdinaryRangedCountStats(bowConn, character));
-            Assert.Equal([(StatKeys.TotalProjectilesToFire, 1), (StatKeys.VirtualTotalProjectiles, 1)],
+            var character = new Dictionary<uint, int> { [Stat.NumberOfAdditionalArrows] = 1 };
+            Assert.Equal([(Stat.TotalNumberOfProjectilesToFire, 2), (Stat.VirtualTotalNumberOfProjectiles, 2),
+                (Stat.TotalNumberOfArrowsToFire, 2), (Stat.VirtualTotalNumberOfArrows, 2)], Game.OrdinaryRangedCountStats(bowConn, character));
+            Assert.Equal([(Stat.TotalNumberOfProjectilesToFire, 1), (Stat.VirtualTotalNumberOfProjectiles, 1)],
                 Game.OrdinaryRangedCountStats(wandConn, character));
             Assert.Empty(Game.OrdinaryRangedCountStats(meleeConn, character));
             // The record holds each count once, over a stale value in the stats it is built from.
-            var record = Assert.Single(Game.PlayerDefaultSkills(bowConn, [(StatKeys.TotalProjectilesToFire, 9)], character));
-            foreach (uint key in new[] { StatKeys.TotalProjectilesToFire, StatKeys.VirtualTotalProjectiles,
-                StatKeys.TotalArrowsToFire, StatKeys.VirtualTotalArrows })
+            var record = Assert.Single(Game.PlayerDefaultSkills(bowConn, [(Stat.TotalNumberOfProjectilesToFire, 9)], character));
+            foreach (uint key in new[] { Stat.TotalNumberOfProjectilesToFire, Stat.VirtualTotalNumberOfProjectiles,
+                Stat.TotalNumberOfArrowsToFire, Stat.VirtualTotalNumberOfArrows })
                 Assert.Equal(2, Assert.Single(record.Stats!, s => s.Key == key).Value);
             Assert.True(bowConn.ClientDrawnShot == OrdinaryRangedAttack.Arrow && bowConn.DefaultAttackRecordLockstep);
             Game.PlayerDefaultSkills(meleeConn, [], character);
@@ -107,7 +107,7 @@ public sealed class BowProjectileCountTests
             bowConn.LockstepClient = false;
             Assert.Empty(Game.OrdinaryRangedCountStats(bowConn, character));
             Assert.DoesNotContain(Assert.Single(Game.PlayerDefaultSkills(bowConn, [], character)).Stats ?? [],
-                s => s.Key == StatKeys.VirtualTotalArrows);
+                s => s.Key == Stat.VirtualTotalNumberOfArrows);
             Assert.False(bowConn.ClientDrawnShot is not null || bowConn.DefaultAttackRecordLockstep);
 
             // The initial predictive list is cached. Mode confirmation must rebuild it with the same equipment,
@@ -115,14 +115,14 @@ public sealed class BowProjectileCountTests
             var predictive = Game.PlayerSkills(bowConn);
             Assert.Same(predictive, Game.PlayerSkills(bowConn));
             Assert.DoesNotContain(Assert.Single(predictive, s => s.Id == SkillCatalog.FirstSkillId).Stats ?? [],
-                s => s.Key == StatKeys.VirtualTotalArrows);
+                s => s.Key == Stat.VirtualTotalNumberOfArrows);
             bowConn.LockstepClient = true;
             bowConn.DefaultAttackRecordLockstep = true;
             var confirmed = Game.PlayerSkills(bowConn);
             Assert.NotSame(predictive, confirmed);
             var confirmedDefault = Assert.Single(confirmed, s => s.Id == SkillCatalog.FirstSkillId);
-            foreach (uint key in new[] { StatKeys.TotalProjectilesToFire, StatKeys.VirtualTotalProjectiles,
-                StatKeys.TotalArrowsToFire, StatKeys.VirtualTotalArrows })
+            foreach (uint key in new[] { Stat.TotalNumberOfProjectilesToFire, Stat.VirtualTotalNumberOfProjectiles,
+                Stat.TotalNumberOfArrowsToFire, Stat.VirtualTotalNumberOfArrows })
                 Assert.Equal(1, Assert.Single(confirmedDefault.Stats!, s => s.Key == key).Value);
             Assert.Equal(OrdinaryRangedAttack.Arrow, bowConn.ClientDrawnShot);
             Assert.True(bowConn.DefaultAttackRecordLockstep);

@@ -613,7 +613,7 @@ public static partial class Game
                         packets.World(id, InstanceProtocol.Teleport(id, m.X, m.Y, 0x7fffffff));
                     if (before.Life != m.Life) packets.World(id, InstanceProtocol.LifeUpdate(id, m.Life));
                     if (before.MaximumEnergyShield != m.MaximumEnergyShield
-                        && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
+                        && Stat.MaximumEnergyShield is var maximumEnergyShield)
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(maximumEnergyShield,
                             (int)Math.Min(m.MaximumEnergyShield, int.MaxValue))]));
                     if (before.EnergyShield != m.EnergyShield)
@@ -788,9 +788,9 @@ public static partial class Game
                             packets.World(id, InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff));
                     }
                     bool terminal = life == 0 && bars.Hidden.Add(id);
-                    if (terminal) packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
+                    if (terminal) packets.World(id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
                     if (life > 0 && bars.Hidden.Remove(id))
-                        packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
+                        packets.World(id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
                     conn.MonsterViews[id] = seen with { At = at, To = to, Life = life };
                     // A boss the others fight: its life bar here too.

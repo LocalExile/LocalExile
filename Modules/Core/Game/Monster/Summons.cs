@@ -417,9 +417,9 @@ public static partial class Game
                 lock (conn.Monsters) stats[count] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == "Dominating" + rarity && !g.Monster.Dead);
         lock (conn.Monsters)
         {
-            if (Stats.Key("number_of_dominated_vaal_monsters") is uint ascended)
+            if (Stat.NumberOfDominatedVaalMonsters is var ascended)
                 stats[ascended] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == "VaalDomination" && !g.Monster.Dead);
-            if (Stats.Key("number_of_dominated_monsters") is uint dominated)
+            if (Stat.NumberOfDominatedMonsters is var dominated)
                 stats[dominated] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) && !g.Monster.Dead);
         }
         var names = SummonCountNames;

@@ -30,8 +30,8 @@ public sealed class TriggeredSummonTests
                 f.Conn.Monsters[900] = new("corpse", new(at.X+20,at.Y,1),100,8,1000)
                     { Hostile = true, Dead = true, Life = 0, Variety = variety, Level = 70 };
             }
-            int threshold = gem.Stats[Program.Stats.Key("cast_on_damage_taken_threshold")!.Value];
-            uint cost = (uint)Game.SupportedStats(f.Conn, source)[Program.Stats.Key("mana_cost")!.Value];
+            int threshold = gem.Stats[Stat.CastOnDamageTakenThreshold];
+            uint cost = (uint)Game.SupportedStats(f.Conn, source)[Stat.ManaCost];
             int action = f.Conn.ActionCount;
             Game.RecordDamageTakenTriggers(f.Conn, threshold, 1000);
             uint before = f.Conn.PlayerMana;
@@ -75,14 +75,14 @@ public sealed class TriggeredSummonTests
                 (channel ? "Cast while Channelling Support" : "Cast On Critical Strike Support",20), ("Spell Echo Support",20));
             var driver = Game.GemSkillEffects(f.Conn).Single(s => s.Id == ids[0]);
             var gem = Game.SupportedSkill(f.Conn, ids[1]);
-            uint cost = (uint)Game.SupportedStats(f.Conn, ids[1])[Program.Stats.Key("mana_cost")!.Value];
+            uint cost = (uint)Game.SupportedStats(f.Conn, ids[1])[Stat.ManaCost];
             uint mana = f.Conn.PlayerMana; int action = f.Conn.ActionCount;
             if (channel)
             {
                 f.Conn.ChannelSkill = driver.Id; f.Conn.ChannelGeneration = 1; f.Conn.LastChannelUpdateAt = 10000;
                 f.Conn.PaidChannel = new(driver.Id, driver.Effect, action, 1, Game.CombatLifetime!);
                 Game.BeginChannelTriggers(f.Conn, f.Session, driver.Id, action, 1, (20,0), 10);
-                double interval = Game.SupportedSkill(f.Conn, driver.Id).Stats[Program.Stats.Key("cast_while_channelling_time_ms")!.Value] / 1000d;
+                double interval = Game.SupportedSkill(f.Conn, driver.Id).Stats[Stat.CastWhileChannellingTimeMs] / 1000d;
                 Game.TickChannelTriggers(f.Conn, f.Session, 10 + interval - .001);
                 Assert.Equal(mana, f.Conn.PlayerMana);
                 Game.TickChannelTriggers(f.Conn, f.Session, 10 + interval + .001);

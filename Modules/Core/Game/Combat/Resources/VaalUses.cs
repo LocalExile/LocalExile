@@ -25,7 +25,7 @@ public static partial class Game
         {
             if (conn.PlayerLife == 0) { conn.VaalPreventionUntil = 0; conn.VaalUse = null; }
             double now = VaalResourceTime(conn);
-            if (conn.VaalPreventionUntil > now && Stats.Key("has_soul_gain_prevention") is uint key)
+            if (conn.VaalPreventionUntil > now && Stat.HasSoulGainPrevention is var key)
             {
                 stats[key] = 1;
                 StatsChangeAt(conn.VaalPreventionUntil, () => VaalResourceTime(conn));
@@ -49,7 +49,7 @@ public static partial class Game
                 Get("cost_+%_final"), Sum("base_skill_cost_efficiency_+%", "base_attack_skill_cost_efficiency_+%"),
                 Get("base_rage_cost_efficiency_+%"), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
-        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(conn, id).GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(conn, id).GetValueOrDefault(Stat.ManaCost));
         // Lifetap turns the whole upfront cost into Life.
         uint life = 0;
         if (!free && Lifetap.ConvertsCostToLife(gem.Stats))
@@ -156,7 +156,7 @@ public static partial class Game
         && ReferenceEquals(conn.VaalUse, paid) && conn.OwnedCombatState is RampageWorld world
         && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(conn))
         && conn.OwnedCombatWorker.Current(CombatLifetime!, world.SourceOwner, world, paid.WorkGeneration)
-        && (!paid.RageConverted || Stats.Key("vaal_attack_rage_cost_instead_of_souls_per_use") is uint conversion
+        && (!paid.RageConverted || Stat.VaalAttackRageCostInsteadOfSoulsPerUse is var conversion
             && CharacterStatSources(conn).Stats.GetValueOrDefault(conversion) != 0);
 
     // All native action acknowledgements share the same accepted-use guard at their send gate.

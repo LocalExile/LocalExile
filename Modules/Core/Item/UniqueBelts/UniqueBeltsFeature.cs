@@ -35,9 +35,9 @@ static class UniqueBeltsFeature
     /// here, so with those it counts for a little more than the game's sum would.</summary>
     internal static DamagePacket WithDamageVsRarity(IReadOnlyDictionary<uint, int> player, SpawnedMonster m, DamagePacket rolled)
     {
-        if (m.Rarity != MonsterRarity.Rare || Stats.Key("damage_+%_vs_rare_monsters") is not uint key
+        if (m.Rarity != MonsterRarity.Rare || !(Stat.DamagePlusPctVsRareMonsters is var key)
             || player.GetValueOrDefault(key) is not (> 0 and var against)) return rolled;
-        int increased = Stats.Key("damage_+%") is uint general ? player.GetValueOrDefault(general) : 0;
+        int increased = Stat.DamagePlusPct is var general ? player.GetValueOrDefault(general) : 0;
         return rolled.Scale((100.0 + Math.Max(0, increased) + against) / (100 + Math.Max(0, increased)));
     }
 

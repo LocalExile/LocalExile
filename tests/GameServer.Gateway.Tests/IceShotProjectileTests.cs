@@ -17,7 +17,7 @@ public sealed class IceShotProjectileTests
         Assert.True(hit.CanHit);
         Assert.Equal(SkillHitKind.Attack, hit.Kind);
         Assert.Contains(skills.EffectStats(effect, 1), s =>
-            s.Item1 == stats.Key("skill_physical_damage_%_to_convert_to_cold") && s.Item2 == 60);
+            s.Item1 == Stat.SkillPhysicalDamagePctToConvertToCold && s.Item2 == 60);
         var definition = Game.CatalogProjectileDefinition(effect);
         Assert.NotNull(definition);
         Assert.Equal(projectile.Value.Id, definition.Metadata);

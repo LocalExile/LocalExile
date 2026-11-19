@@ -246,9 +246,9 @@ public static partial class Game
             {
                 own[perKey] = per * (keystones ??= KeystoneCount(conn));
                 if (stat == "physical_damage_%_to_add_as_chaos_per_keystone" && own[perKey] != 0
-                    && Stats.Key("physical_damage_%_to_add_as_chaos") is uint plain)
+                    && Stat.PhysicalDamagePctToAddAsChaos is var plain)
                     own[plain] = own.GetValueOrDefault(plain) + own[perKey];
-                if (stat == "skill_cost_+%_per_keystone" && Stats.Key("base_cost_+%") is uint costKey)
+                if (stat == "skill_cost_+%_per_keystone" && Stat.BaseCostPlusPct is var costKey)
                     own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
@@ -341,10 +341,10 @@ public static partial class Game
             result[key] = replace ? value : ArcaneMight.IsGrant(key)
                 ? ArcaneMight.Combine(key, result.GetValueOrDefault(key), value) : result.GetValueOrDefault(key) + value;
         }
-        if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
+        if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
             result[mana] = ManaRecoveryRules.Cost(baseCost,
                 name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0, channelled, costMore);
-        if (Stats.Key("life_cost") is uint life && own.TryGetValue(life, out int nativeLife))
+        if (Stat.LifeCost is var life && own.TryGetValue(life, out int nativeLife))
         {
             int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
             result[life] = (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
@@ -352,12 +352,12 @@ public static partial class Game
         }
         // An Energy Shield cost: the skill's own (CostTypes 2) plus "Skills gain a Base Energy Shield Cost equal to X% of
         // Base Mana Cost" (Replica Covenant), taken from the supported base mana cost, then the increased cost of skills.
-        if (Stats.Key("es_cost") is uint esKey)
+        if (Stat.EsCost is var esKey)
         {
             int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
             long baseEs = own.GetValueOrDefault(esKey);
             int gain = Read("base_skill_gain_es_cost_%_of_mana_cost");
-            if (gain > 0 && Stats.Key("mana_cost") is uint manaKey && own.TryGetValue(manaKey, out int baseMana))
+            if (gain > 0 && Stat.ManaCost is var manaKey && own.TryGetValue(manaKey, out int baseMana))
                 baseEs += (long)Math.Floor(Math.Max(0, baseMana) * gain / 100.0);
             if (baseEs > 0)
                 result[esKey] = (int)Math.Clamp(decimal.Floor(baseEs * Math.Max(0m, 100m + Read("base_cost_+%")) / 100m), 0, int.MaxValue);
@@ -377,7 +377,7 @@ public static partial class Game
         if (!SkillsFor(conn).IsAttack(gem.Effect) || !SkillsFor(conn).IsMelee(gem.Effect)
             || SkillsFor(conn).IsChannelled(gem.Effect)
             || Stat("disable_attack_repeats") != 0 || Stat("disable_skill_repeats") != 0) return 0;
-        return Math.Clamp(Stats.Key("base_melee_attack_repeat_count") is uint key
+        return Math.Clamp(global::Stat.BaseMeleeAttackRepeatCount is var key
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
     }
 
@@ -467,7 +467,7 @@ public static partial class Game
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
         var gem = SupportedSkill(conn, skillId);
-        if (Stats.Key("attack_speed_+%") is uint raw && Stats.Key("main_hand_attack_speed_+%") is uint final)
+        if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
             var profile = WeaponProfileFor(conn);
             double factor = profile.DualWield || profile.Unarmed ? 1.1 : 1;
@@ -476,11 +476,11 @@ public static partial class Game
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effectId
                 && (effectId.StartsWith("ChainHook", StringComparison.Ordinal)
                     || effectId.StartsWith("ShieldCharge", StringComparison.Ordinal))
-                && Stats.Key("chain_hook_and_shield_charge_attack_speed_+%_per_10_rampage_stacks") is uint rampageSpeed
+                && Stat.ChainHookAndShieldChargeAttackSpeedPlusPctPer10RampageStacks is var rampageSpeed
                 && stats.GetValueOrDefault(rampageSpeed) is int perTen and > 0)
                 stats[final] += conn.Rampage.Current.Stacks / 10 * perTen;
         }
-        if (proxy && Stats.Key("main_hand_attack_speed_+%") is uint proxySpeed)
+        if (proxy && Stat.MainHandAttackSpeedPlusPct is var proxySpeed)
             stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get("totem_skill_attack_speed_+%")
                 + Get("totems_attack_speed_+%_per_active_totem") * conn.Totems.Living(conn.Clock.Elapsed.TotalSeconds).Count()
                 + Get("attack_speed_+%_per_maximum_totem") * TotemLimit(conn, skillId);
@@ -502,14 +502,14 @@ public static partial class Game
         }
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
-            && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
+            && Stat.MainHandAttackSpeedPlusPct is var rageBucket)
             stats[rageBucket] += rageSpeed;
         // A skill's own increased Attack Speed per Frenzy Charge (Flicker Strike's 10%): the character's per-charge stats
         // are in its stats already (ChargeEffects), this one only on the skill. Without it the client swung faster than
         // the server's timer allowed and some uses were ignored (live 2026-11-09, 5-6 charges).
-        if (Stats.Key("base_attack_speed_+%_per_frenzy_charge") is uint perFrenzy
+        if (Stat.BaseAttackSpeedPlusPctPerFrenzyCharge is var perFrenzy
             && gem.Stats.GetValueOrDefault(perFrenzy) is int skillPerFrenzy and not 0
-            && Stats.Key("main_hand_attack_speed_+%") is uint frenzyBucket)
+            && Stat.MainHandAttackSpeedPlusPct is var frenzyBucket)
         {
             int frenzy;
             lock (conn.Monsters) frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
@@ -530,7 +530,7 @@ public static partial class Game
                 proxy ? 1 : PlayerActionFactor(conn), clampToTick), speed);
         }
         int baseSpeed = offHand is null ? WeaponFor(conn).IncreasedAttackSpeed(stats)
-            : SkillCatalog.Unarmed.OffHandAttackSpeedPct(stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct),
+            : SkillCatalog.Unarmed.OffHandAttackSpeedPct(stats.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct),
                 WeaponProfileFor(conn, activeSet: true).LocalAttackSpeedPct);
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats) : DualWieldPanel.OffHandSeconds(offHand, baseSpeed);
         // Preserve the zero-additional-time path's existing minimum and integer final-speed rounding.
@@ -615,7 +615,7 @@ public static partial class Game
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
-        if (totem && Stats.Key("damage_+%") is uint damage)
+        if (totem && Stat.DamagePlusPct is var damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, "totem_damage_+%");
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
             : Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -730,7 +730,7 @@ public static partial class Game
         if (!hitPlan.CanHit) return 0;
         // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
         if (conn.SupportGems.InspirationCharges > 0
-            && Stats.Key("critical_strike_chance_+%_per_righteous_charge") is uint chargeCrit)
+            && Stat.CriticalStrikeChancePlusPctPerRighteousCharge is var chargeCrit)
             extraIncrease += (long)gem.Stats.GetValueOrDefault(chargeCrit) * conn.SupportGems.InspirationCharges;
         var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         int Own(string name) => release && IsCriticalProhibition(name) ? 0
@@ -763,7 +763,7 @@ public static partial class Game
             if (blasphemy is null) return null;
             sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
             var curseSources = CharacterStatSources(conn).Stats;
-            if (effectId == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
+            if (effectId == "TemporalChains" && Stat.TemporalChainsNoReservation is var free
                 && curseSources.GetValueOrDefault(free) != 0) return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
@@ -812,7 +812,7 @@ public static partial class Game
     public static int SupportedCriticalMultiplier(Player conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        int extra = Stats.Key("base_critical_strike_multiplier_+") is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
+        int extra = Stat.BaseCriticalStrikeMultiplierPlus is var k ? gem.Stats.GetValueOrDefault(k) : 0;
         var player = CharacterPlayerStats(conn);
         return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
             ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)

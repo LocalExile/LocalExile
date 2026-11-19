@@ -22,26 +22,26 @@ public static class ArcaneMight
     {
         int Get(string name) => stats?.GetValueOrDefault(name switch
         {
-            Basic => StatKeys.SpellDamageIncreasesApplyToAttacks,
-            Ratio => StatKeys.SpellDamageIncreasesApplyToAttacksRatio,
-            Fixed150 => StatKeys.SpellDamageIncreasesApplyToAttacks150,
-            Wand => StatKeys.SpellDamageIncreasesApplyToAttacksWithWand,
-            Retaliation => StatKeys.SpellDamageIncreasesApplyToRetaliation,
-            Skill => StatKeys.SkillSpellDamageIncreasesApplyToAttacks,
-            _ => StatKeys.SpellDamagePct,
+            Basic => Stat.AdditiveSpellDamageModifiersApplyToAttackDamage,
+            Ratio => Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAtPctValue,
+            Fixed150 => Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAt150PctValue,
+            Wand => Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAtPctValueWhileWieldingWand,
+            Retaliation => Stat.AdditiveSpellDamageModifiersApplyToRetaliationAttackDamageAtPctValue,
+            Skill => Stat.ActiveSkillAdditiveSpellDamageModifiersApplyToAttackDamageAtPctValue,
+            _ => Stat.SpellDamagePlusPct,
         }) ?? 0;
         return Increase(Get, wieldingWand, retaliation);
     }
 
-    public static bool IsGrant(uint key) => key is StatKeys.SpellDamageIncreasesApplyToAttacks
-        or StatKeys.SpellDamageIncreasesApplyToAttacksRatio or StatKeys.SpellDamageIncreasesApplyToAttacks150
-        or StatKeys.SpellDamageIncreasesApplyToAttacksWithWand or StatKeys.SpellDamageIncreasesApplyToRetaliation
-        or StatKeys.SkillSpellDamageIncreasesApplyToAttacks;
+    public static bool IsGrant(uint key) => key is Stat.AdditiveSpellDamageModifiersApplyToAttackDamage
+        or Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAtPctValue or Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAt150PctValue
+        or Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAtPctValueWhileWieldingWand or Stat.AdditiveSpellDamageModifiersApplyToRetaliationAttackDamageAtPctValue
+        or Stat.ActiveSkillAdditiveSpellDamageModifiersApplyToAttackDamageAtPctValue;
 
     // Only independent grants use this merge. A skill's own base + quality still adds in EffectStats.
     public static int Combine(uint key, int a, int b) => key switch
     {
-        StatKeys.SpellDamageIncreasesApplyToAttacks or StatKeys.SpellDamageIncreasesApplyToAttacks150
+        Stat.AdditiveSpellDamageModifiersApplyToAttackDamage or Stat.AdditiveSpellDamageModifiersApplyToAttackDamageAt150PctValue
             => a != 0 || b != 0 ? 1 : 0,
         _ => IsGrant(key) ? Math.Max(a, b) : ActorScale.Add(key, a, b),
     };

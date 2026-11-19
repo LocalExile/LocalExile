@@ -66,15 +66,15 @@ public static partial class Game
             ("base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)),
             ("virtual_base_spell_cast_time_ms", SkillsFor(conn).CastTimeMs(gem.Effect)) })
             if (Stats.Key(name) is uint key) payload[key] = value;
-        if (!SkillsFor(conn).IsAttack(gem.Effect) && TotemCastSeconds(conn, skill) is double seconds && Stats.Key("cast_speed_+%") is uint speed)
+        if (!SkillsFor(conn).IsAttack(gem.Effect) && TotemCastSeconds(conn, skill) is double seconds && Stat.CastSpeedPlusPct is var speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(conn).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(conn).IsAttack(gem.Effect))
         {
             foreach (var (key, value) in WeaponStats(conn, WeaponFor(conn), CharacterPlayerStats(conn))) payload[key] = value;
             double attackSeconds = TotemAttackSeconds(conn, skill);
-            payload[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(100 * (WeaponFor(conn).AttackMs / (attackSeconds * 1000) - 1));
-            payload[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / attackSeconds);
-            if (Stats.Key("main_hand_weapon_type") is uint weaponType)
+            payload[Stat.MainHandAttackSpeedPlusPct] = (int)Math.Round(100 * (WeaponFor(conn).AttackMs / (attackSeconds * 1000) - 1));
+            payload[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / attackSeconds);
+            if (Stat.MainHandWeaponType is var weaponType)
                 payload[weaponType] = WeaponTypeStats.Of(ActiveMainHand(conn)?.Type?.Class);
         }
         var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);

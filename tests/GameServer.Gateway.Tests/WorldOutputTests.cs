@@ -109,12 +109,12 @@ public class WorldOutputTests : IDisposable
             await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
             await Program.EndWorldFrame(conn, (.132, .165));
             await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
-                InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]), InstanceProtocol.FrameEnd());
+                InstanceEntities.StatsUpdate(Program.PlayerId, [(Stat.HideMiniLifeBar, 1)]), InstanceProtocol.FrameEnd());
             Assert.Same(player, conn.WorldOutput.PublishedObject(Program.PlayerId));
             conn.LockstepClient = false;
             await Game.SendPlayerDeathPresentation(conn, "predictive death", conn.IncomingHitEpoch);
             await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
-                InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+                InstanceEntities.StatsUpdate(Program.PlayerId, [(Stat.HideMiniLifeBar, 1)]),
                 InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
 
         }

@@ -57,7 +57,7 @@ public static class VaalOversoul
         {
             var stats = Attack(conn, v, level, effect).SkillStats().ToList();
             // The controller aims each of the three shots separately; the geometry must not repeat each shot again.
-            if (effect == Laser && Stats.Key("skill_repeat_count") is uint repeat) stats.Add((repeat, 0));
+            if (effect == Laser) stats.Add((global::Stat.SkillRepeatCount, 0));
             return catalog.FindByRow(Skill(effect), effect, Level(catalog, effect, level), Game.WithBehaviourVariation(conn, effect, stats));
         }).OfType<GrantedSkill>()];
     }

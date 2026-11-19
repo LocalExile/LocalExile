@@ -25,8 +25,8 @@ public static partial class Game
     // (SkillCatalog.BehaviourVariation), unless the record already says. Projectile records keep their own rule above
     // (MonsterProjectileSkillStats: a mortar's spell forms are sent without it, the server keeping their objects).
     public static IReadOnlyList<(uint, int)> WithBehaviourVariation(Player conn, int effect, IReadOnlyList<(uint, int)> stats) =>
-        SkillsFor(conn).BehaviourVariation(effect) is int variation and > 0 && stats.All(s => s.Item1 != StatKeys.SkillBehaviourVariation)
-            ? [.. stats, (StatKeys.SkillBehaviourVariation, variation)]
+        SkillsFor(conn).BehaviourVariation(effect) is int variation and > 0 && stats.All(s => s.Item1 != Stat.SkillBehaviourVariation)
+            ? [.. stats, (Stat.SkillBehaviourVariation, variation)]
             : stats;
 
     // Native projectile actions read final counts from the actor record. The raw base/additional stats alone do
@@ -46,7 +46,7 @@ public static partial class Game
     {
         var catalog = SkillsFor(conn);
         IReadOnlyList<(uint, int)> Art(IReadOnlyList<(uint, int)> stats) =>
-            catalog.ArtVariation(effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint key
+            catalog.ArtVariation(effect) is int art and > 0 && Stat.SkillArtVariation is var key
                 && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
         if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
@@ -56,8 +56,8 @@ public static partial class Game
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
         count = Math.Max(1, count);
-        own = [.. own, (StatKeys.TotalProjectilesToFire, count), (StatKeys.VirtualTotalProjectiles, count),
-            (StatKeys.TotalArrowsToFire, count), (StatKeys.VirtualTotalArrows, count)];
+        own = [.. own, (Stat.TotalNumberOfProjectilesToFire, count), (Stat.VirtualTotalNumberOfProjectiles, count),
+            (Stat.TotalNumberOfArrowsToFire, count), (Stat.VirtualTotalNumberOfArrows, count)];
         var taken = own.Select(s => s.Item1).ToHashSet();
         foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
         return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
@@ -72,8 +72,8 @@ public static partial class Game
         // none (MonsterProjectileProfile). The count is the skill's (SkillCatalog.MonsterProjectile), so the client draws as
         // many as the server lands.
         if (attack.Projectile is { Variation: > 0 } mortar)
-            own = [.. own, (StatKeys.SkillBehaviourVariation, mortar.Variation), (StatKeys.TotalProjectilesToFire, mortar.Count),
-                (StatKeys.VirtualTotalProjectiles, mortar.Count), (StatKeys.VirtualTotalArrows, mortar.Count)];
+            own = [.. own, (Stat.SkillBehaviourVariation, mortar.Variation), (Stat.TotalNumberOfProjectilesToFire, mortar.Count),
+                (Stat.VirtualTotalNumberOfProjectiles, mortar.Count), (Stat.VirtualTotalNumberOfArrows, mortar.Count)];
         var taken = own.Select(s => s.Item1).ToHashSet();
         foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
         return [.. SkillsFor(conn).EffectStats(effect, level).Where(s => !taken.Contains(s.Item1)), .. own];
@@ -337,7 +337,7 @@ public static partial class Game
         // not the melee attack duration; the client crashed in its cast-duration path when the actor record carried only
         // attack stats (0xc0000005, live 2026-10-31).
         bool spell = effect >= 0 && catalog.EffectStats(effect, level)
-            .Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
+            .Any(s => s.Item1 == Stat.CastingSpell && s.Item2 != 0);
         // A ranged attack reaches its variety's MaximumAttackDistance (a Sand Spitter's 30): the monster walks up to that
         // before it shoots, as GGG's do. A ranged spell (the Maven's and the Nucleus' barrages) and a summoner keep the
         // aggro range they were given with the map affixes, up to the farthest the spell's action reaches
@@ -405,11 +405,11 @@ public static partial class Game
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
-        if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((StatKeys.HideMiniLifeBar, 1));
+        if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((Stat.HideMiniLifeBar, 1));
         uint maximumEnergyShieldValue = owned is null ? 0 : NativeEnergyShield(ownedMaximumEnergyShield);
         uint energyShieldValue = maximumEnergyShieldValue == 0 ? 0
             : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
-        if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
+        if (maximumEnergyShieldValue > 0 && Stat.MaximumEnergyShield is var maximumEnergyShield)
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
         uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
@@ -1726,7 +1726,7 @@ public static partial class Game
     {
         uint lifeCap = LifeCap(conn);
         if (conn.PlayerLife == 0 || conn.PlayerLife >= lifeCap
-            || Stats.Key("missing_unreserved_life_%_gained_as_life_before_hit") is not uint key
+            || !(Stat.MissingUnreservedLifePctGainedAsLifeBeforeHit is var key)
             || stats.GetValueOrDefault(key) is not (> 0 and var pct)) return;
         var leech = LeechOf(conn);
         conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife,
@@ -2322,7 +2322,7 @@ public static partial class Game
         if (!CurrentGameWork) return;
         // At 0 the Life tick stops refreshing the overhead life bar (see Attack): hide it.
         if (hit.Life == 0)
-            await SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+            await SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(Stat.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
         await SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player hit by monster 0x{id:x} for {hit.Damage}{(hit.Critical ? " (critical)" : "")}" +

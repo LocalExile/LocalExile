@@ -49,7 +49,7 @@ public static partial class Game
             own("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana) / 1000.0);
 
     static Task SendBladefallManaSpent(Player conn, int perMinute) =>
-        Stats.Key("mana_spent_per_minute") is uint key
+        Stat.ManaSpentPerMinute is var key
             ? Send(conn, InstanceEntities.StatsUpdate(PlayerId, [(key, perMinute)]),
                 $"0x01b3 player mana_spent_per_minute {perMinute}")
             : Task.CompletedTask;
@@ -133,7 +133,7 @@ public static partial class Game
         (int X, int Y) at;
         lock (conn.Monsters) at = conn.Walk.Position(now);
         await AreaSkillHit(conn, state.Skill, gem, at, at, immediate: true);
-        if (bladeRow is not uint row || Stats.Key("base_skill_effect_duration") is null) return;
+        if (bladeRow is not uint row) return;
         var player = CharacterPlayerStats(conn);
         int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
         double lasts = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);

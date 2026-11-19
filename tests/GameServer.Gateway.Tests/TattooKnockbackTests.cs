@@ -11,7 +11,7 @@ public sealed class TattooKnockbackTests
     {
         var stats = TattooStats.For("Tattoo of the Tukohama Brawler");
         Assert.NotNull(stats);
-        Assert.Contains((Program.Stats.Key("base_global_chance_to_knockback_%")!.Value, 10), stats);
+        Assert.Contains((Stat.BaseGlobalChanceToKnockbackPct, 10), stats);
     }
 
     [Fact]
@@ -26,7 +26,7 @@ public sealed class TattooKnockbackTests
         // A player hit with the tattoo's 10% chance made certain shoves a monster the wiki's minimum 0.4 m (four cells) away.
         var conn = new Player(new(1, "tattoo-knockback", 1000, 1000, 100, 100, null, []), 1, 1);
         conn.Monsters[1] = new SpawnedMonster("kb", conn.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100);
-        var stats = new Dictionary<uint, int> { [Program.Stats.Key("base_global_chance_to_knockback_%")!.Value] = 100 };
+        var stats = new Dictionary<uint, int> { [Stat.BaseGlobalChanceToKnockbackPct] = 100 };
         var target = conn.Monsters[1];
         Assert.True(Game.KnockbackOnHitLocked(conn, target, stats, null, 0, new Random(1)));
         Assert.Equal((109, 100), target.Walk.Position(0));

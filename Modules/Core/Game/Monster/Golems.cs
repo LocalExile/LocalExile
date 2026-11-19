@@ -226,9 +226,9 @@ public static partial class Game
         AddSummonCounts(conn, stats);
         lock (conn.Monsters)
         {
-            if (Stats.Key("number_of_active_mines") is uint mines)
+            if (Stat.NumberOfActiveMines is var mines)
                 stats[mines] = conn.Placed.All.Values.Count(p => p.Mine);
-            if (Stats.Key("number_of_active_traps") is uint traps)
+            if (Stat.NumberOfActiveTraps is var traps)
                 stats[traps] = conn.Placed.All.Values.Count(p => !p.Mine);
         }
         lock (conn.Monsters)

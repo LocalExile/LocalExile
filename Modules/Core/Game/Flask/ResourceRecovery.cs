@@ -2,7 +2,7 @@ public static partial class Game
 {
     public static bool ManaFlaskCopiesLife(FlaskRecovery.Use recovery, IReadOnlyDictionary<uint, int> player) =>
         recovery.Mana > 0 && (recovery.ManaSeconds ?? recovery.Seconds) > 0
-        && Stats.Key("non_instant_mana_recovery_from_flasks_also_recovers_life") is uint key && player.GetValueOrDefault(key) != 0;
+        && Stat.NonInstantManaRecoveryFromFlasksAlsoRecoversLife is var key && player.GetValueOrDefault(key) != 0;
 
     public static void StartRecoveryEffectsLocked(Player conn, IEnumerable<Flasks.Effect> effects, bool copy)
     {

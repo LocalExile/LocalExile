@@ -46,7 +46,7 @@ public static partial class Game
     public static void ArcaneSurgeOnSpellHitLocked(Player conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target)
     {
         if (!target.Hostile || conn.LeavingArea || conn.PlayerLife == 0
-            || Stats.Key("gain_arcane_surge_on_spell_hit_by_you_or_your_totems") is not uint key
+            || !(Stat.GainArcaneSurgeOnSpellHitByYouOrYourTotems is var key)
             || player.GetValueOrDefault(key) == 0) return;
         GainArcaneSurgeLocked(conn, conn.Clock.Elapsed.TotalSeconds, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeedPct,
             ArcaneSurgeManaRegenPct);
@@ -168,7 +168,7 @@ public static partial class Game
     public static void ArcaneSurgeOnSpellHitLocked(Player conn, IReadOnlyDictionary<uint, int> player, double now,
         Random random)
     {
-        if (Stats.Key("gain_arcane_surge_on_hit_%_chance") is not uint key) return;
+        uint key = Stat.GainArcaneSurgeOnHitPctChance;
         if (RandomRolls.Chance(player.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(conn, now);
     }
 

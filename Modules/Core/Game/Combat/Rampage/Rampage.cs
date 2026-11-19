@@ -178,7 +178,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentRampageWork) return;
-            if (Stats.Key("max_rampage_stacks") is uint maximumStacks) stats[maximumStacks] = RampageState.MaximumStacks;
+            if (Stat.MaxRampageStacks is var maximumStacks) stats[maximumStacks] = RampageState.MaximumStacks;
             if (!RampageEnabled(stats) || conn.PlayerLife == 0) return;
             // Pausing holds the game clock; it does not remove a streak.
             double now = conn.LeavingArea && conn.RampageTransferAt is double frozen ? frozen : ProjectileWorldTime(conn);
@@ -197,11 +197,11 @@ public static partial class Game
                 && stats.GetValueOrDefault(rarityPerStacks) is int perKills)
                 Add("base_item_found_rarity_+%", RampageRarity(value.Stacks, perKills));
             // "X% increased Area of Effect per 25 Rampage Kills".
-            if (Stats.Key("area_of_effect_+%_per_25_rampage_stacks") is uint areaPerStacks
+            if (Stat.AreaOfEffectPlusPctPer25RampageStacks is var areaPerStacks
                 && stats.GetValueOrDefault(areaPerStacks) is int areaValue)
                 Add("base_skill_area_of_effect_+%", RampageRarity(value.Stacks, 25) * areaValue);
-            if (Stats.Key("current_rampage_stacks") is uint current) stats[current] = value.Stacks;
-            if (Stats.Key("max_rampage_stacks") is uint maximum) stats[maximum] = RampageState.MaximumStacks;
+            if (Stat.CurrentRampageStacks is var current) stats[current] = value.Stacks;
+            if (Stat.MaxRampageStacks is var maximum) stats[maximum] = RampageState.MaximumStacks;
         }
     }
 
@@ -268,7 +268,7 @@ public static partial class Game
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 conn.SentRampageStat = signature;
             }
-            else if (Stats.Key("current_rampage_stacks") is uint current && value.Stacks != conn.SentRampageStacks)
+            else if (global::Stat.CurrentRampageStacks is var current && value.Stacks != conn.SentRampageStacks)
             {
                 bytes.AddRange(InstanceEntities.StatsUpdate(PlayerId, [(current, value.Stacks)]));
             }

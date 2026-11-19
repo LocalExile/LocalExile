@@ -29,8 +29,8 @@ public class SpectrumAndTattooJewelTests
         var blue = variants["MinimumPowerChargesPerStackableJewelUnique__1"];
         var sources = ItemModStats.Global([red, red, blue], items.Mods, Program.Stats);
         GrandSpectrum.Apply(sources, Program.Stats);
-        Assert.Equal(42, sources[Program.Stats.Key("base_resist_all_elements_%")!.Value]);
-        Assert.Equal(3, sources[Program.Stats.Key("base_minimum_power_charges")!.Value]);
+        Assert.Equal(42, sources[Stat.BaseResistAllElementsPct]);
+        Assert.Equal(3, sources[Stat.BaseMinimumPowerCharges]);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class SpectrumAndTattooJewelTests
             var far = tree.NodesInRadius(socket, 20000).First(n => !inside.Contains(n) && Strength(n));
             conn.Tattoos[near] = conn.Tattoos[far] = "Tattoo of the Ngamahu Firewalker";
             conn.TattooRevision++;
-            uint fire = Program.Stats.Key("base_fire_damage_resistance_%")!.Value;
+            uint fire = Stat.BaseFireDamageResistancePct;
             int Resist(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(fire);
             var initial = Resist(near, far, socket);
             Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(12, 1, 0, jewel));
@@ -68,7 +68,7 @@ public class SpectrumAndTattooJewelTests
             conn.TattooRevision++;
             Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(12, Slot(32763), 0, jewel));
             Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(13, Slot(60735), 0, meek));
-            uint cold = Program.Stats.Key("base_cold_damage_resistance_%")!.Value;
+            uint cold = Stat.BaseColdDamageResistancePct;
             int Cold(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(cold);
             Assert.Equal(15, Cold(32763, 60735, 36287) - Cold(32763, 60735));
         }

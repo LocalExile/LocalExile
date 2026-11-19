@@ -39,11 +39,11 @@ public static partial class Game
         int effect = supported.Effect;
         if (effect < 0) return null;
         var own = supported.Stats;
-        if (skills.EffectId(effect) is "Convocation" or "ConvocationOld" && Stats.Key("base_cooldown_speed_+%") is uint recovery)
+        if (skills.EffectId(effect) is "Convocation" or "ConvocationOld" && Stat.BaseCooldownSpeedPlusPct is var recovery)
             own = new(own) { [recovery] = own.GetValueOrDefault(recovery) + GolemStat(player, "convocation_cooldown_speed_+%") };
         // Fold both flat Travel recovery and its per-Frenzy coefficient into this skill's own input.
         // The published standard count includes minimum charges and excludes converted Affliction Charges.
-        if (skills.IsTravel(effect) && Stats.Key("base_cooldown_speed_+%") is uint travelRecovery)
+        if (skills.IsTravel(effect) && Stat.BaseCooldownSpeedPlusPct is var travelRecovery)
         {
             long coefficient = (long)GolemStat(player, "travel_skills_cooldown_speed_+%_per_frenzy_charge")
                 + GolemStat(own, "travel_skills_cooldown_speed_+%_per_frenzy_charge");

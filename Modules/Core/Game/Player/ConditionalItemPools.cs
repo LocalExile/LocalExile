@@ -113,7 +113,7 @@ public static partial class Game
         flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
         flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
         flags["has_cat_aspect"] = catAspect;
-        flags["cursed_by_vulnerability"] = Stats.Key("cursed_by_vulnerability") is uint curseKey
+        flags["cursed_by_vulnerability"] = Stat.CursedByVulnerability is var curseKey
             && lowLifeSources.GetValueOrDefault(curseKey) != 0;
         flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
         flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
@@ -222,7 +222,7 @@ public static partial class Game
             var before = state.Applied;
             var elusive = ElusivePanelState(conn);
             bool sameElusive = state.AppliedElusive == elusive;
-            int onslaughtEffect = Stats.Key("onslaught_effect_+%") is uint effectKey
+            int onslaughtEffect = Stat.OnslaughtEffectPlusPct is var effectKey
                 ? current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
             bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
             if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;

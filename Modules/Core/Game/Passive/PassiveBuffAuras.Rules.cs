@@ -19,7 +19,7 @@ public static partial class Game
             if (aura.Stats.Count > 0 && Dist(at, player) <= aura.Radius)
                 foreach (var (key, value) in aura.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
         int ignited = stat?.Invoke("enemies_ignited_by_you_have_physical_damage_%_converted_to_fire") ?? 0;
-        if (ignited > 0 && m.Ignites.Burning && Stats.Key("base_physical_damage_%_to_convert_to_fire") is uint fireKey)
+        if (ignited > 0 && m.Ignites.Burning && Stat.BasePhysicalDamagePctToConvertToFire is var fireKey)
         {
             stats[fireKey] = stats.GetValueOrDefault(fireKey) + ignited;
             Console.WriteLine($"[gateway] monster ({m.Label}) is ignited: {ignited}% of its physical damage converts to fire");

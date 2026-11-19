@@ -81,7 +81,7 @@ public sealed class JewelPathAttributeTests
             Assert.Equal(rootDistance + 12, counts[30]);
             int Roll(int value, int count) => (int)decimal.Floor(value * (100m + 25m * count) / 100m);
             int first = Roll(5, counts[29]), second = Roll(5, counts[30]);
-            uint intelligence = Program.Stats.Key("additional_intelligence")!.Value;
+            uint intelligence = Stat.AdditionalIntelligence;
             var resolved = Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot());
             Assert.Equal(first + second, resolved.Sources[intelligence]);
             Assert.All(resolved.Worn.Where(w => w.Id is 3 or 4), w => Assert.Equal(85, w.Item.RequiredLevel));

@@ -224,7 +224,7 @@ public static partial class Game
                 { CommitBossStage(conn, id, m, now); hit = hit with { StageStarts = false }; }
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
-                    if (aura.EffectId == "HeraldOfThunder" && Stats.Key("never_shock") is uint noShock) own[noShock] = 1;
+                    if (aura.EffectId == "HeraldOfThunder" && Stat.NeverShock is var noShock) own[noShock] = 1;
                     AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now,
                         Random.Shared, poison: profile.Poison,
                         blind: BlindHitInput.Capture(player, own));

@@ -55,7 +55,7 @@ public sealed class PlayerBotsMcpTests
             string update = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.PlayerExperienceUpdate(
                 resident.PeerId, CharacterStats.ExperienceFor(60)));
             int Count() => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(update, StringComparison.Ordinal));
-            uint levelKey = Program.Stats.Key("level")!.Value;
+            uint levelKey = Stat.Level;
             string levelUpdate = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.StatsUpdate(
                 resident.PeerId, [(levelKey, 60)]));
             int LevelCount() => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(levelUpdate, StringComparison.Ordinal));
