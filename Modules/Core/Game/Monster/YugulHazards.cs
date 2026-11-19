@@ -25,16 +25,6 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
     IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
     bool Current => !stopped && CurrentGameWork && !boss.Dead && boss.Life > 0;
 
-    (int X, int Y)? NearestTarget((int X, int Y) from, double now)
-    {
-        lock (owner.Monsters)
-        {
-            var target = Present.Where(p => p.PlayerLife > 0 && !InGracePeriod(p))
-                .MinBy(p => Distance(from, p.Walk.Position(now)));
-            return target?.Walk.Position(now);
-        }
-    }
-
     internal async Task Bind(ClientState c)
     {
         if (!players.Contains(c)) players.Add(c);
@@ -117,7 +107,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
                 await All(id, InstanceProtocol.AnimationUpdate(id, 0, 1, 1), "[Yugul] turret channel ends");
             }
             if (now < nextTurret[id] || !c.Monsters.TryGetValue(id, out var m)) continue;
-            if (NearestTarget(m.Walk.Position(now), now) is not { } aim) continue;
+            if (NearestTarget(owner, Present, m.Walk.Position(now), now) is not { } aim) continue;
             double interval = .35 / .6; // Native YugulStormBurst: 350 ms, 40% reduced cast speed.
             double end = now + interval * 6;
             channelEnds[id] = end;
@@ -153,7 +143,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
                 if (!c.Monsters.TryGetValue(id, out var m)) continue;
                 if (orbReady.TryGetValue(id, out var ready) && now < ready) continue;
                 var from = m.Walk.Position(now);
-                if (NearestTarget(from, now) is not { } target) continue;
+                if (NearestTarget(owner, Present, from, now) is not { } target) continue;
                 if (orbReady.Remove(id))
                     await All(id, InstanceProtocol.AnimationUpdate(id, 0, 7, 1), "[Yugul] fear orb chases");
                 double speed = 12 * (phase == 2 ? 1.5 : 1);

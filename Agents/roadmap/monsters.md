@@ -21,7 +21,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Arakaali has the Silk/stance transition and linked turret rails; corner travel and laser/HP calibration remain.
   Yugul has mirror intervals, pool chill, Fearful orbs and turret volleys.
   Calibrate Fearful magnitudes, orb escalation and target preference among eligible players.
-  Solaris/Lunaris have celestial fire/cold hazards; calibrate original handoff timing, target distribution and radii.
+  Solaris/Lunaris have celestial fire/cold hazards; calibrate original handoff timing, aim among eligible players and radii.
   Normal Sirus has its laboratory and four-phase controller; calibrate official decision weights and reward chances.
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.

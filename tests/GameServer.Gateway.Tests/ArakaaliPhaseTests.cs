@@ -95,6 +95,10 @@ public sealed class ArakaaliPhaseTests
             Game.Monsters.Find(SolarisLunaris.Moon + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
         var caster = c.Monsters[id]; bool active = true;
         var hazards = new CelestialHazards(id, caster, c, () => active); await hazards.Bind(c);
+        Assert.True(c.EntryProtection.Start(c.Clock.Elapsed.TotalSeconds, (1000, 1000), 1, town: false, hideout: false));
+        await hazards.Step(c, 99);
+        Assert.Empty(c.SceneViews);
+        c.EntryProtection.End(c.Clock.Elapsed.TotalSeconds, (1000, 1000), action: true);
         await hazards.Step(c, 100); await hazards.Step(c, 100.8);
         Assert.True(c.PlayerLife < 10000); Assert.NotEmpty(c.SceneViews);
         uint life = c.PlayerLife;
@@ -116,12 +120,26 @@ public sealed class ArakaaliPhaseTests
         Assert.NotEqual(CelestialHazards.CascadePoint((0, 0), 0, 0, 50, -12, 15),
             CelestialHazards.CascadePoint((0, 0), 0, 14, 50, -12, 15));
         hazards.Stop();
-        c.Walk.Teleport(1000, 1000, 200); c.PlayerLife = 10000;
+        c.Walk.Teleport(1045, 1000, 200); c.PlayerLife = 10000;
+        observer.Walk.Teleport(1000, 1000, 200); observer.PlayerLife = 10000;
+        Assert.True(observer.EntryProtection.Start(observer.Clock.Elapsed.TotalSeconds, (1000, 1000), 1, town: false, hideout: false));
         uint sunId = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
             Game.Monsters.Find(SolarisLunaris.Sun + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
         var solar = new CelestialHazards(sunId, c.Monsters[sunId], c, () => true); await solar.Bind(c);
-        await solar.Step(c, 200); await solar.Step(c, 201); await solar.Step(c, 201.93);
-        Assert.True(c.PlayerLife < 10000); // The sweeping beam leaves damaging fire.
+        observer.MonsterViews[sunId] = c.MonsterViews[sunId];
+        await solar.Bind(observer);
+        await solar.Step(c, 200);
+        var beamViews = c.SceneViews.ToHashSet();
+        Assert.NotEmpty(beamViews);
+        Assert.True(c.EntryProtection.Start(c.Clock.Elapsed.TotalSeconds, (1045, 1000), 1, town: false, hideout: false));
+        await solar.Step(c, 201);
+        uint groundFire = Assert.Single(c.SceneViews.Except(beamViews));
+        Assert.Contains(groundFire, observer.SceneViews);
+        c.EntryProtection.End(c.Clock.Elapsed.TotalSeconds, (1045, 1000), action: true);
+        await solar.Step(c, 201.93);
+        Assert.True(c.PlayerLife < 10000, $"Solar fire missed the eligible player at (1045,1000), life {c.PlayerLife}.");
+        Assert.Equal(10000u, observer.PlayerLife);
+        Assert.Equal(c.SceneViews.Order(), observer.SceneViews.Order());
         c.Walk.Teleport(1050, 1000, 206); await solar.Step(c, 206);
         life = c.PlayerLife;
         await solar.Step(c, 209.9); await solar.Step(c, 210.1);
@@ -129,7 +147,7 @@ public sealed class ArakaaliPhaseTests
         await solar.Step(c, 210.7);
         Assert.True(c.PlayerLife < life); // A subsequent flare reaches its second annulus.
         c.Monsters[sunId].Dead = true; await solar.Step(c, 211);
-        Assert.Empty(c.SceneViews); solar.Stop();
+        Assert.Empty(c.SceneViews); Assert.Empty(observer.SceneViews); solar.Stop();
     }
 
     [GameFilesFact]

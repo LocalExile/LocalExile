@@ -172,12 +172,11 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
             }
         }
         if (now < nextCast) return;
-        var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(caster.Walk.Position(now), p.Walk.Position(now)));
-        if (target is null) return;
+        var origin = caster.Walk.Position(now);
+        if (NearestTarget(owner, Present, origin, now) is not { } aim) return;
         bool solar = caster.Variety!.Id == SolarisLunaris.Sun + "CelestialForm";
         int effectId = solar ? (cast % 2 == 0 ? 6464 : 6477) : (cast % 2 == 0 ? 6473 : 8433); cast++;
         var cat = SkillsFor(c);
-        var origin = caster.Walk.Position(now); var aim = target.Walk.Position(now);
         double facing = Math.Atan2(aim.Y - origin.Y, aim.X - origin.X);
         double seconds = cat.CastTimeMs(effectId) / 1000d;
         double release = now + seconds * .299 / .966;

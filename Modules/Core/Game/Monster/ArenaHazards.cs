@@ -34,6 +34,15 @@ internal static class ArenaHazards
         return result.Scale(minion ? Math.Max(0, 1 + Stat(c, effect, level,
             "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d) : 1);
     }
+    internal static (int X, int Y)? NearestTarget(ClientState owner, IEnumerable<ClientState> present, (int X, int Y) from, double now)
+    {
+        lock (owner.Monsters)
+        {
+            var target = present.Where(p => p.PlayerLife > 0 && !InGracePeriod(p))
+                .MinBy(p => Distance(from, p.Walk.Position(now)));
+            return target?.Walk.Position(now);
+        }
+    }
     internal static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
     internal static (int X, int Y) Toward((int X, int Y) from, (int X, int Y) to, double distance)
     {

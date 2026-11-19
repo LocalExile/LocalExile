@@ -185,7 +185,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Orbs and turrets skip players under entry protection.
   Fearful magnitudes, orb escalation and aura radii remain calibrated.
   Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
-  have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
+  have typed contacts. Celestial casts wait for a player outside entry protection.
+  Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
