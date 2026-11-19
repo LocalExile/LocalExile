@@ -187,9 +187,10 @@ public sealed partial class DeepwaterModule
             ["collapse"] = run.CollapseState,
             ["outcome"] = run.Outcome,
             ["landIn"] = run.LandAt > 0 ? Math.Round(Math.Max(0, run.LandAt - now), 1) : null,
+            ["dropStage"] = run.LandAt > 0 ? run.DropStage : null,
             ["devices"] = new JsonArray([.. DevicesOf(run).Select(d => (JsonNode)new JsonObject
             {
-                ["id"] = d.Id, ["kind"] = d.Kind.ToString(), ["x"] = d.X, ["y"] = d.Y, ["landed"] = d.Landed, ["sent"] = d.Sent, ["called"] = d.Called,
+                ["id"] = d.Id, ["kind"] = d.Kind.ToString(), ["x"] = d.X, ["y"] = d.Y, ["landed"] = d.Landed, ["sent"] = d.Sent, ["called"] = d.Called, ["entry"] = d.Entry,
             })]),
             ["capsule"] = ItemsOf(conn).Items(DeepwaterExtraction.CapsuleRow).Count,
             ["collection"] = ItemsOf(conn).Items(DeepwaterExtraction.CollectionRow).Count,

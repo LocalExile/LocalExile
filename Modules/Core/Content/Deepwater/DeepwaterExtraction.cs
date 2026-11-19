@@ -29,6 +29,9 @@ internal static class DeepwaterExtraction
         public int Landed { get; set; }
         /// <summary>A capsule that sent its items up, or that called the Bathysphere: it took off.</summary>
         public bool Sent, Called;
+        /// <summary>A Voyage's entry capsule beside the start Bathysphere: it can only call the Bathysphere (the wiki).</summary>
+        public bool Entry { get; init; }
+        public string Name => Entry ? "entry capsule" : Kind.ToString();
         public string Type => Kind switch
         {
             Kind.Bathysphere => DeepwaterConstants.ExtractionObject,
@@ -48,7 +51,7 @@ internal static class DeepwaterExtraction
     /// <c>DeepwaterBathysphereDrop</c> task (stage 0 at the call, 1500 up; the last one on the ground).</summary>
     public const double Descent = 30;
     public const uint DropStages = 3;
-    /// <summary>G: the backup capsule's distance from the start Bathysphere (size 12).</summary>
+    /// <summary>G: the backup (Chart) or entry (Voyage) capsule's distance from the start Bathysphere (size 12).</summary>
     const int BackupBeside = 16;
     const string CollectionChest = "Metadata/Terrain/Leagues/Deepwater/Objects/CollectionChest";
     const string LootSpiralMarker = "Metadata/Terrain/Leagues/Deepwater/Objects/LootSpiralMarker";
@@ -67,7 +70,8 @@ internal static class DeepwaterExtraction
     // ---- the plan ----
 
     /// <summary>The run's start devices: the Bathysphere on the ground at cell 0's <c>bathysphere</c> point (H), and a
-    /// Chart's backup capsule beside it, or a Voyage's capsule at every other cell's <c>bathysphere</c> point (G).</summary>
+    /// Chart's backup capsule beside it, or a Voyage's entry capsule beside it and a capsule at every other cell's
+    /// <c>bathysphere</c> point (G: both places; the wiki only says the entry capsule can only call the Bathysphere).</summary>
     public static void Plan(ClientState conn, DeepwaterRun run, (int X, int Y) start, Action<string> log)
     {
         var devices = new List<Device> { new() { Kind = Kind.Bathysphere, Id = conn.TakeObjectId(), X = start.X, Y = start.Y, Landed = 2 } };
@@ -77,12 +81,16 @@ internal static class DeepwaterExtraction
             devices.Add(new() { Kind = Kind.Backup, Id = conn.TakeObjectId(), X = at.X, Y = at.Y });
         }
         else
+        {
+            var at = conn.Layout.Near((start.X + BackupBeside, start.Y));
+            devices.Add(new() { Kind = Kind.Capsule, Entry = true, Id = conn.TakeObjectId(), X = at.X, Y = at.Y });
             foreach (var cell in run.Board.Cells.Skip(1))
                 if (cell.Point("bathysphere") is { } p)
                     devices.Add(new() { Kind = Kind.Capsule, Id = conn.TakeObjectId(), X = p.X, Y = p.Y });
+        }
         lock (run.Gate) run.Devices.AddRange(devices);
         log($"Allflame extraction: Bathysphere at ({start.X}, {start.Y}), " + (run.Voyage
-            ? $"{devices.Count(d => d.Kind == Kind.Capsule)} capsules" : $"backup capsule at ({devices[^1].X}, {devices[^1].Y})"));
+            ? $"entry capsule at ({devices[1].X}, {devices[1].Y}), {devices.Count(d => d.Kind == Kind.Capsule && !d.Entry)} cell capsules" : $"backup capsule at ({devices[^1].X}, {devices[^1].Y})"));
     }
 
     // ---- the objects ----
@@ -102,7 +110,7 @@ internal static class DeepwaterExtraction
             };
         var player = PlayerOf(conn);
         if (!await global::Game.SendWorldCreate(player, device.Id, InstanceEntities.CreateObject(device.Id, InstanceEntities.ObjectTypeHash(device.Type), obj.Blob()),
-            $"0x02bb Allflame {device.Kind} 0x{device.Id:x} at ({device.X}, {device.Y}){(device.Kind == Kind.Bathysphere ? $" landed {device.Landed}" : device.Sent || device.Called ? " (gone)" : "")}"))
+            $"0x02bb Allflame {device.Name} 0x{device.Id:x} at ({device.X}, {device.Y}){(device.Kind == Kind.Bathysphere ? $" landed {device.Landed}" : device.Sent || device.Called ? " (gone)" : "")}"))
             return;
         await global::Game.SendWorldRecord(player, device.Id, InstanceProtocol.EnterWakeZone(device.Id));
     }
@@ -206,7 +214,7 @@ internal static class DeepwaterExtraction
         else if (device.Kind != Kind.Bathysphere && !run.InLight((device.X, device.Y), now)) why = "not within Lanternlight";
         if (why is not null)
         {
-            module.Log($"{player.Character} <= 0x0024 Allflame {device.Kind} 0x{device.Id:x} refused: {why}");
+            module.Log($"{player.Character} <= 0x0024 Allflame {device.Name} 0x{device.Id:x} refused: {why}");
             await DeepwaterLoot.EndAction(conn);
             return true;
         }
@@ -232,7 +240,7 @@ internal static class DeepwaterExtraction
                 lock (run.Gate) run.OpenCapsule[player.Character] = device.Id;
                 conn.ModuleWindow = CapsuleWindow;
                 await player.Send(InstanceWaypoints.OpenUi(CapsuleUi, device.Id),
-                    $"0x007b open ExtractionInventory (kind 0x{CapsuleUi:x2}, inventory 113) for capsule 0x{device.Id:x} (G: the u32 is the capsule)");
+                    $"0x007b open ExtractionInventory (kind 0x{CapsuleUi:x2}, inventory 113) for {device.Name} 0x{device.Id:x} (G: the u32 is the capsule)");
                 break;
         }
         return true;
@@ -256,8 +264,8 @@ internal static class DeepwaterExtraction
 
     /// <summary>Ruleset op 2, Send to Surface: the capsule's items (113) go to the character's collection (114, saved with
     /// the character), the capsule takes off, QuestFlags 3547 is set, the window closes (mode 7) and the deck's count
-    /// follows (mode 4). Needs IsMapOwner, a filled 113, an unsent capsule and another unsent one left (G: "the final
-    /// Capsule" of ClientStrings 8441). Returns the ids moved.</summary>
+    /// follows (mode 4). Needs IsMapOwner, a filled 113, an unsent capsule other than the entry one and another unsent one
+    /// left, the entry one counting (G: "the final Capsule" of ClientStrings 8441). Returns the ids moved.</summary>
     public static async Task<IReadOnlyList<uint>> SendToSurface(IModuleContext module, ClientState conn, DeepwaterRun run)
     {
         var player = PlayerOf(conn);
@@ -265,6 +273,8 @@ internal static class DeepwaterExtraction
         var capsule = OpenCapsuleOf(conn, run);
         string? why = null;
         if (capsule is null) why = "no capsule window open";
+        // G: the client still enables the button there; the real server's answer is unknown.
+        else if (capsule.Entry) why = "the entry capsule can only call the Bathysphere";
         else if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
         else if (!conn.HasQuestFlag(DeepwaterConstants.MapOwner)) why = "not IsMapOwner";
         else if (items.Items(CapsuleRow).Count == 0) why = "the capsule is empty";
@@ -334,8 +344,8 @@ internal static class DeepwaterExtraction
         return true;
     }
 
-    /// <summary>Ruleset op 3, Call Bathysphere (also the HUD's leave button): at an open, unsent capsule of a Voyage with an
-    /// empty 113. The capsule takes off, a Bathysphere descends there (<c>landed</c> 0, task 0x2387) for 30 s, the
+    /// <summary>Ruleset op 3, Call Bathysphere (also the HUD's leave button): at an open, unsent capsule of a Voyage (the
+    /// entry one too) with an empty 113. The capsule takes off, a Bathysphere descends there (<c>landed</c> 0, task 0x2387) for 30 s, the
     /// lanterns of the other cells collapse and the swarm starts; then it lands (<c>landed</c> 1) and can be used.</summary>
     public static async Task CallBathysphere(IModuleContext module, ClientState conn, DeepwaterRun run)
     {
@@ -368,7 +378,7 @@ internal static class DeepwaterExtraction
             module.Log($"{player.Character} <= 0x02ca DeepwaterRules RequestExtraction refused: {why}");
             return;
         }
-        module.Log($"{player.Character} <= 0x02ca DeepwaterRules RequestExtraction: capsule 0x{capsule!.Id:x} calls the Bathysphere 0x{bathysphere.Id:x}, {Descent:0} s");
+        module.Log($"{player.Character} <= 0x02ca DeepwaterRules RequestExtraction: {capsule!.Name} 0x{capsule.Id:x} calls the Bathysphere 0x{bathysphere.Id:x}, {Descent:0} s");
         await CloseWindow(conn, run);
         foreach (var member in DeepwaterLoot.Members(conn))
         {
