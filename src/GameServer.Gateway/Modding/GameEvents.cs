@@ -457,6 +457,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, uint, WorldItemObject, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> GroundItemUse = new();
     /// <summary>An NPC option was picked, before its action; false stops it.</summary>
     public static readonly GameEvent<Func<ClientState, NpcCatalog.Talk, Task<bool>>> NpcOptionPicked = new();
+    /// <summary>Whether an NPC opts into NPCTalk league quest flag filtering, automatic conversation matching, and
+    /// league-flag updates (<c>__col15/__col16/__col17/__col18</c>); false leaves other NPCs untouched.</summary>
+    public static readonly GameEvent<Func<ClientState, NpcCatalog.Npc, bool>> NpcUsesLeagueFlags = new();
     /// <summary>A read of client messages was handled.</summary>
     public static readonly GameEvent<Func<ClientState, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
     public static readonly GameEvent<Func<ClientState, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
@@ -532,6 +535,17 @@ public static class GameEvents
     {
         foreach (var run in NpcOptionPicked.For(conn)) if (!await run(conn, talk)) return false;
         return true;
+    }
+
+    public static bool UsesNpcLeagueFlags(ClientState conn, NpcCatalog.Npc npc)
+    {
+        foreach (var (owner, run) in NpcUsesLeagueFlags.Subscribers(conn))
+        {
+            bool answer = false;
+            GameEventOwners.Guard(owner, nameof(NpcUsesLeagueFlags), () => answer = run(conn, npc));
+            if (answer) return true;
+        }
+        return false;
     }
 
     public static async Task RunMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)

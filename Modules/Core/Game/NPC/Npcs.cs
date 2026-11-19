@@ -144,7 +144,15 @@ public static partial class Game
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
         if (npc is null || conn.TalkingTo != id) return false;
-        var next = Npcs.Value.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
+        var flags = Quests.Names(PlayerQuestFlags(conn));
+        NpcCatalog.Talk? next;
+        if (GameEvents.UsesNpcLeagueFlags(conn, npc.Npc))
+        {
+            HashSet<int> leagueFlags;
+            lock (conn.Monsters) leagueFlags = [.. conn.LeagueQuestFlags];
+            next = Npcs.Value.NextConversationOf(npc.Npc, flags, conn.AutomaticNpcTalkRows, leagueFlags);
+        }
+        else next = Npcs.Value.NextConversationOf(npc.Npc, flags, conn.AutomaticNpcTalkRows);
         if (next is null) return false;
         conn.AutomaticNpcTalkRows.Add(next.Row);
         await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, next);
@@ -174,10 +182,24 @@ public static partial class Game
     static async Task<bool> RunNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk, bool onClick = false)
     {
-        if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return false;
+        var flags = Quests.Names(PlayerQuestFlags(conn));
+        bool usesLeagueFlags = GameEvents.UsesNpcLeagueFlags(conn, npc.Npc);
+        if (usesLeagueFlags)
+        {
+            HashSet<int> leagueFlags;
+            lock (conn.Monsters) leagueFlags = [.. conn.LeagueQuestFlags];
+            if (!talk.Available(flags, leagueFlags)) return false;
+        }
+        else if (!talk.Available(flags)) return false;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return false;
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
         if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return false;
+        if (usesLeagueFlags)
+        {
+            var toSet = talk.LeagueFlagsSet.Where(f => f is > 1 and <= Quests.League.Count).ToList();
+            if (talk.StartLeagueFlag is int slf && !toSet.Contains(slf)) toSet.Add(slf);
+            if (toSet.Count > 0) await SetLeagueQuestFlags(remote, stream, ciphers, conn, toSet);
+        }
         await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
         conn.NpcTalkScript = null;
