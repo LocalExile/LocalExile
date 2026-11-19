@@ -7,6 +7,9 @@ public sealed class PlayerUpdatesState(IModuleLifetime rules, IPlayerUpdateSched
     public readonly IPlayerUpdateSchedule Schedule = schedule;
     public readonly CancellationTokenSource Stop = new();
     public long Generation;
+    // The two workers can start and sample independently. Only a running worker owns an elapsed burn interval.
+    internal double? RighteousFireEnemyThrough, RighteousFireSelfThrough;
+    internal double RighteousFireSelfCarry;
     public Task Completion = Task.CompletedTask;
     public (uint Id, SpawnedMonster Monster)[] PendingStages = [];
     public readonly HashSet<PlayerMinions.Attack> MinionAttacks = [];

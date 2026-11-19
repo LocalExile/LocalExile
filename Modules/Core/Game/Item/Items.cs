@@ -115,6 +115,7 @@ public static partial class Game
         (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? done = null;
         Item? displacedBefore = null;
         IReadOnlyList<PlayerSkillSource> displacedSources = [];
+        RighteousFireBurnOutput? finalBurn = null;
         string why = "unknown inventory";
         string? missing = null;
         byte row = default;
@@ -134,11 +135,14 @@ public static partial class Game
                     missing = unmet;
                 else
                 {
+                    var fire = CaptureSocketedRighteousFireLocked(conn, displacedSources);
                     done = items.Socket(row, s.ItemId, (int)s.Socket, ShapeOf, items.NewItemId, out why);
                     if (done is not null && ItemModStats.EquipmentRows.Contains(row))
                     {
                         if (done.Value.HeldNow is { } displaced)
                         {
+                            if (fire is not null)
+                                finalBurn = SettleSocketedRighteousFireLocked(remote, stream, ciphers, conn, fire);
                             RetireDirectMinionSourcesLocked(conn, displacedSources);
                             ForgetGemActivation(conn, displaced.Item);
                         }
@@ -158,6 +162,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
             return;
         }
+        if (finalBurn is not null) await PublishRighteousFireBurn(remote, stream, ciphers, conn, finalBurn);
         var (item, before, now) = result;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
@@ -320,6 +325,7 @@ public static partial class Game
         (InventoryItem Item, InventoryItem Held)? done = null;
         Item? removedBefore = null;
         IReadOnlyList<PlayerSkillSource> removedSources = [];
+        RighteousFireBurnOutput? finalBurn = null;
         string why = "unknown inventory";
         byte row = default;
         using (ProjectileMutation(conn, advance: false, phase: "gem unsocket"))
@@ -334,9 +340,12 @@ public static partial class Game
                     if (removedBefore is not null)
                         removedSources = GemSourceRowsLocked(conn, host.Id, (int)s.Socket, removedBefore);
                 }
+                var fire = CaptureSocketedRighteousFireLocked(conn, removedSources);
                 done = items.Unsocket(row, s.ItemId, (int)s.Socket, items.NewItemId, out why);
                 if (done is not null && ItemModStats.EquipmentRows.Contains(row))
                 {
+                    if (fire is not null)
+                        finalBurn = SettleSocketedRighteousFireLocked(remote, stream, ciphers, conn, fire);
                     RetireDirectMinionSourcesLocked(conn, removedSources);
                     ForgetGemActivation(conn, done.Value.Held.Item);
                     RecomputePoolsAndSpeed(conn);
@@ -349,6 +358,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x002f unsocket {s}: refused ({why})");
             return;
         }
+        if (finalBurn is not null) await PublishRighteousFireBurn(remote, stream, ciphers, conn, finalBurn);
         var (item, held) = result;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");

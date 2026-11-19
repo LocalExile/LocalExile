@@ -707,7 +707,9 @@ public class ArrowRainAndMirageTests
             step();
             return Task.CompletedTask;
         });
+        public double ResourceLag;
         public double Now(ClientState conn) => Game.ProjectileWorldTime(conn);
+        public double ResourceNow(ClientState conn) => Now(conn) - ResourceLag;
         public Task Wait(int milliseconds, CancellationToken stopping) => Steps.Dequeue()();
     }
 
@@ -867,15 +869,19 @@ public class ArrowRainAndMirageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Righteous_fire_burns_only_after_activation_and_continues_through_a_cosmetic_change(bool recovery)
+    public async Task Righteous_fire_burns_only_between_activation_and_socket_removal_across_a_cosmetic_change(bool recovery)
     {
-        using var b = new Battle("Righteous Fire");
+        using var b = new Battle("Righteous Fire", "Faster Attacks Support");
         var c = b.Conn;
         c.Pools = Game.PoolsFor(c, 100);
         c.PlayerLife = c.PlayerMaxLife;
         Assert.Equal(0u, c.Pools.EnergyShield);
         b.Enemy.Walk.Teleport(105, 100, 0);
         var gem = Assert.Single(Game.GemSkillEffects(c));
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { ItemLevel = 80 });
+        var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 0);
         var clock = new ProjectileClock();
         var updates = new PlayerUpdatesState(Game.CombatLifetime!, clock);
         var previous = Game.AreaUpdateContext.Value;
@@ -887,6 +893,46 @@ public class ArrowRainAndMirageTests
             Task Ignite() => Game.OnUseObject("rf-start", b.Stream, b.Ciphers, c,
                 new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
             uint startingLife = recovery ? c.PlayerLife : b.Enemy.Life;
+            var late = new SpawnedMonster("late target", new(105, 100, 0), 0, 0, 100000);
+            async Task RemoveFirst()
+            {
+                // This monster enters just after the 1.5 sample, in time for the last 1/16 second.
+                c.Monsters[202] = late;
+                var doomed = new SpawnedMonster("former occupant", new(105, 100, 0), 0, 0, 1);
+                if (!recovery)
+                {
+                    doomed.Contagion.Apply(clock.Now(c), new(5, 10, 18));
+                    c.Monsters[203] = doomed;
+                }
+                At(1.5625);
+                clock.ResourceLag = recovery ? .03125 : 0;
+                uint lifeBeforeRemoval = c.PlayerLife;
+                var old = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                var gate = Program.SendGates.GetValue(b.Ciphers, _ => new(1, 1));
+                Assert.True(gate.Wait(0));
+                Task replacing;
+                try
+                {
+                    replacing = SwapRighteousFireSocket(b, host.Id, 0, "Righteous Fire");
+                    Assert.False(replacing.IsCompleted);
+                    Assert.Null(c.RighteousFire);
+                    Assert.False(c.GemSourceLifetimes.IsCurrent(old.SourceLifetime!));
+                    if (recovery) Assert.True(c.PlayerLife < lifeBeforeRemoval);
+                    else
+                    {
+                        Assert.Equal((uint)(c.PlayerMaxLife * old.DamagePctPerMinute / 6000d * .0625), late.MaxLife - late.Life);
+                        Assert.True(doomed.Dead);
+                        c.Monsters[203] = new("replacement", new(200, 100, 0), 0, 0, 200);
+                    }
+                }
+                finally { gate.Release(); }
+                await replacing;
+                if (recovery) c.EnergyShield.SetMaximum(125, refill: true);
+                Assert.True(late.Contagion.Idle);
+                clock.ResourceLag = 0;
+                await Game.BurnAround("rf-start", b.Stream, b.Ciphers, c, old, .5);
+                late.Walk.Teleport(200, 100, 0);
+            }
             var losses = new List<int>();
             void Observe()
             {
@@ -898,11 +944,21 @@ public class ArrowRainAndMirageTests
             // The player loop samples 0.5, then admits RF at 0.75 while publishing that tick.
             // Recovery samples under the actor lock and first sees the new owner at 1.0.
             At(0);
+            bool activatedInPlayerTick = false;
             using var afterSample = GameEvents.Tick.Add("Game", async (actor, elapsed) =>
             {
-                if (!ReferenceEquals(actor, c) || c.RighteousFire is not null) return;
-                At(.75);
-                await Ignite();
+                if (!ReferenceEquals(actor, c)) return;
+                if (!activatedInPlayerTick)
+                {
+                    activatedInPlayerTick = true;
+                    At(.75);
+                    await Ignite();
+                }
+                else if (clock.Now(c) == origin + 1.5)
+                {
+                    Observe();
+                    await RemoveFirst();
+                }
             });
             clock.OnWait(() => At(.5));
             clock.Steps.Enqueue(async () =>
@@ -941,6 +997,45 @@ public class ArrowRainAndMirageTests
                 Assert.Same(original.SourceLifetime, restyled.SourceLifetime);
                 At(1.5);
             });
+            clock.Steps.Enqueue(async () =>
+            {
+                if (recovery) { Observe(); await RemoveFirst(); }
+                At(1.625);
+            });
+            clock.Steps.Enqueue(async () =>
+            {
+                Observe();
+                if (recovery)
+                {
+                    Assert.Equal(125u, c.EnergyShield.Current);
+                    c.EnergyShield.SetMaximum(0);
+                }
+                await SwapRighteousFireSocket(b, host.Id, 1, "Burning Damage Support");
+                await Game.ActivateRighteousFire("rf-start", b.Stream, b.Ciphers, c, gem.Id,
+                    gem.Effect, gem.Level, gem.Quality, Assert.Single(Game.GemSkillEffects(c)).Gem);
+                var linked = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                uint burning = Program.Stats.Key("support_burning_damage_+%_final")!.Value;
+                Assert.Equal(20, Game.SupportedSkill(c, gem.Id).Stats[burning]);
+                At(1.6875);
+                var held = items.Add(PlayerInventories.Cursor, 0, 0,
+                    Assert.Single(items.Items(PlayerInventories.Weapon1)).Item.Sockets[0].Gem!);
+                await Game.UnsocketGem("rf-start", b.Stream, b.Ciphers, c, socket);
+                Assert.Same(linked, c.RighteousFire);
+                Assert.Equal(held.Id, Assert.Single(items.Items(PlayerInventories.Cursor)).Id);
+                items.Remove(PlayerInventories.Cursor, held.Id);
+                At(1.75);
+                await Game.UnsocketGem("rf-start", b.Stream, b.Ciphers, c, socket);
+                Assert.Null(c.RighteousFire);
+                Assert.False(c.GemSourceLifetimes.IsCurrent(linked.SourceLifetime!));
+                await Game.SocketGem("rf-start", b.Stream, b.Ciphers, c, socket);
+                await SwapRighteousFireSocket(b, host.Id, 1, "Faster Attacks Support");
+                await Game.ActivateRighteousFire("rf-start", b.Stream, b.Ciphers, c, gem.Id,
+                    gem.Effect, gem.Level, gem.Quality, Assert.Single(Game.GemSkillEffects(c)).Gem);
+                var unlinked = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                Assert.NotSame(linked.SourceLifetime, unlinked.SourceLifetime);
+                Assert.DoesNotContain(burning, Game.SupportedSkill(c, gem.Id).Stats.Keys);
+                At(1.8125);
+            });
             clock.OnWait(() => { Observe(); updates.Stop.Cancel(); });
             c.Wire = ("rf-start", b.Stream, b.Ciphers);
             c.PlayerUpdatesState = updates;
@@ -955,7 +1050,10 @@ public class ArrowRainAndMirageTests
                 ? DamageModel.Mitigate(c.PlayerMaxLife * rf.BurnPctPerMinute / 6000d,
                     Game.Resistance(c, DamageType.Fire), Game.MaxResistance(c, DamageType.Fire))
                 : c.PlayerMaxLife * rf.DamagePctPerMinute / 6000d;
-            Assert.Equal(new[] { 0, (int)(rate * .25), (int)(rate * .75) }, losses);
+            double linkedRate = recovery ? rate : rate * 1.2;
+            double firstBurn = recovery ? .78125 : .8125;
+            Assert.Equal(new[] { 0, (int)(rate * .25), (int)(rate * .75), (int)(rate * firstBurn),
+                (int)(rate * firstBurn + linkedRate * .125 + rate * .0625) }, losses);
         }
         finally
         {

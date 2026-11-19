@@ -3141,8 +3141,9 @@ failed I/O, allocation limits, actual official values and every skill's successf
   `spell_damage_modifiers_apply_to_skill_dot`, so the enemy burn takes increased area, fire, elemental and DoT damage but
   not spell damage (as PoB); DoT multipliers add together, and linked supports' more factors multiply. Lifetap and
   Inspiration count only for the part of a tick while their buff or charges are active. Nothing outgoing scales the self-burn.
-  The player and enemy burn only for time elapsed since activation. Changing the art on the same gem preserves
-  the burn clock and pending support changes.
+  The server settles the player and enemy burn from activation through a successful manual socket replacement or
+  removal. It uses the old gem's links, nearby monsters and the player's defences at that boundary. Changing the art
+  on the same gem preserves the burn clock and pending support changes. Native timing and rounding await a client check.
   **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +
