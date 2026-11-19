@@ -12,6 +12,7 @@ public static partial class Game
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
+        SendPhysicalAegis, SendUnhinged, SyncPhasing,
     ];
 
     sealed class Presenting

@@ -27,6 +27,9 @@ public sealed class PhysicalAegisState
     public bool Depleted => Exists && Current == 0;
     public bool Active => Exists && Current > 0;
 
+    /// <summary>An absorb changed the shield (its buff follows).</summary>
+    public Action? Changed;
+
     public void Install(object owner, WornGrantedSkills.Grant source, int maximum, double rechargeDelay, int variation)
     {
         Owner = owner;
@@ -54,6 +57,7 @@ public sealed class PhysicalAegisState
         Current -= absorbed;
         // The extracted BuffDefinitions text says restoration follows a break in physical damage, not merely depletion.
         RestoresAt = now + RechargeDelay;
+        Changed?.Invoke();
         return amount - absorbed;
     }
 

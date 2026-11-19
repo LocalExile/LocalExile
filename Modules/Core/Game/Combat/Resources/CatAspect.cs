@@ -291,6 +291,7 @@ public static partial class Game
         if (state.CatPhasing != phasing)
         {
             state.CatPhasing = phasing;
+            PresentStats(conn);
             changed = true;
         }
         bool onslaught = state.Cat == ReservationState.CatPhase.Agility && state.CatOnslaughtQualified;

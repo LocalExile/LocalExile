@@ -118,7 +118,13 @@ public static partial class Game
 
     sealed record ReservationInputs(StatSourcesResult? Sources, CharacterStats.Pools Pools,
         (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras);
-    sealed class ReservationInputCache { public bool Building; public ReservationInputs? Inputs; }
+    sealed class ReservationInputCache
+    {
+        public bool Building;
+        public ReservationInputs? Inputs;
+        // When an own aura's state next changes on its own (AreaTime): the Stats phase reconciles them then.
+        public double NextAt = double.PositiveInfinity;
+    }
     static readonly RuleTable<ClientState, ReservationInputCache> ReservationInputCaches = new();
     static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
         [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values]);
@@ -171,8 +177,33 @@ public static partial class Game
             {
                 cache.Building = building;
                 if (!building) cache.Inputs = CaptureReservationInputs(conn);
+                cache.NextAt = OwnAurasNextChangeAt(conn);
             }
         }
+    }
+
+    // A Cat or Avian phase ends, a Crab barrier is due, a Glorious Madness touch lands or ends.
+    static double OwnAurasNextChangeAt(ClientState conn)
+    {
+        var state = conn.Reservations;
+        double next = double.PositiveInfinity;
+        if (state.CatOwner is not null && state.Cat != ReservationState.CatPhase.None) next = Math.Min(next, state.CatPhaseDeadline);
+        if (state.AvianOwner is not null) next = Math.Min(next, state.AvianDeadline);
+        if (state.CrabOwner is not null && state.CrabBarriers < state.CrabMaximum) next = Math.Min(next, state.NextCrabBarrier);
+        var madness = conn.Madness;
+        if (madness.Active)
+        {
+            next = Math.Min(next, madness.NextTouch);
+            for (int i = 0; i < 4; i++) if (madness.Touches[i] > 0) next = Math.Min(next, madness.Until[i]);
+        }
+        return next;
+    }
+
+    /// <summary>The Stats phase: the own auras' timed changes (<see cref="OwnAurasNextChangeAt"/>) once due.</summary>
+    internal static void StepOwnAuras(ClientState conn)
+    {
+        if (ReservationInputCaches.TryGetValue(conn, out var cache) && AreaTime(conn) >= cache.NextAt)
+            EnsureOwnAuraPools(conn);
     }
 
     // Reservation exemptions and support cost multipliers can change while an aura stays on, including before any

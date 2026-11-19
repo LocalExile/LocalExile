@@ -150,6 +150,7 @@ public static partial class Game
 
             double now = ResourceEffectsTime(conn);
             var state = PhysicalAegisAt(conn, now, advance: true);
+            if (state.Exists && double.IsFinite(state.RestoresAt)) PresentIn(conn, state.RestoresAt - now);
             // Reading an invalid source retires the old state and puts its instances in the cleanup queue above.
             foreach (ushort buff in conn.RetiredPhysicalAegisBuffs)
                 bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));

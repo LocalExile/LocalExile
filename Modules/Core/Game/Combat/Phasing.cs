@@ -35,7 +35,7 @@ public static partial class Game
     }
 
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill, resetting the
-    /// connection's timed phasing (<see cref="ClientState.IsPhasing"/>). The player tick publishes the stat the
+    /// connection's timed phasing (<see cref="ClientState.IsPhasing"/>). A stat presentation publishes the stat the
     /// client's pathfinder reads and the Phasing Buff icon.</summary>
     public static void GainPhasingOnKill(ClientState conn)
     {
@@ -46,6 +46,7 @@ public static partial class Game
         double at = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters)
             conn.PhasingUntil = Math.Max(conn.PhasingUntil, at + 4);
+        PresentStats(conn);
         Console.WriteLine($"[gateway] phasing on kill: {chance}% -> 4 seconds (until {conn.PhasingUntil:0.###})");
     }
 
@@ -62,6 +63,7 @@ public static partial class Game
             double now = conn.Clock.Elapsed.TotalSeconds;
             bool active = conn.PlayerLife > 0 && conn.IsPhasing;
             bool timed = active && conn.PhasingUntil > now;
+            if (conn.PhasingUntil > now) PresentIn(conn, conn.PhasingUntil - now);
             double until = timed ? conn.PhasingUntil : 0;
             if (active)
             {

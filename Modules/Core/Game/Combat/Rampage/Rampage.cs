@@ -114,7 +114,10 @@ public static partial class Game
         if (Get("gain_physical_damage_immunity_on_rampage_threshold_ms") is int immuneMs and > 0)
             conn.PhysicalImmunityUntil = Math.Max(conn.PhysicalImmunityUntil, now + immuneMs / 1000.0);
         if (Get("phasing_on_rampage_threshold_ms") is int phasingMs and > 0)
+        {
             conn.PhasingUntil = Math.Max(conn.PhasingUntil, now + phasingMs / 1000.0);
+            PresentStats(conn);
+        }
         if (Get("dispel_status_ailments_on_rampage_threshold") != 0)
         {
             var before = conn.ElementalAilments.Snapshot(now);

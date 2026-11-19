@@ -238,6 +238,7 @@ public static partial class Game
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
+        StepOwnAuras(conn);
         var frame = FrameStatsOf.GetValue(conn, _ => new());
         double clock = conn.Clock.Elapsed.TotalSeconds;
         frame.Clock = clock;
@@ -328,6 +329,7 @@ public static partial class Game
         On(PlayerStatChangeReaders[(int)PlayerStatChange.Leech], a => LeechOf(conn).Changed = a);
         LeechOf(conn).DisplayChanged = () => PresentStats(conn);
         conn.PetrifiedBlood.Changed = () => PresentStats(conn);
+        conn.PhysicalAegis.Changed = () => PresentStats(conn);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.IncomingAilments],
             a => conn.IncomingAilments.Changed = () => { a(); PresentStats(conn); });
         On(PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments],
