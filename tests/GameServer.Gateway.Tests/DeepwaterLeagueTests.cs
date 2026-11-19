@@ -48,8 +48,9 @@ public sealed class DeepwaterLeagueTests
 
     // ValerieTutorial (Stats, Functions, StateMachine after the base six) is written: Stats as a monster's with no pairs
     // (compact count, u32, u32, u8), nothing for Functions, then her StateMachine (2 states, 2 timers).
+    // A lantern placement (C->S 0x2ca) is framed, and a lantern ends its blob with its light task.
     [Fact]
-    public void Valerie_writes_stats_and_functions()
+    public void Allflame_objects_and_ruleset_actions_are_written()
     {
         var valerie = NpcCatalog.Load().Find("Metadata/NPC/League/Deepwater/ValerieTutorial");
         Assert.NotNull(valerie);
@@ -58,6 +59,32 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal("0000" + "EC000000" + "BE000000" + "00000000" + "0000" + "00020001" + "00" + "00" + "01FF" + "00"
             + "00" + "00000000" + "00000000" + "00"
             + "0202" + "0000" + "0000" + "0000000000" + "0000000000" + "00", Convert.ToHexString(blob));
+
+        // A lantern placement (C->S 0x2ca for ruleset 171, opcode 0 and the cell) is framed, so the tick after it survives.
+        byte[] place = Convert.FromHexString("02CAAB09" + "00" + "EC000000" + "BE000000");
+        var split = InstanceProtocol.SplitClientMessages([.. place, .. Tick()], out byte[] partial, out byte[] unknown);
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+        Assert.Equal([(ushort)0x2ca, (ushort)0x1b], split.Select(m => m.Id));
+        var (row, payload) = InstanceRulesets.ReadAction(split[0].Bytes);
+        Assert.Equal(0xab, row);
+        Assert.Equal(place[4..], payload);
+
+        // The Lantern's components and its DeepwaterLantern task (GameObjectTasks HASH16 0xc4df, LE) close its blob.
+        byte[] light = new byte[16];
+        byte[] lantern = new QuestObject(236, 190, ["Positioned", "BaseEvents", "Animated", "Buffs", "StateMachine", "MinimapIcon", "Functions"])
+        {
+            StateMachine = new StateMachineData([0], 0),
+            Tasks = [(0xc4df, light)],
+        }.Blob();
+        Assert.Equal("01DFC4" + Convert.ToHexString(light), Convert.ToHexString(lantern[^19..]));
+    }
+
+    static byte[] Tick()
+    {
+        byte[] tick = new byte[InstanceProtocol.KnownClientLength(0x1b) ?? throw new InvalidOperationException("0x1b has no fixed length")];
+        tick[1] = 0x1b;
+        return tick;
     }
 
     static IModuleContext Context(IModuleLifetime lifetime)

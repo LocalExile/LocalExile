@@ -18,6 +18,9 @@ namespace GameServer.Core.Protocol.Instance;
 /// <item>InteractionAction: flags 0; MinimapIcon: flags 0, or 6 for an explicitly hidden marker; BaseEvents: nothing;</item>
 /// <item>HarvestWorldObject (0x141eb0cb0): u8 n, n × {u8 HarvestSeeds row, u8 count}, the seed list a grove object's
 /// label shows ("{count} x MonsterVarieties.Name").</item>
+/// <item>Buffs: u16 0 (no buffs, as a shrine's); Functions and ControlZone: no data;</item>
+/// <item>then the tasks (0x141ee6950): u8 n, per task the u16 GameObjectTasks HASH16 little-endian and the task's own data
+/// (its reader consumes its own bytes); later changes are S→C 0x2c2/0x2c3/0x2c5 (InstanceEntities.AddTask).</item>
 /// </list>
 /// Types with any other deserialized component are not written (<see cref="CanSerialize"/>).
 /// </summary>
@@ -38,9 +41,12 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public IReadOnlyDictionary<uint, uint> EntityVariables { get; init; } = new Dictionary<uint, uint>();
     /// <summary>HarvestWorldObject's seed list: HarvestSeeds rows and their counts.</summary>
     public IReadOnlyList<(byte SeedRow, byte Count)> HarvestSeeds { get; init => field = Owned.List(value); } = [];
+    /// <summary>The object's running tasks: GameObjectTasks HASH16 and the task's data. Empty by default.</summary>
+    public IReadOnlyList<(ushort Id, byte[] Data)> Tasks { get; init => field = Owned.List(value); } = [];
 
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
-        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine", "HarvestWorldObject"];
+        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine", "HarvestWorldObject",
+        "Buffs", "Functions", "ControlZone"];
 
     /// <summary>Whether <see cref="Blob"/> can write a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components) =>
@@ -92,10 +98,13 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                     w.U8((byte)HarvestSeeds.Count);
                     foreach (var (row, count) in HarvestSeeds) w.U8(row).U8(count);
                     break;
-                // BaseEvents: no data.
+                case "Buffs": w.U16(0); break;
+                // BaseEvents, Functions, ControlZone: no data.
             }
         }
-        w.U8(0);            // tasks
+        if (Tasks.Count > byte.MaxValue) throw new ArgumentException("too many tasks");
+        w.U8((byte)Tasks.Count);
+        foreach (var (id, data) in Tasks) w.U16(id).Bytes(data);
         return w.ToArray();
     }
 }

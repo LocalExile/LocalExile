@@ -257,6 +257,26 @@ public static class InstanceEntities
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
 
+    public const ushort AddTaskId = 0x2c2, UpdateTaskId = 0x2c3, RemoveTaskId = 0x2c5;
+
+    /// <summary>
+    /// S→C 0x2c2 (world group, read 0x141fe6e90, world handler 0x14218ddf0): world header, u16 GameObjectTasks HASH16
+    /// (big-endian here, unlike the creation blob's task list), blob16 the task's own data. Entity 0 adds a task to the
+    /// world; an id the client has no factory for is fatal ("Unrecognised task serialised by server").
+    /// </summary>
+    public static byte[] AddTask(uint entityId, ushort task, byte[] data) => TaskMessage(AddTaskId, entityId, task, data);
+
+    /// <summary>S→C 0x2c3: the same layout as 0x2c2; replaces a running task's data (an unknown one logs "Client task not
+    /// found for server task update").</summary>
+    public static byte[] UpdateTask(uint entityId, ushort task, byte[] data) => TaskMessage(UpdateTaskId, entityId, task, data);
+
+    /// <summary>S→C 0x2c5: world header and the u16 task id (the message holds nothing else; byte order as 0x2c2's, M).</summary>
+    public static byte[] RemoveTask(uint entityId, ushort task) =>
+        new LoginWriter().U16(RemoveTaskId).U32(entityId).U32(0).U16(0).U16(task).ToArray();
+
+    static byte[] TaskMessage(ushort id, uint entityId, ushort task, byte[] data) =>
+        new LoginWriter().U16(id).U32(entityId).U32(0).U16(0).U16(task).Blob(data).ToArray();
+
     /// <summary>S→C 0x2bc to an object's StateMachine (reader 0x141e42a90): all its shared states and timers again
     /// (<see cref="StateMachineData.Write"/>); the client runs the events of every state whose value changed.</summary>
     public static byte[] StateMachineUpdate(uint entityId, byte componentIndex, StateMachineData states)

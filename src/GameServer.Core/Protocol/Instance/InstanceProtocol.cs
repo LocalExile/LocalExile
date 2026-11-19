@@ -594,6 +594,7 @@ public static class InstanceProtocol
                 : id is InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId ? InstanceWaypoints.VisitHideoutLength(data[pos..]) ?? int.MaxValue
                 : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
                     ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
+                : id == InstanceRulesets.ActionId ? InstanceRulesets.ActionLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }
