@@ -94,11 +94,13 @@ static partial class Game
     // Scheduled contacts commit rewards and queue charge gains before yielding to the outbox. A held socket must
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true) =>
-        CommitScheduledSkillHit(session, id, monster, hit, damage, critical, stun, sequence, label, melee: true, settleKill);
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true,
+        byte hitCode = 0) =>
+        CommitScheduledSkillHit(session, id, monster, hit, damage, critical, stun, sequence, label, melee: true, settleKill, hitCode);
 
     static void CommitScheduledSkillHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool melee, bool settleKill)
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool melee, bool settleKill,
+        byte hitCode)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -109,16 +111,16 @@ static partial class Game
             session.World(id, () => SharedTakeHitPacket(conn, id, monster, until, now));
         }
         var target = monster.Walk.Position(now);
+        var order = melee ? HitOrder(conn, PlayerId) : default;
         if (melee)
         {
             var player = conn.Walk.Position(now);
-            session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
-                kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
+            session.World(PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
+                kind: 3, code: hitCode, angle: HitAngle(target.X - player.X, target.Y - player.Y),
+                orderKey: order.Key, checkpoint: order.Hit));
         }
-        var life = InstanceProtocol.LifeUpdate(id, hit.Life);
-        string log = $"{label} {(melee ? "melee" : "spell")} t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}";
-        if (melee) session.Packet(life, log);
-        else session.World(id, life, log);
+        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
+            $"{label} {(melee ? "melee" : "spell")} t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, Random.Shared);

@@ -509,6 +509,7 @@ public static partial class Game
             // direct physical roll may then store a new instance; it never consumes that new instance itself.
             double stored, impaleStored;
             int impaleStacks, damage;
+            byte hitCode = 0;
             bool impaled, critical;
             string? resistance;
             List<byte[]>? ignited = null, bled = null;
@@ -570,6 +571,7 @@ public static partial class Game
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(Random.Shared));
+                hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(player, true, ownPenetration, weapon.LocalSources, weapon.Melee));
@@ -627,7 +629,8 @@ public static partial class Game
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
             var order = HitOrder(conn, PlayerId);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03,
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId,
+                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03, code: hitCode,
                     angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
@@ -2671,7 +2674,7 @@ public static partial class Game
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledSkillHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
-                            melee: melee ?? !spell, settleKill: singleStrikeTarget is not null);
+                            melee: melee ?? !spell, settleKill: singleStrikeTarget is not null, hitCode: hitCode);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));
