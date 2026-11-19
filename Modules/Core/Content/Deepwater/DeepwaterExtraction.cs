@@ -315,9 +315,12 @@ internal static class DeepwaterExtraction
         DeepwaterDredge.Untrack(conn, removed);
         var (remote, stream, ciphers) = conn.Wire;
         await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems]);
-        foreach (var member in DeepwaterLoot.Members(conn)) await Transition(member, capsule!);
         await CloseWindow(conn, run);
         await SendCount(conn);
+        AfterWindow(module, conn, "the capsule's take-off", async () =>
+        {
+            foreach (var member in DeepwaterLoot.Members(conn)) await Transition(member, capsule!);
+        });
         int stayed = items.Items(CapsuleRow).Count;
         module.Log($"{player.Character} <= 0x02ca DeepwaterRules SendItemsToSurface: capsule 0x{capsule!.Id:x} sent {moved.Count} items to inventory 114"
             + (stayed > 0 ? $" ({stayed} did not fit and stay)" : ""));
@@ -380,20 +383,41 @@ internal static class DeepwaterExtraction
         }
         module.Log($"{player.Character} <= 0x02ca DeepwaterRules RequestExtraction: {capsule!.Name} 0x{capsule.Id:x} calls the Bathysphere 0x{bathysphere.Id:x}, {Descent:0} s");
         await CloseWindow(conn, run);
-        foreach (var member in DeepwaterLoot.Members(conn))
+        AfterWindow(module, conn, "the Bathysphere call", async () =>
         {
-            await Transition(member, capsule);
-            await Create(member, bathysphere, 0);
-            var (remote, stream, ciphers) = member.Wire;
-            await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.VoyageDefend]);
-        }
-        // The light at the capsule holds (G: the lanterns of its cell and any lighting it); the others collapse.
-        var cell = run.Board.CellAt((capsule.X, capsule.Y));
-        await DeepwaterCollapse.Start(module, conn, run, l =>
+            foreach (var member in DeepwaterLoot.Members(conn))
+            {
+                await Transition(member, capsule);
+                await Create(member, bathysphere, 0);
+                var (remote, stream, ciphers) = member.Wire;
+                await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.VoyageDefend]);
+            }
+            // The light at the capsule holds (G: the lanterns of its cell and any lighting it); the others collapse.
+            var cell = run.Board.CellAt((capsule.X, capsule.Y));
+            await DeepwaterCollapse.Start(module, conn, run, l =>
+            {
+                long dx = l.X - capsule.X, dy = l.Y - capsule.Y;
+                return !(cell is not null && cell.Contains((l.X, l.Y)) || dx * dx + dy * dy <= (long)DeepwaterConstants.BaseLanternRadius * DeepwaterConstants.BaseLanternRadius);
+            }, null);
+        });
+    }
+
+    /// <summary>The capsule window pauses a lone player's game (C→S 0x1d4 1 as it opens) and a lockstep world record waits
+    /// for the client's frames, so a button's world changes (the capsule taking off, the Bathysphere) go out after the
+    /// window closes and the game runs again, off the message loop that has to read the client's 0x1d4 0 (L: sending
+    /// them from the handler hung the connection).</summary>
+    static void AfterWindow(IModuleContext module, ClientState conn, string what, Func<Task> body)
+    {
+        var instance = conn.Instance;
+        _ = Task.Run(async () =>
         {
-            long dx = l.X - capsule.X, dy = l.Y - capsule.Y;
-            return !(cell is not null && cell.Contains((l.X, l.Y)) || dx * dx + dy * dy <= (long)DeepwaterConstants.BaseLanternRadius * DeepwaterConstants.BaseLanternRadius);
-        }, null);
+            try
+            {
+                await global::Program.WhilePaused(conn);
+                if (!conn.Closed && !conn.LeavingArea && conn.Instance == instance) await body();
+            }
+            catch (Exception ex) { module.Log($"{CharacterName(conn)}: {what} failed: {ex.Message}"); }
+        });
     }
 
     static async Task CloseWindow(ClientState conn, DeepwaterRun run)
