@@ -7,17 +7,25 @@ public sealed class WardState
     public bool Broken { get; private set; }
     public double RestoresAt { get; private set; } = double.PositiveInfinity;
 
+    /// <summary>The maximum changed, or the ward broke or restored (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
     public void SetMaximum(uint maximum)
     {
-        Maximum = maximum;
+        if (Maximum != maximum) { Maximum = maximum; Changed?.Invoke(); }
         if (maximum == 0) Restore();
     }
 
-    public void Restore() { Broken = false; RestoresAt = double.PositiveInfinity; }
+    public void Restore()
+    {
+        bool was = Broken;
+        Broken = false; RestoresAt = double.PositiveInfinity;
+        if (was) Changed?.Invoke();
+    }
     public void RestoreCarried(bool broken, double remaining, double now)
     {
         Restore();
-        if (Maximum > 0 && broken && remaining > 0) { Broken = true; RestoresAt = now + remaining; }
+        if (Maximum > 0 && broken && remaining > 0) { Broken = true; RestoresAt = now + remaining; Changed?.Invoke(); }
     }
 
     public static double Delay(Func<string, int> get) =>
@@ -44,6 +52,7 @@ public sealed class WardState
         {
             Broken = true;
             RestoresAt = now + Delay(get);
+            Changed?.Invoke();
         }
         return amount - absorbed;
     }

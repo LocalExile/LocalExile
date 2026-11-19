@@ -35,6 +35,9 @@ public sealed class SpiritChieftains
     public Leadership? Sent;
     public ushort SentInstance;
 
+    /// <summary>A Leadership buff started or ended early (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
     public Leadership? Active(double now) => buff is { } b && now < b.Until ? b : null;
 
     /// <summary>A trigger: true when the shared cooldown was ready, which it then spends, and the buff starts. The cooldown
@@ -47,13 +50,14 @@ public sealed class SpiritChieftains
         if (Active(now) is not null || !cooldown.TryUse(now, plan)) return false;
         buff = new(row, stats, now + seconds);
         cooldown.Refresh(now, 0);
+        Changed?.Invoke();
         return true;
     }
 
     /// <summary>The buff ends now (the player died: the chieftain dies with him); the cooldown recovers from here.</summary>
     public void End(double now)
     {
-        if (buff is { } b && b.Until > now) buff = b with { Until = now };
+        if (buff is { } b && b.Until > now) { buff = b with { Until = now }; Changed?.Invoke(); }
     }
 
     void Settle(double now, double rate)

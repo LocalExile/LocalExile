@@ -51,10 +51,19 @@ public static partial class Game
     {
         if (!SoulEaterActive(conn, stats)) return 0;
         conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
-        return 5 * conn.SoulEater.Stacks(conn.Clock.Elapsed.TotalSeconds);
+        return 5 * SoulEaterStacks(conn);
     }
 
     /// <summary>The stat snapshot's part: the attack/cast speed buckets and the capped character size.</summary>
+    // The stacks now; the reading step runs again when the next soul is lost.
+    static int SoulEaterStacks(ClientState conn)
+    {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        int stacks = conn.SoulEater.Stacks(now);
+        if (conn.SoulEater.NextLossAt is double at) StatsChangeIn(at - now);
+        return stacks;
+    }
+
     public static void WithSoulEater(ClientState conn, StatMap stats)
     {
         bool flask = SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
@@ -69,7 +78,7 @@ public static partial class Game
         // The buff's ShowCount reads this virtual: the base maximum plus the Soul Ascension gloves' increase.
         if (Stats.Key("virtual_soul_eater_maximum_stacks") is uint maximumKey)
             stats[maximumKey] = conn.SoulEater.Limit;
-        int stacks = conn.SoulEater.Stacks(conn.Clock.Elapsed.TotalSeconds);
+        int stacks = SoulEaterStacks(conn);
         if (stacks <= 0) return;
         void Add(string name, int amount)
         {

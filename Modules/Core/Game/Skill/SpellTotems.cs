@@ -110,7 +110,7 @@ public static partial class Game
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var totem in conn.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())
         {
-            if (!SpellTotemCurrent(conn, totem)) { totem.DiedAt = now; continue; }
+            if (!SpellTotemCurrent(conn, totem)) { totem.DiedAt = now; MarkPlayerStats(conn, PlayerStatStep.TotemAura); continue; }
             if (conn.Paused || now < totem.NextCast) continue;
             // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
             if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(totem.Id).IsReady) continue;

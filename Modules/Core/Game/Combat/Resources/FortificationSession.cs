@@ -20,6 +20,9 @@ public sealed class FortificationSession
     public int SpeedPerStack { get; private set; }
     public long Revision { get; private set; }
     public long PresentedRevision = -1;
+    /// <summary>The stacks, their maximum or their effects changed (the stat steps that read them run again).</summary>
+    public Action? Changed;
+    void Bump() { Revision++; Changed?.Invoke(); }
     public ushort Buff;
     double accountedStackSeconds, regenerationPerStack, recovery;
     double? snapshotTime;
@@ -27,7 +30,7 @@ public sealed class FortificationSession
     {
         now = snapshotTime ?? now;
         Read(now);
-        if (State.ExpiryRate != rate) Revision++;
+        if (State.ExpiryRate != rate) Bump();
         State.SetExpiryRate(now, rate);
         Read(now);
     }
@@ -52,7 +55,7 @@ public sealed class FortificationSession
         Value = State.Read(now, AddedMaximum);
         recovery += (State.StackSeconds - accountedStackSeconds) * regenerationPerStack;
         accountedStackSeconds = State.StackSeconds;
-        if (before != Value) Revision++;
+        if (before != Value) Bump();
         return Value;
     }
 
@@ -61,7 +64,7 @@ public sealed class FortificationSession
         Read(now); // Settle the previous cap and recovery inputs before adopting new sources.
         int speed = get(FortificationState.AttackSpeedPerStack), regen = get(FortificationState.LifeRegenPerStack);
         int added = get(FortificationState.MaximumStat);
-        if (speed != SpeedPerStack || regen != RegenPerStack || added != AddedMaximum) Revision++;
+        if (speed != SpeedPerStack || regen != RegenPerStack || added != AddedMaximum) Bump();
         (SpeedPerStack, RegenPerStack, AddedMaximum) = (speed, regen, added);
         return Read(now);
     }
@@ -93,7 +96,7 @@ public sealed class FortificationSession
         int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
             FortificationGainModel.Modifiers.From(get));
         if (!State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
-        Revision++;
+        Bump();
         Read(now);
         return true;
     }
@@ -111,7 +114,7 @@ public sealed class FortificationSession
         int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
             FortificationGainModel.Modifiers.From(get));
         if (count <= 0 || !State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
-        Revision++;
+        Bump();
         Read(now);
         return true;
     }
@@ -122,7 +125,7 @@ public sealed class FortificationSession
         State.Clear();
         Value = new(0, 0, FortificationState.Maximum(AddedMaximum), null);
         accountedStackSeconds = regenerationPerStack = recovery = 0;
-        if (changed) Revision++;
+        if (changed) Bump();
     }
 
     /// <summary>Overheat Support: removes every effective stack and returns how many there were (the capped current
@@ -135,7 +138,7 @@ public sealed class FortificationSession
         State.Clear();
         Value = new(0, 0, FortificationState.Maximum(AddedMaximum), null);
         accountedStackSeconds = 0;
-        Revision++;
+        Bump();
         return consumed;
     }
 

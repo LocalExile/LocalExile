@@ -99,6 +99,7 @@ public static partial class Game
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (conn.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
+            MarkLaterStep(conn, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (conn, stats, _) =>
         {
@@ -151,6 +152,7 @@ public static partial class Game
                         ? stats.GetValueOrDefault(key)
                         : 0);
             foreach (var (k, v) in catPhase) AddTo(stats, k, v);
+            MarkLaterStep(conn, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.AvianCrab, (conn, stats, _) =>
         {
@@ -246,12 +248,15 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
+                if (conn.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
+                if (conn.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(conn.EnduringCryRecovery.Until - now);
                 // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
                 if (Stats.Key("base_life_regeneration_rate_per_minute") is uint turtle)
                     stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
                         + (conn.Antiquarian.RecoveryPerSecond(now) + conn.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
                 var session = FortificationOf(conn);
                 var value = session.Read(now);
+                if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
                 AddFortificationCounts(stats, value);
                 if (Stats.Key(FortificationSession.Regeneration) is uint regen)
                     stats[regen] = (int)Math.Clamp((long)stats.GetValueOrDefault(regen)
@@ -287,6 +292,9 @@ public static partial class Game
         {
             lock (conn.Monsters)
             {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                conn.Ward.Advance(now);
+                if (conn.Ward.Broken) StatsChangeIn(conn.Ward.RestoresAt - now);
                 if (Stats.Key("ward") is uint ward) stats[ward] = (int)conn.Ward.Maximum;
                 if (Stats.Key("ward_broken") is uint broken) stats[broken] = conn.Ward.Broken ? 1 : 0;
             }

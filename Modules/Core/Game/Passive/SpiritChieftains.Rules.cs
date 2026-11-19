@@ -132,8 +132,11 @@ public static partial class Game
     {
         lock (conn.Monsters)
             if (conn.PlayerLife > 0 && conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) is { } buff)
+            {
+                StatsChangeIn(buff.Until - conn.Clock.Elapsed.TotalSeconds);
                 foreach (var (key, value) in buff.Stats)
                     stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
+            }
     }
 
     // The Leadership buff on the player (S→C 0x1c1 with its remaining seconds, 0x1c2 when it ends or the player dies) and

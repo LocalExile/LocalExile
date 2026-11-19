@@ -166,6 +166,7 @@ public static partial class Game
             // Pausing holds the game clock; it does not remove a streak.
             double now = conn.LeavingArea && conn.RampageTransferAt is double frozen ? frozen : ProjectileWorldTime(conn);
             var value = ReconcileRampage(conn, enabled, now);
+            if (value.ExpiresAt is double expires) StatsChangeAt(expires, () => ProjectileWorldTime(conn));
             void Add(string name, int amount)
             {
                 if (amount != 0 && Stats.Key(name) is uint key)

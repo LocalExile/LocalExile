@@ -36,9 +36,12 @@ public static partial class Game
         public PlayerStatChange? Publish;
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
+        // Game_TRACE=budget: the runs of each step in the window.
+        public readonly int[] StepRuns = new int[Enum.GetValues<PlayerStatStep>().Length];
         // The steps whose timed effect changes by itself, and when (connection clock): StatsChangeIn.
         // Now: the clock the time is on (StatsChangeAt); null for the connection's.
-        public readonly Dictionary<PlayerStatStep, (double At, Func<double>? Now)> Timed = [];
+        // A step may read effects on several clocks: one time per clock (the connection's, then each other by identity).
+        public readonly Dictionary<PlayerStatStep, List<(double At, Func<double>? Now)>> Timed = [];
         // The conditions of life, mana and moving the steps read, as last marked; when moving next changes by itself.
         public long Conditions = -1;
         public double MovingCheckAt = double.PositiveInfinity;
@@ -71,9 +74,7 @@ public static partial class Game
     {
         if (runningFrame is not { } frame) return;
         double at = frame.Clock + Math.Max(0, seconds);
-        lock (frame.Timed)
-            if (!frame.Timed.TryGetValue(runningStep, out var was) || was.Now is not null || at < was.At)
-                frame.Timed[runningStep] = (at, null);
+        AddTimed(frame, at, null);
     }
 
     /// <summary>As <see cref="StatsChangeIn"/>, for an effect timed on another clock than the connection's (the
@@ -81,7 +82,19 @@ public static partial class Game
     public static void StatsChangeAt(double at, Func<double> now)
     {
         if (runningFrame is not { } frame) return;
-        lock (frame.Timed) frame.Timed[runningStep] = (at, now);
+        AddTimed(frame, at, now);
+    }
+
+    // The earliest time for the running step on that clock.
+    static void AddTimed(FrameStats frame, double at, Func<double>? now)
+    {
+        lock (frame.Timed)
+        {
+            if (!frame.Timed.TryGetValue(runningStep, out var times)) frame.Timed[runningStep] = times = [];
+            int i = times.FindIndex(t => t.Now == now);
+            if (i < 0) times.Add((at, now));
+            else if (at < times[i].At) times[i] = (at, now);
+        }
     }
     static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
 
@@ -101,7 +114,8 @@ public static partial class Game
             PlayerStatStep.SpiritLeadership, PlayerStatStep.TotemAura, PlayerStatStep.AuraRestriction,
         ];
         readers[(int)PlayerStatChange.Flasks] =
-            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.UsingFlask, PlayerStatStep.AuraRestriction];
+            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.Onslaught, PlayerStatStep.UsingFlask,
+             PlayerStatStep.AuraRestriction];
         readers[(int)PlayerStatChange.Minions] = [PlayerStatStep.Sources, PlayerStatStep.Golems, PlayerStatStep.Offerings];
         readers[(int)PlayerStatChange.Leech] =
             [PlayerStatStep.Sources, PlayerStatStep.AttackSpeed, PlayerStatStep.Recovery, PlayerStatStep.LeechingDefences];
@@ -129,10 +143,12 @@ public static partial class Game
     }
 
     // What reads the pools, and what reads the conditions of life, mana, Energy Shield and moving (the sources' "while"
-    // conditions, the conditional pools, recovery and leech, the tail's low life and recharge rows).
+    // conditions, the conditional pools, recovery and leech, the tail's low life and recharge rows), and what death ends.
     static readonly PlayerStatStep[] ConditionReaders =
     [
-        PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.VaalPrevention, PlayerStatStep.Recovery,
+        PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.CryMovement, PlayerStatStep.SpiritLeadership,
+        PlayerStatStep.ClassAttributes, PlayerStatStep.Onslaught, PlayerStatStep.VaalPrevention, PlayerStatStep.TotemAura,
+        PlayerStatStep.Rage, PlayerStatStep.Blind, PlayerStatStep.Recovery, PlayerStatStep.Rampage,
         PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
     ];
 
@@ -161,6 +177,7 @@ public static partial class Game
                 graph.MarkRule((int)PlayerStatStep.Sources);
                 break;
             case StatInput.Walk:
+                graph.MarkRule((int)PlayerStatStep.TotemAura);
                 double clock = conn.Clock.Elapsed.TotalSeconds;
                 frame.MovingCheckAt = conn.Walk.MovingChangesIn(clock) is double next ? clock + next : double.PositiveInfinity;
                 CheckConditions(conn, frame, graph);
@@ -212,8 +229,8 @@ public static partial class Game
             frame.Area = conn.Frames.Area;
         }
         lock (frame.Timed)
-            foreach (var (step, (at, now)) in frame.Timed.ToList())
-                if ((now?.Invoke() ?? clock) >= at) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
+            foreach (var (step, times) in frame.Timed.ToList())
+                if (times.Any(t => (t.Now?.Invoke() ?? clock) >= t.At)) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
         if (clock >= frame.MovingCheckAt) PlayerStatInputChanged(conn, StatInput.Walk);
         var items = ItemsOfUnread(conn);
         if (!ReferenceEquals(items, frame.Items) || items.Changes != frame.ItemChanges)
@@ -233,7 +250,12 @@ public static partial class Game
         {
             // Game_TRACE=budget: how often the phase changed them and published them (300 frames, about 10 s).
             if (GameServer.Core.Diagnostics.ServerTrace.Budget)
-                Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} change(s), {graph.RuleRuns} step run(s) so far, {frame.Published} panel(s) in {frame.Steps} frames");
+            {
+                var busiest = frame.StepRuns.Select((runs, step) => (runs, step: (PlayerStatStep)step)).Where(r => r.runs > 0)
+                    .OrderByDescending(r => r.runs).Take(6).Select(r => $"{r.step} {r.runs}");
+                Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} change(s), {graph.RuleRuns} step run(s) so far, {frame.Published} panel(s) in {frame.Steps} frames; {string.Join(", ", busiest)}");
+            }
+            Array.Clear(frame.StepRuns);
             frame.Steps = frame.Builds = frame.Published = 0;
         }
         PlayerStatChange why;
@@ -255,6 +277,7 @@ public static partial class Game
             {
                 // A run reports its timed effects again (StatsChangeIn), so the last run's go.
                 lock (frame.Timed) frame.Timed.Remove(step);
+                frame.StepRuns[(int)step]++;
                 var outer = runningStep;
                 runningStep = step;
                 try { RunPlayerStep(step, conn, view, frame.Outputs); }
@@ -262,10 +285,28 @@ public static partial class Game
             });
         // The first step builds them all.
         for (int i = 0; i < PlayerSteps.Length; i++) graph.MarkRule(i);
+        // The connection's timed states report their changes; the steps that read them report when they change by
+        // themselves (StatsChangeIn, StatsChangeAt).
+        void On(PlayerStatStep[] steps, Action<Action> wire) => wire(() => { foreach (var s in steps) MarkPlayerStats(conn, s); });
+        On([PlayerStatStep.Rage], a => conn.Rage.Changed = a);
+        On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => conn.SoulEater.Changed = a);
+        On([PlayerStatStep.SpiritLeadership], a => conn.SpiritChieftains.Changed = a);
+        On([PlayerStatStep.Ward], a => conn.Ward.Changed = a);
+        On([PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => conn.Antiquarian.Changed = a);
+        On([PlayerStatStep.TimedRecovery], a => conn.EnduringCryRecovery.Changed = a);
+        On([PlayerStatStep.TotemAura], a => conn.Totems.Changed = a);
+        On([PlayerStatStep.Rampage], a => conn.Rampage.Changed = a);
         return graph;
     }
 
     /// <summary>A change that one step reads: that step runs again in the next Stats phase (and what it changes, after it).</summary>
+    /// <summary>For a step whose result a later step reads as state (not as stats): that step runs in this pass. Only
+    /// a run in the graph marks; the steps run in order on a plain map (a fresh build, the verifier) reach it anyway.</summary>
+    internal static void MarkLaterStep(ClientState conn, PlayerStatStep step)
+    {
+        if (runningFrame is not null) MarkPlayerStats(conn, step);
+    }
+
     public static void MarkPlayerStats(ClientState conn, PlayerStatStep step)
     {
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);

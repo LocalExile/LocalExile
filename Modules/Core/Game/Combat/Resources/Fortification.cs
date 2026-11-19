@@ -10,7 +10,10 @@ public static partial class Game
     public static readonly RuleTable<ClientState, FortificationSession> FortificationSessions = new();
     public static readonly ConcurrentDictionary<uint, (DateTime At, FortificationState.Transfer State)> CarriedFortification = new();
     public static FortificationSession FortificationOf(ClientState conn) =>
-        FortificationSessions.GetValue(conn, _ => new());
+        FortificationSessions.GetValue(conn, c => new()
+        {
+            Changed = () => { MarkPlayerStats(c, PlayerStatStep.Pools); MarkPlayerStats(c, PlayerStatStep.TimedRecovery); },
+        });
 
     public static void EnsureFortificationPools(ClientState conn)
     {

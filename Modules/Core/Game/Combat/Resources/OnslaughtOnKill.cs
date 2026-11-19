@@ -140,6 +140,7 @@ public static partial class Game
                     visual: BuffArtVisual(conn, "onslaught_buff", "virtual_onslaught_art_variation")));
             if (stats)
             {
+                MarkPlayerStats(conn, PlayerStatStep.Onslaught);
                 RecomputePoolsAndSpeed(conn);
                 bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));

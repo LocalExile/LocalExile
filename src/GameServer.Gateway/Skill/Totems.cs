@@ -89,6 +89,9 @@ public sealed class TotemState
     public uint SentAuraTotem;
     public ushort SentAuraInstance;
 
+    /// <summary>A totem was placed or died before its time (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
     public IReadOnlyList<Totem> All => _totems;
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
 
@@ -112,6 +115,7 @@ public sealed class TotemState
             foreach (var old in Living(now).ToArray())
                 if (Living(now).Count() >= limit) Retire(old);
         _totems.Add(totem);
+        Changed?.Invoke();
         return replaced;
     }
 
@@ -135,7 +139,9 @@ public sealed class TotemState
     /// <summary>Every living totem dies (the player died).</summary>
     public void KillAll(double now)
     {
-        foreach (var t in _totems.Where(t => t.DiedAt is null)) t.DiedAt = now;
+        bool any = false;
+        foreach (var t in _totems.Where(t => t.DiedAt is null)) { t.DiedAt = now; any = true; }
+        if (any) Changed?.Invoke();
     }
 
     /// <summary>The dead totems whose death animation is over leave.</summary>

@@ -12,6 +12,8 @@ public sealed class TimedBlind
         effects.Add((now + Math.Min(seconds, 86400), less));
         return true;
     }
+    /// <summary>When the first effect ends; null without one.</summary>
+    public double? NextEnd => effects.Count == 0 ? null : effects.Min(e => e.Until);
     public (int Less, double Until) Read(double now, bool immune = false)
     {
         effects.RemoveAll(e => immune || e.Until <= now);

@@ -7,12 +7,17 @@ public sealed class AntiquarianCombatState
     public double RecoveryPerSecond(double now) => now < recoveryUntil ? recoveryPerSecond : 0;
     public double RecoveryUntil(double now) => RecoveryPerSecond(now) > 0 ? recoveryUntil : double.NegativeInfinity;
 
+    /// <summary>Adrenaline or the stun recovery started or was taken away (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
     public void Observe(double now, bool adrenalineSource, bool recoverySource, bool alive)
     {
         Integrate(now);
         if (!alive) { Clear(); return; }
+        bool changed = !adrenalineSource && Adrenaline(now) || !recoverySource && RecoveryPerSecond(now) > 0;
         if (!adrenalineSource) AdrenalineUntil = double.NegativeInfinity;
         if (!recoverySource) recoveryPerSecond = 0;
+        if (changed) Changed?.Invoke();
     }
 
     // Adrenaline cannot be gained while already active; repeated Ward breaks never extend it.
@@ -20,6 +25,7 @@ public sealed class AntiquarianCombatState
     {
         if (milliseconds <= 0 || Adrenaline(now)) return false;
         AdrenalineUntil = now + milliseconds / 1000d;
+        Changed?.Invoke();
         return true;
     }
 
@@ -29,6 +35,7 @@ public sealed class AntiquarianCombatState
         Integrate(now);
         recoveryAt = now; recoveryUntil = now + 1;
         recoveryPerSecond = maximumLife * Math.Max(0d, percent) / 100;
+        Changed?.Invoke();
     }
 
     void Integrate(double now)
@@ -46,8 +53,10 @@ public sealed class AntiquarianCombatState
 
     public void Clear()
     {
+        bool had = double.IsFinite(AdrenalineUntil) || recoveryPerSecond != 0;
         AdrenalineUntil = double.NegativeInfinity;
         recoveryAt = recoveryUntil = recoveryPerSecond = pendingRecovery = 0;
+        if (had) Changed?.Invoke();
     }
 
     public readonly record struct Carried(double AdrenalineSeconds, double RecoverySeconds,
@@ -63,5 +72,6 @@ public sealed class AntiquarianCombatState
         Clear(); AdrenalineUntil = now + state.AdrenalineSeconds;
         recoveryAt = now; recoveryUntil = now + state.RecoverySeconds;
         recoveryPerSecond = state.RecoveryPerSecond; pendingRecovery = state.PendingRecovery;
+        Changed?.Invoke();
     }
 }

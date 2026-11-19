@@ -368,6 +368,7 @@ public static partial class Game
         if (left == 0)
         {
             totem.DiedAt = clock;
+            MarkPlayerStats(conn, PlayerStatStep.TotemAura);
             TotemsDiedLocked(conn, clock, stats);
         }
         return (keptNonChaos, keptChaos);
@@ -387,7 +388,15 @@ public static partial class Game
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            if (conn.PlayerLife == 0 || conn.Totems.AuraAt(conn.Walk.Position(now), now)?.Aura is not { } aura) return;
+            var covering = conn.Totems.AuraAt(conn.Walk.Position(now), now);
+            double? next = null;
+            foreach (var totem in conn.Totems.Living(now))
+                if (totem.Aura is not null) next = Math.Min(next ?? double.PositiveInfinity, totem.Until);
+            if (next is not null && conn.Walk.Moving(now))
+                foreach (var (at, cell) in conn.Walk.Steps(now, conn.Walk.ArrivesAt))
+                    if (!ReferenceEquals(conn.Totems.AuraAt(cell, at), covering)) { next = Math.Min(next.Value, at); break; }
+            if (next is double changes) StatsChangeIn(changes - now);
+            if (conn.PlayerLife == 0 || covering?.Aura is not { } aura) return;
             foreach (var (key, value) in aura.Stats)
                 stats[key] = (int)Math.Clamp(stats.GetValueOrDefault(key)
                     + Math.Round(value * Math.Max(0, 100 + conn.Pools.AuraEffectPct) / 100.0, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);

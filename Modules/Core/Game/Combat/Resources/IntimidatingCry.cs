@@ -132,13 +132,14 @@ public static partial class Game
         if (duration > 0)
         {
             CryOf(conn).Gifts.Add(gift);
+            MarkPlayerStats(conn, PlayerStatStep.CryMovement);
             // Deliver immutable release-time gifts. Recipients consume their own inbox, without cross-simulation reads.
             foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId)
                          .Where(p => p.Current && p.Life > 0 && Dist((p.X, p.Y), at) <= radius))
                 if (peer.Owner is { } recipient)
                 {
                     var inbox = CryRuntimes.GetOrCreateValue(recipient).Inbox;
-                    if (inbox.Count < 64) inbox.Enqueue(gift);
+                    if (inbox.Count < 64) { inbox.Enqueue(gift); MarkPlayerStats(recipient, PlayerStatStep.CryMovement); }
                 }
             foreach (var m in conn.Monsters.Values.Where(m => m.OwnerId is not null && !m.Hostile && !m.Dead && m.Life > 0
                          && Dist(m.Walk.Position(now), at) <= radius))
@@ -165,6 +166,8 @@ public static partial class Game
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
         { state.Gifts.Clear(); state.Exerts = 0; }
         state.Gifts.RemoveAll(g => !ReferenceEquals(g.Instance, conn.Instance.Presence) || g.Until <= now);
+        // The movement step runs again when the first gift ends (on the area's clock).
+        if (state.Gifts.Count > 0) StatsChangeAt(state.Gifts.Min(g => g.Until), () => AreaTime(conn));
         return state.Gifts.Select(g => g.Movement).DefaultIfEmpty().Max();
     }
 

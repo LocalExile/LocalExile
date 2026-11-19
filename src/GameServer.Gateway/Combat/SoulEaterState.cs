@@ -42,6 +42,12 @@ public sealed class SoulEaterState
     /// one beam per soul.</summary>
     public List<(uint Id, int X, int Y)> Souls { get; } = [];
 
+    /// <summary>A soul was eaten or the souls cleared (the stat steps that read it run again).</summary>
+    public Action? Changed;
+
+    /// <summary>When the next soul is lost, as of the last read; null without souls.</summary>
+    public double? NextLossAt => stacks > 0 ? lastSoul + RecentlySeconds + DecayIntervalSeconds : null;
+
     public int Stacks(double now)
     {
         Decay(now);
@@ -54,6 +60,7 @@ public sealed class SoulEaterState
         Decay(now);
         if (stacks < Limit) stacks++;
         lastSoul = now;
+        Changed?.Invoke();
         return stacks;
     }
 
@@ -70,6 +77,7 @@ public sealed class SoulEaterState
 
     public void Clear()
     {
+        bool had = stacks != 0;
         stacks = 0;
         lastSoul = double.NegativeInfinity;
         lastHitSoul = double.NegativeInfinity;
@@ -77,6 +85,7 @@ public sealed class SoulEaterState
         FlaskFed = false;
         HitFed = false;
         Souls.Clear();
+        if (had) Changed?.Invoke();
     }
 
     void Decay(double now)

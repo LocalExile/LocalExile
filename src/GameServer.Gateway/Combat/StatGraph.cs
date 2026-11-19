@@ -93,8 +93,13 @@ public sealed class StatGraph
     /// <summary>The layer's source changed: it is built again in the next step.</summary>
     public void MarkLayer(int layer) => markedLayers.Enqueue(layer);
 
-    /// <summary>State the rule reads that is not a stat changed: it runs in the next step.</summary>
-    public void MarkRule(int rule) => markedRules.Enqueue(rule);
+    /// <summary>State the rule reads that is not a stat changed: it runs in the next step, or in this one when a rule
+    /// before it changed that state while running.</summary>
+    public void MarkRule(int rule)
+    {
+        if (reading is { } view && view.Precedes(this, rule)) Queue(rules[rule]);
+        else markedRules.Enqueue(rule);
+    }
 
     /// <summary>An input changed: the rules that read it run in the next step.</summary>
     public void MarkInput(int input) => markedInputs.Enqueue(input);
@@ -275,6 +280,9 @@ public sealed class StatGraph
         internal bool Done;
 
         internal StatView(StatGraph graph, Rule rule) { this.graph = graph; this.rule = rule; }
+
+        // The running rule of this graph comes before rule `index` (the step holds the graph's lock on this thread).
+        internal bool Precedes(StatGraph g, int index) => !Done && ReferenceEquals(graph, g) && index > rule.Index;
 
         Rule Live => Done ? throw new InvalidOperationException("a stat rule's view was used after the rule returned") : rule;
 

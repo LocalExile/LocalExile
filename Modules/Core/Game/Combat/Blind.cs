@@ -37,6 +37,7 @@ public static partial class Game
         var state = ResourceEffectsOf(conn);
         double now = ResourceEffectsTime(conn);
         var value = state.PlayerBlind.Read(now, conn.PlayerLife == 0);
+        if (state.PlayerBlind.NextEnd is double end) StatsChangeAt(end, () => ResourceEffectsTime(conn));
         return value.Less > 0 && BlindImmune(conn, player) ? state.PlayerBlind.Read(now, true) : value;
     }
     public static int PlayerBlindAccuracy(ClientState conn, int rating, IReadOnlyDictionary<uint, int>? player = null) =>
@@ -47,6 +48,13 @@ public static partial class Game
         TimedBlind.Apply(PlayerEvasionBase(conn, ResourceEffectsTime(conn)), PlayerBlindValue(conn, player).Less);
     public static int PlayerEvasion(ClientState conn, double now) =>
         TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn).Less);
+    // The steps that read the player's blind.
+    internal static void MarkPlayerBlind(ClientState conn)
+    {
+        MarkPlayerStats(conn, PlayerStatStep.ClassAttributes);
+        MarkPlayerStats(conn, PlayerStatStep.Blind);
+        MarkPlayerStats(conn, PlayerStatStep.Recovery);
+    }
     static void WithBlind(ClientState conn, StatMap stats)
     {
         var blind = PlayerBlindValue(conn, stats);
@@ -59,8 +67,10 @@ public static partial class Game
         lock (conn.Monsters)
         {
             var state = ResourceEffectsOf(conn);
-            return ResourceEffectsCurrent(conn, state) && conn.PlayerLife > 0 && !conn.LeavingArea && !conn.Paused
-                && state.PlayerBlind.Inflict(ResourceEffectsTime(conn), seconds, effect, BlindImmune(conn, player));
+            if (!(ResourceEffectsCurrent(conn, state) && conn.PlayerLife > 0 && !conn.LeavingArea && !conn.Paused
+                && state.PlayerBlind.Inflict(ResourceEffectsTime(conn), seconds, effect, BlindImmune(conn, player)))) return false;
+            MarkPlayerBlind(conn);
+            return true;
         }
     }
     static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
