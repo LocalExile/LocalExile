@@ -218,9 +218,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
   point; the board's layout and orientation are from the client's code). Their level generation is in the
   [world status](world.md) ("Level generator port").
-  The Chart run (lanterns, drowning, the league's packs, Sulphur, chests, collapse, capsules, Bathysphere extraction to
-  the deck's CollectionChest, Dredge) is in `Modules/Core/Content/Deepwater`, with its guesses marked G there; not
-  verified live yet ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5).
+  The Chart and Voyage runs (lanterns placed where the client's snap puts them, drowning, the league's packs, Sulphur
+  and its posed corpses, chests, collapse, capsules with a Voyage's entry capsule, the Bathysphere's staged descent,
+  extraction to the deck's CollectionChest, Dredge) are in `Modules/Core/Content/Deepwater`, with its guesses marked G
+  there; not verified live yet ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5).
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
