@@ -20,6 +20,9 @@ public static partial class Game
     /// is Path of Building's radius for Minion Instability, the other minion death explosion.</summary>
     public const int RelicExplosionRadius = 22;
 
+    // The zone of a minion's aura on its owner.
+    const string MinionAuraZones = "minion aura";
+
     // Every frame of the area (a pause stops them) while the player's updates run: PlayerMinionsTick, then
     // LinkSkillsTick (a link to a minion that just ended sees it gone). A failed step is logged and the next one runs.
     static void StartPlayerMinions(ClientState conn, PlayerUpdatesState updates)
@@ -88,6 +91,7 @@ public static partial class Game
                 bool current = conn.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
                 if (current && keep && !m.Dead && m.Life > 0 && now < minion.Until) continue;
                 conn.Minions.Remove(minion.Id);
+                DropZones(conn, minion.Id, MinionAuraZones);
                 if (minion.OwnerBuff != 0)
                 {
                     conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff), "minion owner aura ends", WorldId: PlayerId));
@@ -137,7 +141,10 @@ public static partial class Game
                 if (bytes.Count > 0) conn.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
                 bytes.Clear();
                 if (minion.OwnerAura is not { } aura) continue;
-                bool inside = conn.PlayerLife > 0 && Dist(minion.Monster.Walk.Position(now), here) <= aura.Radius;
+                // The aura is a zone around the minion that reaches its owner (OwnedZones).
+                SyncZones(conn, minion.Id, MinionAuraZones, [((object)aura.EffectId, aura.Radius, default((int, int)))],
+                    new(ReachesOnly(conn.PeerId), new EntityId(minion.Id)));
+                bool inside = conn.PlayerLife > 0 && InZone(conn, minion.Id, MinionAuraZones, aura.EffectId, conn.PeerId);
                 if (inside == (minion.OwnerBuff != 0)) continue;
                 aurasChanged = true;
                 if (inside) bytes.AddRange(InstanceEntities.AddBuff(PlayerId, minion.OwnerBuff = conn.NextBuff++, aura.BuffRow, minion.Id));

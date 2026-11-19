@@ -46,6 +46,9 @@ public static partial class Game
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
 
+    // The zones of the player's auras on enemies (one per enemy aura's buff row, Flesh and Stone's, the blinds').
+    const string EnemyAuraZones = "enemy auras", FleshZone = "flesh and stone", BlindZone = "blind", AegisBlindZone = "aegis blind";
+
     // When a timed debuff on a monster next ends (taunt, hit debuffs, exposure, wither, curse), or a step of Pride's
     // 4-second ramp is due.
     static double? MonsterDebuffsNextChange(ClientState conn, double now)
@@ -173,6 +176,16 @@ public static partial class Game
                         stacks: (ushort)stacks, u82: 0));
                     added++;
                 }
+                // Who each aura reaches follows the walkers' moves (EnemyAuraZones); entering or leaving one presents again.
+                var blindAegis = PhysicalAegisStatus(conn, now);
+                int aegisReach = alive && blindAegis.Active && PhysicalAegisHasBlind(conn, blindAegis) ? PhysicalAegisRadius(conn, blindAegis) : 0;
+                SyncZones(conn, conn.PeerId, EnemyAuraZones, !alive ? []
+                    : [.. enemyAuras.Select(a => ((object)a.Definition, a.Radius, here)),
+                        .. fleshAndStone is not null ? [((object)FleshZone, fleshRadius, here)] : Array.Empty<(object, int, (int, int))>(),
+                        .. blindRadius is int blindAt and > 0 ? [((object)BlindZone, blindAt, here)] : Array.Empty<(object, int, (int, int))>(),
+                        .. aegisReach > 0 ? [((object)AegisBlindZone, aegisReach, here)] : Array.Empty<(object, int, (int, int))>()],
+                    new(ReachesHostileMonsters(conn, body: false), new EntityId(conn.PeerId), _ => PresentNearby(conn)));
+                bool In(object key, uint id) => InZone(conn, conn.PeerId, EnemyAuraZones, key, id);
                 foreach (var (id, m) in conn.Monsters)
                 {
                     // Rupture outlives short bleeds and the attacker; only its own timers or the target's death end it.
@@ -192,11 +205,9 @@ public static partial class Game
                                 ExposureBuffRows[i], null))
                             EndExposureLocked(m, ExposureTypes[i]);
                     Withers(id, living, m);
-                    double distance = living && (enemyAuras.Count > 0 || fleshAndStone is not null || m.PlayerAuras.Keys.Any(k => k.Peer == conn.PeerId))
-                        ? Dist(m.Walk.Position(now), here) : double.PositiveInfinity;
                     if (m.PlayerAuras.Count > 0)
                         foreach (var ((peer, definition), buff) in m.PlayerAuras.ToArray())
-                            if (peer == conn.PeerId && (enemyAuras.FirstOrDefault(a => a.Definition == definition) is not { } kept || distance > kept.Radius))
+                            if (peer == conn.PeerId && (!living || enemyAuras.All(a => a.Definition != definition) || !In(definition, id)))
                             {
                                 bytes.AddRange(InstanceEntities.RemoveBuff(id, buff));
                                 m.PlayerAuras.Remove((peer, definition));
@@ -205,7 +216,7 @@ public static partial class Game
                     int elemental = 0;
                     foreach (var aura in enemyAuras)
                     {
-                        if (distance > aura.Radius) continue;
+                        if (!living || !In(aura.Definition, id)) continue;
                         if (!m.PlayerAuras.ContainsKey((conn.PeerId, aura.Definition)))
                         {
                             bytes.AddRange(InstanceEntities.AddBuff(id, m.PlayerAuras[(conn.PeerId, aura.Definition)] = conn.NextBuff++, aura.Definition, PlayerId,
@@ -214,7 +225,7 @@ public static partial class Game
                         }
                         elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
                     }
-                    if (pride is not null && living && distance <= prideRadius)
+                    if (pride is not null && living && In(AuraCatalog.PrideBuffRow, id))
                     {
                         if (double.IsNaN(m.PrideSince)) m.PrideSince = now;
                         m.PridePhysicalMore = AuraCatalog.PridePhysicalMore(prideValues.Min, prideValues.Max, now - m.PrideSince);
@@ -226,18 +237,18 @@ public static partial class Game
                     }
                     // Blood Stance: the more Physical Hit Damage taken falls off with the monster's distance from the
                     // player, full at 0 and nothing at the aura's edge (the data's ..._from_player_distance).
-                    int physical = fleshBlood && living && fleshPhysical > 0 && distance <= fleshRadius
-                        ? (int)Math.Round(fleshPhysical * AuraCatalog.DistanceEffect(distance, fleshRadius), MidpointRounding.AwayFromZero)
+                    int physical = fleshBlood && living && fleshPhysical > 0 && In(FleshZone, id)
+                        ? (int)Math.Round(fleshPhysical * AuraCatalog.DistanceEffect(Dist(m.Walk.Position(now), here), fleshRadius), MidpointRounding.AwayFromZero)
                         : 0;
                     // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
-                    int consecrated = living ? conn.FlaskGrounds.ConsecratedEnemyDamageTaken(m.Walk.Position(now)) : 0;
+                    int consecrated = living ? ConsecratedEnemyDamageTaken(conn, id) : 0;
                     m.TakenFromPlayer = ((taunted ? config.TauntedDamageTakenPct : 0) + consecrated, elemental, physical);
                 }
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
                 HashSet<uint> inside = radius is int r
-                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
-                        .Select(kv => kv.Key).ToHashSet()
+                    ? ZoneMembers(conn, conn.PeerId, EnemyAuraZones, BlindZone).Select(e => e.Value)
+                        .Where(id => conn.Monsters.GetValueOrDefault(id) is { } m && m.Effects["cannot_be_blinded"] == 0).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
                 {
@@ -250,10 +261,8 @@ public static partial class Game
                 int aegisRadius = alive && aegis.Active && PhysicalAegisHasBlind(conn, aegis)
                     ? PhysicalAegisRadius(conn, aegis) : 0;
                 HashSet<uint> aegisInside = aegisRadius > 0
-                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 }
-                            && kv.Value.Effects["cannot_be_blinded"] == 0
-                            && Dist(kv.Value.Walk.Position(now), here) <= aegisRadius)
-                        .Select(kv => kv.Key).ToHashSet()
+                    ? ZoneMembers(conn, conn.PeerId, EnemyAuraZones, AegisBlindZone).Select(e => e.Value)
+                        .Where(id => conn.Monsters.GetValueOrDefault(id) is { } m && m.Effects["cannot_be_blinded"] == 0).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in aegis.Blind.Reconcile(
                     aegisInside, conn.Monsters.ContainsKey, () => conn.NextBuff++))

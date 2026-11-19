@@ -206,7 +206,11 @@ public static class FlaskGrounds
         /// <summary>Whether the player counts as on consecrated ground: covered by one of his grounds now, or within the
         /// linger after the last moment one covered him (the wiki: the effects linger after they would normally be removed,
         /// by leaving or by the ground ending). A death ends the linger.</summary>
-        public bool OnConsecrated(bool alive, (int X, int Y) at, double now)
+        public bool OnConsecrated(bool alive, (int X, int Y) at, double now) =>
+            OnConsecrated(alive, Covers(Kind.ConsecratedGround, at), now);
+
+        /// <summary>The same, when whether a consecrated ground covers the player is known (the grounds' zones).</summary>
+        public bool OnConsecrated(bool alive, bool covered, double now)
         {
             lock (_lock)
             {
@@ -215,7 +219,6 @@ public static class FlaskGrounds
                     _lastCovered = double.NegativeInfinity;
                     return false;
                 }
-                bool covered = _grounds.Append(_stationary).Any(g => g?.Kind == Kind.ConsecratedGround && g.Covers(at));
                 if (covered) _lastCovered = now;
                 return covered || now < _lastCovered + _lingerSeconds;
             }
@@ -274,6 +277,12 @@ public static class FlaskGrounds
                 foreach (var g in ended) _grounds.Remove(g);
                 return ended;
             }
+        }
+
+        /// <summary>The grounds now, the stationary one included.</summary>
+        public Ground[] Grounds
+        {
+            get { lock (_lock) return [.. _grounds.Append(_stationary).OfType<Ground>()]; }
         }
 
         /// <summary>Whether a ground of this kind covers the cell.</summary>

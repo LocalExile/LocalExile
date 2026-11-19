@@ -80,6 +80,26 @@ public static partial class Game
 
     // The current area claim advances flask and stationary grounds together: expiry, smoke, linger and
     // presentation cannot be stranded in an old timer when Game is replaced.
+    // The grounds are zones (one per ground, at it) reaching the player and the hostile monsters; a walker in or out
+    // presents them again.
+    const string FlaskGroundZones = "flask grounds";
+
+    static void SyncFlaskGroundZones(ClientState conn)
+    {
+        var hostile = ReachesHostileMonsters(conn, body: false);
+        SyncZones(conn, conn.PeerId, FlaskGroundZones, conn.FlaskGrounds.Grounds.Select(g => ((object)g, g.Radius, (g.X, g.Y))),
+            new(id => id.Value == conn.PeerId ? 0 : hostile(id), Changed: _ => PresentNearby(conn)));
+    }
+
+    // Whether a ground of the kind covers the monster.
+    static bool InFlaskGround(ClientState conn, FlaskGrounds.Kind kind, uint id) =>
+        conn.FlaskGrounds.Grounds.Any(g => g.Kind == kind && InZone(conn, conn.PeerId, FlaskGroundZones, g, id));
+
+    // The increased damage taken a monster gets from the consecrated grounds covering it: the strongest one.
+    static int ConsecratedEnemyDamageTaken(ClientState conn, uint id) => conn.FlaskGrounds.Grounds
+        .Where(g => g is { Kind: FlaskGrounds.Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && InZone(conn, conn.PeerId, FlaskGroundZones, g, id))
+        .Select(g => g.EnemyDamageTakenPct).DefaultIfEmpty(0).Max();
+
     public static void AdvanceFlaskGrounds(ClientState conn, PlayerUpdatesState updates)
     {
         if (conn.FlaskGrounds.Any) _ = FlaskGroundArt;
@@ -95,17 +115,18 @@ public static partial class Game
             foreach (uint gone in state.BlindedMonsters().Except(conn.Monsters.Keys)) state.SetBlinded(gone, false, () => 0);
             foreach (uint gone in state.ProfaneMonsters().Except(conn.Monsters.Keys))
                 state.SetProfane(gone, false, false, now, () => 0);
+            SyncFlaskGroundZones(conn);
             foreach (var (id, monster) in conn.Monsters)
             {
                 bool inside = monster.Hostile && !monster.Dead && monster.Life > 0 && monster.Mods.Effects["cannot_be_blinded"] == 0
-                    && state.Covers(FlaskGrounds.Kind.SmokeCloud, monster.Walk.Position(now));
+                    && InFlaskGround(conn, FlaskGrounds.Kind.SmokeCloud, id);
                 if (state.SetBlinded(id, inside, () => conn.NextBuff++) is { } change)
                     pending.Packets.Add(new(change.Added
                         ? InstanceEntities.AddBuff(id, change.Buff, FlaskGrounds.BlindedBuffRow, PlayerId)
                         : InstanceEntities.RemoveBuff(id, change.Buff),
                         $"0x{(change.Added ? "01c1" : "01c2")} monster 0x{id:x} {(change.Added ? "blinded in the smoke cloud" : "no longer blinded")}", WorldId: id));
                 bool aliveMonster = monster.Hostile && !monster.Dead && monster.Life > 0;
-                bool inProfane = aliveMonster && state.Covers(FlaskGrounds.Kind.ProfaneGround, monster.Walk.Position(now));
+                bool inProfane = aliveMonster && InFlaskGround(conn, FlaskGrounds.Kind.ProfaneGround, id);
                 if (state.SetProfane(id, inProfane, aliveMonster, now, () => conn.NextBuff++) is { } profane)
                     pending.Packets.Add(new(profane.Added
                         ? InstanceEntities.AddBuff(id, profane.Buff, FlaskGrounds.ProfaneBuffRow, PlayerId)
@@ -117,10 +138,17 @@ public static partial class Game
             var (stale, make) = state.Stationary(alive && !conn.Walk.Moving(now) && !InTown(conn), here);
             if (stale?.Object is uint old) pending.Packets.Add(new(InstanceProtocol.RemoveObject(old),
                 $"0x02bd remove effect 0x{old:x} (stationary consecrated ground)", WorldId: old, RemovesObject: true));
-            if (make > 0) state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
-                double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make),
-                ConsecratedEnemyDamageTakenNow(conn)));
-            if (state.SetConsecrated(state.OnConsecrated(alive, here, now), () => conn.NextBuff++) is { } consecrated)
+            if (make > 0)
+            {
+                state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
+                    double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make),
+                    ConsecratedEnemyDamageTakenNow(conn)));
+                SyncFlaskGroundZones(conn);
+            }
+            // A ground placed this step has its members from the next movement update; until then its cells decide.
+            bool covered = state.Grounds.Any(g => g.Kind == FlaskGrounds.Kind.ConsecratedGround
+                && (InZone(conn, conn.PeerId, FlaskGroundZones, g, conn.PeerId) || g.Covers(here)));
+            if (state.SetConsecrated(state.OnConsecrated(alive, covered, now), () => conn.NextBuff++) is { } consecrated)
             {
                 pending.Packets.Add(new(consecrated.Added
                     ? InstanceEntities.AddBuff(PlayerId, consecrated.Buff, FlaskGrounds.ConsecratedBuffRow, PlayerId)

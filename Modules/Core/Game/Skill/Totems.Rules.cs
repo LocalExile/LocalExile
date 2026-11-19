@@ -383,19 +383,24 @@ public static partial class Game
         TriggerSpiritChieftainLocked(conn, TotemDeathInPresenceOfUniqueTrigger, stats);
     }
 
+    // The zones of the totems' auras (one per totem, at it) reaching the player; the strongest covering him applies.
+    const string TotemAuraZones = "totem aura";
+
+    static TotemState.Totem? TotemAuraCovering(ClientState conn, double now) => conn.Totems.Living(now)
+        .Where(t => t.Aura is not null && InZone(conn, conn.PeerId, TotemAuraZones, t.Id, conn.PeerId))
+        .OrderByDescending(t => t.Aura!.Stats.Sum(s => (long)s.Value)).FirstOrDefault();
+
     // The aura of the totem covering the living player joins his stats (CharacterPlayerStatsCore), with his aura effect.
     static void AddTotemAuraStats(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            var covering = conn.Totems.AuraAt(conn.Walk.Position(now), now);
+            var covering = TotemAuraCovering(conn, now);
+            // The player walking in or out of an aura is its zone's event; a totem's end is timed.
             double? next = null;
             foreach (var totem in conn.Totems.Living(now))
                 if (totem.Aura is not null) next = Math.Min(next ?? double.PositiveInfinity, totem.Until);
-            if (next is not null && conn.Walk.Moving(now))
-                foreach (var (at, cell) in conn.Walk.Steps(now, conn.Walk.ArrivesAt))
-                    if (!ReferenceEquals(conn.Totems.AuraAt(cell, at), covering)) { next = Math.Min(next.Value, at); break; }
             if (next is double changes) StatsChangeIn(changes - now);
             if (conn.PlayerLife == 0 || covering?.Aura is not { } aura) return;
             foreach (var (key, value) in aura.Stats)
@@ -429,7 +434,10 @@ public static partial class Game
                 conn.RemoveBlocker(t.Id);
                 bytes.Remove(t.Id);
             }
-            uint source = conn.PlayerLife > 0 ? totems.AuraAt(conn.Walk.Position(now), now)?.Id ?? 0 : 0;
+            SyncZones(conn, conn.PeerId, TotemAuraZones, totems.Living(now).Where(t => t.Aura is not null)
+                    .Select(t => ((object)t.Id, t.Aura!.Radius, t.At)),
+                new(ReachesOnly(conn.PeerId), Changed: _ => MarkPlayerStats(conn, PlayerStatStep.TotemAura)));
+            uint source = conn.PlayerLife > 0 ? TotemAuraCovering(conn, now)?.Id ?? 0 : 0;
             if (source != totems.SentAuraTotem)
             {
                 if (totems.SentAuraInstance != 0) bytes.World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, totems.SentAuraInstance));

@@ -31,7 +31,8 @@ public sealed class Zone
 
 /// <summary>
 /// The area's zones. Their membership is updated in the movement phase from the walkers' positions: a zone is checked
-/// again when a walker changed cell, the zone moved or its radius changed, never by scanning on a timer.
+/// again when a walker changed cell, the zone moved or its radius changed, never by scanning on a timer. Guarded by the
+/// instance's Monsters lock, which the movement phase holds while it updates them.
 /// </summary>
 public sealed class AreaZones
 {

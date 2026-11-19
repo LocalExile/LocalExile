@@ -64,13 +64,15 @@ sealed class SmokeCloudEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
+    const string CloudZones = "shrine cloud";
+
     public async Task Tick(ShrineContext ctx, ShrineInstance shrine)
     {
         var conn = ctx.Conn;
         if (conn.Closed) return;
         double now = ctx.Now;
         var inFog = new List<(uint Id, SpawnedMonster Monster)>();
-        bool playerInFog = false;
+        ClientState[] fogged = [];
         double reach = CloudRadiusCells;
         lock (conn.Monsters)
         {
@@ -95,19 +97,21 @@ sealed class SmokeCloudEffect : IShrineEffect
                 Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine {shrine.Definition.Id} smoke cloud " +
                     $"0x{_cloud:x} at ({at.X}, {at.Y}) {shrine.State}");
             }
+            // The cloud is a zone at it (OwnedZones): the unclaimed shrine's reaches the players, the claimed one's the
+            // hostile monsters.
+            var hostile = ReachesHostileMonsters(conn, body: false);
+            SyncZones(conn, conn.PeerId, CloudZones, [((object)shrine, (int)Math.Round(reach), _at)],
+                new(id => shrine.State == ShrineState.Inactive ? IsPlayerId(id.Value) ? 0 : null : hostile(id)));
             if (now < _nextBlind) return;
             _nextBlind = now + BlindRefresh;
+            var members = ZoneMembers(conn, conn.PeerId, CloudZones, shrine).Select(e => e.Value).ToArray();
             // The unclaimed shrine's fog blinds whoever walks into it; the claimed shrine's blinds the monsters in it.
-            if (shrine.State == ShrineState.Inactive)
-                playerInFog = Dist(conn.Walk.Position(now), _at) <= reach;
+            if (shrine.State == ShrineState.Inactive) fogged = [.. members.Select(id => AreaPlayer(conn, id)).OfType<ClientState>().Where(p => p.PlayerLife > 0)];
             else
-                foreach (var (id, m) in conn.Monsters)
-                    if (m is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(m.Walk.Position(now), _at) <= reach)
-                        inFog.Add((id, m));
+                foreach (uint id in members)
+                    if (conn.Monsters.GetValueOrDefault(id) is { Hostile: true, Dead: false, Life: > 0 } m) inFog.Add((id, m));
         }
-        if (shrine.State == ShrineState.Inactive)
-            foreach (var player in ShrineManager.NearbyPlayers(conn, _at, reach)) InflictPlayerBlind(player, BlindSeconds);
+        foreach (var player in fogged) InflictPlayerBlind(player, BlindSeconds);
         int blinded = 0;
         foreach (var (id, m) in inFog)
             if (InflictMonsterBlind(conn, id, m, now, (100, 0, BlindSeconds))) blinded++;
@@ -115,7 +119,7 @@ sealed class SmokeCloudEffect : IShrineEffect
         if (blinded == _blindedCount) return;
         _blindedCount = blinded;
         Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine {shrine.Definition.Id}: the smoke blinds " +
-            $"{blinded} monster(s){(playerInFog ? " and the player" : "")}");
+            $"{blinded} monster(s){(fogged.Length > 0 ? " and the player" : "")}");
         await Task.CompletedTask;
     }
 

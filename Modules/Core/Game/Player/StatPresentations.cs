@@ -62,14 +62,38 @@ public static partial class Game
             || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0)
             ? SendOwnAuraChanges(remote, stream, ciphers, conn) : Task.CompletedTask;
 
+    // What the player comes near, as zones (OwnedZones): the waypoint's activation range and the Glyph Wall's sight (at
+    // them, reaching the player), and the quests' sight of the watched monsters (around the player). Coming in presents
+    // the nearby world again.
+    const string SightZones = "sight", WaypointSight = "waypoint", GlyphWallSight = "glyph wall", MonsterSight = "monsters";
+
+    static void SyncSightZones(ClientState conn, IReadOnlyCollection<string>? watched)
+    {
+        var points = new List<(object, int, (int, int))>();
+        if (conn.Layout.Waypoint is { } waypoint) points.Add((WaypointSight, (int)WaypointActivationRange, (waypoint.GridX, waypoint.GridY)));
+        if (conn.Glyphs?.Wall is { } wall) points.Add((GlyphWallSight, (int)Quests.SightRange, (wall.X, wall.Y)));
+        SyncZones(conn, conn.PeerId, SightZones, points, new(ReachesOnly(conn.PeerId), Changed: _ => PresentNearby(conn)));
+        SyncZones(conn, conn.PeerId, SightZones + " around", watched is { Count: > 0 } ? [(MonsterSight, (int)Quests.SightRange, default((int, int)))] : [],
+            new(id => conn.Monsters.GetValueOrDefault(id.Value) is { Dead: false, Life: > 0, Variety: { } v } && watched!.Contains(v.Id) ? 0 : null,
+                new EntityId(conn.PeerId), _ => PresentNearby(conn)));
+    }
+
+    static bool Sees(ClientState conn, string what)
+    {
+        lock (conn.Monsters) return InZone(conn, conn.PeerId, SightZones, what, conn.PeerId);
+    }
+
     // The waypoint, the gold in the auto-loot radius and the quests' sight rules, where the player stands.
     static async Task SendNearbyWorld(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (conn.PlayerLife == 0) return;
+        var watched = QuestsOf(conn).Watched(conn.Layout.Id);
         lock (conn.Monsters)
+        {
             if (HardcoreProgressBlocked(conn)) return;
-        if (conn.Layout.Waypoint is { } waypoint
-            && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (waypoint.GridX, waypoint.GridY)) <= WaypointActivationRange)
+            SyncSightZones(conn, watched);
+        }
+        if (conn.Layout.Waypoint is not null && Sees(conn, WaypointSight))
             await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
         // The way walked since the last check counts (PickUpNearbyGold), not only where the player stands.
         var presenting = PresentingOf.GetOrCreateValue(conn);
@@ -78,19 +102,17 @@ public static partial class Game
             if (HardcoreProgressBlocked(conn)) return;
         var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").
-        if (QuestsOf(conn).Watched(conn.Layout.Id) is { Count: > 0 } watched)
+        if (watched is { Count: > 0 })
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
             List<string> seen;
             lock (conn.Monsters)
-                seen = [.. conn.Monsters.Values.Where(m => !m.Dead && m.Life > 0 && m.Variety is { } v && watched.Contains(v.Id)
-                    && Dist(m.Walk.Position(now), at) <= Quests.SightRange).Select(m => m.Variety!.Id).Distinct()];
+                seen = [.. ZoneMembers(conn, conn.PeerId, SightZones + " around", MonsterSight).Select(id => conn.Monsters.GetValueOrDefault(id.Value))
+                    .Where(m => m is { Dead: false, Life: > 0, Variety: not null }).Select(m => m!.Variety!.Id).Distinct()];
             foreach (string variety in seen)
                 await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterSeen(conn.Layout.Id, variety));
         }
         // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
-        if (conn.Glyphs?.Wall is { } glyphWall && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall)
-            && Dist(at, (glyphWall.X, glyphWall.Y)) <= Quests.SightRange)
+        if (conn.Glyphs?.Wall is not null && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall) && Sees(conn, GlyphWallSight))
             await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
         // The quest engine's sight rules (room objects, exits).
         await CheckQuestSights(remote, stream, ciphers, conn, at);

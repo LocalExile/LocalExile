@@ -2,6 +2,21 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    // The zones of the auras a player shares (one per aura skill), around them, reaching the other players and the
+    // friendly monsters: an ally coming in or going out presents its auras again (a minion: its owner's stats).
+    const string SharedAuraZones = "shared auras";
+
+    static void SyncSharedAuraZones(ClientState conn, IReadOnlyList<SharedAura> shared) =>
+        SyncZones(conn, conn.PeerId, SharedAuraZones, shared.Select(a => ((object)a.Aura.SkillId, a.Radius, default((int, int)))),
+            new(ReachesAlliesBut(conn, conn.PeerId), new EntityId(conn.PeerId), id =>
+            {
+                if (AreaPlayer(conn, id.Value) is { } ally) PresentNearby(ally);
+                else PresentStats(conn);
+            }));
+
+    // Whether a player's shared aura reaches the entity.
+    static bool SharedAuraReaches(ClientState conn, uint owner, ushort skill, uint id) => InZone(conn, owner, SharedAuraZones, skill, id);
+
     // Several copies of one aura do not stack. External snapshots retain the caster's effect,
     // never the receiving player's aura-effect modifier; Generosity still reaches nearby allies.
     public static List<AuraCatalog.Aura> AffectingAuras(ClientState conn) => conn.Auras.Values.Where(a => a.AffectsSelf)
@@ -9,9 +24,8 @@ public static partial class Game
 
     static byte[][] ReconcileReceivedAuraRecordsLocked(ClientState conn)
     {
-        var here = conn.Walk.Position(AreaTime(conn));
         var desired = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Instance.PlayersExcept(conn.PeerId)
-            .Where(p => p.Current && p.Life > 0).SelectMany(p => p.Auras.Where(a => Dist(here, (p.X, p.Y)) <= a.Radius)
+            .Where(p => p.Current && p.Life > 0).SelectMany(p => p.Auras.Where(a => SharedAuraReaches(conn, p.Id, a.Aura.SkillId, conn.PeerId))
                 .Select(a => (Key: (p.Id, a.Aura.SkillId), Aura: a.Aura with { SourceBuff = null,
                     AffectsSelf = true, ExternalEffectPct = a.Effect }))).ToDictionary(p => p.Key, p => p.Aura);
         var packets = new List<byte[]>();
@@ -51,15 +65,15 @@ public static partial class Game
 
     public static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
     {
-        var here = minion.Monster?.Walk.Position(AreaTime(conn)) ?? conn.Walk.Position(AreaTime(conn));
-        var owner = conn.Walk.Position(AreaTime(conn));
+        // A minion without a body stands with its owner: every aura of his reaches it.
+        bool Reaches(uint owner, ushort skill) => minion.Monster is null ? owner == conn.PeerId : SharedAuraReaches(conn, owner, skill, minion.Id);
         var skills = SkillsFor(conn);
         var own = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Auras.Values
-            .Where(a => AuraCatalog.Shared(a.EffectId) && Dist(here, owner) <= AuraRadius.Of(a, conn.Pools.AuraAreaPct, skills, Stats))
+            .Where(a => AuraCatalog.Shared(a.EffectId) && Reaches(conn.PeerId, a.SkillId))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = conn.Pools.AuraEffectPct + a.SupportEffectPct });
-        var directAvian = SharedAvianAuras(conn).Where(a => Dist(here, owner) <= a.Radius).Select(a => a.Aura);
+        var directAvian = SharedAvianAuras(conn).Where(a => Reaches(conn.PeerId, a.Aura.SkillId)).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Current && p.Life > 0)
-                .SelectMany(p => p.Auras.Where(a => Dist(here, (p.X, p.Y)) <= a.Radius)
+                .SelectMany(p => p.Auras.Where(a => Reaches(p.Id, a.Aura.SkillId))
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => Stats.Name(p.Key)!, p => p.Value);

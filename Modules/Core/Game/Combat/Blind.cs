@@ -259,8 +259,8 @@ public static partial class Game
     {
         if (vsGround is not { } g) return null;
         bool profane = conn.FlaskGrounds.Profane(target);
-        bool consecrated = g.Consecrated is not null && conn.Monsters.TryGetValue(target, out var m)
-            && conn.FlaskGrounds.Covers(FlaskGrounds.Kind.ConsecratedGround, m.Walk.Position(ProjectileWorldTime(conn)));
+        bool consecrated = g.Consecrated is not null && conn.Monsters.ContainsKey(target)
+            && InFlaskGround(conn, FlaskGrounds.Kind.ConsecratedGround, target);
         if (Blinded(conn, target))
             return profane && consecrated ? g.BlindedBoth ?? g.Both
                 : profane ? g.BlindedProfane ?? g.Profane : consecrated ? g.BlindedConsecrated ?? g.Consecrated : null;

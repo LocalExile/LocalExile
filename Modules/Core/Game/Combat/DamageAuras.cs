@@ -54,13 +54,15 @@ public static partial class Game
         };
         InArea(conn, a =>
         {
-            a.Zones.Add(zone, CombatLifetime);
+            lock (conn.Monsters) a.Zones.Add(zone, CombatLifetime);
             EveryFrameAsPlayer(conn, () =>
             {
                 lock (conn.Monsters)
+                {
                     if (aura.Running()) return true;
-                a.Zones.Remove(zone);
-                return false;
+                    a.Zones.Remove(zone);
+                    return false;
+                }
             }, (remote, stream, ciphers, conn) => StepDamageAura(remote, stream, ciphers, conn, aura, zone, FrameSeconds));
         });
     }
