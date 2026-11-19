@@ -51,7 +51,20 @@ internal sealed class DeepwaterRun
     }
 
     public required bool Voyage { get; init; }
-    public required DeepwaterBoard Board { get; init; }
+    public required DeepwaterBoard Board
+    {
+        get => _board;
+        init
+        {
+            _board = value;
+            // Built here, with the run, so no kill allocates.
+            var rects = new int[value.Cells.Count * 4];
+            for (int i = 0; i < value.Cells.Count; i++)
+                (rects[4 * i], rects[4 * i + 1], rects[4 * i + 2], rects[4 * i + 3]) = (value.Cells[i].X0, value.Cells[i].Y0, value.Cells[i].X1, value.Cells[i].Y1);
+            _rects = rects;
+        }
+    }
+    readonly DeepwaterBoard _board = null!;
     /// <summary>The character who holds the lanterns (QuestFlags 3550): the one whose entry made the run.</summary>
     public required string Controller { get; init; }
     public RunPhase Phase { get; set; } = RunPhase.Exploring;
@@ -73,14 +86,14 @@ internal sealed class DeepwaterRun
     /// succeeded.</summary>
     public Func<IReadOnlyList<ClientState>, bool, Task>? OnEnd { get; set; }
 
-    // The board's cell rectangles as x0, y0, x1, y1 per cell, for CellIndex.
-    int[]? _rects;
+    // The board's cell rectangles as x0, y0, x1, y1 per cell, for CellIndex (built with Board).
+    readonly int[] _rects = [];
 
     /// <summary>The board cell at (x, y), or −1: a plain loop over at most 9 rectangles in one array, for the per-kill
     /// drop path (measured in the pull request).</summary>
     public int CellIndex(int x, int y)
     {
-        var r = _rects ??= [.. Board.Cells.SelectMany(c => new[] { c.X0, c.Y0, c.X1, c.Y1 })];
+        var r = _rects;
         for (int i = 0; i + 3 < r.Length; i += 4)
             if ((uint)(x - r[i]) < (uint)(r[i + 2] - r[i]) && (uint)(y - r[i + 1]) < (uint)(r[i + 3] - r[i + 1])) return i >> 2;
         return -1;
