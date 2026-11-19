@@ -15,6 +15,12 @@ internal static class DeepwaterCharts
     public static readonly string[] Bases =
         ["Metadata/Items/Deepwater/ChartSandy", "Metadata/Items/Deepwater/ChartCoralForest", "Metadata/Items/Deepwater/ChartCoralReef"];
     public const string Sandy = "Metadata/Items/Deepwater/ChartSandy";
+    /// <summary>QuestRewardOffers Id of Valerie's tutorial chart (row 130).</summary>
+    public const string TutorialOffer = "DeepwaterTutorialReward";
+    /// <summary>Valerie's chart: an area level 2 magic Sandy Seabed Chart (the wiki's Maiden Voyage).</summary>
+    public const int TutorialLevel = 2;
+    /// <summary>QuestFlags 3560 (the tracker's "found a Chart", QuestStates 1981).</summary>
+    public const string ChartFound = "DeepwaterChartFound";
     /// <summary>Mods 40149 MapDeepwaterChartImplicit, every chart base's implicit: "Voyage Modifier will be revealed once Charted".</summary>
     const string Placeholder = "MapDeepwaterChartImplicit";
     const int ChartDomain = 39, ChartImplicit = 37;
@@ -42,6 +48,30 @@ internal static class DeepwaterCharts
         int roll = random.Next(100);
         return roll < rare ? ItemRarity.Rare : roll < rare + magic ? ItemRarity.Magic : ItemRarity.Normal;
     }
+
+    /// <summary>GameEvents.RewardItem: Valerie's tutorial chart (offer <see cref="TutorialOffer"/>) is an Area Level 2 magic,
+    /// identified Sandy chart with a generic Sandy room (G, the room is unsourced); "Descend" refuses an unidentified chart
+    /// (ClientStrings 8466). Another offer's chart gets its component at the offer's item level.</summary>
+    public static Item RewardItem(ClientState conn, int offer, Item item, ItemCatalog.BaseType type)
+    {
+        if (!IsChart(type)) return item;
+        if (offer == TutorialOfferRow.Value)
+        {
+            var random = Random.Shared;
+            var chart = ItemCatalog.Create(type, random: random) with
+            {
+                ItemLevel = TutorialLevel,
+                Chart = new ChartData(TutorialLevel, 0, Room(type.Row, random, generic: true)),
+            };
+            return RollsFor(conn).Roll(chart, ItemRarity.Magic, random) with { Identified = true };
+        }
+        if (item.Chart is not null) return item;
+        byte level = (byte)Math.Clamp((int)item.ItemLevel, 1, 100);
+        return item with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, Random.Shared)) };
+    }
+
+    static readonly Lazy<int> TutorialOfferRow = new(() =>
+        ClientTables.TableOrEmpty("QuestRewardOffers").FirstOrDefault(r => r.Text("Id") == TutorialOffer) is { Table: not null } row ? row.Index : -1);
 
     // ---- the charted implicit ----
 

@@ -10,7 +10,8 @@ namespace GameServer.Modules.Deepwater;
 /// (the World panel pin, /boat, the rowboat on The Coast), the hub's ruleset and its quest table (DeepwaterQuests), and the
 /// encounter areas' grid (DeepwaterGrid), ruleset and run (DeepwaterRun: the lanterns and their light, the monsters, the
 /// Sulphur nodes, chests and interactables of DeepwaterLoot, the collapse, and the capsules and Bathysphere of
-/// DeepwaterExtraction). Charts as items and Allflame crafting are not built yet (Agents/roadmap/world.md).</summary>
+/// DeepwaterExtraction), and charts as items (DeepwaterCharts). Starting a chart run from the deck and Allflame crafting are not
+/// built yet (Agents/roadmap/world.md).</summary>
 public sealed partial class DeepwaterModule : IModule
 {
     /// <summary>The Sovereign (<c>WorldAreas</c> DeepwaterHub, area type 53).</summary>
@@ -153,12 +154,21 @@ public sealed partial class DeepwaterModule : IModule
             await DeepwaterDredge.Tick(module, conn);
         });
         // Dredge: a pickup from the ground during a run, or in a failed run's dead instance, is noted; the Game module
-        // picks it up. What is noted after a failure goes at the next entry elsewhere (StartRun).
-        GameEvents.GroundItemUse.Add(id, (conn, groundId, ground, _, _) =>
+        // picks it up. What is noted after a failure goes at the next entry elsewhere (StartRun). The first chart picked up
+        // sets DeepwaterChartFound (QuestFlags 3560, the tracker's "found a Chart"; G: the trigger is unsourced).
+        GameEvents.GroundItemUse.Add(id, async (conn, groundId, ground, _, _) =>
         {
             if (RunOf(conn) is { } run && (run.Phase != DeepwaterRun.RunPhase.Ended || run.Failed)) DeepwaterDredge.Noted(conn, groundId, ground);
-            return Task.FromResult(false);
+            if (!conn.HasQuestFlag(DeepwaterCharts.ChartFound) && DeepwaterCharts.IsChart(ItemsFor(conn), ground.Item))
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterCharts.ChartFound]);
+                module.Log($"{PlayerOf(conn).Character}: first Allflame chart picked up, {DeepwaterCharts.ChartFound} set");
+            }
+            return false;
         });
+        // A quest reward chart (Valerie's tutorial chart) gets its component.
+        GameEvents.RewardItem.Add(id, DeepwaterCharts.RewardItem);
         // The encounter areas are not maps, so "Resurrect at Checkpoint" revives in the instance: after a failed run the
         // player goes to The Sovereign instead (G).
         GameEvents.Resurrected.Add(id, async conn =>
