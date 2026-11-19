@@ -183,9 +183,9 @@ public static partial class Game
         guard.Buff = conn.NextBuff++;
         session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "guard started"));
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
-        // The bar entry goes last, after the stats send and its skill-bar rebuild: a 0x53 rebuild re-creates the slot
-        // and resets its entry to the skill's own recovery rate (measured 2026-11-18, a freeze sent before it was lost),
-        // so the held entry must be the last cooldown message. Held, the bar shows the skill's own cooldown at a zero
+        // The bar entry goes last, after the stats send: a 0x53 rebuild re-creates the slot and resets its entry to the
+        // skill's own recovery rate (measured 2026-11-18, a freeze sent before it was lost), so the held entry must be
+        // the last cooldown message even if that send rebuilds the bar. Held, the bar shows the skill's own cooldown at a zero
         // recovery rate, as the official client shows a cooldown that does not recover during an effect; it resumes at
         // the character's rate when the buff ends (EndTriggeredGuard), which is when TriggerGuardReady accepts a new one.
         lock (conn.Monsters) SingleUseState(conn, gem.Effect, skill)?.Hold(SkillsFor(conn).CooldownMs(gem.Effect, gem.Level));

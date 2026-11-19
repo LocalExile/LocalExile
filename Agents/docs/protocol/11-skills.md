@@ -3060,9 +3060,10 @@ failed I/O, allocation limits, actual official values and every skill's successf
   cleared the option at the next skill update. The Gateway saves both masks with the bar and sends them back.
 - **The 0x20 skill update can take a bound skill off the bar**: live 2026-10-21, Haste's slot emptied when its aura went
   on (the aura's stats resend every skill record), and the area change's 0x53 brought it back. A gem taken out and
-  socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after every
-  update, unless it adds a skill whose GrantedEffects Id the saved bar does not have: the client binds such a new
-  skill to a free slot itself (0x4e), and a bar sent then would clear it.
+  socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after an
+  update that adds or removes a skill, unless it adds one whose GrantedEffects Id the saved bar does not have: the
+  client binds such a new skill to a free slot itself (0x4e), and a bar sent then would clear it. A stat-only update
+  sends no bar (#1127); live 2026-11-19 (3.29.3c) Wrath on and off kept every bound slot without one.
 - **The Gateway** saves each 0x4e (`CharacterSaves`, `data/characters.db`) as slot → a GrantedEffects Id for gems and the default
   attack (skill ids change with the socketed gems), `Action/<ActionTypes Id>` for a basic action (Move 0x2909 =
   "Move only"), or "" for a cleared slot. It sends 0x53 right after the player and area messages, no delay needed,
