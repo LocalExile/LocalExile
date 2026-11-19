@@ -315,7 +315,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// unmodifiable, with every property kept (mods and their values, fractured mods, quality, sockets, links, socketed
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
-        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
+        item.SkinTransferSource is null && item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
             ? item with { Mirrored = true } : null;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)

@@ -43,10 +43,12 @@ static class PartyExperienceChecks
             uint id = next++;
             var monster = new SpawnedMonster("party victim", new(100, 100, 30), 60, 8, 1000)
                 { Life = 0, Dead = true, Hostile = true, Variety = variety, Level = 2, NoRewards = noRewards };
-            instance.World.Monsters[id] = monster;
-            instance.World.MonsterOrigins[id] = new(InstanceEntities.ObjectTypeHash(variety.Id),
-                new MonsterObject(100, 100, 1000, variety.ComponentsOrBase, variety.AnimatedObject), (ushort)variety.Row, 2, MonsterRarity.Normal);
-            host.Monsters[id] = monster;
+            lock (host.Monsters)
+            {
+                host.Monsters.Add(id, monster);
+                instance.World.MonsterOrigins[id] = new(InstanceEntities.ObjectTypeHash(variety.Id),
+                    new MonsterObject(100, 100, 1000, variety.ComponentsOrBase, variety.AnimatedObject), (ushort)variety.Row, 2, MonsterRarity.Normal);
+            }
             return (id, monster);
         }
         try
@@ -61,12 +63,16 @@ static class PartyExperienceChecks
                 else if (route == "projectile")
                 {
                     var session = new Game.ProjectileSession("party-xp", wire.Stream, wire.Ciphers, host);
-                    try { Game.CommitProjectileKill(session, victim.Id, victim.Monster, 0, new Random(4)); }
+                    try
+                    {
+                        using (Game.ProjectileMutation(host, advance: false))
+                            Game.CommitProjectileKill(session, victim.Id, victim.Monster, 0, new Random(4));
+                    }
                     finally { session.Invalidate(); await session.OutputCompleted; }
                 }
                 else
                 {
-                    lock (host.Monsters)
+                    using (Game.ProjectileMutation(host))
                     {
                         Game.CommitAcceptedKillLocked(host, victim.Id, victim.Monster, 0, playerKill: false);
                         Game.CommitAcceptedKillLocked(host, victim.Id, victim.Monster, 0, playerKill: false);

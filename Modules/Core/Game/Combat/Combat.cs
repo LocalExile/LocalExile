@@ -1271,7 +1271,9 @@ public static partial class Game
                 }
                 if (paid && beastCompanion is { } beast)
                     QueueBeastCompanionLocked(conn, beast, skillId, actionToken);
-                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
+                // The native Holy Flame skill is tagged Channel for the totem's payload. Its owner places it with a
+                // single cast. Starting an owner channel would tie the placement to the input that movement clears.
+                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(conn, skillId))
                 {
                     channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
@@ -1459,6 +1461,13 @@ public static partial class Game
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse,
                 guardStart: guardStart))
         {
+            // A guard's cooldown is server-owned and held at full while its buff runs. Publish that held rate-0 entry
+            // before the instant action: the client skips its press prediction (startCooldown) when a zero-rate entry
+            // already exists, so the bar's ring does not sweep before the freeze (issue #1127). The instant action's
+            // native use refresh then briefly restores the recovery rate, which StartTriggeredGuard's held entry behind
+            // it freezes again; the remaining time stays full throughout, so neither flicker moves the ring.
+            if (guard && GuardCooldownPreEntry(conn, skillId, gem.Effect) is { Length: > 0 } preEntry)
+                await Send(remote, stream, ciphers, preEntry, "0x02bc guard cooldown held before its instant action");
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
                 atGate: () =>
@@ -2143,8 +2152,9 @@ public static partial class Game
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit)
         {
-            // Contagion has no hit: its cast puts a chaos damage over time on the monsters in its area (MonsterContagions.cs).
-            if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
+            if (IsBane(conn, gem.Effect))
+                await CastBane(conn, skillId, admittedGem, from, to, repeat, radiusMore, Current);
+            else if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
                 await CastContagion(conn, gem.Effect, skillId, from, to,
                     contagion with { SpreadAo = ContagionSkinAo(conn, gem.Gem) }, repeat, radiusMore,
                     actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, cooldownUse?.Instant == true, Current);
@@ -3368,6 +3378,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
         drops.AddRange(MadeDrops(conn, modded));
+        if (MapBeyond.CorruptsDrops(conn, m.Variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.
