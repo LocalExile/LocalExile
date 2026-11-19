@@ -52,6 +52,12 @@ internal sealed class DeepwaterRun
     public int PlannedPacks { get; set; }
     public int ReleasedPacks { get; set; }
     public int ReleasedMonsters { get; set; }
+    /// <summary>The run's Dead Man's Sulphur nodes, chests and interactables (DeepwaterLoot), the Sulphur its lanterns
+    /// collected and the most it can collect, and each character's Golden Lantern stacks.</summary>
+    public readonly List<DeepwaterLoot.Thing> Things = [];
+    public int Sulphur { get; set; }
+    public int SulphurCap { get; set; }
+    public readonly Dictionary<string, int> GoldenLanterns = new(StringComparer.OrdinalIgnoreCase);
     public readonly object Gate = new();
 
     public Lantern[] Snapshot() { lock (Gate) return [.. Lanterns]; }

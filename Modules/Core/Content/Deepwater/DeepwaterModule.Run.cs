@@ -44,6 +44,7 @@ public sealed partial class DeepwaterModule
                 var plan = DeepwaterMonsters.Plan(conn.Layout, conn.Seed, run, module.Log);
                 run.Planned.AddRange(plan);
                 run.PlannedPacks = plan.Count;
+                DeepwaterLoot.Plan(conn, run, module.Log);
                 // The first lantern burns at the start Bathysphere (cell 0's "bathysphere" point; the wiki: placed on entry)
                 // and is not one of the run's (G: the tutorial's count starts at 6 with it already lit). Without an anchor
                 // the client allows no placement.
@@ -56,8 +57,13 @@ public sealed partial class DeepwaterModule
         if (made) module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns");
         foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
-        // The first lantern's light wakes the packs around the start.
-        if (first is not null) await DeepwaterMonsters.Release(module, conn, run, first);
+        await DeepwaterLoot.Show(conn, run);
+        // The first lantern's light wakes the packs around the start and collects the Sulphur there.
+        if (first is not null)
+        {
+            await DeepwaterMonsters.Release(module, conn, run, first);
+            await DeepwaterLoot.Collect(module, conn, run, first);
+        }
         // The run's owner holds the lanterns (QuestFlags 3550, the client's placement gate) and is its map owner (2020,
         // the capsule window's gate; G that the owner is the one). Other players get neither (G: the
         // TransferLanternControlObject that hands the lanterns over is not built).
@@ -93,6 +99,7 @@ public sealed partial class DeepwaterModule
                 await DeepwaterLanterns.Show(module, conn, lantern, dropping: true);
                 await DeepwaterLanterns.SendCount(conn, run);
                 await DeepwaterMonsters.Release(module, conn, run, lantern);
+                await DeepwaterLoot.Collect(module, conn, run, lantern);
                 if (placed == 1)
                 {
                     var (remote, stream, ciphers) = conn.Wire;
@@ -137,6 +144,7 @@ public sealed partial class DeepwaterModule
             ["inLight"] = run.InLight(at, now),
             ["level"] = run.Level,
             ["packs"] = PackState(run),
+            ["loot"] = DeepwaterLoot.State(run),
             ["drowningLeft"] = _light.Drowning(conn, out double left) ? Math.Round(left, 2) : null,
             ["lanterns"] = new JsonArray([.. run.Snapshot().Select(l => (JsonNode)new JsonObject
             {

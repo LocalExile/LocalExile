@@ -55,6 +55,18 @@ internal static class DeepwaterLanterns
         return true;
     }
 
+    /// <summary>The lantern's <c>collected_resource</c> = 1 (0x2bc to its StateMachine): its collection flare, the beam to
+    /// the Sulphur it gathered.</summary>
+    public static async Task Flare(ClientState conn, DeepwaterRun.Lantern lantern)
+    {
+        if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States.Value is not { } states) return;
+        int index = info.Components.ToList().IndexOf("StateMachine");
+        if (index < 0) return;
+        var update = states.Set("drop", lantern.Drop).Set("dropped", lantern.Drop).Set("collected_resource", 1);
+        await global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.StateMachineUpdate(lantern.Id, (byte)index, update),
+            $"0x02bc Allflame lantern {lantern.Order} 0x{lantern.Id:x} collected_resource = 1");
+    }
+
     public static async Task SendCount(ClientState conn, DeepwaterRun run)
     {
         int placed, total;

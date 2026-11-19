@@ -8,7 +8,8 @@ namespace GameServer.Modules.Deepwater;
 
 /// <summary>The Allflame league (the client's "Deepwater"): its league category, the league's area stat, the ways to The Sovereign
 /// (the World panel pin, /boat, the rowboat on The Coast), the hub's ruleset and its quest table (DeepwaterQuests), and the
-/// encounter areas' grid (DeepwaterGrid), ruleset and run (DeepwaterRun: the lanterns and their light). Charts as items,
+/// encounter areas' grid (DeepwaterGrid), ruleset and run (DeepwaterRun: the lanterns and their light, the monsters, the
+/// Sulphur nodes, chests and interactables of DeepwaterLoot). Charts as items,
 /// voyages' capsules and Allflame crafting are not built yet (Agents/roadmap/world.md).</summary>
 public sealed partial class DeepwaterModule : IModule
 {
@@ -123,8 +124,11 @@ public sealed partial class DeepwaterModule : IModule
         });
         GameEvents.PlayerStatSources.Add(id, _light.WithSlow);
         GameEvents.StateBuilding.Add(id, RunState);
+        // The run's chests and interactables; the league's monsters' map-related drops and the Golden Lantern stacks.
+        GameEvents.Drops.Add(id, roll => { if (RunOf(roll.Conn) is { } run) DeepwaterLoot.Drops(roll, run); });
         GameEvents.ObjectUse.Add(id, async (conn, use, at) =>
         {
+            if (RunOf(conn) is { } run && await DeepwaterLoot.Use(module, conn, run, use, at)) return true;
             var player = PlayerOf(conn);
             if (!_states.TryGetValue(player, out var state) || state.Boat == 0 || use.TargetId != state.Boat) return false;
             // The client offers the boat only after Valerie's introduction; an early click is refused quietly.
