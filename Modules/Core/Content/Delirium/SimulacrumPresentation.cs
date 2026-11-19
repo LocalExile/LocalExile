@@ -78,9 +78,9 @@ public sealed partial class DeliriumModule
         var obj = new QuestObject(at.Item1, at.Item2, StarterComponents, Rotation: placed?.Rotation ?? 0)
         { StateMachine = StarterStates(run), Mods = preview?.Affixes ?? run.Affixes };
         uint id = conn.TakeObjectId();
-        await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id,
-            InstanceEntities.ObjectTypeHash(placed?.Type ?? type), obj.Blob()), $"Simulacrum native starter {type} at {at}, wave {run.Wave}, active {run.Active}");
-        await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id,
+            InstanceEntities.ObjectTypeHash(placed?.Type ?? type), obj.Blob()),
+                $"Simulacrum native starter {type} at {at}, wave {run.Wave}, active {run.Active}", wake: true, awaitBirth: false);
         view.Entity = id; view.At = at; view.Native = true;
         SaveView(conn, view);
     }

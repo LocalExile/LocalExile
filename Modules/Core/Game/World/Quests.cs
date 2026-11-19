@@ -230,9 +230,8 @@ public static partial class Game
             }
             if (shown)
             {
-                await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
-                    $"0x02bb create area transition 0x{id:x} {transition} ({why})");
-                await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
+                    $"0x02bb create area transition 0x{id:x} {transition} ({why})", wake: true, awaitBirth: false);
             }
             else await Game.SendWorldRemoval(conn, id, $"0x02bd remove area transition 0x{id:x} ({why})");
         }

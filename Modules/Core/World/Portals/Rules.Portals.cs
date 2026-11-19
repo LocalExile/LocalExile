@@ -66,10 +66,9 @@ static partial class PortalsRules
                     var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
                     var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
                         ? conn.Layout.Near(ring) : ring;
-                    await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, type,
+                    await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, type,
                             new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
-                        $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})");
-                    await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                                $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})", wake: true, awaitBirth: false);
                     bool keep;
                     lock (conn.MapPortals)
                     {

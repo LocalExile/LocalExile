@@ -93,9 +93,8 @@ static partial class QuestobjectsRules
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rail.Type),
-                LabyrinthTrials.RailBlob(rail.X, rail.Y, rail.Angle, rail.Model)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rail.Type),
+                LabyrinthTrials.RailBlob(rail.X, rail.Y, rail.Angle, rail.Model)), null, wake: true, awaitBirth: false);
             BarStaticHull(conn, id, rail.Type, rail.Model, rail.X, rail.Y, rail.Angle, 1);
         }
         await SpawnRoombas(conn,
@@ -151,11 +150,10 @@ static partial class QuestobjectsRules
                 : LabyrinthTrials.IsStatueSpawner(o.Type) ? LabyrinthTrials.Open
                 : wiring.Graph.IsSpent(index) ? LabyrinthTrials.Spent
                 : open || wiring.Graph.IsDisabled(index) ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
                     LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state,
                         LabyrinthTrials.IsHotPlate(o.Type) || LabyrinthTrials.AtTileHeight(o.Type) ? o.Height : null)),
-                $"0x02bb trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                            $"0x02bb trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}", wake: true, awaitBirth: false);
             // The blob's Animated names the room line's .ao, else the client takes the .ot's own.
             if (LabyrinthTrials.SentStatic(o.Type))
                 BarStaticHull(conn, id, o.Type, o.Model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? o.Model : null, o.X, o.Y, o.Angle, o.Scale);
@@ -886,9 +884,8 @@ static partial class QuestobjectsRules
         for (int i = 0; i < traps.Count; i++)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(traps[i].Type),
-                LabyrinthTrials.SpikeTrapBlob(traps[i].X, traps[i].Y)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(traps[i].Type),
+                LabyrinthTrials.SpikeTrapBlob(traps[i].X, traps[i].Y)), null, wake: true, awaitBirth: false);
             placed.Add(triggered[i].Trigger is int t and >= 0
                 ? new(id, traps[i], firstTriggered + t, triggered[i].Order, false) { Trigger = LabyrinthTrials.Trigger(triggers[t].Type) }
                 : new(id, traps[i], chains[i].Chain, chains[i].Order, chains[i].Checker));
@@ -896,9 +893,8 @@ static partial class QuestobjectsRules
         foreach (var trap in pressure)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
-                LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, trap.Type)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
+                LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, trap.Type)), null, wake: true, awaitBirth: false);
             placed.Add(new(id, trap, -1, 0, false));
         }
         Console.WriteLine($"[gateway] {conn.Remote} trial spike traps: {placed.Count} placed in {placed.Select(p => p.Chain).Distinct().Count()} chain(s), " +
@@ -1020,9 +1016,8 @@ static partial class QuestobjectsRules
         foreach (var blade in blades)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(blade.Type),
-                LabyrinthTrials.EdgeBladeBlob(blade.X, blade.Y, blade.Angle)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(blade.Type),
+                LabyrinthTrials.EdgeBladeBlob(blade.X, blade.Y, blade.Angle)), null, wake: true, awaitBirth: false);
             placed.Add((id, blade, [.. LabyrinthTrials.HullCells(blade.X, blade.Y, blade.Angle, LabyrinthTrials.EdgeBladeHalfAcross, LabyrinthTrials.EdgeBladeHalfAlong)]));
         }
         Console.WriteLine($"[gateway] {conn.Remote} abyss edge blades: {placed.Count} placed");
@@ -1086,10 +1081,9 @@ static partial class QuestobjectsRules
         {
             uint id = conn.TakeObjectId();
             bool blade = LabyrinthTrials.IsEdgeBlade(trap.Type);
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type), blade
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type), blade
                 ? LabyrinthTrials.EdgeBladeBlob(trap.X, trap.Y, trap.Angle)
-                : LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, angle: trap.Angle, height: trap.Height)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                : LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, angle: trap.Angle, height: trap.Height)), null, wake: true, awaitBirth: false);
             var (across, along) = blade ? (LabyrinthTrials.EdgeBladeHalfAcross, LabyrinthTrials.EdgeBladeHalfAlong) : LabyrinthTrials.RollerHalf(trap.Type);
             var (wallAcross, wallAlong) = blade ? (across, along) : LabyrinthTrials.RollerWallHalf(trap.Type);
             placed.Add(new TileTrap(id, trap, across, [.. LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, across, along)],
@@ -1283,9 +1277,8 @@ static partial class QuestobjectsRules
     static async Task PressureClick(Player conn, AreaPopulation.RoomObject trap)
     {
         uint id = conn.TakeObjectId();
-        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(trap.X, trap.Y, LabyrinthTrials.PressureSpikeClick).Blob()), null);
-        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(trap.X, trap.Y, LabyrinthTrials.PressureSpikeClick).Blob()), null, wake: true, awaitBirth: false);
         await Task.Delay(TimeSpan.FromSeconds(LabyrinthTrials.PressureSpikeDelaySeconds));
         if (!conn.Closed) await global::Game.SendWorldRemoval(conn, id, null);
     }
@@ -1436,9 +1429,8 @@ static partial class QuestobjectsRules
         foreach (var trap in traps)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
-                LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model, trap.Type)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
+                LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model, trap.Type)), null, wake: true, awaitBirth: false);
             placed.Add((id, trap));
             // Its Hull, as the client stamps it: a wall to the darts, and to the player's walk estimate (its .ot is static,
             // and the blob names the room line's model).
@@ -1717,10 +1709,9 @@ static partial class QuestobjectsRules
             var r = roombas[i];
             uint id = conn.TakeObjectId();
             bool stopped = halted.Contains(i), spinner = r.Type == LabyrinthTrials.Spinner;
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type), spinner
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type), spinner
                 ? LabyrinthTrials.SpinnerBlob(r.X, r.Y, r.Angle, r.Model)
-                : LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model, stopped ? LabyrinthTrials.Open : LabyrinthTrials.Closed)), null);
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                : LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model, stopped ? LabyrinthTrials.Open : LabyrinthTrials.Closed)), null, wake: true, awaitBirth: false);
             if (spinner && track?.Start((r.X, r.Y), r.Angle, Lifted) is { } run)
                 runs.Add(new RoombaRun(id, r, track, run, Lifted));
             else if (!spinner && paths[i] is { } path)

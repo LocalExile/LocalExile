@@ -122,9 +122,9 @@ public static partial class Game
             uint effect;
             lock (conn.Monsters) effect = conn.TakeObjectId();
             art.Add(effect);
-            await SendWorldCreate(conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
-            await SendWorldRecord(conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
+            await SendWorldCreate(conn, effect, () => InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()),
+                    $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})", wake: true, awaitBirth: false);
             await Game.SendWorldRemoval(conn, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)

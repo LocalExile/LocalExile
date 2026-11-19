@@ -22,10 +22,9 @@ static class PortalsFeature
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         uint id = conn.TakeObjectId();
-        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+        await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
-            $"0x02bb create the return portal 0x{id:x} at ({x}, {y})");
-        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                $"0x02bb create the return portal 0x{id:x} at ({x}, {y})", wake: true, awaitBirth: false);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = 0;
         global::Game.ListPortal(conn, id, destination, "the return portal", MapPortalEntryMs);

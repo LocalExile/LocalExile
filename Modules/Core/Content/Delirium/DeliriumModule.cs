@@ -162,9 +162,9 @@ public sealed partial class DeliriumModule : IModule
         {
         var stashAt = conn.Layout.Near((conn.Layout.SpawnX - 15, conn.Layout.SpawnY + 8));
         uint stash = conn.TakeObjectId(); view.Stash = stash;
-        await SendWorldCreate(conn, stash, InstanceEntities.CreateObject(stash,
-            InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), new StashObject(stashAt.X, stashAt.Y, 0).Blob()), "Simulacrum: stash between waves");
-        await SendWorldRecord(conn, stash, InstanceProtocol.EnterWakeZone(stash), null);
+        await SendWorldCreate(conn, stash, () => InstanceEntities.CreateObject(stash,
+            InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), new StashObject(stashAt.X, stashAt.Y, 0).Blob()),
+                "Simulacrum: stash between waves", wake: true, awaitBirth: false);
         conn.StashObject = stash; conn.StashAt = stashAt;
         }
         SaveView(conn, view);

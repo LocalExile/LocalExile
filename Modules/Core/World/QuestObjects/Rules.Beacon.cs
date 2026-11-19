@@ -178,10 +178,10 @@ static partial class QuestobjectsRules
                     id = conn.TakeObjectId();
                     conn.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
                 }
-                await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
+                await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
                     new QuestObject(position.X, position.Y, info.Components, position.Rotation, position.Z,
-                        TransitionState: (byte)(cart.Walk.Complete ? 2 : 1), Team: 4).Blob()), $"[Beacon] fuel cart at ({position.X}, {position.Y})");
-                await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                        TransitionState: (byte)(cart.Walk.Complete ? 2 : 1), Team: 4).Blob()),
+                            $"[Beacon] fuel cart at ({position.X}, {position.Y})", wake: true, awaitBirth: false);
             }
             lock (conn.QuestObjects)
                 if (conn.QuestObjects.TryGetValue(id, out var shown))

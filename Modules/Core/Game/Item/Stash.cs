@@ -60,9 +60,9 @@ public static partial class Game
         if (!conn.Ssf)
         {
             uint guild = conn.TakeObjectId();
-            await SendWorldCreate(conn, guild, InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
-                new StashObject(gx, gy, guildRotation).Blob()), $"0x02bb create guild stash 0x{guild:x} at ({gx}, {gy})");
-            await SendWorldRecord(conn, guild, InstanceProtocol.EnterWakeZone(guild), null);
+            await SendWorldCreate(conn, guild, () => InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
+                new StashObject(gx, gy, guildRotation).Blob()),
+                    $"0x02bb create guild stash 0x{guild:x} at ({gx}, {gy})", wake: true, awaitBirth: false);
             conn.GuildStashObject = guild;
             conn.GuildStashAt = (gx, gy);
             await RegisterStationaryCollision(conn, guild, StashObject.GuildMetadataPath, gx, gy, guildRotation,

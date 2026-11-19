@@ -453,10 +453,9 @@ public static class BrineKing
 
         async Task CreateWave(Player conn)
         {
-            await SendWorldCreate(conn, waveId, InstanceEntities.CreateObject(waveId, InstanceEntities.ObjectTypeHash(Wave),
+            await SendWorldCreate(conn, waveId, () => InstanceEntities.CreateObject(waveId, InstanceEntities.ObjectTypeHash(Wave),
                 new QuestObject(center.X, center.Y, ["Positioned", "BaseEvents", "Animated", "Transitionable"], TransitionState: waveState).Blob()),
-                $"[Brine King] tidal wall {waveState} at {center}");
-            await SendWorldRecord(conn, waveId, InstanceProtocol.EnterWakeZone(waveId), null);
+                    $"[Brine King] tidal wall {waveState} at {center}", wake: true, awaitBirth: false);
             if (QuestObjectTypes.Find(Wave) is { } info)
                 lock (conn.QuestObjects) conn.QuestObjects[waveId] = (new Quests.ObjectRule(conn.Layout.Id, Wave, null), new(Wave, "", center.X, center.Y, 0, null, 0), info);
         }

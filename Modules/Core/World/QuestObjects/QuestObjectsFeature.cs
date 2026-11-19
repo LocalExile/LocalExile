@@ -25,9 +25,8 @@ static class QuestObjectsFeature
         {
             if (ClientHasQuestFlag(conn, flag!)) continue;
             var blocker = new BlockerObject(o.X, o.Y, o.Angle, o.Scale);
-            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
-                $"0x02bb create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}");
-            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
+                $"0x02bb create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}", wake: true, awaitBirth: false);
             // The server's own wall: the walkable cells across the way (QuestBarriers).
             var guarded = conn.Layout.AreaTransitions.Where(t => TransitionFlag(conn, t.Transition) == flag)
                 .Select(t => conn.Layout.Near((t.Transition.GridX, t.Transition.GridY))).ToList();
@@ -152,9 +151,8 @@ static class QuestObjectsFeature
         conn.RemoveBlocker(id);
         conn.SetBlocker(opened, at.X, at.Y, GlyphQuest.NestSize);
         await global::Game.SendWorldRemoval(conn, id, null);
-        await global::Game.SendWorldCreate(conn, opened, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
-            $"0x02bb opened Rhoa Nest 0x{opened:x} (was 0x{id:x})");
-        await global::Game.SendWorldRecord(conn, opened, InstanceProtocol.EnterWakeZone(opened), null);
+        await global::Game.SendWorldCreate(conn, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
+            $"0x02bb opened Rhoa Nest 0x{opened:x} (was 0x{id:x})", wake: true, awaitBirth: false);
         await DropGlyph(conn, nest);
         return true;
     }

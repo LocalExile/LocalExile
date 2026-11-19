@@ -53,10 +53,9 @@ static class BenchFeature
             uint benchId = conn.TakeObjectId();
             var obj = new HideoutObject(bench.X, bench.Y, bench.Rotation, components,
                 new HideoutDoodad(bench.Hash, (byte)bench.Variation), [.. states.Select(_ => 0)]);
-            await global::Game.SendWorldCreate(conn, benchId, InstanceEntities.CreateObject(benchId,
+            await global::Game.SendWorldCreate(conn, benchId, () => InstanceEntities.CreateObject(benchId,
                 InstanceEntities.ObjectTypeHash(bench.Type!), obj.Blob()),
-                $"0x02bb create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})");
-            await global::Game.SendWorldRecord(conn, benchId, InstanceProtocol.EnterWakeZone(benchId), null);
+                    $"0x02bb create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})", wake: true, awaitBirth: false);
             conn.CraftingBenchObject = benchId;
             conn.CraftingBenchAt = (bench.X, bench.Y);
             await RegisterStationaryCollision(conn, benchId, bench.Type!, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);

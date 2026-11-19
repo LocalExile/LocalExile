@@ -139,9 +139,8 @@ public static partial class Game
         var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
         var ground = new WorldItemObject(x, y, ItemCatalog.Create(type));
         uint id = conn.Instance.Ground.Add(ground, conn, shared: false);
-        await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-            $"0x02bb {type.Name} 0x{id:x} from {source} at ({x}, {y})");
-        await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            $"0x02bb {type.Name} 0x{id:x} from {source} at ({x}, {y})", wake: true, awaitBirth: false);
     }
 
     // C→S 0x82 on a dialogue row that sets a quest item's remove_flag (QuestItems.HandedIn: Nessa's "The Medicine Chest",
@@ -476,10 +475,9 @@ public static partial class Game
         uint id = conn.TakeObjectId();
         lock (conn.QuestObjects) conn.QuestObjects[id] = (rule, at, info);
         if (info.Blocking) conn.SetBlocker(id, at.X, at.Y, info.Size);
-        await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(conn, rule, at, info)),
+        await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(conn, rule, at, info)),
             $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(conn, rule) ? "transitioned" : "untransitioned")}" +
-            (rule.TransitionedBy is { } f ? $" (flag {f})" : ""));
-        await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            (rule.TransitionedBy is { } f ? $" (flag {f})" : ""), wake: true, awaitBirth: false);
     }
 
     // C→S 0x24 on a quest object: walk up; with the needs of its use rule the flags are set and the carried quest items
@@ -729,10 +727,9 @@ public static partial class Game
             conn.RemoveBlocker(id);
             conn.SetBlocker(next, at.X, at.Y, QuestChestSize);
             await SendWorldRemoval(conn, id, null);
-            await SendWorldCreate(conn, next, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
+            await SendWorldCreate(conn, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
                 QuestChestBlob(conn, rule, at, rule.Guards is not null || conn.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
-                $"0x02bb quest chest 0x{next:x}: hide collected item marker ({rule.Item})");
-            await SendWorldRecord(conn, next, InstanceProtocol.EnterWakeZone(next), null);
+                    $"0x02bb quest chest 0x{next:x}: hide collected item marker ({rule.Item})", wake: true, awaitBirth: false);
             hidden.Add(next);
         }
         foreach (var (id, nest) in nests)
@@ -743,10 +740,9 @@ public static partial class Game
             conn.RemoveBlocker(id);
             conn.SetBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
             await SendWorldRemoval(conn, id, null);
-            await SendWorldCreate(conn, next, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
+            await SendWorldCreate(conn, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
                 GlyphQuest.NestBlob(nest.At, conn.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
-                $"0x02bb Rhoa Nest 0x{next:x}: hide collected glyph marker");
-            await SendWorldRecord(conn, next, InstanceProtocol.EnterWakeZone(next), null);
+                    $"0x02bb Rhoa Nest 0x{next:x}: hide collected glyph marker", wake: true, awaitBirth: false);
             hidden.Add(next);
         }
     }
@@ -759,9 +755,8 @@ public static partial class Game
         lock (conn.QuestChests) conn.QuestChests[id] = (rule, at);
         conn.SetBlocker(id, at.X, at.Y, QuestChestSize);
         bool pending = !opened && rule.Guards is not null && !QuestChestReady(conn, rule);
-        await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, opened, hideMinimapIcon: collected)),
-            $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""));
-        await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, opened, hideMinimapIcon: collected)),
+            $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""), wake: true, awaitBirth: false);
         if (pending) PendingEncounterChests.GetOrCreateValue(conn)[id] = rule;
     }
 
@@ -795,9 +790,8 @@ public static partial class Game
         conn.RemoveBlocker(use.TargetId);
         conn.SetBlocker(opened, at.X, at.Y, QuestChestSize);
         await Game.SendWorldRemoval(conn, use.TargetId, null);
-        await SendWorldCreate(conn, opened, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, true)),
-            $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})");
-        await SendWorldRecord(conn, opened, InstanceProtocol.EnterWakeZone(opened), null);
+        await SendWorldCreate(conn, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, true)),
+            $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})", wake: true, awaitBirth: false);
         if (QuestsOf(conn).OnUsed(conn.Layout.Id, rule.ChestType, f => ClientHasQuestFlag(conn, f)) is { Count: > 0 } used) await SetQuestFlags(conn, used);
         await DropQuestItem(conn, rule.Item, (at.X, at.Y), rule.ChestType.Split('/')[^1]);
         await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);

@@ -97,22 +97,19 @@ static partial class QuestobjectsRules
                 uint id = (opened ? OpenedNestFirstId : GlyphObjectFirstId) + (uint)i;
                 lock (conn.GlyphNests) conn.GlyphNests[id] = nest;
                 conn.SetBlocker(id, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
-                await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(nest.At, opened)),
-                    $"0x02bb Rhoa Nest 0x{id:x} {nest.Type} at ({nest.At.X}, {nest.At.Y}) with glyph {nest.Glyph + 1}, opened={opened}");
-                await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                await global::Game.SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(nest.At, opened)),
+                    $"0x02bb Rhoa Nest 0x{id:x} {nest.Type} at ({nest.At.X}, {nest.At.Y}) with glyph {nest.Glyph + 1}, opened={opened}", wake: true, awaitBirth: false);
             }
             if (layout.Wall is { } wall)
             {
-                await global::Game.SendWorldCreate(conn, GlyphWallObjectId, InstanceEntities.CreateObject(GlyphWallObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Wall), GlyphQuest.WallBlob(wall, placed)),
-                    $"0x02bb Glyph Wall 0x{GlyphWallObjectId:x} at ({wall.X}, {wall.Y}), {(placed ? "glyphs placed" : "waiting for the glyphs")}");
-                await global::Game.SendWorldRecord(conn, GlyphWallObjectId, InstanceProtocol.EnterWakeZone(GlyphWallObjectId), null);
+                await global::Game.SendWorldCreate(conn, GlyphWallObjectId, () => InstanceEntities.CreateObject(GlyphWallObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Wall), GlyphQuest.WallBlob(wall, placed)),
+                    $"0x02bb Glyph Wall 0x{GlyphWallObjectId:x} at ({wall.X}, {wall.Y}), {(placed ? "glyphs placed" : "waiting for the glyphs")}", wake: true, awaitBirth: false);
                 conn.GlyphWallId = GlyphWallObjectId;
             }
             if (layout.Water is { } water)
             {
-                await global::Game.SendWorldCreate(conn, GlyphWaterObjectId, InstanceEntities.CreateObject(GlyphWaterObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Water), GlyphQuest.WaterBlob(water.X, water.Y, water.Rotation, placed)),
-                    $"0x02bb waterfall 0x{GlyphWaterObjectId:x} at ({water.X}, {water.Y}), transitioned={placed}");
-                await global::Game.SendWorldRecord(conn, GlyphWaterObjectId, InstanceProtocol.EnterWakeZone(GlyphWaterObjectId), null);
+                await global::Game.SendWorldCreate(conn, GlyphWaterObjectId, () => InstanceEntities.CreateObject(GlyphWaterObjectId, InstanceEntities.ObjectTypeHash(GlyphQuest.Water), GlyphQuest.WaterBlob(water.X, water.Y, water.Rotation, placed)),
+                    $"0x02bb waterfall 0x{GlyphWaterObjectId:x} at ({water.X}, {water.Y}), transitioned={placed}", wake: true, awaitBirth: false);
                 conn.GlyphWaterId = GlyphWaterObjectId;
             }
         }
