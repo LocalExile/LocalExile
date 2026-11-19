@@ -122,8 +122,13 @@ internal static class DeepwaterLoot
     static int Amount(int multiplier, int level, int found) =>
         Math.Max(0, (int)Math.Round(multiplier * (100 + BalanceAt(level)) / 100.0 * Math.Max(0, 100 + found) / 100.0));
 
-    static QuestObjectTypes.Info? Info(string type) =>
-        QuestObjectTypes.Find(type) is { } info && QuestObject.CanSerialize(info.Components, States.Value.GetValueOrDefault(type) is not null) ? info : null;
+    static QuestObjectTypes.Info? Info(string type)
+    {
+        var info = QuestObjectTypes.Find(type)
+            ?? (ChestRows.Value.TryGetValue(type, out var row) && row.InheritsFrom is { Length: > 0 } parent
+                ? QuestObjectTypes.Find(parent) : null);
+        return info is not null && QuestObject.CanSerialize(info.Components, States.Value.GetValueOrDefault(type) is not null) ? info : null;
+    }
 
     /// <summary>The players in this connection's instance (it first), as the run's messages go to each.</summary>
     public static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
@@ -204,9 +209,9 @@ internal static class DeepwaterLoot
             + "; " + string.Join("; ", notes));
     }
 
-    // A Chests row's model when the type has none of its own (Gold Pile's four, Sunken Loot's two).
+    // A Chests row's model when the type has none of its own (Gold Pile's four, Sunken Loot's two, Rotmother's Stash).
     static string? ModelOf(string type, Random random) =>
-        QuestObjectTypes.Find(type) is { AnimatedModel: null } && ChestRows.Value.TryGetValue(type, out var row) && row.Models.Length > 0
+        Info(type) is { AnimatedModel: null } && ChestRows.Value.TryGetValue(type, out var row) && row.Models.Length > 0
             ? row.Models[random.Next(row.Models.Length)] : null;
 
     static string Pick(List<(string Type, int Weight)> pool, Random random) => pool[PickIndex([.. pool.Select(p => p.Weight)], random)].Type;

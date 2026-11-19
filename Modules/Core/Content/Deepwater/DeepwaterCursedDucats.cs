@@ -350,6 +350,15 @@ public static class DeepwaterCursedDucats
 
     // ---- LQF 1899–1904 & QF 3629–3634 sync ----
 
+    static readonly byte[] CarriedRows =
+    [
+        PlayerInventories.MainInventory,
+        PlayerInventories.ExpandedInventory,
+        PlayerInventories.Cursor,
+        ActiveRow,
+        StorageRow,
+    ];
+
     /// <summary>Syncs <c>LQF 1899–1901</c> (<c>DeepwaterTotalDucatsSocketed1..3</c>), <c>LQF 1902–1904</c>
     /// (<c>DeepwaterSocketedDucat1..3</c>), and <c>QF 3629–3634</c> (<c>HaveDeepwaterQuestDucat1..6</c>) to the player's
     /// current inventories. Sends nothing when all flags already match.</summary>
@@ -399,10 +408,14 @@ public static class DeepwaterCursedDucats
         }
 
         uint carriedMask = 0;
-        foreach (var (_, carried) in QuestItems.Carried(items))
+        for (int r = 0; r < CarriedRows.Length; r++)
         {
-            if (ByHash(carried.Item.TypeHash) is { Id: >= 0 and < 32 } info)
-                carriedMask |= 1u << info.Id;
+            var rowItems = items.Items(CarriedRows[r]);
+            for (int i = 0; i < rowItems.Count; i++)
+            {
+                if (ByHash(rowItems[i].Item.TypeHash) is { Id: >= 0 and < 32 } info)
+                    carriedMask |= 1u << info.Id;
+            }
         }
 
         List<string>? qfSet = null, qfClear = null;
@@ -425,7 +438,7 @@ public static class DeepwaterCursedDucats
     }
 
     /// <summary><c>GameEvents.MessagesHandled</c>: syncs Cursed Ducat flags only when an item-moving, reward-claim,
-    /// pickup, or command opcode was handled (0-alloc no-op on ordinary ticks/combat).</summary>
+    /// or command opcode was handled (0-alloc no-op on ordinary ticks/combat).</summary>
     public static Task OnMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)
     {
         for (int i = 0; i < ids.Count; i++)
@@ -443,7 +456,6 @@ public static class DeepwaterCursedDucats
         InstanceNpcs.BuyId or
         InstanceNpcs.CtrlBuyId or
         InstanceNpcs.TakeAllRewardsId or
-        InstanceTransfer.UseSkillOnObjectId or
         InstanceChat.ChatId
         || QuestItems.MovesItems(id);
 
