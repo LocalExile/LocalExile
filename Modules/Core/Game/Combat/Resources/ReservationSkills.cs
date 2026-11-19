@@ -83,7 +83,8 @@ public static partial class Game
         if (ReservationAura(conn, "ArcticArmour") is { } arctic)
             InflictedLocked(conn, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
                 ReservationStat(conn, arctic, "arctic_armour_chill_when_hit_duration") / 1000.0, now,
-                n => GolemStat(CharacterPlayerStats(conn), n), n => monster.Mods.Effects[n], stated: 30));
+                SkillAilmentStats(CharacterPlayerStats(conn), SupportedSkill(conn, arctic.SkillId).Stats),
+                n => monster.Effects[n], stated: 30));
         if (blocked && ReservationAura(conn, "TempestShield") is { } tempest)
             conn.Reservations.Procs.Enqueue(new(tempest.SkillId, monster.Walk.Position(now), attacker));
     }
@@ -321,9 +322,17 @@ public static partial class Game
     static void ReservationArcticTrailLocked(ClientState conn, double now)
     {
         var state = conn.Reservations;
-        state.Trail.RemoveAll(patch => patch.Epoch is int epoch && epoch != conn.ProjectileEpoch);
-        foreach (var expired in state.Trail.Where(t => t.Until <= now).ToArray())
-        { state.Trail.Remove(expired); if (expired.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true)); }
+        if (state.Trail.Count != 0)
+        {
+            SettleChillingGround(conn, now);
+            foreach (var patch in state.Trail.Where(p => p.Until <= now || p.Epoch is int epoch && epoch != conn.ProjectileEpoch).ToArray())
+            {
+                foreach (var monster in conn.Monsters.Values) monster.Ailments.RemoveChillingArea(patch);
+                state.Trail.Remove(patch);
+                if (patch.Until <= now && (patch.Epoch is null || patch.Epoch == conn.ProjectileEpoch) && patch.Object is uint obj)
+                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true));
+            }
+        }
         var arctic = ReservationAura(conn, "ArcticArmour");
         bool stationary = arctic is not null && !conn.Walk.Moving(now);
         if (!stationary && state.StationaryBuff != 0)
@@ -333,19 +342,40 @@ public static partial class Game
         }
         else if (stationary && state.StationaryBuff == 0)
             conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, state.StationaryBuff = conn.NextBuff++, 428, PlayerId), null, WorldId: PlayerId));
+        foreach (var patch in state.Trail) ObserveChilledGroundLocked(conn, patch, now);
         if (arctic is not null && conn.Walk.Moving(now) && now >= state.NextIce)
         {
             state.NextIce = now + .25;
             var at = conn.Walk.Position(now);
-            AddChilledGroundLocked(conn, at, now + ReservationDuration(conn, arctic, "base_skill_effect_duration", 2500),
-                4, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao");
+            AddChilledGroundLocked(conn, at, now, now + ReservationDuration(conn, arctic, "base_skill_effect_duration", 2500),
+                4, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao",
+                MonsterElementalAilments.GroundChill.From(SkillAilmentStats(CharacterPlayerStats(conn), SupportedSkill(conn, arctic.SkillId).Stats)));
         }
-        foreach (var m in conn.Monsters.Values)
-            if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
-                InflictedLocked(conn, m, m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10));
     }
 
-    static void AddChilledGroundLocked(ClientState conn, (int X, int Y) at, double until, int radius, string artPath)
+    // A field already exists when the two Frostblink endpoint hits land. A known monster can enter or leave it
+    // between aura ticks, so test its position at contact and use the tick to discover new monsters.
+    static void ObserveChilledGroundLocked(ClientState conn, ReservationState.Ice patch, double now)
+    {
+        foreach (var monster in conn.Monsters.Values)
+        {
+            if (monster is not { Hostile: true, Dead: false, Life: > 0 }) continue;
+            double magnitude = monster.Ailments.ChillingAreaMagnitude(patch.Chill, name => monster.Effects[name]);
+            monster.Ailments.SetChillingArea(patch, now, patch.Until, magnitude, patch.Chill.ColdTaken, monster.Walk, patch.Area);
+            if (magnitude > 0 && patch.Area.Contains(monster.Walk.Position(now)))
+                InflictedLocked(conn, monster, AilmentType.Chill, Math.Min(now + .3, patch.Until));
+        }
+    }
+
+    static void ClearChillingTrailsLocked(ClientState conn)
+    {
+        foreach (var patch in conn.Reservations.Trail)
+            foreach (var monster in conn.Monsters.Values) monster.Ailments.RemoveChillingArea(patch);
+        conn.Reservations.Trail.Clear();
+    }
+
+    static void AddChilledGroundLocked(ClientState conn, (int X, int Y) at, double now, double until, int radius, string artPath,
+        MonsterElementalAilments.GroundChill chill)
     {
         if (radius <= 0) return;
         uint obj = conn.TakeObjectId();
@@ -354,7 +384,9 @@ public static partial class Game
         conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             art.Blob()), null, WorldId: obj, CreatesObject: true));
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
-        conn.Reservations.Trail.Add(new(at, until, obj, radius, conn.ProjectileEpoch));
+        var patch = new ReservationState.Ice(at, until, obj, radius, conn.ProjectileEpoch) { Chill = chill };
+        conn.Reservations.Trail.Add(patch);
+        ObserveChilledGroundLocked(conn, patch, now);
     }
 
     static byte[] RecallTemporalRiftLocked(ClientState conn)

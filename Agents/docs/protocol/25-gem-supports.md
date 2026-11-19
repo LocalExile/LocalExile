@@ -201,8 +201,10 @@ chances (`IncreasedItemRarity`); both also fill the selected skill's panel rows
 (`display_skill_increased_item_quantity_+%`/`..._rarity_+%`); a damage-over-time kill keeps no skill attribution; Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
 (`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
-maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
-shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
+maximum life on low life and Coursing Current's equivalent shock/chill depend on the target. While a Bonechill chill
+or chilling area affects a monster, all sources increase its cold damage taken by the strongest current chill.
+A weaker supported chill retains its own expiry under a stronger ordinary one
+([GGG](https://www.pathofexile.com/forum/view-thread/3332781)). Fist of War makes every 1.8 s slam a big hit (damage and area);
 Devour recovers its life/mana on a killing blow and consumes the corpse (the object is removed); Sacrifice pays current life once at
 the original player cast's first valid release (including Fireball/Spark), shared by repeats and cascades.
 Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;

@@ -456,8 +456,10 @@ public static partial class Game
         if (!target.Dead)
         {
             int Golem(string name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
-            target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Mods.Effects[n], Random.Shared);
+            var ailmentDamage = mitigated.Select((type, range) => type == DamageType.Cold
+                ? range.Scale(MonsterColdHitTaken(target, a.Attack.Spell, now)) : range);
+            target.Ailments.Inflict(ailmentDamage, critical, target.MaxLife, now, name => PanelStats.Of(name, Golem),
+                n => target.Effects[n], Random.Shared);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now);
             InflictMonsterBlind(conn, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 Random.Shared);

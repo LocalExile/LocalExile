@@ -77,10 +77,6 @@ public static partial class Game
                 packet = packet.Add(DamageType.Physical, new(flat, flat));
             }
         }
-        // Bonechill: "Chills also grant Cold Damage Taken +% equal to the Slow amount" for the hit's cold part.
-        double chillMagnitude = target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now);
-        if (Get("support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount") != 0 && chillMagnitude > 0)
-            packet = packet.Select((type, range) => type == DamageType.Cold ? range.Scale(1 + chillMagnitude / 100.0) : range);
         // Inspiration: "Supported Skills deal (3-7)% more Elemental Damage per Inspiration Charge".
         int charges = conn.SupportGems.InspirationCharges;
         int perCharge = Get("elemental_damage_+%_final_per_righteous_charge");

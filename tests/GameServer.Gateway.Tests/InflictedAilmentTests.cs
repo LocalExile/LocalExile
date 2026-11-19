@@ -146,6 +146,36 @@ public class InflictedAilmentTests
         Assert.DoesNotContain(PanelStats.Compute(panel, _ => 0, _ => 0), row => row.Stat.Contains("penetrates"));
     }
 
+    static void BonechillUsesTheTargetsStrongestChill()
+    {
+        const string bonechill = "support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount";
+        var conn = new ClientState(new(1, "bonechill", 300, 300, 100, 100, null, []), 1, 1);
+        var source = conn.Monsters[1] = new("source", new(100, 100, 0), 0, 0, 1000) { Hostile = true };
+        var target = conn.Monsters[2] = new("target", new(105, 100, 0), 0, 0, 1000) { Hostile = true };
+        target.Mods = MonsterModSet.None with { Effects = new(new Dictionary<string, int>
+        {
+            ["base_damage_taken_+%"] = 20, ["cold_damage_taken_+%"] = 10, ["rare_monster_mod_spell_damage_taken_+%_final"] = -50,
+        }) };
+        var hit = Taken(cold: 100, fire: 100);
+        source.Ailments.Inflict(Taken(cold: 1), false, 100, 0, With((bonechill, 1), ("elemental_status_effect_aura_radius", 12)),
+            With(), new Random(1));
+        // The stronger ordinary chill must not discard the shorter qualifying one on the same source.
+        source.Ailments.WithoutDamage(Chill, 4, .125, With(("elemental_status_effect_aura_radius", 12)), With(), stated: 30);
+        Assert.Equal(30, source.Ailments.ChillColdTakenPct(.25));
+        Game.MonsterAilmentChangesLocked(conn, .25);
+        Assert.Equal(0, target.Ailments.ChillColdTakenPct(.125));
+        Assert.Equal(30, target.Ailments.ChillColdTakenPct(.25));
+        Assert.Equal(140, Game.MonsterTakesMitigated(target, hit, spell: true, now: .25));
+        Assert.Equal(280, Game.MonsterTakesMitigated(target, hit, spell: false, now: .25));
+        Assert.Equal(1.60, Game.MonsterDotTaken(target, DamageType.Cold, .25), 9);
+        Assert.Equal(1.20, Game.MonsterDotTaken(target, DamageType.Fire, .25), 9);
+        Assert.Empty(target.Ailments.Spreading(.25));
+        Game.MonsterAilmentChangesLocked(conn, 2);
+        Assert.Equal(30, target.Ailments.Magnitude(Chill, 2));
+        Assert.Equal(0, target.Ailments.ChillColdTakenPct(2));
+        Assert.Equal(125, Game.MonsterTakesMitigated(target, hit, spell: true, now: 2));
+    }
+
     // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all
     // three, the gloves' freeze one for freeze only. Each AI tick a monster within a source's radius has its copy, which
     // does not spread again.
@@ -176,6 +206,7 @@ public class InflictedAilmentTests
         Assert.Equal((0.0, 0.0), (far.Ailments.Magnitude(Chill, .1), far.Ailments.Magnitude(Freeze, .1)));
         Assert.Equal((0.0, 100.0), (immune.Ailments.Magnitude(Chill, .1), immune.Ailments.Magnitude(Freeze, .1)));
         Assert.Empty(near.Ailments.Spreading(.1));
+        BonechillUsesTheTargetsStrongestChill();
         // A monster frozen by a spread copy is a frozen kill: "on Killing a Frozen Enemy" counts it.
         Assert.Equal((true, false), (mid.Ailments.FrozenAtDeath(.1), far.Ailments.FrozenAtDeath(.1)));
         var powerOnFrozenKill = With(("chance_to_gain_power_charge_on_killing_frozen_enemy_%", 100));

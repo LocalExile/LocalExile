@@ -81,7 +81,7 @@ public static partial class Game
             if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;
             var packet = MonsterModHit(attacker, attack.Damage.Roll(Random.Shared), weapon.Life,
                 weapon.MaxLife, Random.Shared, out bool critical, now: now).Scale(SappedDamageFactor(attacker, now));
-            var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);
+            var (damage, _, _) = MonsterHitDamage(weapon, packet, critical, true, now, default);
             weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
             if (weapon.Life == 0) weapon.Dead = true;
             return InstanceProtocol.LifeUpdate(targetId, weapon.Life);

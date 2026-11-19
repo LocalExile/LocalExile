@@ -98,7 +98,8 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
-  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
+  Bonechill enables increased cold damage taken from any source during a supported chill or chilling area, including
+  a proliferated chill. Immolate, Bloodthirst, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).

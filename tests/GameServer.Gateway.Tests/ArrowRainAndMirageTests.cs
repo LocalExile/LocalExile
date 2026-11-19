@@ -153,6 +153,21 @@ public class ArrowRainAndMirageTests
         Assert.Equal(1, Game.ToxicWalkFactor(b.Enemy));
         Assert.Equal(100000u, b.Ally.Life);
         await VortexSharesGroundAcrossCasters();
+        VortexSettlesBeforeChillReplacement();
+    }
+
+    static void VortexSettlesBeforeChillReplacement()
+    {
+        using var b = new Battle("Vortex");
+        var m = b.Enemy;
+        b.Session.AdvanceTo(ProjectileRuntime.Time(64));
+        int Supported(string name) => name == "support_chills_also_grant_cold_damage_taken_+%_equal_to_slow_amount" ? 1 : 0;
+        m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 1, 64, Supported, _ => 0, stated: 10);
+        b.Session.PlaceVortexGround((120, 100), 1, 1, 3200, _ => 0, 0);
+        m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 2, 64.03125, Supported, _ => 0, stated: 30);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(64.0625));
+        b.Session.SettleVortexGround();
+        Assert.Equal(240u, m.MaxLife - m.Life); // 110 under the first chill, 130 under the replacement.
     }
 
     static async Task VortexSharesGroundAcrossCasters()

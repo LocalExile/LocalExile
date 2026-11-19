@@ -47,17 +47,11 @@ public static partial class Game
         int radius = SkillRadius(conn, own, true, effect, repeat, throughBolt, secondary: true);
         double rate = Own("base_deal_no_damage") != 0 || Get("deal_no_cold_damage_over_time") != 0 || DamageStats.Prohibited(DamageType.Cold, Own)
             ? 0 : damage.DamagePerSecond;
-        session.PlaceVortexGround(centre, radius, seconds, rate, Get, groundArt);
+        session.PlaceVortexGround(centre, radius, seconds, rate, SkillAilmentStats(player, own), groundArt);
     }
 
-    sealed record VortexField(ProjectileSession Owner, (int X, int Y) Centre, int Radius, long End, double Dps, Func<string, int> Stats)
-    {
-        public bool Contains((int X, int Y) cell)
-        {
-            double dx = (double)Centre.X - cell.X, dy = (double)Centre.Y - cell.Y;
-            return dx * dx + dy * dy <= (double)Radius * Radius;
-        }
-    }
+    sealed record VortexField(ProjectileSession Owner, MonsterElementalAilments.Circle Area, long End, double Dps,
+        MonsterElementalAilments.GroundChill Chill);
 
     // The instance's fields share a clock and its Monsters lock. One timer settles only the strongest Vortex on each
     // monster, including fields from another caster. Its owner receives the kill. A retiring clock hands the timer on.
@@ -75,12 +69,13 @@ public static partial class Game
         readonly Dictionary<SpawnedMonster, Exposure> samples = new(ReferenceEqualityComparer.Instance);
         ProjectileSession? driver;
         long through, timer;
+        void BeforeChillChange(double at) => Advance(ProjectileRuntime.Time(at));
 
         public void Add(ProjectileSession owner, (int, int) centre, int radius, long duration, double dps, Func<string, int> stats)
         {
             if (fields.Count == 0) through = owner.Runtime.Now;
             else Advance(owner.Runtime.Now);
-            fields.Add(new(owner, centre, radius, through + duration, dps, stats));
+            fields.Add(new(owner, new(centre, radius), through + duration, dps, MonsterElementalAilments.GroundChill.From(stats)));
             Sample(through, through);
             if (driver is null) Arm();
         }
@@ -88,8 +83,24 @@ public static partial class Game
         public void Remove(ProjectileSession owner)
         {
             Advance(Math.Max(owner.Runtime.Now, ProjectileRuntime.Time(owner.Conn.Clock.Elapsed.TotalSeconds)));
-            if (fields.RemoveAll(f => ReferenceEquals(f.Owner, owner)) > 0) Sample(through, through);
+            RemoveFields(f => ReferenceEquals(f.Owner, owner));
             if (ReferenceEquals(owner, driver)) Arm();
+        }
+
+        void RemoveFields(Predicate<VortexField> ended)
+        {
+            for (int i = fields.Count - 1; i >= 0; i--)
+            {
+                var field = fields[i];
+                if (!ended(field)) continue;
+                foreach (var monster in samples.Keys) monster.Ailments.RemoveChillingArea(field);
+                fields.RemoveAt(i);
+            }
+            if (fields.Count == 0)
+            {
+                foreach (var monster in samples.Keys) monster.Ailments.ChillChanging -= BeforeChillChange;
+                samples.Clear();
+            }
         }
 
         void Arm()
@@ -113,7 +124,7 @@ public static partial class Game
                 long end = Math.Min(now, fields.Min(f => f.End));
                 Sample(through, end);
                 through = end;
-                if (fields.RemoveAll(f => f.End <= end) > 0) Sample(end, end);
+                if (fields.Any(f => f.End <= end)) RemoveFields(f => f.End <= end);
             }
             through = Math.Max(through, now);
         }
@@ -127,7 +138,8 @@ public static partial class Game
             {
                 if (fields.Count != 0 && monsters.TryGetValue(exposure.Id, out var current) && ReferenceEquals(monster, current)
                     && monster is { Hostile: true, Dead: false, Life: > 0, OwnerId: null } && !monster.Invulnerable) continue;
-                monster.Ailments.SetChillingArea(start, start, 0);
+                foreach (var field in fields) monster.Ailments.RemoveChillingArea(field);
+                monster.Ailments.ChillChanging -= BeforeChillChange;
                 samples.Remove(monster);
             }
             if (fields.Count == 0) return;
@@ -158,28 +170,46 @@ public static partial class Game
                     void Charge((int X, int Y) point, double a, double b)
                     {
                         if (b <= a || monster.Life == 0 || monster.Invulnerable) return;
-                        VortexField? best = null;
-                        foreach (var field in fields)
-                            if (field.Dps > (best?.Dps ?? 0) && field.Contains(point)) best = field;
+                        var best = Cover(point, a);
                         if (best is null) return;
-                        double total = exposure.Carry + best.Dps * (b - a) * MonsterDotTaken(monster, DamageType.Cold, a);
+                        double total = exposure.Carry;
+                        while (a < b)
+                        {
+                            double next = monster.Ailments.NextChillChange(a, b);
+                            total += best.Dps * (next - a) * MonsterDotTaken(monster, DamageType.Cold, a, point);
+                            a = next;
+                        }
                         double whole = Math.Floor(total);
                         exposure.Carry = total - whole;
                         if (whole >= 1 && best.Owner.GroundDamage(id, monster, (int)Math.Min(int.MaxValue, whole), ProjectileRuntime.Time(b)))
                             QueueVortexKill(best.Owner, id, monster, b);
                     }
                 }
-                if (exposure is null) samples.Add(monster, new(id, cell));
-                else exposure.Cell = cell;
-                double chill = 0, expires = end;
-                foreach (var field in fields)
+                if (exposure is null)
                 {
-                    if (field.End <= until || !field.Contains(cell) || monster.Dead) continue;
-                    double magnitude = monster.Ailments.ChillingAreaMagnitude(field.Stats, name => monster.Effects[name]);
-                    if (magnitude > chill) (chill, expires) = (magnitude, Seconds(field.End));
-                    else if (magnitude == chill) expires = Math.Max(expires, Seconds(field.End));
+                    samples.Add(monster, new(id, cell));
+                    monster.Ailments.ChillChanging += BeforeChillChange;
                 }
-                monster.Ailments.SetChillingArea(end, expires, chill);
+                else exposure.Cell = cell;
+                Cover(cell, end);
+
+                VortexField? Cover((int X, int Y) point, double at)
+                {
+                    VortexField? best = null;
+                    foreach (var field in fields)
+                    {
+                        double expires = Seconds(field.End);
+                        if (at >= expires || !field.Area.Contains(point) || monster.Dead)
+                        {
+                            monster.Ailments.RemoveChillingArea(field);
+                            continue;
+                        }
+                        double magnitude = monster.Ailments.ChillingAreaMagnitude(field.Chill, name => monster.Effects[name]);
+                        monster.Ailments.SetChillingArea(field, at, expires, magnitude, field.Chill.ColdTaken);
+                        if (field.Dps > (best?.Dps ?? 0)) best = field;
+                    }
+                    return best;
+                }
             }
         }
     }
@@ -208,10 +238,18 @@ public static partial class Game
         });
     }
 
+    static void SettleChillingGround(ClientState conn, double now)
+    {
+        if (VortexGrounds.TryGetValue(conn.Monsters, out var ground)) ground.Advance(ProjectileRuntime.Time(now));
+    }
+
     internal static Task FinishVortexGround(ClientState conn)
     {
         lock (conn.Monsters)
         {
+            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            SettleChillingGround(conn, now);
+            ClearChillingTrailsLocked(conn);
             conn.ProjectileRuntime?.ClearVortex();
             return VortexKillQueues.TryGetValue(conn, out var kills) ? kills.Pending : Task.CompletedTask;
         }

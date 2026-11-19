@@ -97,8 +97,8 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                         lock (conn.Monsters)
                         {
                             if (monster.Dead || monster.Invulnerable) continue;
-                            var mitigated = DamageModel.Mitigate(packet.Roll(Random.Shared), type => MonsterHitResistance(monster, type, default));
-                            dealt = MonsterTakesMitigated(monster, mitigated, spell: true);
+                            var mitigated = DamageModel.Mitigate(packet.Roll(Random.Shared), type => MonsterHitResistance(monster, type, default, now));
+                            dealt = MonsterTakesMitigated(monster, mitigated, spell: true, now);
                         }
                         if (dealt <= 0 || !await HitMonster(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
                             conn, id, monster, dealt, cold ? "shrine Ice Nova" : "shrine Shock Nova", log: false)) continue;

@@ -1568,10 +1568,13 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (use?.Current(conn) != true) return;
-            double until = AreaTime(conn) + duration;
+            double now = AreaTime(conn);
+            SettleChillingGround(conn, now);
+            double until = now + duration;
             const string art = "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd.ao";
-            AddChilledGroundLocked(conn, from, until, groundRadius, art);
-            AddChilledGroundLocked(conn, to, until, groundRadius, art);
+            var chill = MonsterElementalAilments.GroundChill.From(SkillAilmentStats(player, own));
+            AddChilledGroundLocked(conn, from, now, until, groundRadius, art, chill);
+            AddChilledGroundLocked(conn, to, now, until, groundRadius, art, chill);
         }
         foreach (var centre in new[] { from, to })
             await AreaSkillHit(remote, stream, ciphers, conn, gem.Id, gem, centre, centre,

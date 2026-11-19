@@ -207,6 +207,38 @@ public class SacrificeSupportTests
         await Game.FrostblinkAreas("stale", fixture.Stream, fixture.Ciphers, conn, gem, (0, 0), (20, 0),
             use with { ProjectileEpoch = use.ProjectileEpoch - 1 });
         Assert.Equal(2, conn.Reservations.Trail.Count);
+
+        using var supported = new Fixture();
+        supported.Equip("Frostblink", support: "SupportGemBonechill");
+        var caster = supported.Conn;
+        var blink = Game.GemSkillEffects(caster).Single(g => g.Gem != 0);
+        foreach (string stat in new[] { "spell_minimum_added_cold_damage", "spell_maximum_added_cold_damage" })
+            caster.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+        caster.PlayerStats[Program.Stats.Key("global_cannot_crit")!.Value] = 1;
+        Assert.Equal(0, Game.SupportedCriticalChance(caster, blink.Id));
+        var range = Game.SupportedHitFor(caster, blink.Id, suppress: true)[DamageType.Cold];
+        var endpoint = caster.Monsters[103] = new("endpoint", new(160, 100, 0), 0, 0, 100000) { Hostile = true };
+        endpoint.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 10, Game.AreaTime(caster), _ => 0, _ => 0, stated: 30);
+        var entering = caster.Monsters[104] = new("outside both endpoints", new(200, 100, 0), 0, 0, 100000) { Hostile = true };
+        var ticket = new CooldownUseTicket(blink.Effect, caster.ActionCount, caster.ProjectileEpoch, Instant: true);
+        await Game.FrostblinkAreas("chilling area", supported.Stream, supported.Ciphers, caster, blink, (100, 100), (160, 100), ticket);
+        double at = Game.AreaTime(caster);
+        Assert.InRange(100000d - endpoint.Life, Math.Floor(range.Min * 1.3), Math.Ceiling(range.Max * 1.3));
+        Assert.True(range.Max < Math.Floor(range.Min * 1.3));
+        Assert.Equal(1, Game.MonsterDotTaken(entering, DamageType.Cold, at));
+        entering.Walk.Teleport(160, 100, at);
+        Assert.Equal(1.12, Game.MonsterDotTaken(entering, DamageType.Cold, at), 9);
+        var late = caster.Monsters[105] = new("ground only", new(160, 100, 0), 0, 0, 1000) { Hostile = true };
+        await Game.ReservationSkillsTick("chilling area", supported.Stream, supported.Ciphers, caster, at);
+        double expires = caster.Reservations.Trail[1].Until;
+        Assert.True(expires > at + .5);
+        Assert.Equal(12, late.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, at + .5));
+        Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at + .5), 9);
+        late.Walk.Teleport(200, 100, at + .625);
+        Assert.Equal(1, Game.MonsterDotTaken(late, DamageType.Cold, at + .65));
+        late.Walk.Teleport(160, 100, at + .75);
+        Assert.Equal(1.12, Game.MonsterDotTaken(late, DamageType.Cold, at + .8), 9);
+        Assert.Equal(1, Game.MonsterDotTaken(late, DamageType.Cold, expires));
     }
 
     [Fact]

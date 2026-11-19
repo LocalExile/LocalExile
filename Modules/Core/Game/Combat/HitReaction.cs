@@ -90,7 +90,7 @@ public static partial class Game
         bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0) : 0;
-        var taken = MonsterTakenComponents(m, mitigated, spell);
+        var taken = MonsterTakenComponents(m, mitigated, spell, ProjectileWorldTime(conn));
         double total = taken.MaxTotal;
         double stunning = total <= 0 || (critical && taken[DamageType.Cold].Max > 0) || Get("cannot_stun") > 0 ? 0
             : HitReaction.StunningDamage(damage, taken[DamageType.Physical].Max / total, melee);

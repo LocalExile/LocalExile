@@ -4,7 +4,11 @@ public sealed class ReservationState
 {
     public sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
     public sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
-    public sealed record Ice((int X, int Y) At, double Until, uint? Object = null, int Radius = 4, int? Epoch = null);
+    public sealed record Ice((int X, int Y) At, double Until, uint? Object = null, int Radius = 4, int? Epoch = null)
+    {
+        public MonsterElementalAilments.GroundChill Chill { get; init; } = new(0, 30, false);
+        public MonsterElementalAilments.Circle Area => new(At, Radius);
+    }
     public enum CatPhase { None, Stealth, Agility }
     public readonly record struct CatAspectOwner(ushort Skill, ushort RootBuff);
     public enum AvianPhase { None, Might, Flight }
