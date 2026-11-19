@@ -720,8 +720,7 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
   becomes N × N "graph" nodes at (23x, 23y), each `[biome .dgr, "1", "1"]` (a `Next(1)` per cell over the room's world
   area's topologies: DeepwaterRooms +0x3c, else its biome's +8). Records 2 … N² + 1 are the cells in node order: one
   node with the room's `.arm` tag at the cell's orientation, cell 0 also `default` and `killzone=3`. Cell 0's
-  `default` marks the start: the server arrives at its room's `default` point (`GenerationResult.Start`); the boat's
-  node (record 1) also says `default`.
+  `default` marks the start; the boat's node (record 1) also says `default`.
 - **Board** (as the client draws it, `0x140420dc0`): cell N·y + x at column x from the left, row y from the bottom;
   cell 0, the start, is bottom-left. Mask bits 1/2/4/8 = Left/Up/Right/Down (DeepwaterConnectionStrings); orientation
   o turns a room o quarter turns counter-clockwise (Right → Up, as a node's orientation code o).
@@ -743,8 +742,8 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
   edge on the far side. Equal edges at a trimmed end go through the master's EdgeCombination with no null check
   (`0x141f34200` → `0x1401297c0`); no Deepwater master has one, so the client crashes and the port refuses the level.
 
-No trace of a sent grid exists yet. Open: the record WorldArea switch to the biome's
-(+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the cell stats' and mods'
+A sent one-room chart and a 3 × 3 Voyage were traced and captured live (3.29.3d, [world](../../status/world.md)).
+Open: the record WorldArea switch to the biome's (+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the cell stats' and mods'
 meaning, and `killzone=3`, which the client never parses (guess: a server rule, a monster-free radius at the start).
 
 ## 3d. Tile graphs (`.tgr`): first stages (`TileGraph.cs`, `FortuneVoronoi.cs`, `VoronoiCells.cs`)
