@@ -131,7 +131,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      (league flag 1841), Valerie's lantern lines (the lantern's Functions; no trigger found), the other interactables,
      the rare-class and Anchor chests, the special rooms' encounters and the unique monsters.
   3. Charts and Voyages: the Bathysphere and Valerie's "Chart Area"/"Plan Voyage" (`open_deepwater_device[_1x1]`), the
-     Chart Locker (inventory 112, DeepwaterLockerLayout), the 3x3 Voyage board, border modifiers (0x2c9 mode 1,
+     Chart Locker (inventory 112, DeepwaterLockerLayout), the 3x3 Voyage board, border modifiers (row 172 DeepwaterHubRules' 0x2c9 mode 1,
      rerolls from 3000 Sulphur doubling, at most 5) and the hub's collection chest (ruleset 172 op 9 TakeAllLoot).
   4. Economy and crafting: Dead Man's Sulphur, Vesper's Allflame crafting (inventories 105/106,
      DeepwaterCraftingCurrencies' costs and league quest flag gates, 2 to 4 Ghostly Copies), Ducats, Cursed Ducats and
