@@ -526,7 +526,11 @@ public static partial class Game
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
                 var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
-                use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
+                // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
+                // and Twister's wander): it leaves from the trap or mine whatever the skill.
+                var origin = use.Origin;
+                // Its random spread and wander are seeded by the use's sequence: the object's id, so two do not match.
+                use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, (ushort)placed.Id, 0) with { Origin = origin };
                 // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var drawn = (ProjectileOffense)use.Payload!;
                 return use with { Payload = drawn with { ClientPredicted = false,
