@@ -70,6 +70,7 @@ Nothing yet.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
+  A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
   Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
