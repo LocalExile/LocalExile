@@ -2149,8 +2149,9 @@ public static partial class Game
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit)
         {
-            // Contagion has no hit: its cast puts a chaos damage over time on the monsters in its area (MonsterContagions.cs).
-            if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
+            if (IsBane(conn, gem.Effect))
+                await CastBane(conn, skillId, admittedGem, from, to, repeat, radiusMore, Current);
+            else if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
                 await CastContagion(conn, gem.Effect, skillId, from, to,
                     contagion with { SpreadAo = ContagionSkinAo(conn, gem.Gem) }, repeat, radiusMore,
                     actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, cooldownUse?.Instant == true, Current);
