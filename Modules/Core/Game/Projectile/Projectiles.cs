@@ -599,6 +599,18 @@ public static partial class Game
             if (!valid && value.Kind != ProjectileEventKind.End) return;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
+            // A gem skill's server-drawn projectile plays its rig's impact clip where it stops (Projectiles.dat
+            // ImpactAnimationIds: Fireball's fireball_explode), as a monster's does. Without one the object was only
+            // removed, so a triggered, totem, trap or mine Fireball showed no explosion, while the client plays it for
+            // its own cast (live 2026-11-17).
+            if (presentation.ImpactClip is null && !presentation.StayOnImpact && p.Use.Payload is ProjectileOffense
+                && SkillsFor(Conn).Clips(p.Profile.Id)?.Impact is { } rigImpact)
+                presentation = presentation with
+                {
+                    ImpactClip = rigImpact.Index,
+                    ImpactLifetime = ProjectileRuntime.Time(Math.Max(0.1, rigImpact.Ms / 1000.0)),
+                };
+            if (valid) CausticGroundAtEnd(value);
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
@@ -726,15 +738,20 @@ public static partial class Game
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
-            float animationValue = 0, uint animatedId = 0)
+            float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
+            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null)
         {
+            // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
+            // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
+            if (startClip is uint first) (animatedFlags, animatedId) = ((byte)(animatedFlags | 9), first);
             uint id = Conn.TakeObjectId();
-            // Native area art radii are world units; simulation radii are grid cells.
-            float scale = radius is double r && Art.ArtRadius(ao) is int nativeRadius
+            // Native area art radii are world units; simulation radii are grid cells. artRadius: the art's radius when
+            // MiscAnimated has no row for it (a GroundEffects piece).
+            float scale = radius is double r && (Art.ArtRadius(ao) ?? artRadius) is int nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
             var effect = new EffectObject(x, y, ao)
             {
-                Scale = scale, AnimatedFlags = animatedFlags, Flags0 = positionedFlags0,
+                Scale = scale, AnimatedFlags = animatedFlags, Flags0 = positionedFlags0, Rotation = rotation,
                 AnimationWord = animationWord, AnimationValue = animationValue, AnimationId = animatedId
             };
             if (radius is not null && ServerTrace.Projectiles)
@@ -748,7 +765,14 @@ public static partial class Game
                 visual.Created = true;
                 return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
             }, wake: true);
-            Runtime.Schedule(Runtime.Now + lifetime, () =>
+            if (thenClip is { } next && next.After < lifetime)
+                Runtime.Schedule(Runtime.Now + next.After, () => WorldRecords(id, () => visual.Created && !visual.Ended
+                    ? [InstanceProtocol.AnimationUpdate(id, 0, next.Clip, 1)] : null));
+            // endClip: a clip the art plays when its time is up (a ground's fade-out); the object goes after it.
+            if (endClip is { } ending)
+                Runtime.Schedule(Runtime.Now + lifetime, () => WorldRecords(id, () => visual.Created && !visual.Ended
+                    ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
+            Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), () =>
             {
                 visual.Ended = true;
                 WorldRecords(id, () =>

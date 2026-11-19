@@ -681,7 +681,9 @@ public static partial class Game
         if (gem.Name is not null && !VaalMinionTargetAvailable(conn, use.SkillId, use.TargetId)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
-        if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
+        // A trapped or mined attack is thrown from where the player stands, at the throwing time (Messages.cs).
+        bool thrown = gem.Name is not null && PlacedKind(SupportedSkill(conn, use.SkillId)) is not { Trap: false, Mine: false };
+        if (gem.Name is not null && !thrown && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
             if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds, use.Sequence))
             {
@@ -766,7 +768,7 @@ public static partial class Game
             return;
         }
         bool leapSkill = gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
-        bool immediateAttack = gem.Name is not null && !IsTotemSkill(conn, use.SkillId)
+        bool immediateAttack = gem.Name is not null && !thrown && !IsTotemSkill(conn, use.SkillId)
             && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect);
         if (immediateAttack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds, use.Sequence))
         {
@@ -1186,8 +1188,10 @@ public static partial class Game
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
         if (cooldownUse?.Attack is { } admittedAttack
             && (admittedAttack.Skill != skillId || cooldownUse.Effect != gem.Effect)) return false;
+        // A trapped or mined attack is a throw: it neither waits for the weapon's attack time nor reserves it.
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
-            && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
+            && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect)
+            && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false })
         {
             double duration = SupportedAttackSeconds(conn, skillId, sequence);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
@@ -1355,7 +1359,7 @@ public static partial class Game
             return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
         if (gem.Name is not null && IsTotemSkill(conn, skillId) && TotemVariety(conn, gem.Effect) is { } totem)
         {
-            _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, TotemPlacementCurrent);
+            _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, from, to, TotemPlacementCurrent);
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;

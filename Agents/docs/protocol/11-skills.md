@@ -2731,6 +2731,9 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   A summon past it kills the oldest living totem first.
   The client computes the same limit itself (`FUN_1427b75c0` builds `number_of_totems_allowed` 0x3be) and refuses
   a totem skill below one (`FUN_141962e30`).
+  Multiple Totems Support adds its constant `base_number_of_totems_allowed` 2 to the supported skill's limit, and one
+  use summons two totems (`summon_2_totems`, or on `chance_to_summon_two_totems_%`), side by side across the cast line;
+  the spacing is the server's own. A skill with a cooldown summons one a use.
 - Death: at Life 0, at the end of its duration, when replaced past the limit, or when the player dies (wiki Totem and
   Soul Mantle).
   The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bd) a second after.
@@ -2748,7 +2751,11 @@ Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sou
 Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
 `SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
 GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
-On 3.29.3c the proxy action alone does not draw Spark. Its Projectiles.dat flight clip on server-created objects displays the simulated sparks.
+The proxy carries `skill_is_non_pathing`: without it the client sent each server-driven cast through its
+walk-into-range step and dropped it, so the totem stood still and Arc drew nothing (live 2026-11-19; section 6,
+"`skill_is_non_pathing`"). With it the totem plays its cast and the client draws Arc itself.
+The action spawns no projectile on the client, unlike the player's own cast: every projectile a totem emits is a
+server-created object with its rig's flight and impact clips (Fireball and Spark checked live).
 The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
 Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
 owner offensive stats and type prohibitions. Ancestral Bond is `keystone_ancestral_bond` (key 5336), not
@@ -2838,15 +2845,26 @@ StateMachine only for RemoteMine. Trap metadata comes from `SkillTrapVariations`
 skill list at `0x4000` and subsequent action packets without client-data changes.
 Their payload skill's record flag 1 carries the parent object's u32 and source skill's u16, both blob-endian.
 Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` or a nonexistent `is_mine`.
-`BeThrown` (`0x141c11350`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
-followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
+`BeThrown` (`0x141c11350`) plays the `.act`'s `Emerge` clip, the throw and the arming in one (`throw_arm`: a trap's
+0.833 s, a mine's 1.233 s, `hit_ground` at 0.4 s in both; the trap's `shadOff` at 0.645 s is its armed, translucent
+look, which is also its idle look). The object's `trap_throw_arm_time_override` is the time the whole clip plays in.
+The server sends the 0x1ac with BeThrown's 0x1ab: sent only at the landing, the object slid to its place in the armed
+look and the throw never showed. A 0x1ba glide supplies the horizontal travel and ends at the clip's `hit_ground`.
+`Arm` plays the placed-in-place clip (`LayTrap`: `place`, `re_arm`) and is not sent after a throw.
+The payload skill carries `skill_is_non_pathing`, as a totem's does (section 10g). Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
 `DetonateMines` admission (`0x141d26730`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
 A throw takes the trap or mine throwing time (0.6 s and 0.3 s over throwing speed), not the spell's cast time.
+The object is created at the throw clip's contact keyframe (the class rig's `throwfast_<weapon>`: 266 of 1000 ms for
+most), not at the end of the throwing time; a throw interrupted before that is cancelled.
 With the button held, the 3.29.3c client sent its next use about 0.39 s after the last (live 2026-11-17, Fireball with
-Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
-throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
+Trap Support). On the official client a trap is in the air 0.15 s at the thrower's
+feet and 0.4 s from about 29 cells on, a mine 0.13 s at 25 cells and 0.18 s at 46 (video at 30 frames a second,
+2026-11-19); the server's flight is a fit to these, and the object is armed when its clip ends.
+A trap goes off when its duration ends; a mine is removed.
 A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
-It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
+It aims at the nearest enemy within 60 cells, or with none any way (seen on the official client).
+A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down around that enemy, or on the object.
+An attack thrown as a trap or mine is paced by the throw, not by the weapon's attack time.
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`

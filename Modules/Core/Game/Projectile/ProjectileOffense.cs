@@ -49,6 +49,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public long? RampageEpoch { get; init; }
     public RampageCatalog.SkillLevel? RampageSkill { get; init; }
     public int Level { get; init; } = 1;
+    /// <summary>The skill's gem type, for the art its worn skill effects pick.</summary>
+    public uint Gem { get; init; }
     public int Quality { get; init; }
     public int AccuracyMoreUnique { get; init; }
     public int AccuracyMoreClose { get; init; }

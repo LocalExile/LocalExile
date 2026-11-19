@@ -141,7 +141,8 @@ public static partial class Game
     // stray placement is everything below. A live round should measure casts attempted against totems actually placed
     // (Agents/docs/protocol/11-skills.md §10g).
     static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
+        ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) from, (int X, int Y) at,
+        Func<bool> current)
     {
         double factor, speed;
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
@@ -168,9 +169,35 @@ public static partial class Game
         }
         bool spell = SpellTotemEffect(conn, effect);
         double contact = spell ? start + seconds * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject) : placedAt;
-        if (await WaitUntil(contact))
-            await CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, at, Valid,
-                spell ? () => WaitUntil(placedAt) : null);
+        if (!await WaitUntil(contact)) return;
+        // One use's totems rise together, each through its own placement.
+        await Task.WhenAll(TotemSpots(from, at, TotemsPerUse(conn, skillId), variety.ObjectSize).Select(spot =>
+            CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, spot, Valid,
+                spell ? () => WaitUntil(placedAt) : null)));
+    }
+
+    /// <summary>How many totems one use of the skill summons: two with Multiple Totems Support's `summon_2_totems`, or on
+    /// `chance_to_summon_two_totems_%` (Crucible weapon trees, Animal Charm), never more than the skill's limit. A skill
+    /// with a cooldown summons one a use (wiki Multiple Totems Support: each totem takes a use).</summary>
+    public static int TotemsPerUse(ClientState conn, ushort skillId)
+    {
+        if (CooldownForSkill(conn, skillId) is not null) return 1;
+        bool two = GolemStat(SupportedSkill(conn, skillId).Stats, "summon_2_totems") != 0
+            || Random.Shared.Next(100) < GolemStat(SupportedStats(conn, skillId), "chance_to_summon_two_totems_%");
+        return Math.Clamp(two ? 2 : 1, 1, Math.Max(1, TotemLimit(conn, skillId)));
+    }
+
+    /// <summary>Where one use's totems stand: side by side across the line from the caster to the aimed point, centred
+    /// on that point, a body and a gap apart. The spacing is the server's own; the client is not told a formation.</summary>
+    public static (int X, int Y)[] TotemSpots((int X, int Y) from, (int X, int Y) at, int count, int objectSize)
+    {
+        if (count <= 1) return [at];
+        double dx = at.X - from.X, dy = at.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        // Across the cast line; a totem placed on the caster's own cell has none, so the row lies along X.
+        var (acrossX, acrossY) = length < 1 ? (1d, 0d) : (-dy / length, dx / length);
+        double step = Math.Max(6, objectSize * 2 + 2);
+        return [.. Enumerable.Range(0, count).Select(i => (i - (count - 1) / 2d) * step)
+            .Select(offset => ((int)Math.Round(at.X + acrossX * offset), (int)Math.Round(at.Y + acrossY * offset)))];
     }
 
     /// <summary>
@@ -226,11 +253,11 @@ public static partial class Game
         TotemState.Strike? strike = null;
         if (!spellTotem && TotemProxy(conn, skillId) is { } granted)
         {
-            // The spell totems' proxy (totem flags cleared, cast time and speed its own): with the gem's own stats
-            // (is_totem, base_skill_is_totemified) the client takes the action for a totem placement and plays nothing.
+            // The spell totems' proxy (totem flags cleared, non-pathing, cast time and speed its own): with the gem's
+            // own stats (is_totem, base_skill_is_totemified) the client takes the action for a totem placement and plays
+            // nothing.
             var payload = (granted.Stats ?? []).ToList();
             if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey) payload.Add((radiusKey, radius));
-            payload.Add((StatKeys.SkillIsNonPathing, 1));
             action = granted with { Stats = payload };
             if (TotemNova(conn, effect)) strike = new(TotemActionSkill, radius);
         }

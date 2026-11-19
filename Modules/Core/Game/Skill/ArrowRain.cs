@@ -41,11 +41,12 @@ public static partial class Game
 
     internal static void ReleaseArrowRain(ProjectileSession session, ushort skill,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll critical, ushort sequence, bool mirage = false)
+        SkillCriticalRoll critical, ushort sequence, bool mirage = false, (int X, int Y)? from = null)
     {
         var conn = session.Conn;
         string id = SkillsFor(conn).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence);
+        // from: where the volley leaves when it is not the player (a trap or mine).
+        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence, from: from);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(conn, shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };
@@ -67,25 +68,53 @@ public static partial class Game
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");
         string? down = toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
         string? impact = toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");
-        session.RainArt(use.Origin, up, 1);
+        // The volley leaves towards the aim and each arrow comes down leaning the way it was shot (an object's
+        // rotation: atan2(x, -y), as a projectile's).
+        static float Facing(ProjectileVector d) => d.Length < .001 ? 0 : (float)Math.Atan2(d.X, -d.Y);
+        // A server effect does not start its .ao's default_animation: Toxic Rain's shoot-up art (spores_shootup.ao,
+        // one clip "animate" that carries its vine trails) drew nothing until the clip was sent (live 2026-11-17).
+        // Rain of Arrows' and Blast Rain's are not drawn: expanding_rain_of_arrows_up is one fixed arrow mesh
+        // (rain_of_arrows/arrow_to_rain.ao) that rides a per-class clip of rain_of_arrows_anim/rig.ao on the archer, and
+        // blast_rain/arrow_up.ao has the same per-class clips; made as an effect at the release either one is a still
+        // arrow lying at the archer's feet (live 2026-11-19).
+        if (toxic) session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: 0);
+        // shortcut: the client flies the skill's arrow model up itself (toxic_rain_projectile, rain_of_spores/arrow.ao,
+        // a fixed mesh); how is not read. Its streak and flash at the archer are stood in for by the falling arrow's
+        // art, played once where the shot leaves.
+        if (toxic) session.RainArt(use.Origin, down, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: 0);
         double spacing = blast ? Math.Max(0, Get("blast_rain_arrow_delay_ms")) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
         double dps = toxic && !damageContext.Suppressed
             ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) : 0;
+        // The falling arrow's art is one clip (index 0: spore_drop.ao and blast_rain's arrow_drop.ao "animate",
+        // rain_of_arrows/rig.ao "rainofarrows", which has no default animation) that reaches the ground part-way in:
+        // its impact particles at 0.224 s and 0.218 s, Blast Rain's "contact" at 0.333 s. So it starts that long before
+        // the arrow lands.
+        double fall = toxic ? .224 : blast ? .333 : .218;
         for (int i = 0; i < landings.Count; i++)
         {
             var at = landings[i];
             long land = session.Runtime.Now + ProjectileRuntime.Time(.35 + i * spacing);
+            session.Runtime.Schedule(land - ProjectileRuntime.Time(fall), () =>
+            {
+                if (session.Active && conn.PlayerLife != 0) session.RainArt(at, down, 1, rotation: Facing(at - use.Origin), clip: 0);
+            });
             session.Runtime.Schedule(land, () =>
             {
                 if (!session.Active || conn.PlayerLife == 0) return;
-                session.RainArt(at, down, 1);
                 session.Runtime.Impact(use, at, new(id, radius));
                 if (!toxic) session.RainArt(at, impact, 1, radius);
                 else if (duration > 0)
                 {
-                    session.RainArt(at, ArtOf("toxic_rain_place"), duration);
+                    // Each pod and its roots face their own way.
+                    float turn = (float)(Random.Shared.NextDouble() * Math.Tau);
+                    session.RainArt(at, ArtOf("toxic_rain_place"), duration, rotation: turn);
+                    // The pod is its own object type (rain_of_spores/BloomPod); only its model is drawn here, with the
+                    // clips BloomPod.ot plays: 1 (grow_slow_01) when it is made and one of 2-4 (grow_slow_explode_01-03,
+                    // 0.966 s) when it bursts. Every skin's pod extends that type, so the indices hold for all.
+                    session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration,
+                        rotation: turn, clip: 1, endClip: ((uint)Random.Shared.Next(2, 5), .966));
                     session.PlaceToxicPod(use, at, radius, duration, dps,
                         -Get("rain_of_spores_vines_movement_speed_+%_final"), -Get("minimum_rain_of_spores_movement_speed_+%_final_cap"), ArtOf("toxic_rain_explode"));
                 }
@@ -93,11 +122,16 @@ public static partial class Game
         }
     }
 
-    static double ToxicPodDps(Func<string,int> get, Func<string,int> own)
+    static double ToxicPodDps(Func<string,int> get, Func<string,int> own) => ChaosGroundDps(get, own, "toxic_rain_damage_+%");
+
+    // A projectile attack's chaos damage over time in an area: Toxic Rain's pods and Caustic Arrow's ground.
+    // skillIncrease: the skill's own increased damage stat, if it has one.
+    static double ChaosGroundDps(Func<string,int> get, Func<string,int> own, string? skillIncrease)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
         double increased = (double)get("damage_+%") + get("chaos_damage_+%") + get("area_damage_+%")
-            + get("projectile_damage_+%") + get("damage_over_time_+%") + get("chaos_damage_over_time_+%") + get("toxic_rain_damage_+%");
+            + get("projectile_damage_+%") + get("damage_over_time_+%") + get("chaos_damage_over_time_+%")
+            + (skillIncrease is null ? 0 : get(skillIncrease));
         double more = 1;
         foreach (var stat in new[] { "support_void_manipulation_chaos_damage_+%_final", "support_rapid_decay_damage_over_time_+%_final",
             "support_efficacy_damage_over_time_+%_final", "support_phys_chaos_projectile_chaos_damage_over_time_+%_final",

@@ -19,7 +19,9 @@ public static partial class Game
     /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
     /// volley, so it stops there too. Other projectiles keep their full range.</summary>
     public static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
+        // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
         toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+            || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true
             ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
@@ -186,10 +188,12 @@ public static partial class Game
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
         int Get(string key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(conn, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
-        if (use.Emitter.Id != PlayerId && NativeProjectileTotem(conn, gem.Effect)
-            && use.Payload is ProjectileOffense nativeTotemShot && SkillsFor(conn).Clips(use.Profile.Id) is { Flight: not null } clips)
-            use = use with { Payload = nativeTotemShot with { ClientPredicted = false,
-                Presentation = MonsterProjectilePresentation(clips, use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
+        // A totem's action plays its cast but spawns no projectile on the client (live 2026-11-19: a totem's Fireball
+        // cast and hit with nothing flying), so the server draws a totem's shots, with the rig's flight and impact clips.
+        if (use.Emitter.Id != PlayerId && use.Payload is ProjectileOffense totemShot)
+            use = use with { Payload = totemShot with { ClientPredicted = false,
+                Presentation = totemShot.Presentation ?? MonsterProjectilePresentation(SkillsFor(conn).Clips(use.Profile.Id),
+                    use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
         if (SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow")
         {
             double thrown = use.Profile.Speed;
@@ -381,7 +385,7 @@ public static partial class Game
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true, handCritical),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true, handCritical),
             ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
-            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
+            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(conn, hitInputs,
                 AddedEffectiveness(conn, gem.Effect, gem.Level), local: local,
