@@ -1786,8 +1786,11 @@ Fireballs then fly toward the point picked at the first contact. The four action
 (`+0x110`) is empty. A separate animation event (`0xc4a5`, base handler `0x141942838`) can refresh the aim
 from a bound target. Across the seven base player rigs, the `SpellProjectile` and `SpellProjectileUpward`
 ACT pools have only `contact` (`0x9b8d`) and, where present, `lock_cancelling` (`0xb566`) on the actor.
-The four stock gems leave `GrantedEffects.Animation` empty. The default action's clip choice, events from
-attached effects and native presentation still need verification.
+The four stock gems leave `GrantedEffects.Animation` empty. Their ordinary client starts pass Animation.dat
+row 24 for Fireball (`0x1413e1c01`), 26 for Spark (`0x141248071`), and 25 for both cold spells
+(`0x141247151`). In the absence of a rain, barrage or granted-effect override, `0x14193e130` keeps that row.
+Each elemental role aliases `SpellProjectile` in the seven base character ACTs. The stance supplies the clip.
+For example, a Ranger with a wand uses `spell_projectile_unarmed`. Attached effects have separate tracks.
 
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
@@ -2014,8 +2017,10 @@ These observations describe those supplied ordinary-attack inputs.
 
 
 **Which actions predict (static, 2026-10-30).** The action class comes from ActiveSkills `ActionType` →
-ActionTypes `HASH16` (Fireball 0xaa4e, factory `0x141283b40`, vtable `0x143451950`; Spark 0x7859, constructor
-`0x141b37e20`, vtable `0x1435172b0`). Both derive from the projectile action (base vtable `0x1432452e8`) whose slot
+ActionTypes `HASH16`. Startup registers the base actions at `0x1400fee31` and the client actions at `0x1400fee36`.
+The client factories for ordinary Fireball (0xaa4e, `0x14128fd80`) and Spark (0x7859, `0x1412be410`)
+install final tables `0x143345fb0` and `0x143245f88` after construction. Factory `0x141283b40` is registered as
+`SynthesisTurretChargeProjectile` (0xe2ce). Both player spells derive from the projectile action (base vtable `0x1432452e8`) whose slot
 0x618, `0x141bb3e30`, fires the volley: it reads `number_of_additional_projectiles` and creates each projectile as a
 client object (`0x141ec47e0`, type from Projectiles.dat). Spark's slot 0x618 (`0x141b38e30`) only adjusts the count and
 calls it, so Spark's sparks are predicted like Fireball's: the server must not send them. Spark's own overrides make

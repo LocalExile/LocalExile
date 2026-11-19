@@ -694,7 +694,8 @@ and virtual slot `+0x788` on Freezing Pulse; the getter `0x1419e9f10` reads cast
 The lockstep spell hold keeps that fractional duration, including action speed, from the frame's start,
 whether the request aims at the ground or an object. A target only changes the action's aim; it does not shorten
 its cast. Sending object-target uses every frame queues new actions faster than the client starts them.
-For ordinary Fireball and Freezing Pulse casts without repeats, a Move uses the clip gate (`0x141942b50`):
+Ordinary Fireball, Spark, Freezing Pulse and Frostbolt share cancellation slot `+0x1a8` (`0x141bad750`).
+Without barrage it reaches the repeat gate and then the clip gate (`0x141942b50`). A Move is allowed
 early through `max(0.2 * clip length, contact - 0.3 * clip length)`, then blocked until `lock_cancelling`
 (contact if that event is absent). Early cancellation requires request flag `0x400`; the stat
 `cannot_cancel_skill_before_contact_point` suppresses it. A held spell still waits the full cast duration.

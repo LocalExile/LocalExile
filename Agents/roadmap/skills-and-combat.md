@@ -33,8 +33,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   and Runegraft of the Novamark on other nova actions. Verify ordinary Shock Nova placement and timing live,
   including worn effects. Verify Procession's moving marks, directional repeats, terrain edges and proxy casts live.
   Verify Fireball, Spark, Freezing Pulse and Frostbolt in a native session with a moving object and a delayed
-  Lightning Warp landing during Spell Echo. Trace their default animation choice and whether attached effects
-  or other action tracks emit the target-refresh event `0xc4a5`.
+  Lightning Warp landing during Spell Echo. Match release and cancellation to the equipped stance, including
+  alternate Witch staff clips. Check whether attached effects or other tracks emit `0xc4a5` and verify when
+  a Move interrupts an ordinary cast or its final Echo in the client.
   Trace turns from movement skills and channels before a stationary Procession.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 

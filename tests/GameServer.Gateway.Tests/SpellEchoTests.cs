@@ -28,9 +28,9 @@ public sealed class SpellEchoTests
 
     // Level-one Spell Echo grants one repeat and 40% more cast speed to each linked active gem.
     [Theory]
-    [InlineData(536, "Fireball")]
-    [InlineData(500, "Ice Nova", "Ice Nova of Deep Freeze", "Ice Nova of Frostbolts")]
-    public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(int castMs, params string[] gemNames)
+    [InlineData("Fireball", "Frostbolt")]
+    [InlineData("Ice Nova", "Ice Nova of Deep Freeze", "Ice Nova of Frostbolts", "Spark", "Freezing Pulse")]
+    public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(params string[] gemNames)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-spell-echo-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -62,9 +62,10 @@ public sealed class SpellEchoTests
                 Assert.Equal(1, Game.SpellRepeats(conn, skill.Id, skill.Effect));
                 uint repeatStat = Program.Stats.Key("spell_repeat_count")!.Value;
                 Assert.Equal(1, Game.PlayerSkills(conn).Single(s => s.Id == skill.Id).Stats!.Single(s => s.Key == repeatStat).Value);
-                Assert.Equal(castMs, Game.CastMs(conn, skill.Effect, skill.Id)); // 750 and 700 ms at 40% more
-                Assert.Equal(name == "Fireball" ? 1.5 / 1.4 : 1.0,
-                    Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
+                int baseMs = name switch { "Fireball" or "Frostbolt" => 750, "Spark" => 600, "Freezing Pulse" => 650, _ => 700 };
+                double castSeconds = baseMs / 1.4 / 1000;
+                Assert.Equal((int)Math.Round(baseMs / 1.4), Game.CastMs(conn, skill.Effect, skill.Id));
+                Assert.Equal(2 * castSeconds, Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
                 // A target changes the aim, not the native cast duration or the held spell's repeat gate.
                 foreach (uint? target in new uint?[] { null, 0x3001 })
                 {
@@ -81,12 +82,13 @@ public sealed class SpellEchoTests
                         Assert.Equal(10.5, conn.LockstepBusyUntil, 6);
                         Assert.Equal(.5, conn.LockstepCastWindow!.Value.Duration, 6);
                     }
-                    if (name == "Fireball")
+                    if (name is "Fireball" or "Frostbolt" or "Spark" or "Freezing Pulse")
                     {
                         Assert.NotNull(conn.LockstepCastWindow);
                         conn.LockstepHold.Press((120, 100), 0x2909, 0x401);
+                        Assert.Equal(Game.SkillsFor(conn).ActionHash(skill.Effect), conn.LockstepCastWindow.Value.ActionHash);
                         Assert.True(Game.LockstepPlayerFree(conn, 10.01)); // Before the first cast's contact.
-                        Assert.False(Game.LockstepPlayerFree(conn, 10 + .75 / 1.4 + .01)); // Early in the repeat.
+                        Assert.False(Game.LockstepPlayerFree(conn, 10 + castSeconds + .01)); // Early in the repeat.
                         Assert.True(Game.LockstepPlayerFree(conn, conn.LockstepBusyUntil - .001)); // Late in the final cast.
                         conn.LockstepHold.Clear();
                     }

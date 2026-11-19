@@ -378,9 +378,9 @@ public static partial class Game
         // Keep the full animation hold until the cast contact decides whether the projectiles take its repeats.
         if (SkillsFor(conn).EffectId(effect) == "IceNovaAltX" && duration > 0)
             return new(start, duration, null, duration, IceNovaRing.Action);
-        // These projectile actions share the clip gate (0x141942b50). Ordinary repeats allow its early window only
+        // These four gems share the projectile cancellation gate (0x141bad750). Ordinary repeats allow its early window only
         // on the first cast and its late window only on the final cast (0x1419e6460).
-        if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "FreezingPulse") || duration <= 0) return null;
+        if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "Spark" or "FreezingPulse" or "FrostBolt") || duration <= 0) return null;
         int repeats = SpellRepeats(conn, skill, effect);
         var own = SupportedStats(conn, skill);
         bool Has(string name) => Stats.Key(name) is uint key && own.GetValueOrDefault(key) != 0;
