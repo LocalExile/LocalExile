@@ -18,6 +18,8 @@ namespace GameServer.Core.Protocol.Instance;
 /// <item>InteractionAction: flags 0; MinimapIcon: flags 0, or 6 for an explicitly hidden marker; BaseEvents: nothing;</item>
 /// <item>HarvestWorldObject (0x141eb0cb0): u8 n, n × {u8 HarvestSeeds row, u8 count}, the seed list a grove object's
 /// label shows ("{count} x MonsterVarieties.Name").</item>
+/// <item>HeistRewardDisplay (0x141eb4120): u8 hasPrimary, u8 hasSecondary, raw <see cref="Item.Payload"/> for each present
+/// item (no u16 length prefix), then i32 LE openAttempts (clamped &gt;= 0).</item>
 /// <item>Buffs: u16 0 (no buffs, as a shrine's); Functions and ControlZone: no data;</item>
 /// <item>then the tasks (0x141ee6950): u8 n, per task the u16 GameObjectTasks HASH16 little-endian and the task's own data
 /// (its reader consumes its own bytes); later changes are S→C 0x2c2/0x2c3/0x2c5 (InstanceEntities.AddTask).</item>
@@ -47,6 +49,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     /// <summary>A script variable's name hash (0x1406db8f0): MurmurHash2 of the UTF-16LE name, seed 0.</summary>
     public static uint VariableHash(string name) =>
         InstanceEntities.Murmur2(System.Runtime.InteropServices.MemoryMarshal.AsBytes(name.AsSpan()));
+    /// <summary>The HeistRewardDisplay component's displayed items and open-attempt count.</summary>
+    public RewardDisplayData? RewardDisplay { get; init; }
     /// <summary>HarvestWorldObject's seed list: HarvestSeeds rows and their counts.</summary>
     public IReadOnlyList<(byte SeedRow, byte Count)> HarvestSeeds { get; init => field = Owned.List(value); } = [];
     /// <summary>The object's running tasks: GameObjectTasks HASH16 and the task's data. Empty by default.</summary>
@@ -54,7 +58,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
 
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
         "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine", "HarvestWorldObject",
-        "Buffs", "Functions", "ControlZone"];
+        "HeistRewardDisplay", "Buffs", "Functions", "ControlZone"];
 
     /// <summary>Whether <see cref="Blob"/> can write a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components) =>
@@ -115,6 +119,14 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                     w.U8((byte)HarvestSeeds.Count);
                     foreach (var (row, count) in HarvestSeeds) w.U8(row).U8(count);
                     break;
+                case "HeistRewardDisplay":
+                    var display = RewardDisplay;
+                    w.U8((byte)(display?.Primary is not null ? 1 : 0))
+                     .U8((byte)(display?.Secondary is not null ? 1 : 0));
+                    if (display?.Primary is { } primary) w.Bytes(primary.Payload());
+                    if (display?.Secondary is { } secondary) w.Bytes(secondary.Payload());
+                    w.I32(Math.Max(0, display?.OpenAttempts ?? 0));
+                    break;
                 case "Buffs": w.U16(0); break;
                 // BaseEvents, Functions, ControlZone: no data.
             }
@@ -125,3 +137,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
         return w.ToArray();
     }
 }
+
+/// <summary>The HeistRewardDisplay component (reader 0x141eb4120, writer 0x141eb4070): u8 hasPrimary, u8 hasSecondary,
+/// raw <see cref="Item.Payload"/> for each present item (no u16 length prefix), then i32 LE openAttempts (clamped &gt;= 0).</summary>
+public sealed record RewardDisplayData(Item? Primary, Item? Secondary = null, int OpenAttempts = 0);
