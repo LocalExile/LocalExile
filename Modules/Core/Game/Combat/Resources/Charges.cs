@@ -324,7 +324,7 @@ public static partial class Game
         _ => 1,
     };
 
-    // The charges ticker of one connection: every ChargeSession.StepSeconds of the area's frames (a pause stops them) it
+    // The charges ticker of one connection: every frame of the area (a pause stops them) it
     // steps the session and sends what changed, the charge buffs (ChargeBuffs) and, when the counts the stats use changed,
     // the pools, the walk speed and the stats (SendChargeStats). It runs while the session has work (a charge held, an
     // event queued, a periodic gain's stat, a presentation or refresh pending) and stops otherwise; a queued event
@@ -355,7 +355,7 @@ public static partial class Game
             if (ChargeTickers.TryGetValue(updates, out _)) return;
             ChargeTickers.AddOrUpdate(updates, new());
         }
-        EveryAsPlayer(conn, (int)(ChargeSession.StepSeconds * 1000), () =>
+        EveryFrameAsPlayer(conn, () =>
         {
             lock (conn.Monsters)
             {

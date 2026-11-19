@@ -8,8 +8,9 @@ using System.Runtime.CompilerServices;
 /// </summary>
 public sealed class MonsterAiCadence
 {
-    public const int StepMilliseconds = 50;
-    public const double StepSeconds = StepMilliseconds / 1000.0;
+    // One decision step a frame of the area.
+    public static int StepMilliseconds => Program.FrameMs;
+    public static double StepSeconds => StepMilliseconds / 1000.0;
     public const double RepathSeconds = 0.1;
     // A chase aimed at the player repeats about every 200 ms (GGG's cadence), near or far.
     public const double AttackChaseSeconds = 0.2;

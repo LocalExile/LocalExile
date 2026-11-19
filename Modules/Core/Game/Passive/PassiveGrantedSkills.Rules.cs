@@ -148,13 +148,10 @@ public static partial class Game
         return new(grant.Effect, grant.Level, 0, [], own, Granted: true);
     }
 
-    // The footstep trigger's poll: the run animation's clock and each footstep are followed to within this.
-    const int FootstepPollMs = 50;
-
     sealed class FootstepTimer { public bool Has, Running; public double Last = double.NaN; }
     static readonly RuleTable<PlayerUpdatesState, FootstepTimer> FootstepTimers = new();
 
-    // The player's footstep skills (Abberath's Fury): every poll on the area's timers moves the run animation's clock and
+    // The player's footstep skills (Abberath's Fury): every frame of the area moves the run animation's clock and
     // triggers each skill once per footstep it passed, while the character has a footstep skill. A stats update (the
     // passives changed) starts it again (WakeFootsteps). A pause stops the area's frames, so the clock stands still.
     static void WakeFootsteps(ClientState conn)
@@ -172,7 +169,7 @@ public static partial class Game
             timer.Running = true;
             timer.Last = updates.Schedule.Now(conn);
         }
-        EveryAsPlayer(conn, FootstepPollMs, () =>
+        EveryFrameAsPlayer(conn, () =>
         {
             lock (timer)
             {

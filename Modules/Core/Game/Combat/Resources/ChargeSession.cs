@@ -14,7 +14,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     Func<double>? clock = null, Func<double, double, double>? movingSeconds = null)
 {
     /// <summary>How often the ticker steps (seconds): expiry and periodic gains are this precise.</summary>
-    public const double StepSeconds = 0.05;
+    public static double StepSeconds => Program.FrameMs / 1000.0;
 
     /// <summary>PoE's "recently": the last 4 seconds.</summary>
     public const double RecentlySeconds = 4;

@@ -23,6 +23,14 @@ public static partial class Game
         }, source: CombatLifetime));
     }
 
+    /// <summary>The player's work of every frame of the area (the fixed update): <paramref name="work"/> runs as the player
+    /// each frame while <paramref name="keep"/> holds. The work reads the elapsed game time itself.</summary>
+    static void EveryFrameAsPlayer(ClientState conn, Func<bool> keep,
+        Func<string, NetworkStream, ConnectionCiphers, ClientState, Task> work) => EveryAsPlayer(conn, Program.FrameMs, keep, work);
+
+    /// <summary>One frame of the area, in seconds.</summary>
+    static double FrameSeconds => Program.FrameMs / 1000.0;
+
     /// <summary>Runs <paramref name="work"/> once on the area's timers in <paramref name="seconds"/> (an effect's end).</summary>
     static void AfterSeconds(ClientState conn, double seconds, Action work)
     {

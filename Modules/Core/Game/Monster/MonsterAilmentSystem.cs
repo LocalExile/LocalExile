@@ -30,6 +30,6 @@ public static partial class Game
                     a.Output.To(entity, ForObserver(packet, player), log);
                 }
             }
-        }, order: -1, every: AiEveryFrames, source: source);
+        }, order: -1, source: source);
     }
 }

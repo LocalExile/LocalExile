@@ -131,8 +131,6 @@ public static partial class Game
     public const string SkillBook = "Book of Skill";
     /// <summary>The quest books that give two passive refund points (BaseItemTypes Name; Acts 1, 6, 9 and 10).</summary>
     public const string RegretBook = "Book of Regrets";
-    /// <summary>Continuous pool recovery's target cadence; amounts use elapsed game time, not this nominal delay.</summary>
-    public const int RecoveryStepMs = 16;
     public static bool FlaskBuffs => Environment.GetEnvironmentVariable("Game_FLASK_BUFFS") != "0";
     // MiscAnimated RighteousFireRing: the big burning circle around a Righteous Fire caster.
     public const string RighteousFireRingAo = "Metadata/Effects/Spells/ri_fire/rifire.ao";

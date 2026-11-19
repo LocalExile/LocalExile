@@ -1,6 +1,6 @@
 /// <summary>
 /// The monsters' damage over time (ignites, bleeds, poisons, contagions, essence drains) ticks once for the area, every
-/// PlayerTickMs, instead of on the tick of the area's first player (which stopped while that player paused or left).
+/// frame, instead of on the tick of the area's first player (which stopped while that player paused or left).
 /// The tick still sends and credits as that player (the area's view), as a task of theirs; the next waits for it.
 /// </summary>
 public static partial class Game
@@ -25,6 +25,6 @@ public static partial class Game
                 await TickContagions(remote, stream, ciphers, view);
                 await TickEssenceDrains(remote, stream, ciphers, view);
             });
-        }, every: Math.Max(1, (int)Math.Round(PlayerTickMs / (double)Program.FrameMs)), source: source);
+        }, source: source);
     }
 }

@@ -917,19 +917,29 @@ public static partial class Game
         }
     }
 
-    // The content's own periodic work (GameEvents.Tick: boss fights, Delve, Delirium), every PlayerTickMs on the area's
-    // timers while the player's updates run; with Game_PRESENT_VERIFY=1 also the presentations' check.
-    static void StartContentTick(ClientState conn, PlayerUpdatesState state) =>
-        EveryAsPlayer(conn, PlayerTickMs, () => PlayerUpdatesCurrent(conn, state), async (remote, stream, ciphers, conn) =>
-        {
-            await GameEvents.RunTick(conn, EverySeconds(PlayerTickMs));
-            if (VerifyPresentations && PlayerUpdatesCurrent(conn, state))
-                await SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
+    // The content's own periodic work (GameEvents.Tick: boss fights, Delve, Delirium), every frame of the area while the
+    // player's updates run. With Game_PRESENT_VERIFY=1 the presentations' check (a debug tool) runs every PlayerTickMs.
+    static void StartContentTick(ClientState conn, PlayerUpdatesState state)
+    {
+        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, state),
+            (remote, stream, ciphers, conn) => GameEvents.RunTick(conn, FrameSeconds));
+        if (VerifyPresentations)
+            EveryAsPlayer(conn, PlayerTickMs, () => PlayerUpdatesCurrent(conn, state), (remote, stream, ciphers, conn) =>
+                SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
                 {
                     await VerifyStatPresentations(remote, stream, ciphers, conn);
                     return PlayerUpdatesCurrent(conn, state);
-                });
-        });
+                }));
+    }
+
+    // The recovery's rates are read from the stats again (a stats update marks them).
+    sealed class RecoveryRateState { public volatile bool Stale = true; }
+    static readonly RuleTable<PlayerUpdatesState, RecoveryRateState> RecoveryRates = new();
+
+    static void RecoveryRatesChanged(ClientState conn)
+    {
+        if (conn.PlayerUpdatesState is PlayerUpdatesState updates) RecoveryRates.GetOrCreateValue(updates).Stale = true;
+    }
 
     // Time inside [4,5), [8,9), ... since the regeneration modifier became active.
     internal static double PeriodicRegenSeconds(double elapsed)
@@ -944,7 +954,7 @@ public static partial class Game
     static void StartResourceRecovery(ClientState conn, PlayerUpdatesState updates)
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(conn);
-        double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
+        double lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
         bool zealotsOath = false, convertLifeRegen = false;
         double? periodicRegenStart = null;
         double periodicRegenPerSecond = 0;
@@ -952,7 +962,8 @@ public static partial class Game
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
         var cachedRf = conn.RighteousFire;
-        EveryAsPlayer(conn, RecoveryStepMs, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
+        var rates = RecoveryRates.GetOrCreateValue(updates);
+        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
         {
             AdvanceUtilityFlasks(conn, updates);
             await PublishFlaskChanges(remote, stream, ciphers, conn);
@@ -985,7 +996,7 @@ public static partial class Game
                     DiscardLoadingRecovery(conn, now);
                     periodicRegenStart = null;
                     last = now;
-                    ratesAt = double.NegativeInfinity;
+                    rates.Stale = true;
                     return;
                 }
                 if (LeagueFor(conn).Rules.PersistsVitals && now >= nextVitalsSave)
@@ -995,9 +1006,11 @@ public static partial class Game
                 }
                 double seconds = now - last;
                 if (seconds <= 0) return;
-                // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
-                if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
+                // The rates are read again when the stats changed (PlayerStatsUpdated: a moving or life condition too) or
+                // Righteous Fire started or ended, not every step.
+                if (rates.Stale || rf != cachedRf)
                 {
+                    rates.Stale = false;
                     recoveryStats = CharacterPlayerStatsCore(conn, out lifeRate);
                     manaRate = PanelStats.ManaPerMinute(
                         PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
@@ -1011,7 +1024,7 @@ public static partial class Game
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
                         Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
-                    (ratesAt, cachedRf) = (now, rf);
+                    cachedRf = rf;
                 }
                 double recoveryFrom = last;
                 double life, mana;
@@ -1209,11 +1222,11 @@ public static partial class Game
 
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
     // are inside.
-    // Righteous Fire burns the enemies around the player every PlayerTickMs while it runs.
+    // Righteous Fire burns the enemies around the player every frame while it runs (the burn carries its fractions).
     static void StartRighteousFireBurn(ClientState conn, RighteousFireState rf) =>
-        EveryAsPlayer(conn, PlayerTickMs, () => ReferenceEquals(conn.RighteousFire, rf), (remote, stream, ciphers, conn) =>
+        EveryFrameAsPlayer(conn, () => ReferenceEquals(conn.RighteousFire, rf), (remote, stream, ciphers, conn) =>
             conn.PlayerLife == 0 || InGracePeriod(conn) ? Task.CompletedTask
-                : BurnAround(remote, stream, ciphers, conn, rf, EverySeconds(PlayerTickMs)));
+                : BurnAround(remote, stream, ciphers, conn, rf, FrameSeconds));
 
     public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
     {

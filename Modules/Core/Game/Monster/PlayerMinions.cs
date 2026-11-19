@@ -20,13 +20,13 @@ public static partial class Game
     /// is Path of Building's radius for Minion Instability, the other minion death explosion.</summary>
     public const int RelicExplosionRadius = 22;
 
-    // Every 100 ms of the area's frames (a pause stops them) while the player's updates run: PlayerMinionsTick, then
+    // Every frame of the area (a pause stops them) while the player's updates run: PlayerMinionsTick, then
     // LinkSkillsTick (a link to a minion that just ended sees it gone). A failed step is logged and the next one runs.
     static void StartPlayerMinions(ClientState conn, PlayerUpdatesState updates)
     {
         // Loads the relic trigger's tables now, so that no step or hit loads them under the Monsters lock.
         _ = RelicTriggerOf(conn);
-        EveryAsPlayer(conn, 100, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
+        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
         {
             try
             {

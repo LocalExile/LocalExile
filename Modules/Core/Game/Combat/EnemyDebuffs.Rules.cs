@@ -60,7 +60,7 @@ public static partial class Game
             foreach (double until in m.ExposureUntil) Next(until);
             foreach (var stack in m.Withered) Next(stack.Until);
             foreach (var curse in m.Curses.All.Values) Next(curse.Until);
-            if (!double.IsNaN(m.PrideSince) && now - m.PrideSince < 4) Next(now + PlayerTickMs / 1000.0);
+            if (!double.IsNaN(m.PrideSince) && now - m.PrideSince < 4) Next(now + Program.FrameMs / 1000.0);
         }
         return double.IsFinite(next) ? next : null;
     }

@@ -7,13 +7,11 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    // The player's collisions and what the others in the instance are shown of them, every 50 ms of the area's frames
-    // (the syncs every second run) while the player's updates run and no transfer is pending. A pause skips the
-    // collisions; the pose and the syncs go on.
+    // The player's collisions and what the others in the instance are shown of them, every frame of the area while the
+    // player's updates run and no transfer is pending. A pause skips the collisions; the pose and the syncs go on.
     static void StartLivingCollisions(ClientState conn, PlayerUpdatesState updates)
     {
-        int frames = 0;
-        EveryAsPlayer(conn, 50, () =>
+        EveryFrameAsPlayer(conn, () =>
         {
             if (PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null) return true;
             if (conn.Closed || conn.LeavingArea) conn.Instance.RemovePlayer(conn.PeerId);
@@ -37,13 +35,10 @@ public static partial class Game
             if (ServerTrace.Sync) TraceSync(conn);
             PublishAwakeMonsters(conn);
             await ApplyKillShares(remote, stream, ciphers, conn);
-            if ((frames++ & 1) == 0)
-            {
-                await SyncInstancePlayers(remote, stream, ciphers, conn);
-                await SyncInstanceMonsters(remote, stream, ciphers, conn);
-                await SyncSharedGround(remote, stream, ciphers, conn);
-                await SyncPeerMinions(remote, stream, ciphers, conn);
-            }
+            await SyncInstancePlayers(remote, stream, ciphers, conn);
+            await SyncInstanceMonsters(remote, stream, ciphers, conn);
+            await SyncSharedGround(remote, stream, ciphers, conn);
+            await SyncPeerMinions(remote, stream, ciphers, conn);
         });
     }
 

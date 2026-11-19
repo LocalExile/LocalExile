@@ -8,6 +8,7 @@ public static partial class Game
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         PresentStats(conn);
+        RecoveryRatesChanged(conn);
         // A periodic charge gain's stat may have come (ChargeSession.Observe): the charges ticker runs while it has work.
         WakeCharges(conn);
         WakeFootsteps(conn);

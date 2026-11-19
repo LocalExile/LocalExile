@@ -3,7 +3,7 @@ using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>
-/// The monsters' AI as the area's system: every two frames (MonsterAiCadence.StepMilliseconds), for each player in the
+/// The monsters' AI as the area's system: every frame, for each player in the
 /// order they joined, the pass of the monsters that act for that player (a monster acts for its target,
 /// MonsterTargetsLocked), decided on the area's frame instead of each player's own AI loop. The plan is then sent as the
 /// loop sent it, as the player's task: each order is built at its frame's gate (SendMonsterAction), one after another,
@@ -22,16 +22,13 @@ public static partial class Game
     }
     static readonly ConditionalWeakTable<ClientState, AreaAi> AreaAis = new();
 
-    // MonsterAiCadence.StepMilliseconds (50 ms) is two frames, as the AI loop's wait was.
-    const int AiEveryFrames = 2;
-
     public static void StartMonsterAi(GameArea area, ClientState conn, object source)
     {
         var frames = conn.Frames;
         area.Systems.Add("monster ai", AreaPhase.Ai, a =>
         {
             foreach (var player in frames.Players()) AreaMonsterAi(a, player);
-        }, every: AiEveryFrames, source: source);
+        }, source: source);
     }
 
 

@@ -730,7 +730,7 @@ public static partial class Game
     {
         var cadence = new MonsterAiCadence();
         double next = double.NegativeInfinity;
-        EveryAsPlayer(conn, Program.FrameMs, () => PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null,
+        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null,
             async (remote, stream, ciphers, conn) =>
             {
                 double now = updates.Schedule.Now(conn);

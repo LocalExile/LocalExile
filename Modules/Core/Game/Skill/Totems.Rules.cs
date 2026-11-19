@@ -581,19 +581,23 @@ public static partial class Game
         lock (conn.Monsters) TickTotemUsesLocked(remote, stream, ciphers, conn, new WorldRecordBuilder(conn, null));
     }
 
-    // While the player has totems, every PlayerTickMs: their casts and uses, expiry, removal, life and aura.
-    static readonly RuleTable<ClientState, object> TotemTimers = new();
+    // While the player has totems, every frame: their casts and uses, expiry, removal, life and aura.
+    static readonly RuleTable<PlayerUpdatesState, object> TotemTimers = new();
 
     static void StartTotemTimer(ClientState conn)
     {
-        if (TotemTimers.TryGetValue(conn, out _)) return;
-        TotemTimers.AddOrUpdate(conn, new());
-        EveryAsPlayer(conn, PlayerTickMs, () =>
+        if (conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
+        lock (conn.Monsters)
+        {
+            if (TotemTimers.TryGetValue(updates, out _)) return;
+            TotemTimers.AddOrUpdate(updates, new());
+        }
+        EveryFrameAsPlayer(conn, () =>
         {
             lock (conn.Monsters)
             {
-                if (conn.Totems.All.Count > 0) return true;
-                TotemTimers.Remove(conn);
+                if (conn.Totems.All.Count > 0 && PlayerUpdatesCurrent(conn, updates)) return true;
+                TotemTimers.Remove(updates);
                 return false;
             }
         }, SendTotems);
