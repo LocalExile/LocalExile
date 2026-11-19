@@ -1801,8 +1801,12 @@ while the selected hand holds a usable staff or warstaff ([cosmetic eligibility]
 Both eligible clips contact at 599 of 1066 ms without a cancellation lock.
 The ordinary staff clip has the same contact and locks until 754 ms. These ACT roles also name 25 distinct
 locked effect clips. Across their authored timelines there are four `contact` events and one `endtrl`.
-The Auspicious effect uses the first 1000 ms of `animate` through the `animate_01` view, which has no event.
-None names the target-refresh event. Effect eligibility, nested effects and runtime event delivery remain open.
+The Auspicious effect uses the first 1000 ms of `animate` through the `animate_01` view, with no named event.
+The standard-event reader (`0x141db8120`) hashes the case-sensitive name before `#` (`0x141db7cb0`) and
+stores the 16-bit code the action reads. Across the packaged rig clips and animated-object standard events,
+no name maps to `0xc4a5`. The 25 effect clips register particles, sounds, trails and wind through a separate
+path (`0x141db1d97`). Their particle and trail definitions reference materials and fixed meshes.
+A runtime source of the target-refresh event on these casts remains unverified.
 
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
