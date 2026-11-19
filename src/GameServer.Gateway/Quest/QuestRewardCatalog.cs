@@ -14,7 +14,13 @@ public sealed class QuestRewardCatalog
     /// <summary>A QuestRewardOffers row. <paramref name="TakenFlag"/> is the row's QuestFlag, null when it has none: the
     /// quest books, keys and other quest items, whose own Quest flags (grant_flag held, remove_flag once used) tell that
     /// the reward was taken (<see cref="Claim"/>).</summary>
-    public sealed record Offer(int Row, string? TakenFlag, IReadOnlyList<Choice> Choices);
+    public sealed record Offer(int Row, string? TakenFlag, IReadOnlyList<Choice> Choices)
+    {
+        /// <summary>The row's league quest flag taken flag (<c>__col3</c>, a <see cref="Quests.League"/> id; the table's
+        /// out-of-range 1911 is none): an offer every character of the league takes once, such as a league's tutorial
+        /// reward. With it the offer is taken when the account's league holds the flag.</summary>
+        public int? TakenLeagueFlag { get; init; }
+    }
     readonly Dictionary<int, Offer> offers = [];
     public Offer? Find(int row) => offers.GetValueOrDefault(row);
     public IReadOnlyCollection<Offer> Offers => offers.Values;
@@ -44,14 +50,15 @@ public sealed class QuestRewardCatalog
         foreach (var r in ClientTables.Table("QuestRewardOffers"))
         {
             int index = r.Index;
+            int? league = r.Has("__col3") && r.IntOrNull("__col3") is int l and > 0 and <= Quests.League.Count ? l : null;
             // Without a QuestFlag the offer is taken when its quest item's flags say so (the Act 1 books: offers 5, 6, 9, 11).
             if (r.IntOrNull("QuestFlag") is not int f)
             {
-                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? []);
+                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? []) { TakenLeagueFlag = league };
                 continue;
             }
             if (f < 0 || f >= names.Length || names[f] == "NEVER_SET") continue;
-            result.offers[index] = new(index, names[f], byOffer.GetValueOrDefault(index) ?? []);
+            result.offers[index] = new(index, names[f], byOffer.GetValueOrDefault(index) ?? []) { TakenLeagueFlag = league };
         }
         return result;
     }
@@ -103,15 +110,17 @@ public sealed class QuestRewardCatalog
 
     /// <summary>Puts the reward into an admitted carried grid and records the offer as taken (its taken flag, or the quest item's
     /// pickup flags: an Act 1 book's a1q7-HaveRewardBook), in one save transaction. Null (nothing changes) when it is taken
-    /// already or does not fit.</summary>
+    /// already or does not fit.
+    /// <paramref name="leagueTaken"/>: for an offer with a <see cref="Offer.TakenLeagueFlag"/>, whether the league holds it
+    /// (it is then the only test; the caller sets the flag after a claim).</summary>
     public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
         Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row = PlayerInventories.MainInventory,
-        bool expandedAllowed = false) => Saves.Atomically(() =>
+        bool expandedAllowed = false, bool? leagueTaken = null) => Saves.Atomically(() =>
     {
         if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-        if (Taken(takenFlag, quest, saved.Contains) || !inventory.Fits(row, reward, shapeOf)) return null;
+        if ((leagueTaken ?? Taken(takenFlag, quest, saved.Contains)) || !inventory.Fits(row, reward, shapeOf)) return null;
         var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
         var flags = new List<string>();

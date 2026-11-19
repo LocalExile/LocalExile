@@ -666,6 +666,9 @@ public static partial class Quests
         public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296,
             UnlockedMapDevice = 350;
 
+        /// <summary>The client's number of league quest flags (ids 1 to 0x776); a table's league flag column uses 1911 for none.</summary>
+        public const int Count = 0x776;
+
         /// <summary>Kirac's Purchase Items (NPCTalk column 16): the client hides the buy option without it.</summary>
         public const int UsedMapDevice = 348;
 

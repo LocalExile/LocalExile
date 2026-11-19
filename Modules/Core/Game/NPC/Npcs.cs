@@ -212,6 +212,13 @@ public static partial class Game
         return false;
     }
 
+    /// <summary>For an offer with a league quest flag taken flag, whether the league holds it; null for any other offer.</summary>
+    public static bool? LeagueRewardTaken(ClientState conn, QuestRewardCatalog.Offer offer)
+    {
+        if (offer.TakenLeagueFlag is not int flag) return null;
+        lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(flag);
+    }
+
     // A quest's reward window (0xc0 and 0x87). False when the offer has nothing for this character, or was taken.
     public static async Task<bool> OfferNpcReward(ClientState conn, int offer)
     {
@@ -234,7 +241,7 @@ public static partial class Game
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options again (offer {offer} taken without an item)");
             return true;
         }
-        if (QuestRewardCatalog.Taken(rewardOffer.TakenFlag, ItemsFor(conn).ByHash(rewardItems[0].Item!.TypeHash)?.Quest,
+        if (LeagueRewardTaken(conn, rewardOffer) ?? QuestRewardCatalog.Taken(rewardOffer.TakenFlag, ItemsFor(conn).ByHash(rewardItems[0].Item!.TypeHash)?.Quest,
                 f => ClientHasQuestFlag(conn, f))) return false;
         conn.InNpcTalk = false;
         conn.NpcRewardOffer = offer;

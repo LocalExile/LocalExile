@@ -17,8 +17,9 @@ static partial class VendorsRules
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);
         var quest = ItemsFor(conn).ByHash(reward.TypeHash)?.Quest;
+        bool? leagueTaken = Game.LeagueRewardTaken(conn, data);
         var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, quest, items, reward, ShapeOf, row,
-            expandedAllowed: ExpandedInventoryGranted(conn));
+            expandedAllowed: ExpandedInventoryGranted(conn), leagueTaken: leagueTaken);
         if (claimed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
             items.NextRevision(row), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
@@ -31,6 +32,7 @@ static partial class VendorsRules
         if (data.TakenFlag is { } taken) takenFlags.Add(taken);
         if (quest is not null) takenFlags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>());
         if (takenFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, takenFlags);
+        if (data.TakenLeagueFlag is int league) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [league]);
         conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.TalkingTo = 0;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 quest reward claimed: dialogue ended");
     }
