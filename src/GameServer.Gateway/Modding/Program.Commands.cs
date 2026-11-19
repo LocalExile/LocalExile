@@ -8,7 +8,7 @@ using DamageType = GameServer.Core.World.DamageType;
 
 public partial class Program
 {
-    public static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
+    public static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands(null!).Usages;
 
     // Every in-game connection's last command table, emptied: one built while a module or mod was loaded holds its handlers,
     // which would keep the unloaded code in memory until the player's next command.
@@ -25,9 +25,13 @@ public partial class Program
         if (left.Commands is { } commands) left.Commands = commands.Emptied();
     }
 
+    static (string, NetworkStream, ConnectionCiphers) WireOrNone(ClientState? conn) => conn is null ? ("", null!, null!) : conn.Wire;
+
     // The chat commands of one connection (ChatCommands.cs).
-    public static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static ChatCommands Commands(ClientState conn)
     {
+        // With no connection (the list of usages): no wire, nothing is sent.
+        var (remote, stream, ciphers) = WireOrNone(conn);
         var commands = new ChatCommands
         {
             Send = (bytes, log) => Send(remote, stream, ciphers, bytes, log),
@@ -92,6 +96,6 @@ public partial class Program
             conn.Packets.Print(remote, "/lastpackets", n);
             await conn.Commands!.Reply($"The last {Math.Min(n, conn.Packets.Count)} of {conn.Packets.Count} packet(s) are in logs\\live-gateway.log.");
         });
-        return GameEvents.RunCommandsBuilding(conn, commands, remote, stream, ciphers);
+        return GameEvents.RunCommandsBuilding(conn, commands);
     }
 }

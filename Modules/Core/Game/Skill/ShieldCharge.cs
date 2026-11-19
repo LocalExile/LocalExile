@@ -78,10 +78,10 @@ public static partial class Game
 
     // After the use's echo: the faster movement speed to the client, the path hits while the server's walk runs, the final
     // hit and the speed back where it arrives (a later charge takes over the run, its hits and its end).
-    public static async Task RunShieldCharge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunShieldCharge(ClientState conn,
         int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse)
     {
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn),
+        await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn),
             $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {conn.Pools.MovementVelocityPct}, " +
             $"+{ShieldChargeMovementPct(conn)} while charging, until t={arrivesAt:0.000})");
         bool Current() => ShieldChargeRuns.TryGetValue(conn, out var r) && r.Token == token && !conn.Closed;
@@ -94,10 +94,10 @@ public static partial class Game
             ? SupportedStats(conn, skillId).GetValueOrDefault(moreKey) : 0;
         double More((int X, int Y) at) => maxDistance > 0 ? 1 + maximumMore / 100.0 * Math.Min(1, Dist(start, at) / maxDistance) : 1;
         if (ShieldWeapon(conn, skillId) is { } shieldWeapon)
-            Console.WriteLine($"[gateway] {remote} Shield Charge damage: shield base {shieldWeapon.MinDamage}-{shieldWeapon.MaxDamage}, " +
+            Console.WriteLine($"[gateway] {conn.Remote} Shield Charge damage: shield base {shieldWeapon.MinDamage}-{shieldWeapon.MaxDamage}, " +
                 $"up to {maximumMore}% more at {maxDistance:0} cells");
         Task Hit((int X, int Y) at, int radius, ISet<uint>? once) => gem.Name is null ? Task.CompletedTask
-            : AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true, sequence: sequence,
+            : AreaSkillHit(conn, skillId, gem, at, at, immediate: true, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once);
         // The step pass may end the run early, on a body or a wall.
         double Arrival() => Math.Min(arrivesAt, conn.Walk.ArrivesAt);
@@ -118,7 +118,7 @@ public static partial class Game
             run.Percent = 0;
             RecomputePoolsAndSpeed(conn);
         }
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn),
+        await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn),
             $"0x01b3 player stats (Shield Charge ends: movement_velocity_+% {conn.Pools.MovementVelocityPct})");
     }
 }

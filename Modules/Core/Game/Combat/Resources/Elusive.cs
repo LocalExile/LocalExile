@@ -144,8 +144,8 @@ public static partial class Game
         if (!Elusives.TryGetValue(conn, out var state)) return;
         state.Clear(); foreach (ushort b in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, b)); state.Retired.Clear();
     }
-    public static Task SendElusive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => ElusivePresentation(conn));
+    public static Task SendElusive(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () => ElusivePresentation(conn));
     public static byte[][]? ElusivePresentation(ClientState conn)
     {
         lock (conn.Monsters)

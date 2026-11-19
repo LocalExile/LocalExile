@@ -36,7 +36,7 @@ static partial class Game
         if (conn.ExpandedInventoryMode == mode) return;
         var wire = conn.Wire;
         if (Stats.Key(ExpandedInventoryStat) is not uint key) return;
-        await Send(wire.Remote, wire.Stream, wire.Ciphers, [], null, atGate: () =>
+        await Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {

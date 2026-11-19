@@ -46,24 +46,24 @@ public static partial class Game
         {
             if (ReferenceEquals(share.Conn, host)) continue;
             var other = share.Conn;
-            other.KillShares.Enqueue(async (remote, stream, ciphers) =>
+            other.KillShares.Enqueue(async _ =>
             {
                 if (HardcoreProgressBlocked(other)) return;
-                await SetQuestFlags(remote, stream, ciphers, other, QuestsOf(other).OnMonsterKilled(other.Layout.Id, variety.Id));
+                await SetQuestFlags(other, QuestsOf(other).OnMonsterKilled(other.Layout.Id, variety.Id));
                 // The kill's quest items: each player gets their own (none for one who has it or is past that quest).
-                await DropQuestItemsForKill(remote, stream, ciphers, other, variety.Id, at, $"{m.Label} (party kill)");
+                await DropQuestItemsForKill(other, variety.Id, at, $"{m.Label} (party kill)");
                 if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)
                 {
                     var (xp, gemXp) = KillExperience(PlayerOf(other), monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
                         other.Pools.Level, m.Level, share.Multiplier);
-                    await GainGemExperience(remote, stream, ciphers, other, gemXp);
-                    await GainExperience(remote, stream, ciphers, other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
+                    await GainGemExperience(other, gemXp);
+                    await GainExperience(other, xp, $"party kill: {m.Rarity} {m.Label} (by {CharacterName(host)})");
                 }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
                 {
                     uint needed = CharacterStats.LevelStarts[level - 1], have;
                     lock (other.Monsters) have = other.Experience;
-                    if (have < needed) await GainExperience(remote, stream, ciphers, other, needed - have, $"quest: {m.Label} killed, level {level}");
+                    if (have < needed) await GainExperience(other, needed - have, $"quest: {m.Label} killed, level {level}");
                 }
             });
         }
@@ -71,15 +71,15 @@ public static partial class Game
 
     // An ignite, bleed or poison killed the monster on the runner's tick: the kill is the one's whose hit landed last,
     // on their own connection (their client gets the corpse, their kill effects and rewards; the others their shares).
-    public static async Task DotKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task DotKilled(ClientState conn, uint id,
         SpawnedMonster m)
     {
         if (m.LastHitBy is { } by && !ReferenceEquals(by, conn) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, conn.Instance))
         {
-            by.KillShares.Enqueue((r, s, c) => MonsterKilled(r, s, c, by, id, m, byHit: false));
+            by.KillShares.Enqueue(_ => MonsterKilled(by, id, m, byHit: false));
             return;
         }
-        await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
+        await MonsterKilled(conn, id, m, byHit: false);
     }
 
     // To every other client in the instance that has the object (and has it awake), through its own send gate. A
@@ -96,8 +96,8 @@ public static partial class Game
     }
 
     // This player's frame: the shares of the host's kills.
-    public static async Task ApplyKillShares(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ApplyKillShares(ClientState conn)
     {
-        while (conn.KillShares.TryDequeue(out var share)) await share(remote, stream, ciphers);
+        while (conn.KillShares.TryDequeue(out var share)) await share(conn);
     }
 }

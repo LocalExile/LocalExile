@@ -12,10 +12,10 @@ public sealed class MinionUtilityTests
     {
         using var f = new Fixture();
         ushort source = f.Equip(("Summon Holy Relic",20)).Single();
-        uint id = await Game.SummonFighter("test",f.Stream,f.Ciphers,f.Conn,source,Game.SummonData.Find("SummonHolyRelic")!,(160,160));
+        uint id = await Game.SummonFighter(f.Conn,source,Game.SummonData.Find("SummonHolyRelic")!,(160,160));
         var relic=f.Conn.Summons.Fighters[id];
         source=f.Equip(("Summon Skeletons",20)).Single();
-        uint skeleton=await Game.SummonFighter("test",f.Stream,f.Ciphers,f.Conn,source,Game.SummonData.Find("SummonSkeletons")!,(180,180));
+        uint skeleton=await Game.SummonFighter(f.Conn,source,Game.SummonData.Find("SummonSkeletons")!,(180,180));
         var stationary=f.Conn.Summons.Fighters[skeleton].Monster.Walk.Position(0);
         source=f.Equip(("Convocation",20)).Single();
         var gem=Game.SupportedSkill(f.Conn,source);
@@ -26,10 +26,10 @@ public sealed class MinionUtilityTests
         Assert.Equal(12,relic.RecallUntil);Assert.Equal(99,relic.RecallRate);
         Assert.Null(relic.Pending);
         uint before = relic.Monster.Life;
-        Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, relic, 13);
+        Game.GolemStepLocked(f.Conn, relic, 13);
         Assert.InRange(relic.Monster.Life - before, (uint)(relic.Monster.MaxLife * .033) - 1, (uint)(relic.Monster.MaxLife * .033) + 1);
         uint healed = relic.Monster.Life;
-        Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, relic, 14);
+        Game.GolemStepLocked(f.Conn, relic, 14);
         Assert.Equal(healed, relic.Monster.Life);
         Assert.Contains(f.Conn.Minions.OutputQueue,o=>o.Log=="Convocation recall"&&o.TargetId==id);
         Assert.DoesNotContain(f.Conn.Minions.OutputQueue,o=>o.Log=="Convocation recall"&&o.TargetId==skeleton);
@@ -80,7 +80,7 @@ public sealed class MinionUtilityTests
         internal Task<uint> Summon(string effect, uint target)
         {
             ushort source = Game.GemSkillEffects(Conn).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
-            return Game.SummonFighter("test", Stream, Ciphers, Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
+            return Game.SummonFighter(Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
         }
         internal ushort[] Equip(params (string Name, int Level)[] gems)
         {

@@ -44,8 +44,7 @@ public static partial class Game
     public static int UtilityFlaskStat(ClientState conn, string stat) =>
         conn.UtilityFlaskEffects.MaximumStat(stat);
 
-    public static Task MaybeCreateProfaneGround(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at)
+    public static Task MaybeCreateProfaneGround(ClientState conn, (int X, int Y) at)
     {
         lock (conn.Monsters)
         {
@@ -53,7 +52,7 @@ public static partial class Game
             var player = CharacterPlayerStats(conn);
             MaybeCreateProfaneGroundLocked(conn, at, player);
         }
-        return PublishFlaskChanges(remote, stream, ciphers, conn);
+        return PublishFlaskChanges(conn);
     }
 
     static void MaybeCreateProfaneGroundLocked(ClientState conn, (int X, int Y) at, IReadOnlyDictionary<uint, int> player)
@@ -162,13 +161,13 @@ public static partial class Game
 
     // A nearby presentation: grounds placed (PresentNearby), walkers in or out of them, the player still or moving (a stat
     // condition), and each ground's end or linger (PresentIn).
-    static async Task SendFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendFlaskGrounds(ClientState conn)
     {
         if (conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
         AdvanceFlaskGrounds(conn, updates);
         double now = updates.Schedule.Now(conn);
         if (conn.FlaskGrounds.NextChangeAt(now) is double next) PresentIn(conn, next - now + 1e-6);
         if (!PlayerUpdatesCurrent(conn, updates)) return;
-        await PublishFlaskChanges(remote, stream, ciphers, conn);
+        await PublishFlaskChanges(conn);
     }
 }

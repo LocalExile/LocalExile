@@ -121,39 +121,39 @@ public static partial class Game
 
     // The player object is in the new area: what starts on it there, the Grace Period and the passives' self buffs (each
     // area's connection starts without buffs, PassiveBuffAuras).
-    public static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task PlayerEnteredArea(ClientState conn)
     {
         conn.PlayerSent = true;
-        await StartGracePeriod(remote, stream, ciphers, conn);
-        await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
+        await StartGracePeriod(conn);
+        await Send(conn, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
 
-    public static async Task StartGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task StartGracePeriod(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         ushort buff;
         lock (conn.Monsters) buff = conn.NextBuff++;
         bool hideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null;
         if (conn.EntryProtection.Start(now, conn.Walk.Position(now), buff, InTown(conn), hideout))
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, GracePeriod.BeginPacket(PlayerId, buff),
+            await SendWorldRecord(conn, PlayerId, GracePeriod.BeginPacket(PlayerId, buff),
                 $"Grace Period: {GracePeriod.Seconds} seconds of entry protection");
     }
 
-    public static async Task EndGracePeriod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool action = false)
+    public static async Task EndGracePeriod(ClientState conn, bool action = false)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (conn.EntryProtection.End(now, conn.Walk.Position(now), action) is ushort buff)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff),
+            await SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff),
                 "Grace Period ends: movement, action or deadline");
     }
 
     public static bool InTown(ClientState conn) => WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true };
 
-    public static async Task EndAurasOnDeath(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task EndAurasOnDeath(ClientState conn)
     {
         lock (conn.Monsters)
             if (conn.PlayerLife != 0 || conn.AuraDeathHandled || ProjectileOutputGuard.Value is { } before && !before()) return;
-        await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+        await EndGracePeriod(conn, action: true);
         List<AuraCatalog.Aura> ended;
         bool petrifiedEnded;
         lock (conn.Monsters)
@@ -173,18 +173,18 @@ public static partial class Game
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
         }
-        await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        await SendOwnAuraChanges(conn);
         if (ended.Count > 0 || petrifiedEnded)
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
-            await SendPlayerMana(remote, stream, ciphers, conn, "aura reservation cleared on death");
+            await SendCharacterStats(conn, PlayerStatChange.Auras);
+            await SendPlayerMana(conn, "aura reservation cleared on death");
         }
     }
 
-    public static Task PlayerDied(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string label) =>
-        PlayerDiedAtEpoch(remote, stream, ciphers, conn, label);
+    public static Task PlayerDied(ClientState conn, string label) =>
+        PlayerDiedAtEpoch(conn, label);
 
-    public static async Task PlayerDiedAtEpoch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task PlayerDiedAtEpoch(ClientState conn,
         string label, int? expectedEpoch = null)
     {
         int deathEpoch;
@@ -221,17 +221,16 @@ public static partial class Game
             foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
         }
         foreach (var (id, life) in RecoverBossesOnDeath(conn))
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life), $"boss 0x{id:x} recovers to {life} life after player death");
+            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life), $"boss 0x{id:x} recovers to {life} life after player death");
         if (ProjectileOutputGuard.Value is { } current && !current()) return;
         PersistVitals(conn, bestEffort: true);
-        await SendVaalSouls(remote, stream, ciphers, conn);
-        await SendRage(remote, stream, ciphers, conn);
-        await EndAurasOnDeath(remote, stream, ciphers, conn);
-        await SendPlayerDeathPresentation(remote, stream, ciphers, conn, label, deathEpoch);
+        await SendVaalSouls(conn);
+        await SendRage(conn);
+        await EndAurasOnDeath(conn);
+        await SendPlayerDeathPresentation(conn, label, deathEpoch);
     }
 
-    public static Task SendPlayerDeathPresentation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
+    public static Task SendPlayerDeathPresentation(ClientState conn, string label, int deathEpoch) => SendWorldBatch(conn, [], admission =>
     {
         lock (conn.Monsters)
         {
@@ -242,7 +241,7 @@ public static partial class Game
             records.Immediate(InstanceProtocol.DeathScreen(DeathScreenFlags(conn)));
             return records.Build();
         }
-    }, transport: (remote, stream, ciphers));
+    });
 
     public static int ReservedMana(ClientState conn)
     {
@@ -291,10 +290,10 @@ public static partial class Game
     // 0x1b1 for the mana pool: every update carries the reserved amount, or the client would clear it. The pool and the
     // reservation are read under one lock, so a packet never pairs a pool from before an aura toggle with the
     // reservation from after it.
-    public static async Task SendPlayerMana(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task SendPlayerMana(ClientState conn,
         string? log = null)
     {
-        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+        await SendWorldRecords(conn, PlayerId, () =>
         {
             // Sample both values together after earlier sends, including a queued pool/reservation rebuild.
             lock (conn.Monsters)
@@ -313,26 +312,25 @@ public static partial class Game
         lock (conn.Monsters)
             if (Stats.Key("keystone_eldritch_battery") is uint battery && CharacterPlayerStats(conn).GetValueOrDefault(battery) != 0)
                 conn.SentEnergyShield = null;
-        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        await SendPlayerEnergyShield(conn);
     }
 
     // A paid skill's Life cost, then its mana update. Petrified Blood's and Lifetap's life costs change the life pool
     // at once and the client must see it before its own prediction does anything with the new value.
-    public static async Task SendSkillCost(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint lifeCost, string? log)
+    public static async Task SendSkillCost(ClientState conn, uint lifeCost, string? log)
     {
         if (lifeCost > 0)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], log, atGate: () =>
+            await SendWorldRecord(conn, PlayerId, [], log, atGate: () =>
             {
                 lock (conn.Monsters) return PlayerLifeUpdate(conn);
             });
-        await SendPlayerMana(remote, stream, ciphers, conn, log);
+        await SendPlayerMana(conn, log);
     }
 
     // The Lifetap buff's client instance: it is added by the mana publication after a supported skill's cost (the
     // same send gate as the other own buffs) and is removed here when its countdown runs out.
-    public static Task SendLifetap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+    public static Task SendLifetap(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () =>
         {
             lock (conn.Monsters)
             {
@@ -347,8 +345,7 @@ public static partial class Game
     // The client's Life step reads life_recovery_per_minute and cannot know Petrified Blood's Low Life cap. Send 0
     // while the pool is at or above the boundary and the real modelled rate once it is below, so the local prediction
     // and the server agree. Pool updates themselves remain authoritative whole points.
-    public static Task SendPetrifiedBloodRecoveryRate(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, bool blocked) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], null, atGate: () =>
+    public static Task SendPetrifiedBloodRecoveryRate(ClientState conn, bool blocked) => SendWorldRecord(conn, PlayerId, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -359,8 +356,8 @@ public static partial class Game
             }
         });
 
-    public static Task SendPlayerEnergyShield(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+    public static Task SendPlayerEnergyShield(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () =>
         {
             // Sample and deduplicate after earlier sends: a queued pool change can clamp ES or end recharge.
             // Publish the current resource and its predictor together, from the same locked state.
@@ -743,7 +740,7 @@ public static partial class Game
         source.Id == expected.Id && source.Effect == expected.Effect
         && source.Identity == expected.Identity;
 
-    public static async Task ActivateRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort skillId,
+    public static async Task ActivateRighteousFire(ClientState conn, ushort skillId,
         int effect, int level, int quality, uint gem, RighteousFireState? expectedRelight = null,
         PlayerSkillSource? expectedRelightSource = null)
     {
@@ -850,7 +847,7 @@ public static partial class Game
             lock (conn.Monsters)
                 return ReferenceEquals(conn.Instance, area) && RighteousFireRingCurrentLocked(conn, ringReceipt!);
         }
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, playerBuff,
+        await SendWorldRecord(conn, PlayerId, playerBuff,
             $"0x01c1 player buff {current.Buff}: righteous_fire (BuffDefinitions row {RighteousFireBuffRow}) from skill 0x{current.Skill:x4}, " +
             $"art variation {variation} (BuffVisuals {buffVisual?.ToString() ?? "the row's"} / {auraVisual?.ToString() ?? "the row's"}, ring {ringAo ?? "none"}), " +
             $"exact source {sourceLabel}, radius {initialRadius}, {current.DamagePctPerMinute / 60.0:0.#}% of life per second to enemies, " +
@@ -858,7 +855,7 @@ public static partial class Game
             atGate: () => Current() ? playerBuff : null);
         // The caster burns in its own fire: righteous_fire_aura too, whose BuffVisuals (19) give a player model the
         // flaming hands (EPKFiles2 ri_fire/player.epk) and the ignite flames; the first buff only draws the ring at its feet.
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, selfAura,
+        await SendWorldRecord(conn, PlayerId, selfAura,
             $"0x01c1 player buff {current.SelfAura}: righteous_fire_aura (BuffDefinitions row {RighteousFireAuraBuffRow})",
             atGate: () => Current() ? selfAura : null);
         // The big burning circle is not a buff visual: it is MiscAnimated RighteousFireRing, an effect object of its own
@@ -870,12 +867,11 @@ public static partial class Game
         await SendWorldCreate(conn, ringId!.Value, () => RingCurrent() ? ringCreate : null,
             $"0x02b9 create effect 0x{ringId:x} {ringArt} at ({at.X}, {at.Y}), " +
             $"scale {RighteousFireRingScale(initialRadius, ringArt!):0.###} for radius {initialRadius}",
-            still: RingCurrent, transport: (remote, stream, ciphers));
-        await SendWorldRecord(remote, stream, ciphers, conn, ringId!.Value, ringWake, null, atGate: () => RingCurrent() ? ringWake : null);
+            still: RingCurrent);
+        await SendWorldRecord(conn, ringId!.Value, ringWake, null, atGate: () => RingCurrent() ? ringWake : null);
     }
 
-    public static async Task<bool> EndRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string why, RighteousFireState? expected = null, PlayerSkillSource? expectedSource = null,
+    public static async Task<bool> EndRighteousFire(ClientState conn, string why, RighteousFireState? expected = null, PlayerSkillSource? expectedSource = null,
         InstanceState? expectedInstance = null)
     {
         RighteousFireDetachPlan? plan;
@@ -895,12 +891,11 @@ public static partial class Game
             plan = PlanRighteousFireDetachLocked(conn, expected);
         }
         if (plan is null) return false;
-        await PublishRighteousFireDetach(remote, stream, ciphers, conn, plan, why);
+        await PublishRighteousFireDetach(conn, plan, why);
         return true;
     }
 
-    private static async Task PublishRighteousFireDetach(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, RighteousFireDetachPlan plan, string why)
+    private static async Task PublishRighteousFireDetach(ClientState conn, RighteousFireDetachPlan plan, string why)
     {
         for (int i = 0; i < plan.Packets.Count; i++)
         {
@@ -912,8 +907,8 @@ public static partial class Game
                     return conn.Closed || conn.LeavingArea || conn.RageRetired ? null : record.Packet;
             }
             if (record.RemovesObject)
-                await SendWorldRemoval(remote, stream, ciphers, conn, record.Id, log, atGate: Project);
-            else await SendWorldRecord(remote, stream, ciphers, conn, record.Id, record.Packet, log, atGate: Project);
+                await SendWorldRemoval(conn, record.Id, log, atGate: Project);
+            else await SendWorldRecord(conn, record.Id, record.Packet, log, atGate: Project);
         }
     }
 
@@ -925,12 +920,12 @@ public static partial class Game
         var work = GameEvents.AreaTickWork(conn);
         if (work.Count > 0)
             EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, state),
-                (remote, stream, ciphers, conn) => GameEvents.RunAreaTick(work, conn, FrameSeconds));
+                conn => GameEvents.RunAreaTick(work, conn, FrameSeconds));
         if (VerifyPresentations)
-            EveryAsPlayer(conn, PlayerTickMs, () => PlayerUpdatesCurrent(conn, state), (remote, stream, ciphers, conn) =>
-                SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
+            EveryAsPlayer(conn, PlayerTickMs, () => PlayerUpdatesCurrent(conn, state), conn =>
+                SendPlayerTickBatch(conn, async () =>
                 {
-                    await VerifyStatPresentations(remote, stream, ciphers, conn);
+                    await VerifyStatPresentations(conn);
                     return PlayerUpdatesCurrent(conn, state);
                 }));
     }
@@ -966,12 +961,12 @@ public static partial class Game
         int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
         var cachedRf = conn.RighteousFire;
         var rates = RecoveryRates.GetOrCreateValue(updates);
-        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
+        EveryFrameAsPlayer(conn, () => PlayerUpdatesCurrent(conn, updates), async conn =>
         {
             AdvanceUtilityFlasks(conn, updates);
-            await PublishFlaskChanges(remote, stream, ciphers, conn);
+            await PublishFlaskChanges(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await EndGracePeriod(remote, stream, ciphers, conn);
+            await EndGracePeriod(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             RighteousFireState? rf = null;
             uint lifeBefore, lifeAfter, manaBefore, manaAfter, manaCap;
@@ -1150,15 +1145,15 @@ public static partial class Game
             }
             if (pbRateChanged && !dead)
             {
-                await SendPetrifiedBloodRecoveryRate(remote, stream, ciphers, conn, pbRateBlocked);
+                await SendPetrifiedBloodRecoveryRate(conn, pbRateBlocked);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             if (ailmentDeathEpoch is int lethalEpoch)
-                await PlayerDiedAtEpoch(remote, stream, ciphers, conn,
+                await PlayerDiedAtEpoch(conn,
                     trapDeath ? "0x0055 lethal trap degeneration"
                         : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            await SendPlayerEnergyShield(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (dead)
             {
@@ -1167,16 +1162,16 @@ public static partial class Game
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                     ended.AddRange(conn.FlaskEffects.End(_ => true));
                 }
-                await EndFlaskEffects(remote, stream, ciphers, conn, ended, "death");
+                await EndFlaskEffects(conn, ended, "death");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 return;
             }
             if (rf is not null && lifeAfter == 1 && conn.EnergyShield.Current == 0)
-                await EndRighteousFire(remote, stream, ciphers, conn, "one life and no energy shield", rf);
+                await EndRighteousFire(conn, "one life and no energy shield", rf);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), null);
+            if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) await SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn), null);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(remote, stream, ciphers, conn, null);
+            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(conn, null);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             bool lifeFull = lifeAfter == LifeCap(conn), manaFull = manaAfter == manaCap;
             lock (conn.Monsters)
@@ -1186,7 +1181,7 @@ public static partial class Game
                 ended = conn.FlaskEffects.KeepRunning(ended, lifeFull, manaFull, now);
             }
             if (ended.Count > 0)
-                await EndFlaskEffects(remote, stream, ciphers, conn, ended, $"life {lifeAfter}/{LifeCap(conn)}, mana {manaAfter}/{manaCap}");
+                await EndFlaskEffects(conn, ended, $"life {lifeAfter}/{LifeCap(conn)}, mana {manaAfter}/{manaCap}");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
         });
     }
@@ -1204,11 +1199,11 @@ public static partial class Game
     }
 
     // The ended flask effects' buffs come off the player (S→C 0x1c2).
-    public static async Task EndFlaskEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<Flasks.Effect> ended, string why)
+    public static async Task EndFlaskEffects(ClientState conn, List<Flasks.Effect> ended, string why)
     {
         foreach (var e in ended)
-            if (FlaskBuffs && e.Buff != 0) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
-            else Console.WriteLine($"[gateway] {remote} flask {e.Slot} effect ends ({why})");
+            if (FlaskBuffs && e.Buff != 0) await SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
+            else Console.WriteLine($"[gateway] {conn.Remote} flask {e.Slot} effect ends ({why})");
         // A life, mana or hybrid flask's "during effect" mods end with its recovery.
         bool changed;
         lock (conn.Monsters)
@@ -1218,8 +1213,8 @@ public static partial class Game
         }
         if (changed)
         {
-            Console.WriteLine($"[gateway] {remote} recovery flask during effect ends ({why})");
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Flasks);
+            Console.WriteLine($"[gateway] {conn.Remote} recovery flask during effect ends ({why})");
+            await SendCharacterStats(conn, PlayerStatChange.Flasks);
         }
     }
 
@@ -1346,8 +1341,8 @@ public static partial class Game
     static readonly string[] WhileMovingFinals = ["evasion_rating", "life_recovery_per_minute",
         "total_life_recovery_per_minute_from_regeneration", "mana_recovery_per_minute", "total_mana_recovery_per_minute_from_regeneration"];
 
-    public static Task SendWhileMovingStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        !conn.Pools.WhileMovingStats ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
+    public static Task SendWhileMovingStats(ClientState conn) =>
+        !conn.Pools.WhileMovingStats ? Task.CompletedTask : Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -1370,7 +1365,7 @@ public static partial class Game
     // checkpoint" revives next to the area's activated waypoint, else at its arrival point (teleport 0x1b7, AreaLayout.Checkpoint),
     // "in town" in the character's last town (an area change;
     // in that town it is the same as the checkpoint).
-    public static async Task Resurrect(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool inTown)
+    public static async Task Resurrect(ClientState conn, bool inTown)
     {
         // The native button is hidden for HC, but a forged 0x54 must not revive the old character in its source league.
         if (conn.Hardcore || conn.HardcoreDeathRecorded) return;
@@ -1388,30 +1383,30 @@ public static partial class Game
             conn.PlayerMana = (uint)UnreservedMana(conn);
             foreach (var m in conn.Monsters.Values) m.Aggro = false;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x0054 resurrect {(inTown ? "in town" : "at checkpoint")}");
-        await Send(remote, stream, ciphers, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0054 resurrect {(inTown ? "in town" : "at checkpoint")}");
+        await Send(conn, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
         // The flasks are full again after a death.
-        await GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, "resurrected");
+        await GainFlaskCharges(conn, int.MaxValue, "resurrected");
         if (inTown && conn.LastTown != 0 && conn.Layout.Hash != conn.LastTown)
         {
             // The new area's player object is created with full life.
-            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.LastTown, 0, false, AtSpawn: true), "resurrect in town");
+            await ChangeArea(conn, new PendingTransfer(conn.LastTown, 0, false, AtSpawn: true), "resurrect in town");
             await GameEvents.RunResurrected(conn);
             return;
         }
         if (!inTown && MapCheckpointExit(conn) is { } exit)
         {
-            await ChangeArea(remote, stream, ciphers, conn, exit, "resurrect at checkpoint: out of the map, where it was entered from");
+            await ChangeArea(conn, exit, "resurrect at checkpoint: out of the map, where it was entered from");
             await GameEvents.RunResurrected(conn);
             return;
         }
         // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
+        await SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player revived with {conn.PlayerLife} life");
-        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
+        await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana}");
         // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
         // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
+        await SendCharacterStats(conn, PlayerStatChange.Panel);
         // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
         // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
         bool activated;
@@ -1419,9 +1414,9 @@ public static partial class Game
             activated = WaypointCatalog.Areas.Find(conn.Layout.Hash) is { } entry && conn.Waypoints.Contains(entry.Id);
         var (x, y) = conn.Layout.Checkpoint(activated);
         conn.Walk.Teleport(x, y, conn.Clock.Elapsed.TotalSeconds);
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, x, y),
+        await SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, x, y),
             $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && conn.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 0)]),
             "0x01b3 player hide_mini_life_bar = 0");
         await GameEvents.RunResurrected(conn);
     }
@@ -1491,7 +1486,7 @@ public static partial class Game
         }
     }
 
-    public static async Task SendPlayer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendPlayer(ClientState conn)
     {
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);
@@ -1609,22 +1604,22 @@ public static partial class Game
                         conn.PlayerObjectCreated = true;
                         return InstanceEntities.CreateObject(PlayerId, conn.PeerType, player.Blob());
                     }
-                }, label, transport: (remote, stream, ciphers));
+                }, label);
             else if (label == "0x01b3 class attributes")
-                await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+                await SendPlayerStatSnapshot(conn,
                     () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), label);
             else if (creates.TryGetValue(bytes, out uint created))
-                await SendWorldCreate(remote, stream, ciphers, conn, created, bytes, label);
+                await SendWorldCreate(conn, created, bytes, label);
             else if (world.TryGetValue(bytes, out uint target))
-                await SendWorldRecord(remote, stream, ciphers, conn, target, bytes, label);
-            else await Send(remote, stream, ciphers, bytes, label);
+                await SendWorldRecord(conn, target, bytes, label);
+            else await Send(conn, bytes, label);
         // An area change creates a new player object, so the running auras' buffs must be put on it again.
-        await SendOwnAuraChanges(remote, stream, ciphers, conn, replay: true);
-        await SendPhysicalAegis(remote, stream, ciphers, conn);
-        await SendUnhinged(remote, stream, ciphers, conn);
-        await SendAvatarOfFire(remote, stream, ciphers, conn);
-        await SendHerEmbrace(remote, stream, ciphers, conn);
-        await SendElusive(remote, stream, ciphers, conn);
+        await SendOwnAuraChanges(conn, replay: true);
+        await SendPhysicalAegis(conn);
+        await SendUnhinged(conn);
+        await SendAvatarOfFire(conn);
+        await SendHerEmbrace(conn);
+        await SendElusive(conn);
         if (conn.PeerTemplate is { WashedUp: true })
             CharacterSaves.ChangeTutorial(CharacterName(conn), tutorial => tutorial with { WakeUpShown = true });
     }

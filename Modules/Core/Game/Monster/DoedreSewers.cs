@@ -57,8 +57,7 @@ public static class DoedreSewers
     static async Task Refresh(ClientState c)
     {
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
-        var w = c.Wire;
-        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsOffFrames(c), null);
+        await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
     static async Task Clear(ClientState c)
     {
@@ -69,12 +68,11 @@ public static class DoedreSewers
             c.Degens[e] = 0;
             e.Dps = 0; e.Red = e.Green = e.Purple = 0; e.NextStack = 0;
         }
-        var w = c.Wire;
         for (int i = 0; i < e.Buffs.Length; i++)
             if (e.Buffs[i] != 0)
             {
                 ushort buff = e.Buffs[i]; e.Buffs[i] = 0;
-                if (!c.Closed) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+                if (!c.Closed) await SendWorldRecord(c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null);
             }
         if (!c.Closed && !c.LeavingArea) await Refresh(c);
     }
@@ -90,10 +88,9 @@ public static class DoedreSewers
             count = Math.Min(10, old + 1); if (old == count) return;
             if (index == 0) e.Red = count; else if (index == 1) e.Green = count; else e.Purple = count;
         }
-        var w = c.Wire;
-        if (e.Buffs[index] != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[index]), null);
+        if (e.Buffs[index] != 0) await SendWorldRecord(c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[index]), null);
         e.Buffs[index] = c.NextBuff++;
-        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[index], (ushort)(832 + index), stacks: (ushort)count), "[Doedre] effluent stacks");
+        await SendWorldRecord(c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[index], (ushort)(832 + index), stacks: (ushort)count), "[Doedre] effluent stacks");
         await Refresh(c);
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -125,7 +122,7 @@ public static class DoedreSewers
         if (c.Layout.Id != Area || !Fights.TryGetValue(c.Instance, out var f) || use.TargetId != f.ValveId) return false;
         if (!TryBeginObjectWalk(c, requestedAt, f.ValveAt.X, f.ValveAt.Y, 3, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk; var w = c.Wire;
-        if (!use.Started) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId,
+        if (!use.Started) await SendWorldRecord(c, PlayerId,
             InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, f.ValveAt.X, f.ValveAt.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
             still: () => PlayerActionCurrent(c, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
@@ -136,7 +133,7 @@ public static class DoedreSewers
             await f.Gate.WaitAsync();
             try { await f.Turn(c, c.Clock.Elapsed.TotalSeconds); } finally { f.Gate.Release(); }
         }
-        finally { await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null); }
+        finally { await SendWorldRecord(c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null); }
         return true;
     }
     sealed record Scene(uint Id, string Type, GlyphQuest.Placement At, QuestObjectTypes.Info Info);
@@ -217,9 +214,9 @@ public static class DoedreSewers
         {
             var a = s.At; var w = c.Wire;
             string? model = s.Info.OwnModel ? null : a.Model ?? s.Info.Model;
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type),
+            await Send(c, InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type),
                 new QuestObject(a.X, a.Y, s.Info.Components, a.Rotation, a.Z, model, State(s), Blocked: s.Type.EndsWith("FaceDoor") && !finished).Blob()), "[Doedre] arena object");
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.EnterWakeZone(s.Id), null);
+            await Send(c, InstanceProtocol.EnterWakeZone(s.Id), null);
         }
         public async Task Bind(ClientState c)
         {
@@ -236,19 +233,18 @@ public static class DoedreSewers
                 lock (c.Monsters)
                     if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                         c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { Skills = skills } };
-                var w = c.Wire;
-                await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Doedre] complete actor skill list");
-                await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, started ? 0 : 1)]), "[Doedre] overhead life bar");
+                await Send(c, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Doedre] complete actor skill list");
+                await Send(c, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, started ? 0 : 1)]), "[Doedre] overhead life bar");
                 if (boss.States is { } states)
-                    await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.StateMachineUpdate(id,
+                    await Send(c, InstanceEntities.StateMachineUpdate(id,
                         (byte)boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine"), states), null);
-                if (phase >= 0) await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.AddBuff(id, bossBuff, (ushort)(phase == 0 ? 835 : phase == 1 ? 837 : 836)), null);
+                if (phase >= 0) await Send(c, InstanceEntities.AddBuff(id, bossBuff, (ushort)(phase == 0 ? 835 : phase == 1 ? 837 : 836)), null);
             }
         }
         async Task All(byte[] packet, bool actor = false)
         {
             foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
-            { var w = p.Wire; await Send(w.Remote, w.Stream, w.Ciphers, [.. packet], null, still: () => !stopped && !p.Closed && !p.LeavingArea); }
+            { await Send(p, [.. packet], null, still: () => !stopped && !p.Closed && !p.LeavingArea); }
         }
         async Task States()
         {
@@ -333,7 +329,7 @@ public static class DoedreSewers
             if (target is null || Distance(pos, target.Walk.Position(now)) > 110) return;
             boss.Target = target; boss.Aggro = true;
             if (!boss.BossBarShown)
-            { boss.BossBarShown = true; var w = target.Wire; await ShowBossLifeBar(w.Remote, w.Stream, w.Ciphers, id, boss, target); }
+            { boss.BossBarShown = true; await ShowBossLifeBar(id, boss, target); }
             int effect = now >= nextWarp ? Warp : now >= nextBurst ? Burst : Distance(pos, target.Walk.Position(now)) < 10 && Random.Shared.Next(3) == 0 ? Melee : Wand;
             if (effect == Warp) nextWarp = now + 9;
             if (effect == Burst) nextBurst = now + 5;
@@ -344,8 +340,7 @@ public static class DoedreSewers
             var attack = Attack(c, boss.Variety!, boss.Level, effect, phase);
             var pos = boss.Walk.Position(now); int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + attack.Seconds + .2; boss.Walk.Order(pos.X, pos.Y, now); }
-            var w = c.Wire;
-            await SendMonsterAction(w.Remote, w.Stream, w.Ciphers, c, id, boss, generation, () =>
+            await SendMonsterAction(c, id, boss, generation, () =>
                 [.. InstanceProtocol.ActionStarted(id, pos.X, pos.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)],
                 $"[Doedre] {Game.SkillsFor(c).EffectId(effect)}");
             if (effect is Drain or Emerge) return;
@@ -362,7 +357,7 @@ public static class DoedreSewers
                     { Count = effect == Wand ? 3 : 1, SpreadRadians = Math.PI / 9 };
                 foreach (var p in Present.Where(Awake))
                 {
-                    var wire = p.Wire; var session = ProjectilesFor(wire.Remote, wire.Stream, wire.Ciphers, p);
+                    var wire = p.Wire; var session = ProjectilesFor(p);
                     session.Advance();
                     session.Schedule(ProjectileRuntime.Time(now + attack.Seconds * (effect == Wand ? .4 : .5)),
                         () => !stopped && !draining && MonsterActionCurrent(p, id, boss, generation), () =>
@@ -387,9 +382,9 @@ public static class DoedreSewers
         }
         async Task Hit(ClientState p, MonsterAttack attack, Contact hit)
         {
-            var w = p.Wire; MonsterHitOutcome? outcome = null;
+            MonsterHitOutcome? outcome = null;
             bool Contains((int X, int Y) at) => hit.Line ? LineDistance(at, hit.From, hit.To) <= hit.Radius : Distance(at, hit.To) <= hit.Radius;
-            await Send(w.Remote, w.Stream, w.Ciphers, [], null, atGate: () =>
+            await Send(p, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -398,11 +393,11 @@ public static class DoedreSewers
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Contains(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, id, boss, attack with { Damage = attack.Damage.Scale(.6) }, now, area: true);
                     if (p.PlayerLife == 0 || !Contains(p.Walk.Position(now))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, id, boss, attack, now, p.Walk.Position(now), hit.From, false, p.NextActionSequence());
+                    outcome = CommitMonsterHitLocked(p, id, boss, attack, now, p.Walk.Position(now), hit.From, false, p.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
         async Task Liquid(ClientState c, double now)
         {
@@ -421,15 +416,14 @@ public static class DoedreSewers
         async Task CreateHazard(ClientState c, Hazard h, string? model = null)
         {
             model ??= h.Model;
-            var w = c.Wire;
             if (h.Kind is 3 or 5 && QuestObjectTypes.Find(LiquidType(h)) is { } info && scene.FirstOrDefault(s => s.Type.EndsWith("Cauldron")) is { } cauldron)
                 await Create(c, new(h.Id, info.Type, cauldron.At with { Type = info.Type }, info));
             else
             {
-                await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.CreateObject(h.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(h.At.X, h.At.Y, model).Blob()), null);
-                await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.EnterWakeZone(h.Id), null);
+                await Send(c, InstanceEntities.CreateObject(h.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(h.At.X, h.At.Y, model).Blob()), null);
+                await Send(c, InstanceProtocol.EnterWakeZone(h.Id), null);
             }
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.AnimationUpdate(h.Id, AnimatedIndex(h), h.Kind is 3 or 5 ? h.Loop ? 2u : 1u : 0u, 1), null);
+            await Send(c, InstanceProtocol.AnimationUpdate(h.Id, AnimatedIndex(h), h.Kind is 3 or 5 ? h.Loop ? 2u : 1u : 0u, 1), null);
         }
         static string LiquidType(Hazard h) => Objects + (h.Kind == 5 ? "DoedreSewersPipeLiquid" : "DoedreSewersCauldronLiquid")
             + (h.Model.Contains("_red.") ? "Red" : h.Model.Contains("_purple.") ? "Purple" : h.Model.Contains("_green.") ? "Green" : "Neutral");
@@ -471,8 +465,7 @@ public static class DoedreSewers
                     {
                         if (phase == 2 && adds.Count < 8 && Monsters.Find("Metadata/Monsters/ZombieDismember/DoedreZombieMinionEmerge") is { Supported: true } v)
                         {
-                            var w = c.Wire;
-                            await SpawnMonster(w.Remote, w.Stream, w.Ciphers, c, v, boss.Level, MonsterRarity.Normal, at.Item1, at.Item2,
+                            await SpawnMonster(c, v, boss.Level, MonsterRarity.Normal, at.Item1, at.Item2,
                                 owned: (add, m) => { m.SummonerId = id; m.NoRewards = Game.SkillsFor(c).MonsterSummon(4058, 1)?.NoRewards ?? false; adds.Add(add); });
                         }
                         else if (phase is 0 or 1) await Effect(c, at, Art + (phase == 0 ? "room_red/bubble1.ao" : "moving_smog/moving_smog.ao"), now + (phase == 0 ? 2 : 10), phase);
@@ -510,9 +503,8 @@ public static class DoedreSewers
                         DoedreCloudMinionsLocked(p, now, raw, at => phase == 1 && InCloud(at), minionDotCarry);
                 }
                 if (inside == (e.Buffs[3] != 0)) continue;
-                var w = p.Wire;
-                if (inside) { e.Buffs[3] = p.NextBuff++; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[3], 25), null); }
-                else { await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[3]), null); e.Buffs[3] = 0; }
+                if (inside) { e.Buffs[3] = p.NextBuff++; await SendWorldRecord(p, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[3], 25), null); }
+                else { await SendWorldRecord(p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[3]), null); e.Buffs[3] = 0; }
             }
         }
         readonly Dictionary<uint, double> minionDotCarry = [];
@@ -537,14 +529,13 @@ public static class DoedreSewers
             boss.LifePhases!.DamageTakenPercent = 100;
             foreach (var p in Present)
             {
-                var w = p.Wire;
                 lock (p.Monsters)
                     foreach (uint add in adds)
                         if (p.Monsters.TryGetValue(add, out var m)) { m.Dead = true; m.Life = 0; }
-                foreach (uint add in adds) _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(add), null);
-                foreach (var s in scene) _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(s.Id), null);
-                foreach (var h in hazards) _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(h.Id), null);
-                if (Awake(p)) _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.RemoveBuff(id, bossBuff), null);
+                foreach (uint add in adds) _ = Send(p, InstanceProtocol.RemoveObject(add), null);
+                foreach (var s in scene) _ = Send(p, InstanceProtocol.RemoveObject(s.Id), null);
+                foreach (var h in hazards) _ = Send(p, InstanceProtocol.RemoveObject(h.Id), null);
+                if (Awake(p)) _ = Send(p, InstanceEntities.RemoveBuff(id, bossBuff), null);
             }
         }
         static (int X, int Y) Floor(ClientState c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;

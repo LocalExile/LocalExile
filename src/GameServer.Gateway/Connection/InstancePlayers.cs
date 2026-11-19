@@ -160,7 +160,7 @@ public sealed partial class ClientState
     /// <summary>The other players' minions this client was shown, by (their PeerId, their id).</summary>
     public readonly Dictionary<(uint Peer, uint Id), SharedMonster> SeenMinions = [];
     /// <summary>This player's shares of the instance host's kills, for its own loop to apply (SharedKills.cs).</summary>
-    public readonly System.Collections.Concurrent.ConcurrentQueue<Func<string, System.Net.Sockets.NetworkStream, GameServer.Core.Protocol.Login.ConnectionCiphers, Task>> KillShares = new();
+    public readonly System.Collections.Concurrent.ConcurrentQueue<Func<ClientState, Task>> KillShares = new();
     /// <summary>Sends to this connection's client, for another connection (Program.Social).</summary>
     public Func<byte[], string?, Task>? Outbox;
     /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).

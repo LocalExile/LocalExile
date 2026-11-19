@@ -8,7 +8,7 @@ public static partial class Game
 {
     // Sets or clears league quest flags (Quests.League ids, such as a Trial of Ascendancy's): saved with the account's stash
     // in the character's league, so every character of the league has them, then sent as the player's league flag set.
-    public static async Task SetLeagueQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<int> flags, bool on = true)
+    public static async Task SetLeagueQuestFlags(ClientState conn, IEnumerable<int> flags, bool on = true)
     {
         List<int> wanted = [.. flags], all;
         lock (conn.Monsters)
@@ -19,23 +19,23 @@ public static partial class Game
             if (on) conn.LeagueQuestFlags.UnionWith(wanted); else conn.LeagueQuestFlags.ExceptWith(wanted);
             all = [.. conn.LeagueQuestFlags.Order()];
         }
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: league quest flag(s) {string.Join(", ", wanted)} {(on ? "set" : "cleared")}");
+        Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}: league quest flag(s) {string.Join(", ", wanted)} {(on ? "set" : "cleared")}");
         if (!conn.PlayerSent) return;
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(all)),
             $"0x02bc player league quest flags: {string.Join(", ", all)}");
     }
 
     // Sets or clears quest flags for the character (saved at once) and sends the player's flag set again; one change at a
     // time per connection (QuestGate), so a background sync never interleaves with another change.
-    public static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
+    public static async Task SetQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         if (QuestKillCommitOutput is not null)
         {
-            await SetQuestFlagsHeld(remote, stream, ciphers, conn, flags, on);
+            await SetQuestFlagsHeld(conn, flags, on);
             return;
         }
         await conn.QuestGate.WaitAsync();
-        try { await SetQuestFlagsHeld(remote, stream, ciphers, conn, flags, on); }
+        try { await SetQuestFlagsHeld(conn, flags, on); }
         finally { conn.QuestGate.Release(); }
     }
 
@@ -83,36 +83,34 @@ public static partial class Game
         }
     }
 
-    public static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, IEnumerable<string> flags, bool on = true)
+    public static async Task SetQuestFlagsHeld(ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         QuestFlagCommit? committed;
         lock (conn.Monsters) committed = CommitQuestFlags(conn, flags, on);
-        if (committed is not null) await PublishQuestFlags(remote, stream, ciphers, conn, committed, on);
+        if (committed is not null) await PublishQuestFlags(conn, committed, on);
     }
 
-    public static async Task PublishQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, QuestFlagCommit change, bool on = true)
+    public static async Task PublishQuestFlags(ClientState conn, QuestFlagCommit change, bool on = true)
     {
-        foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
+        foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
         if (!conn.PlayerSent) return;
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x02bc player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
+            await SendWorldRecord(conn, PlayerId, [], "0x02bc player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
         if (ChangesResistancePenalty(change.Changed) || ChangesQuestStats(change.Changed))
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
+            await SendCharacterStats(conn, PlayerStatChange.Build);
         // Quest passive and refund points (QuestStaticRewards) are in the tree's numbers.
         if (ChangesStaticRewards(change.Changed))
-            await SendPassives(remote, stream, ciphers, conn);
-        await UpdateShownTransitions(remote, stream, ciphers, conn, $"quest flags {string.Join(", ", change.Effective)}");
-        await UpdateQuestNpcs(remote, stream, ciphers, conn, $"quest flags {string.Join(", ", change.Effective)}");
+            await SendPassives(conn);
+        await UpdateShownTransitions(conn, $"quest flags {string.Join(", ", change.Effective)}");
+        await UpdateQuestNpcs(conn, $"quest flags {string.Join(", ", change.Effective)}");
         if (change.Effective.Contains(GlyphQuest.PlacedGlyphs))
-            await ChangeSubmergedPassage(remote, stream, ciphers, conn, ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs));
+            await ChangeSubmergedPassage(conn, ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs));
         // The quest engine's objects and chests whose state follows a flag (World/Quest/QuestEngine.cs).
-        await UpdateQuestObjectStates(remote, stream, ciphers, conn, change.Effective);
+        await UpdateQuestObjectStates(conn, change.Effective);
         foreach (uint id in change.Removed)
-            await Send(remote, stream, ciphers, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
+            await Send(conn, [], $"0x02bd remove room object 0x{id:x} (quest flag set)", atGate: () =>
             { lock (conn.Monsters) return conn.Closed || conn.LeavingArea || conn.QuestRoomObjects.ContainsKey(id) ? null : InstanceProtocol.RemoveObject(id); });
     }
 
@@ -165,19 +163,19 @@ public static partial class Game
 
     // C→S 0x212: the Labyrinth the plaza's select window chose (1 Normal … 4 Eternal). With its trials done the door in front
     // of the way in opens in this instance and the way in shows (to today's first room; only the Normal Labyrinth is built).
-    public static async Task ChooseLabyrinth(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte tier)
+    public static async Task ChooseLabyrinth(ClientState conn, byte tier)
     {
         if (conn.Layout.Id != LabyrinthDay.Plaza) return;
         bool done = LabyrinthTrialsDone(conn, tier, out int have, out int count);
-        Console.WriteLine($"[gateway] {remote} <= 0x0212 Labyrinth {tier} chosen: {have} of {count} of its trials done");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0212 Labyrinth {tier} chosen: {have} of {count} of its trials done");
         if (tier != 1)
         {
-            Console.WriteLine($"[gateway] {remote} Labyrinth {tier}: only the Normal Labyrinth is built, the door stays shut");
+            Console.WriteLine($"[gateway] {conn.Remote} Labyrinth {tier}: only the Normal Labyrinth is built, the door stays shut");
             return;
         }
         if (!done || !conn.Instance.SetState(LabyrinthDay.PlazaDoorOpen)) return;
-        await UpdateQuestObjectStates(remote, stream, ciphers, conn, [LabyrinthDay.PlazaDoorOpen]);
-        await UpdateShownTransitions(remote, stream, ciphers, conn, "the Labyrinth's door opens");
+        await UpdateQuestObjectStates(conn, [LabyrinthDay.PlazaDoorOpen]);
+        await UpdateShownTransitions(conn, "the Labyrinth's door opens");
     }
 
     // The quest tables that run for this player: those of the modules its league lists (Quests.For; empty without
@@ -210,7 +208,7 @@ public static partial class Game
     }
 
     // The area transitions whose shown state changed (a quest flag, an NPC script): created on the client or removed.
-    public static async Task UpdateShownTransitions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task UpdateShownTransitions(ClientState conn, string why)
     {
         if (!conn.PlayerSent) return;
         // Whether each should stand now (outside the lock: it reads the flags), then, under one lock, the ones whose state
@@ -232,11 +230,11 @@ public static partial class Game
             }
             if (shown)
             {
-                await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
+                await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob()),
                     $"0x02bb create area transition 0x{id:x} {transition} ({why})");
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             }
-            else await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove area transition 0x{id:x} ({why})");
+            else await Game.SendWorldRemoval(conn, id, $"0x02bd remove area transition 0x{id:x} ({why})");
         }
     }
 
@@ -282,7 +280,7 @@ public static partial class Game
 
     // The first ground click in WashedUp sends this action instead of Move, and any other request to move gets it from the
     // server (0x141e9b860). It plays getup in place; treating a target as a walk would move only the server's position estimate.
-    public static async Task WakeUpOnBeach(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task WakeUpOnBeach(ClientState conn,
         (int X, int Y)? target, ushort sequence, ushort flags, double requestedAt)
     {
         int action;
@@ -300,7 +298,7 @@ public static partial class Game
             conn.ChannelSkill = 0;
         }
         var (x, y) = target ?? here;
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags),
+        await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags),
             $"0x01ab player gets up on the beach at ({here.X}, {here.Y})",
             still: () =>
             {
@@ -335,7 +333,7 @@ public static partial class Game
     // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2bc to
     // Transitionable), and the invisible blockers leave the server's walk estimate (the client drops its own when it gets
     // the flag). Cleared (dev): the other way.
-    public static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
+    public static async Task ChangeSubmergedPassage(ClientState conn, bool open)
     {
         lock (conn.Monsters)
         {
@@ -345,7 +343,7 @@ public static partial class Game
         byte state = open ? GlyphQuest.Transitioned : GlyphQuest.Untransitioned;
         foreach (var (id, what) in new[] { (conn.GlyphWallId, "Glyph Wall"), (conn.GlyphWaterId, "waterfall") })
             if (id != 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, GlyphQuest.TransitionableIndex, state),
+                await SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, GlyphQuest.TransitionableIndex, state),
                     $"0x02bc {what} 0x{id:x} Transitionable → {state}");
     }
 }

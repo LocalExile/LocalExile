@@ -50,59 +50,56 @@ public static partial class Game
                 plan = PlanMonsterAi(player, ai.Cadence, Math.Max(ProjectileWorldTime(player), AreaTime(player)));
         }
         finally { (AreaUpdateContext.Value, Program.ProjectileOutputGuard.Value) = (context, guard); }
-        var (remote, stream, ciphers) = player.Wire;
+        var conn = player;
         ai.Pass = AsPlayer(player, updates, async () =>
         {
-            await SendMonsterAiPlan(remote, stream, ciphers, player, ai.Cadence, plan);
+            await SendMonsterAiPlan(player, ai.Cadence, plan);
             // The next pass's upkeep, before its plan as in the AI loop.
-            await MonsterAiUpkeep(remote, stream, ciphers, player);
+            await MonsterAiUpkeep(player);
         });
     }
 
     // The plan's records and actions, sent as the AI loop sent them: each order built at its frame's gate.
-    static async Task SendMonsterAiPlan(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
+    static async Task SendMonsterAiPlan(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
     {
-        foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
+        foreach (var (packet, log) in plan.Ailments) await Send(conn, packet, log);
         foreach (uint id in plan.EndedActions)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
+            await SendWorldRecord(conn, id, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
         foreach (var (id, m, action, packet, log) in MonsterAiOrders(conn, plan))
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, packet, log);
-        await MonsterAiActions(remote, stream, ciphers, conn, cadence, plan);
+            await SendMonsterAction(conn, id, m, action, packet, log);
+        await MonsterAiActions(conn, cadence, plan);
     }
 
     // The pass's upkeep, before its plan as in the AI loop: summons running out, traps, markers, grounds, debuffs.
-    static async Task MonsterAiUpkeep(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn)
+    static async Task MonsterAiUpkeep(ClientState conn)
     {
-        await ExpireSummonedMonsters(remote, stream, ciphers, conn);
-        await MonsterTrapsTick(remote, stream, ciphers, conn);
-        await MonsterMarkersTick(remote, stream, ciphers, conn);
+        await ExpireSummonedMonsters(conn);
+        await MonsterTrapsTick(conn);
+        await MonsterMarkersTick(conn);
         await HostileGroundsTick(conn);
         await PlayerDebuffsTick(conn);
         if (DamageTriggers.TryGetValue(conn, out _))
-            ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
-        conn.Performance.MaybeLog(remote);
+            ReleaseDamageTakenTriggers(conn, ProjectilesFor(conn));
+        conn.Performance.MaybeLog(conn.Remote);
     }
 
     // What the pass starts besides its orders: boss bars, swings (each waits for its contact on the player's frames).
-    static async Task MonsterAiActions(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
+    static async Task MonsterAiActions(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
     {
         foreach (var (id, m) in plan.BossBars)
         {
             lock (conn.Monsters) { if (!MonsterPresent(conn, id, m)) continue; conn.BossBarsSeen.Add(id); }
-            await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
+            await ShowBossLifeBar(id, m, conn);
         }
         if (!CurrentGameWork) return;
         foreach (var (id, m, action) in plan.Swings)
-            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
+            _ = RunPlannedMonsterSwing(conn, cadence, id, m, action);
         foreach (var (id, m, action, begun) in plan.ArrivedSwings)
-            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action, begun);
+            _ = RunPlannedMonsterSwing(conn, cadence, id, m, action, begun);
         foreach (var attack in plan.MinionSwings)
-            StartMinionSwing(remote, stream, ciphers, conn, attack);
+            StartMinionSwing(conn, attack);
         foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
-            _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
+            _ = RunPlannedRampageWeaponSwing(conn, cadence, id, m, action, target, weapon);
     }
 
     // Work of the area's pass that sends, run as the player's: on their frame waits (AreaUpdateContext) and output guard.

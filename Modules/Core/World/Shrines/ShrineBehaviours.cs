@@ -21,7 +21,6 @@ sealed class GuardedPacksEffect : IShrineEffect
     {
         try
         {
-            var (remote, stream, ciphers) = conn.Wire;
             byte level = ShrineManager.AreaLevel(conn);
             var created = new List<string>(shrine.Definition.GuardPacks.Count);
             int buffed = 0;
@@ -33,17 +32,17 @@ sealed class GuardedPacksEffect : IShrineEffect
                 {
                     if (Roll(pack.Monsters) is not { Supported: true } variety) break;
                     var (x, y) = Around(shrine.At.X, shrine.At.Y, i, count);
-                    uint guard = await SpawnMonster(remote, stream, ciphers, conn, variety, level,
+                    uint guard = await SpawnMonster(conn, variety, level,
                         MonsterRarity.Normal, x, y, alone: false, log: false);
                     if (guard == 0) break;
                     made++;
                     if (shrine.Definition.Monster is { } monsterBuff
-                        && await GuardBuff(remote, stream, ciphers, conn, guard, monsterBuff))
+                        && await GuardBuff(conn, guard, monsterBuff))
                         buffed++;
                 }
                 created.Add($"{pack.Id} × {made}");
             }
-            Console.WriteLine($"[gateway] {remote} shrine {shrine.Definition.Id} at {shrine.At} guards, level {level}: " +
+            Console.WriteLine($"[gateway] {conn.Remote} shrine {shrine.Definition.Id} at {shrine.At} guards, level {level}: " +
                 string.Join(", ", created) +
                 (shrine.Definition.Monster is { } buff ? $"; shrine buff {buff.Template} (row {buff.BuffRow}) on {buffed}" : ""));
         }
@@ -56,8 +55,7 @@ sealed class GuardedPacksEffect : IShrineEffect
     /// <summary>The shrine's monster buff on one of its guards: the BuffDefinitions row the Shrines row names, and its
     /// BuffTemplates values as the monster's effects. <see cref="SpawnedMonster.EncounterStats"/> is where a monster's buff
     /// stats are read, keyed by stat name: the client key is a Stats row + 1, so the name comes back from Stats.</summary>
-    static async Task<bool> GuardBuff(string remote, System.Net.Sockets.NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint guard, ShrineCatalog.MonsterBuff buff)
+    static async Task<bool> GuardBuff(ClientState conn, uint guard, ShrineCatalog.MonsterBuff buff)
     {
         var stats = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (key, value) in buff.Stats)
@@ -73,7 +71,7 @@ sealed class GuardedPacksEffect : IShrineEffect
             instance = conn.NextBuff++;
             if (stats.Count > 0) monster.EncounterStats = stats;
         }
-        await Program.Send(remote, stream, ciphers, InstanceEntities.AddBuff(guard, instance, buff.BuffRow, guard),
+        await Program.Send(conn, InstanceEntities.AddBuff(guard, instance, buff.BuffRow, guard),
             $"0x01c1 guard 0x{guard:x} has shrine buff {buff.Template} (BuffDefinitions row {buff.BuffRow})");
         return true;
     }

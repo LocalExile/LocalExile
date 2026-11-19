@@ -19,7 +19,7 @@ public static partial class Game
     public const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
-    public static async Task WarcryReleased(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task WarcryReleased(ClientState conn,
         (int X, int Y) at, int radius, int epoch)
     {
         lock (conn.Monsters)
@@ -30,18 +30,18 @@ public static partial class Game
         var stats = AreaPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         if (Get(CorpseExplosionStat) is int percent and > 0)
-            await ExplodeCorpses(remote, stream, ciphers, conn, at, radius, epoch, percent, Get,
+            await ExplodeCorpses(conn, at, radius, epoch, percent, Get,
                 DamageStats.Conversion(stats, Stats, attack: null));
         bool current;
         lock (conn.Monsters) current = conn.ProjectileActive(epoch) && conn.PlayerLife > 0;
         if (current && Get(OpenChestsStat) != 0) await OpenChestsInRadius(conn, at, radius);
         if (current && Get(CorpseLootStat) is int lootChance and > 0)
-            await DropCorpseLoot(remote, stream, ciphers, conn, at, radius, epoch, lootChance);
+            await DropCorpseLoot(conn, at, radius, epoch, lootChance);
     }
 
     // Howl of the Wolf: each corpse within the warcry's radius drops its loot again with that chance. The corpse stays
     // usable (its explosion, consumption or removal is another effect's).
-    static async Task DropCorpseLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task DropCorpseLoot(ClientState conn,
         (int X, int Y) at, int radius, int epoch, int chance)
     {
         List<(SpawnedMonster Monster, (int X, int Y) At)> corpses;
@@ -61,7 +61,7 @@ public static partial class Game
         Console.WriteLine($"[gateway] warcry corpse loot: {corpses.Count} new corpse(s) within {radius} cells, {Math.Min(100, chance)}% each");
         foreach (var (monster, corpseAt) in corpses)
             if (Random.Shared.Next(100) < Math.Min(100, chance))
-                await DropLoot(remote, stream, ciphers, conn, monster, corpseAt);
+                await DropLoot(conn, monster, corpseAt);
     }
 
     // A corpse the engine has: a monster killed in this area visit whose Life type allows corpse use, not yet consumed.
@@ -82,7 +82,7 @@ public static partial class Game
     // Deathrattle: every corpse within the warcry's radius explodes and is consumed; each explosion hits the living hostile
     // monsters around its corpse (not an attack or a spell: no block, no evasion; 0% base crit, and flat crit chance and
     // global added damage, which the wiki's Explode page says apply, are not modelled).
-    static async Task ExplodeCorpses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task ExplodeCorpses(ClientState conn,
         (int X, int Y) at, int radius, int epoch, int percent, Func<string, int> get, DamageConversion conversion)
     {
         int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
@@ -109,7 +109,7 @@ public static partial class Game
                     if (ApplyMonsterHitLocked(conn, m, damage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
-                        CommitBossStage(remote, stream, ciphers, conn, targetId, m, now);
+                        CommitBossStage(conn, targetId, m, now);
                         applied = applied with { StageStarts = false };
                     }
                     hits.Add((targetId, m, applied, damage));
@@ -122,22 +122,22 @@ public static partial class Game
             uint effect;
             lock (conn.Monsters) effect = conn.TakeObjectId();
             art.Add(effect);
-            await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            await SendWorldCreate(conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
-            await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
-            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
+            await SendWorldRecord(conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
+            await Game.SendWorldRemoval(conn, id, $"0x02bd corpse 0x{id:x} ({label}) explodes (Deathrattle)");
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>
             {
                 await Task.Delay(CorpseExplosionArtMs);
                 foreach (uint effect in art)
-                    if (conn.ProjectileActive(epoch)) await Game.SendWorldRemoval(remote, stream, ciphers, conn, effect, null);
+                    if (conn.ProjectileActive(epoch)) await Game.SendWorldRemoval(conn, effect, null);
             });
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         foreach (var (id, m, hit, damage) in hits)
-            await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage, "a corpse explosion", deaths: deaths);
-        foreach (var (id, m) in deaths) await MonsterKilled(remote, stream, ciphers, conn, id, m);
+            await NotifyMonsterHit(conn, id, m, hit, damage, "a corpse explosion", deaths: deaths);
+        foreach (var (id, m) in deaths) await MonsterKilled(conn, id, m);
     }
 
     // Deathrattle: the warcry opens the chests within its radius, those the engine has (the quest chests, the QuestObjects

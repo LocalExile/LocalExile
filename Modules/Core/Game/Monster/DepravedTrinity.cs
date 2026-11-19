@@ -77,19 +77,18 @@ public static class DepravedTrinity
                 || QuestObjectTypes.Find(SeedType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
             bool wanted;
             lock (c.Monsters) wanted = Enumerable.Range(0, 3).All(n => Dead(Soul(c, n))) && c.HasQuestFlag("a9q1-BlackHeartOpen");
-            var w = c.Wire;
             if (Id == 0)
             {
                 lock (c.Monsters) Id = c.TakeObjectId();
                 open = wanted;
-                await Send(w.Remote, w.Stream, w.Ciphers, [.. InstanceEntities.CreateObject(Id, InstanceEntities.ObjectTypeHash(SeedType),
+                await Send(c, [.. InstanceEntities.CreateObject(Id, InstanceEntities.ObjectTypeHash(SeedType),
                     new QuestObject(point.X, point.Y, info.Components, point.Rotation, point.Z, point.Model, (byte)(open ? 2 : 1)).Blob()),
                     .. InstanceProtocol.EnterWakeZone(Id)], "[Rotting Core] seed of corruption", still: () => CurrentGameWork && !c.Closed && !c.LeavingArea);
             }
             else if (open != wanted)
             {
                 open = wanted;
-                await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.TransitionableUpdate(Id,
+                await Send(c, InstanceEntities.TransitionableUpdate(Id,
                     (byte)QuestObject.TransitionableIndex(info.Components), (byte)(open ? 2 : 1)), "[Rotting Core] Black Heart opens",
                     still: () => CurrentGameWork && !c.Closed && !c.LeavingArea);
             }
@@ -142,16 +141,15 @@ public static class DepravedTrinity
             e.NextStack = now + 1;
         }
         if (r == e.Red.Count && p == e.Purple.Count) return;
-        var w = c.Wire;
         foreach (int n in new[] { 0, 1 })
         {
-            if (e.Buffs[n] != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[n]), null);
+            if (e.Buffs[n] != 0) await SendWorldRecord(c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[n]), null);
             int count = n == 0 ? e.Red.Count : e.Purple.Count;
             e.Buffs[n] = count == 0 ? (ushort)0 : c.NextBuff++;
-            if (count != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[n], (ushort)(n == 0 ? 832 : 834), stacks: (ushort)count), "[Rotting Core] effluent");
+            if (count != 0) await SendWorldRecord(c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[n], (ushort)(n == 0 ? 832 : 834), stacks: (ushort)count), "[Rotting Core] effluent");
         }
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
-        if (!c.Closed && !c.LeavingArea) await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsOffFrames(c), null);
+        if (!c.Closed && !c.LeavingArea) await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
     public static Task Leaving(ClientState c) => !Exposures.TryGetValue(c, out _) ? Task.CompletedTask : ExposureUpdate(c, false, false, 0, clear: true);
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
@@ -247,7 +245,7 @@ public static class DepravedTrinity
         if (!TransitionShown(c, use.TargetId, gate)) return true;
         if (!TryBeginObjectWalk(c, requestedAt, gate.GridX, gate.GridY, AreaTransitionObjectSize, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk; var w = c.Wire;
-        if (!use.Started) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, gate.GridX, gate.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null, still: () => PlayerActionCurrent(c, action));
+        if (!use.Started) await SendWorldRecord(c, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, gate.GridX, gate.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null, still: () => PlayerActionCurrent(c, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(c, action)) return true;
         try
@@ -255,9 +253,9 @@ public static class DepravedTrinity
             if (!CurrentGameWork || !TransitionShown(c, use.TargetId, gate)
                 || !PlayerWalk.InWalkUpRange(stop, (gate.GridX, gate.GridY), AreaTransitionObjectSize)) return true;
             lock (c.Monsters) c.Walk.Teleport(destination.X, destination.Y, ProjectileWorldTime(c));
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.Teleport(PlayerId, destination.X, destination.Y), $"[Rotting Core] gate 0x{use.TargetId:x} -> {destination}", still: () => PlayerActionCurrent(c, action));
+            await SendWorldRecord(c, PlayerId, InstanceProtocol.Teleport(PlayerId, destination.X, destination.Y), $"[Rotting Core] gate 0x{use.TargetId:x} -> {destination}", still: () => PlayerActionCurrent(c, action));
         }
-        finally { await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(c, action)); }
+        finally { await SendWorldRecord(c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(c, action)); }
         return true;
     }
     public static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety variety, byte level, int effect)
@@ -293,7 +291,7 @@ public static class DepravedTrinity
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         // Flags and deaths may change the gates for another member of the same instance as well.
-        var w = c.Wire; await UpdateShownTransitions(w.Remote, w.Stream, w.Ciphers, c, "Rotting Core encounter");
+        await UpdateShownTransitions(c, "Rotting Core encounter");
         await Seeds.GetValue(c, _ => new()).Tick(c);
         if (IsMonsterRunner(c))
         {
@@ -305,7 +303,7 @@ public static class DepravedTrinity
                 foreach (uint id in RetireCreatures(c))
                 {
                     lock (c.Monsters) { c.MonsterViews.Remove(id); c.AsleepMonsters.Remove(id); }
-                    await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(id), "[Rotting Core] encounter creature retired");
+                    await Send(c, InstanceProtocol.RemoveObject(id), "[Rotting Core] encounter creature retired");
                 }
             }
         }
@@ -363,7 +361,7 @@ public static class DepravedTrinity
         async Task All(byte[] bytes, bool actor = false)
         {
             foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
-            { var w = p.Wire; await Send(w.Remote, w.Stream, w.Ciphers, [.. bytes], null, still: () => !Stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
+            { await Send(p, [.. bytes], null, still: () => !Stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
         }
         public async Task Bind(ClientState c)
         {
@@ -374,8 +372,7 @@ public static class DepravedTrinity
                 foreach (var fx in effects) await CreateFx(c, fx);
             }
             if (boss.Dead || !Awake(c) || !actors.Add(c)) return;
-            var w = c.Wire;
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.PlayerSkillsChange(id, SkillsFor(c, boss.Variety!, boss.Level)!, []), "[Rotting Core] Trinity native skills");
+            await Send(c, InstanceEntities.PlayerSkillsChange(id, SkillsFor(c, boss.Variety!, boss.Level)!, []), "[Rotting Core] Trinity native skills");
         }
         async Task Visibility(bool visible)
         {
@@ -419,7 +416,7 @@ public static class DepravedTrinity
             if (target is null) { hits.Clear(); releases.Clear(); return; }
             boss.BossBarShown = true;
             foreach (var p in Present.Where(p => Awake(p) && p.BossBarsSeen.Add(id)))
-            { var w = p.Wire; await ShowBossLifeBar(w.Remote, w.Stream, w.Ciphers, id, boss, p); }
+            { await ShowBossLifeBar(id, boss, p); }
             if (!started)
             {
                 started = true; ready = now + 3;
@@ -441,7 +438,7 @@ public static class DepravedTrinity
                 var v = Monsters.Find("Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmerge");
                 if (v is { Supported: true })
                     foreach (var point in markers)
-                    { uint add = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, boss.Level, MonsterRarity.Normal, point.X, point.Y); if (add != 0) adds.Add(add); }
+                    { uint add = await SpawnMonster(c, v, boss.Level, MonsterRarity.Normal, point.X, point.Y); if (add != 0) adds.Add(add); }
                 Console.WriteLine($"[Rotting Core] scorpion phase {boss.LifePhases.Completed + 1}: {adds.Count} aberrations");
             }
             if (submerged)
@@ -476,7 +473,7 @@ public static class DepravedTrinity
             {
                 int generation;
                 lock (c.Monsters) generation = ++boss.ActionGeneration;
-                await SendMonsterAction(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, id, boss, generation, () =>
+                await SendMonsterAction(c, id, boss, generation, () =>
                 {
                     double at = c.Clock.Elapsed.TotalSeconds; var here = boss.Walk.Position(at);
                     boss.Walk.Order(to.X, to.Y, at);
@@ -497,7 +494,7 @@ public static class DepravedTrinity
         {
             var attack = Attack(c, boss.Variety!, boss.Level, effect); var from = boss.Walk.Position(now); int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.Walk.Order(from.X, from.Y, now); ready = boss.BusyUntil = now + attack.Seconds + .3; }
-            await SendMonsterAction(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, id, boss, generation,
+            await SendMonsterAction(c, id, boss, generation,
                 () => [.. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)],
                 $"[Rotting Core] {Game.SkillsFor(c).EffectId(effect)}");
             if (effect == 8546) return;
@@ -525,7 +522,7 @@ public static class DepravedTrinity
                         landing += Math.Max(.5, Distance(from, at) - 1.5) / ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0);
                         foreach (var p in Present.Where(Awake))
                         {
-                            var s = ProjectilesFor(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p); s.Advance();
+                            var s = ProjectilesFor(p); s.Advance();
                             s.Schedule(GameServer.Core.Projectiles.ProjectileRuntime.Time(now + attack.Seconds * .6), () => !Stopped && MonsterActionCurrent(p, id, boss, generation), () =>
                             {
                                 var shot = MonsterProjectileUse(s, id, boss, attack with { Damage = DamagePacket.Empty }, projectile with { Count = 1, MinimumRange = 0 }, generation, orderedAim: at);
@@ -545,7 +542,7 @@ public static class DepravedTrinity
             {
                 var projectile = Game.SkillsFor(c).MonsterProjectile(effect) ?? new("Metadata/Projectiles/UnholyTrioBallLightning", 400, false, 2);
                 foreach (var p in Present.Where(Awake))
-                { var s = ProjectilesFor(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p); s.Advance();
+                { var s = ProjectilesFor(p); s.Advance();
                     s.Schedule(GameServer.Core.Projectiles.ProjectileRuntime.Time(now + 1.5), () => !Stopped && MonsterActionCurrent(p, id, boss, generation),
                         () => MonsterProjectileUse(s, id, boss, attack with { Projectile = projectile }, projectile, generation, orderedAim: aim)); }
             }
@@ -554,8 +551,8 @@ public static class DepravedTrinity
         }
         async Task Damage(ClientState p, Hit hit, double now)
         {
-            MonsterHitOutcome? outcome = null; var w = p.Wire; var attack = Attack(p, boss.Variety!, boss.Level, hit.Effect);
-            await Send(w.Remote, w.Stream, w.Ciphers, [], null, atGate: () =>
+            MonsterHitOutcome? outcome = null; var attack = Attack(p, boss.Variety!, boss.Level, hit.Effect);
+            await Send(p, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -567,11 +564,11 @@ public static class DepravedTrinity
                     foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
                         if (!minion.Monster.Dead && Inside(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
                     if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, id, boss, attack, now, p.Walk.Position(now), boss.Walk.Position(now), false, p.NextActionSequence());
+                    outcome = CommitMonsterHitLocked(p, id, boss, attack, now, p.Walk.Position(now), boss.Walk.Position(now), false, p.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
         async Task Fx(ClientState c, (int X, int Y) at, string model, double until, uint animation = 0)
         {
@@ -581,8 +578,7 @@ public static class DepravedTrinity
         }
         static async Task CreateFx(ClientState p, Visual fx)
         {
-            var w = p.Wire;
-            await Send(w.Remote, w.Stream, w.Ciphers, [.. InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(fx.At.X, fx.At.Y, fx.Model).Blob()),
+            await Send(p, [.. InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(fx.At.X, fx.At.Y, fx.Model).Blob()),
                 .. InstanceProtocol.EnterWakeZone(fx.Id), .. InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Animation, 1)], null,
                 still: () => !p.Closed && !p.LeavingArea && CurrentGameWork);
         }
@@ -591,16 +587,15 @@ public static class DepravedTrinity
             Stopped = true;
             foreach (var p in Present.ToArray())
                 foreach (var fx in effects.ToArray())
-                    _ = Send(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, InstanceProtocol.RemoveObject(fx.Id), null, still: () => !p.Closed && !p.LeavingArea);
+                    _ = Send(p, InstanceProtocol.RemoveObject(fx.Id), null, still: () => !p.Closed && !p.LeavingArea);
         }
         async Task BloodReturn(ClientState p, double now)
         {
             if (Landing(p) is not { } to) return;
             // The tick's evacuation deadline follows the covering vortex; never block the area tick on a timer.
             if (Stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.PlayerLife == 0) return;
-            var w = p.Wire;
             lock (p.Monsters) { Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, ProjectileWorldTime(p)); }
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Rotting Core] blood carried {CharacterName(p)} to Lilly at {to}");
+            await SendWorldRecord(p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Rotting Core] blood carried {CharacterName(p)} to Lilly at {to}");
             await Fx(p, to, Art + "blood_vortex/rig.ao", p.Clock.Elapsed.TotalSeconds + 4, 1);
         }
     }

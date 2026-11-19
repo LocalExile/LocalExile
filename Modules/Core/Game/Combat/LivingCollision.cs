@@ -16,29 +16,29 @@ public static partial class Game
             if (PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null) return true;
             if (conn.Closed || conn.LeavingArea) conn.Instance.RemovePlayer(conn.PeerId);
             return false;
-        }, async (remote, stream, ciphers, conn) =>
+        }, async conn =>
         {
             if (!conn.Paused)
             {
-                if (IsMonsterRunner(conn)) await CorrectMonsterCollisions(remote, stream, ciphers, conn);
+                if (IsMonsterRunner(conn)) await CorrectMonsterCollisions(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
-                await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
+                await PushOutOfCollision(conn, living: true);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
-                await ShowFreeze(remote, stream, ciphers, conn);
+                await ShowFreeze(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
-                await ReleaseHeldMove(remote, stream, ciphers, conn);
+                await ReleaseHeldMove(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
-                await KeepWakeZone(remote, stream, ciphers, conn);
+                await KeepWakeZone(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             PublishPlayerPose(conn);
             if (ServerTrace.Sync) TraceSync(conn);
             PublishAwakeMonsters(conn);
-            await ApplyKillShares(remote, stream, ciphers, conn);
-            await SyncInstancePlayers(remote, stream, ciphers, conn);
-            await SyncInstanceMonsters(remote, stream, ciphers, conn);
-            await SyncSharedGround(remote, stream, ciphers, conn);
-            await SyncPeerMinions(remote, stream, ciphers, conn);
+            await ApplyKillShares(conn);
+            await SyncInstancePlayers(conn);
+            await SyncInstanceMonsters(conn);
+            await SyncSharedGround(conn);
+            await SyncPeerMinions(conn);
         });
     }
 
@@ -46,13 +46,13 @@ public static partial class Game
     // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands. A
     // predictive client goes on with its walk after, as the server's walk does; a lockstep one stands until its next order
     // (PlayerHitRecoveryRecordLocked: the same message and handler; the freeze itself is not traced).
-    public static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ShowFreeze(ClientState conn)
     {
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.FreezeShown == conn.FreezeGeneration) return;
         }
-        await Send(remote, stream, ciphers, [], "0x01d1 player frozen", atGate: () =>
+        await Send(conn, [], "0x01d1 player frozen", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -68,12 +68,12 @@ public static partial class Game
     }
 
     // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
-    public static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ReleaseHeldMove(ClientState conn)
     {
         lock (conn.Monsters)
             if (!CurrentGameWork || conn.HeldMove is null) return;
         // Accept the order and its cipher output together; otherwise leave the held click for replacement.
-        await Send(remote, stream, ciphers, [], "0x01ab held move", atGate: () =>
+        await Send(conn, [], "0x01ab held move", atGate: () =>
         {
             using (ProjectileMutation(conn))
             {
@@ -154,7 +154,7 @@ public static partial class Game
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
     const uint TownStanceStat = 21141;
 
-    public static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncInstancePlayers(ClientState conn)
     {
         var ids = conn.Instance.PlayersExcept(conn.PeerId).Select(p => p.Id)
             .Concat(conn.SeenPlayers.Keys).Distinct().ToArray();
@@ -163,7 +163,7 @@ public static partial class Game
             // A resurrected peer is a new incarnation. Release the send gate while its old removal crosses the wire.
             if (conn.LockstepClient && conn.SeenPlayers.TryGetValue(id, out var old) && old.Life == 0
                 && conn.Instance.Player(id) is { Life: > 0 })
-                await SendWorldRemoval(remote, stream, ciphers, conn, id, atGate: () =>
+                await SendWorldRemoval(conn, id, atGate: () =>
                 {
                     if (!conn.SeenPlayers.TryGetValue(id, out var current) || current.Life != 0
                         || conn.Instance.Player(id) is not { Life: > 0 }) return null;
@@ -263,11 +263,11 @@ public static partial class Game
                 }
                 conn.SeenPlayers[peer.Id] = peer;
                 return packets.Build();
-            }, transport: (remote, stream, ciphers));
+            });
         }
     }
 
-    public static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task CorrectMonsterCollisions(ClientState conn)
     {
         using (ProjectileMutation(conn, phase: "collision"))
         {

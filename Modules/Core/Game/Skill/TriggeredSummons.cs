@@ -17,12 +17,12 @@ static partial class Game
         if (!Current() || !gem.RequirementsMet) return;
         string? effect = SkillsFor(conn).EffectId(gem.Effect);
         if (effect == "Desecrate")
-            await Desecrate(session.remote, session.stream, session.ciphers, conn, source, aim, Current, triggered: true);
+            await Desecrate(conn, source, aim, Current, triggered: true);
         else if (GolemData.Find(effect) is { } golem)
-            await CastGolem(session.remote, session.stream, session.ciphers, conn, source, golem, aim,
+            await CastGolem(conn, source, golem, aim,
                 conn.ActionInterruptionGeneration, Current, triggered: true);
         else if (SummonData.Find(effect) is { } summon)
-            await CastSummon(session.remote, session.stream, session.ciphers, conn, source, summon, aim, 0,
+            await CastSummon(conn, source, summon, aim, 0,
                 conn.ActionInterruptionGeneration, Current, triggered: true);
     }
 }

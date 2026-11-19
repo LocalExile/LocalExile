@@ -71,7 +71,7 @@ public class OpeningSceneTests
 
         using var wire = new Wire();
         var conn = wire.Conn;
-        Task GetUp() => Game.WakeUpOnBeach("opening-scene-test", wire.Stream, wire.Ciphers, conn, (20, 25), 1, 0, conn.Clock.Elapsed.TotalSeconds);
+        Task GetUp() => Game.WakeUpOnBeach(conn, (20, 25), 1, 0, conn.Clock.Elapsed.TotalSeconds);
         conn.PeerTemplate = player;
         await GetUp();
         Assert.False(conn.TutorialGettingUp);
@@ -98,7 +98,7 @@ public class OpeningSceneTests
         // Asking to walk to an object gets the character up instead, as the server's own action.
         using var clicked = new Wire();
         clicked.Conn.PeerTemplate = player with { WashedUp = true };
-        await Game.OnUseObject("opening-scene-test", clicked.Stream, clicked.Ciphers, clicked.Conn,
+        await Game.OnUseObject(clicked.Conn,
             new InstanceTransfer.UseSkillOnObject(999, SkillCatalog.FirstSkillId, 1, 0), clicked.Conn.Clock.Elapsed.TotalSeconds);
         Assert.Equal((10, 10), clicked.Conn.Walk.Destination);
         byte[] serverAction = InstanceProtocol.ActionStarted(Program.PlayerId, 10, 10, 10, 10, TutorialObjects.WashedUpSkillId, TutorialObjects.GetUpSequence, 0);
@@ -108,7 +108,7 @@ public class OpeningSceneTests
         // with the owner's skills (their uses play on it) but not the wake-up.
         using var observer = new Wire();
         observer.Conn.Instance.PublishPlayer(new(0x20001234, 7, player with { WashedUp = true, Rotation = MathF.PI }, 115, 69, 50));
-        await Game.SyncInstancePlayers("opening-scene-test", observer.Stream, observer.Ciphers, observer.Conn);
+        await Game.SyncInstancePlayers(observer.Conn);
         byte[] created = InstanceEntities.CreateObject(0x20001234, 7, (player with { Skills = player.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
             QuestFlags = [], LeagueQuestFlags = [] }).Blob());
         Assert.Equal(created, observer.Read(created.Length));
@@ -151,7 +151,7 @@ public class OpeningSceneTests
             peer.Conn.AwakeMonsters = [id];
             peer.Conn.Outbox = (bytes, log) =>
             {
-                var send = Program.Send("fanout-test", peer.Stream, peer.Ciphers, bytes, log);
+                var send = Program.Send(peer.Conn, bytes, log);
                 pending.Add(send);
                 return send;
             };

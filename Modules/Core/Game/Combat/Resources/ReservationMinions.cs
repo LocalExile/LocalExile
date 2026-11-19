@@ -21,7 +21,7 @@ public static partial class Game
         return own;
     }
 
-    static async Task SummonReservationFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SummonReservationFighter(ClientState conn,
         AuraCatalog.Aura aura, string kind)
     {
         string path = kind switch
@@ -72,7 +72,7 @@ public static partial class Game
             fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
         }
         var at = NextToPlayer(conn);
-        await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
+        await SpawnMonster(conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats, ownedSkills: fighter.Skills,
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
@@ -100,7 +100,7 @@ public static partial class Game
         RemoveGolemLocked(conn, fighter, now);
     }
 
-    static async Task ReservationFightersTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    static async Task ReservationFightersTick(ClientState conn, double now)
     {
         var state = conn.Reservations;
         using (ProjectileMutation(conn))
@@ -124,7 +124,7 @@ public static partial class Game
                     || ReservationAura(conn, fighter.Definition.Id)?.SkillId != fighter.Source
                     || fighter.Definition.Kind == "Agony" && state.Virulence == 0)
                     RemoveReservationFighterLocked(conn, fighter, now);
-            GolemIncomingContactsLocked(remote, stream, ciphers, conn, now);
+            GolemIncomingContactsLocked(conn, now);
             bool refresh = now >= state.RefreshFightersAt;
             if (refresh) state.RefreshFightersAt = now + .5;
             var player = refresh && state.Fighters.Count > 0 ? CharacterPlayerStats(conn) : null;
@@ -141,7 +141,7 @@ public static partial class Game
                     ? conn.Placed.All.Values.Where(p => !p.SkitterTriggered && now >= p.Armed
                         && Dist(p.At, conn.Walk.Position(now)) <= 100).MinBy(p => Dist(p.At, fighter.Monster.Walk.Position(now))) : null;
                 if (pending is not null) GolemMoveLocked(conn, fighter, pending.At, now);
-                else GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
+                else GolemStepLocked(conn, fighter, now);
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0
                     || !fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
                 bool cold = fighter.Definition.Kind == "SkitterCold";
@@ -155,11 +155,11 @@ public static partial class Game
             }
         }
         if (ReservationAura(conn, "HeraldOfAgony") is { } activeAgony && state.Virulence > 0)
-            await SummonReservationFighter(remote, stream, ciphers, conn, activeAgony, "Agony");
+            await SummonReservationFighter(conn, activeAgony, "Agony");
         if (ReservationAura(conn, "SummonSkitterbots") is { } skitter)
         {
-            await SummonReservationFighter(remote, stream, ciphers, conn, skitter, "SkitterCold");
-            await SummonReservationFighter(remote, stream, ciphers, conn, skitter, "SkitterLightning");
+            await SummonReservationFighter(conn, skitter, "SkitterCold");
+            await SummonReservationFighter(conn, skitter, "SkitterLightning");
         }
     }
 

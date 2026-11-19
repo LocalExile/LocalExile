@@ -346,7 +346,7 @@ public sealed class ShrineTests
                 { Dead = true, Life = 0 };
             conn.Monsters[0x7071] = corpse;
             monster.Life = monster.MaxLife = 10000;
-            await Game.ExplodeOnKill(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, 0x7071, corpse, (112, 100));
+            await Game.ExplodeOnKill(conn, 0x7071, corpse, (112, 100));
             Assert.Equal(9650u, monster.Life);
 
             // A standing shrine's spell chills through the shared player-ailment lifecycle, flask events included.

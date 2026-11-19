@@ -32,7 +32,7 @@ public sealed partial class DeliriumModule
             {
                 if (!peer.MonsterViews.ContainsKey(update.Id)) continue;
                 var wire = peer.Wire;
-                await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, peer, update.Id,
+                await SendWorldRecord(peer, update.Id,
                     InstanceEntities.StateMachineUpdate(update.Id, update.Component, update.States), null);
             }
         if (updates.Count > 0) context.Log($"Simulacrum {conn.InstanceNumber}: revealed {updates.Count} existing monsters");
@@ -67,11 +67,10 @@ public sealed partial class DeliriumModule
 
     async Task CreateStarter(ClientState conn, View view, Run run)
     {
-        var w = conn.Wire;
         if (view.Entity != 0)
         {
             lock (conn.Monsters) { conn.Monsters.Remove(view.Entity); conn.MinionOrigins.TryRemove(view.Entity, out _); }
-            await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, conn, view.Entity, "Replace Simulacrum initiator");
+            await SendWorldRemoval(conn, view.Entity, "Replace Simulacrum initiator");
         }
         string type = StarterType(conn.Layout.Id);
         var placed = conn.Layout.Level?.TileQuestObjects.FirstOrDefault(o => o.Type.EndsWith(type.Split('/')[^1], StringComparison.OrdinalIgnoreCase));
@@ -80,9 +79,9 @@ public sealed partial class DeliriumModule
         var obj = new QuestObject(at.Item1, at.Item2, StarterComponents, Rotation: placed?.Rotation ?? 0)
         { StateMachine = StarterStates(run), Mods = preview?.Affixes ?? run.Affixes };
         uint id = conn.TakeObjectId();
-        await SendWorldCreate(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceEntities.CreateObject(id,
+        await SendWorldCreate(conn, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(placed?.Type ?? type), obj.Blob()), $"Simulacrum native starter {type} at {at}, wave {run.Wave}, active {run.Active}");
-        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
         view.Entity = id; view.At = at; view.Native = true;
         SaveView(conn, view);
     }
@@ -93,8 +92,7 @@ public sealed partial class DeliriumModule
         {
             if (ViewOf(peer) is not { } view) continue;
             if (!view.Native || recreate) { await CreateStarter(peer, view, run); continue; }
-            var w = peer.Wire;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, peer, view.Entity,
+            await SendWorldRecord(peer, view.Entity,
                 InstanceEntities.StateMachineUpdate(view.Entity, 2, StarterStates(run)), $"Simulacrum initiator wave {run.Wave}/15, active={run.Active}");
         }
     }

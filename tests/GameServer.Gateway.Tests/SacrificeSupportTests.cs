@@ -24,8 +24,8 @@ public class SacrificeSupportTests
         Assert.False(Admit());
         for (int i = 0; i < 30; i++) Assert.True(c.VaalSouls.Gain());
         Assert.True(Admit());
-        Assert.True(await Game.CastGemSkill("spiral", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
-        Assert.False(await Game.CastGemSkill("duplicate", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        Assert.True(await Game.CastGemSkill(c, gem.Id, (100, 100), (150, 100)));
+        Assert.False(await Game.CastGemSkill(c, gem.Id, (100, 100), (150, 100)));
         long start = fixture.Session.Runtime.Now;
         var seen = new Dictionary<long, ProjectileVector>();
         for (int i = 0; i <= 64; i++)
@@ -51,7 +51,7 @@ public class SacrificeSupportTests
         var use = new CooldownUseTicket(gem.Effect, conn.ActionCount, conn.ProjectileEpoch, Instant: true);
         foreach (var (id, x) in new[] { (101u, 100), (102u, 160), (103u, 130) })
             conn.Monsters[id] = new("frostblink target", new(x, 100, 0), 0, 0, 100000) { Hostile = true };
-        await Game.FrostblinkAreas("blink", fixture.Stream, fixture.Ciphers, conn, gem, (100, 100), (160, 100), use);
+        await Game.FrostblinkAreas(conn, gem, (100, 100), (160, 100), use);
         Assert.True(conn.Monsters[101].Life < 100000);
         Assert.True(conn.Monsters[102].Life < 100000);
         Assert.Equal(100000u, conn.Monsters[103].Life);
@@ -60,7 +60,7 @@ public class SacrificeSupportTests
             ice => { Assert.Equal((100, 100), ice.At); Assert.Equal(16, ice.Radius); },
             ice => { Assert.Equal((160, 100), ice.At); Assert.Equal(16, ice.Radius); });
         Assert.Equal(conn.Reservations.Trail[0].Until, conn.Reservations.Trail[1].Until);
-        await Game.FrostblinkAreas("stale", fixture.Stream, fixture.Ciphers, conn, gem, (0, 0), (20, 0),
+        await Game.FrostblinkAreas(conn, gem, (0, 0), (20, 0),
             use with { ProjectileEpoch = use.ProjectileEpoch - 1 });
         Assert.Equal(2, conn.Reservations.Trail.Count);
     }
@@ -77,7 +77,7 @@ public class SacrificeSupportTests
         foreach (var (id, x) in new[] { (301u, 100), (302u, 160), (303u, 130) })
             c.Monsters[id] = new("warp target", new(x, 100, 0), 0, 0, 100000) { Hostile = true };
         Assert.False(Game.LandsAtAim(c, gem.Effect));
-        Assert.True(await Game.CastGemSkill("warp", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (160, 100)));
+        Assert.True(await Game.CastGemSkill(c, gem.Id, (100, 100), (160, 100)));
         Assert.Equal((100, 100), c.Walk.Position(0));
         double start = Math.Max(c.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(c));
         fixture.Session.AdvanceTo(ProjectileRuntime.Time(start + 4));
@@ -107,7 +107,7 @@ public class SacrificeSupportTests
         session.AdvanceTo(ProjectileRuntime.Time(now + 3));
         Assert.Equal(3, Game.UnleashSeals(conn, skill.Id, source, Game.ProjectileWorldTime(conn)));
         double start = Game.ProjectileWorldTime(conn);
-        await Game.LaunchProjectile("unleash", fixture.Stream, fixture.Ciphers, conn, skill.Id, (100, 100),
+        await Game.LaunchProjectile(conn, skill.Id, (100, 100),
             (200, 100), conn.ActionInterruptionGeneration, swingAt: start);
         Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, start));
         session.AdvanceTo(ProjectileRuntime.Time(start + .9));
@@ -159,7 +159,7 @@ public class SacrificeSupportTests
         {
             Session?.Invalidate();
             Conn.PlayerLife = 1000;
-            Session = new("sacrifice",Stream,Ciphers,Conn);
+            Session = new(Conn);
             Conn.ProjectileRuntime = Session;
         }
         public void Equip(string spell, bool echo = false, string support = "SupportGemSacrifice")

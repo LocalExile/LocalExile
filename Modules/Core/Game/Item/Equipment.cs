@@ -307,7 +307,7 @@ public static partial class Game
 
     // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
-    public static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
+    public static async Task SendEquipment(ClientState conn, PlayerInventories items)
     {
         RefreshVaalSouls(conn);
         // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
@@ -318,25 +318,25 @@ public static partial class Game
             ReconcileBeastCompanionsLocked(conn);
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
-        await SendModel(remote, stream, ciphers, conn, Looks(conn, items), "equipment");
+        await SendModel(conn, Looks(conn, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
-        await SendWornCosmetics(remote, stream, ciphers, conn, "equipment changed");
-        await SendSkills(remote, stream, ciphers, conn);
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+        await SendWornCosmetics(conn, "equipment changed");
+        await SendSkills(conn);
+        await SendPlayerStatSnapshot(conn,
             () => PlayerStatsOffFrames(conn),
             "0x01b3 player stats (equipment)");
-        await Send(remote, stream, ciphers, [], "0x01b1 player life (equipment)", atGate: () =>
+        await Send(conn, [], "0x01b1 player life (equipment)", atGate: () =>
         {
             lock (conn.Monsters) return PlayerLifeUpdate(conn);
         });
-        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
+        await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
     }
 
-    public static async Task SendModel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task SendModel(ClientState conn,
         IReadOnlyList<VisibleItem> equipped, string why)
     {
         conn.ModelHands = HandsKey(equipped);
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
             $"0x02bc player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
     }
 
@@ -346,18 +346,18 @@ public static partial class Game
 
     // A weapon's requirements can start or stop being met while the equipment stays (a level, a passive, another item's
     // attributes): the model follows, so a weapon that became inactive leaves the hands and one that qualifies again returns.
-    public static async Task SendModelIfHandsChanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendModelIfHandsChanged(ClientState conn)
     {
         var equipped = Looks(conn, ItemsOf(conn));
         if (conn.ModelHands is { } sent && sent != HandsKey(equipped))
-            await SendModel(remote, stream, ciphers, conn, equipped, "weapon requirements changed");
+            await SendModel(conn, equipped, "weapon requirements changed");
     }
 
     // Takes the held item off the cursor (0xbf); null when nothing is held.
-    public static async Task<InventoryItem?> TakeHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers, PlayerInventories items, string why)
+    public static async Task<InventoryItem?> TakeHeld(ClientState conn, PlayerInventories items, string why)
     {
         if (items.Items(PlayerInventories.Cursor) is not [var held, ..] || items.Remove(PlayerInventories.Cursor, held.Id) is null) return null;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [held.Id], []), $"0x00bf cursor: remove item {held.Id} ({why})");
         return held;
     }

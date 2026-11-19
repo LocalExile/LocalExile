@@ -31,8 +31,8 @@ public static partial class Game
 
     // A stat presentation (the RecentHits step times the expiry). Sample inside the shared send gate, including when
     // a queued refresh crosses a contact, death, modifier change or exact expiry boundary.
-    public static Task SendRecentEnemyHits(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+    public static Task SendRecentEnemyHits(ClientState conn) =>
+        Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {

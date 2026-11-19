@@ -55,7 +55,7 @@ public static partial class Game
             0xffff, 0x0408, targetObjectId: hit.Target.Id);
     }
 
-    static void GolemIncomingContactsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    static void GolemIncomingContactsLocked(ClientState conn, double now)
     {
         foreach (var hit in conn.Golems.IncomingHits.ToArray())
         {
@@ -72,7 +72,7 @@ public static partial class Game
             if (MonsterActionFactor(hit.Monster, now) == 0) continue;
             if (hit.Attack.Projectile is { } projectile)
             {
-                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                var session = ProjectilesFor(conn);
                 session.Schedule(session.Runtime.Now, () => CurrentGameWork && !conn.Closed && !conn.LeavingArea,
                     () => MonsterProjectileUse(session, hit.Enemy, hit.Monster, hit.Attack, projectile, hit.Generation, hit.Target.Id));
                 continue;

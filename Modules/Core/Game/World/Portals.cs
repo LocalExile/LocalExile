@@ -59,7 +59,7 @@ public static partial class Game
             try
             {
                 var wire = visitor.Wire;
-                await SendMapPortals(wire.Remote, wire.Stream, wire.Ciphers, visitor,
+                await SendMapPortals(visitor,
                     MapDeviceHere(visitor)?.Id ?? 0, run.Area.Hash16);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException)
@@ -84,13 +84,13 @@ public static partial class Game
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device or
     // using another Portal Scroll: 0x008f carries the variation of every entry and the client re-applies the visual.
     // False when nothing stands.
-    public static async Task<bool> ResendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task<bool> ResendMapPortals(ClientState conn)
     {
-        bool single = await SendSinglePortals(remote, stream, ciphers, conn, "listed again");
+        bool single = await SendSinglePortals(conn, "listed again");
         uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
         lock (conn.MapPortals)
             if (conn.MapPortals.Count == 0) return single;
-        await SendMapPortals(remote, stream, ciphers, conn, deviceId,
+        await SendMapPortals(conn, deviceId,
             conn.MapPortalRun?.Area.Hash16 ?? conn.Layout.Hash);
         return true;
     }
@@ -107,7 +107,7 @@ public static partial class Game
     /// lockstep mode: 0x8f handled 3 ms before the object was built, sent 100 ms after it). An entry listed again
     /// unchanged leaves the portal as it is.
     /// </summary>
-    public static void ListPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, ushort area,
+    public static void ListPortal(ClientState conn, uint id, ushort area,
         string what, int afterMs)
     {
         SinglePortals.GetOrCreateValue(conn)[id] = area;
@@ -116,9 +116,9 @@ public static partial class Game
             try
             {
                 await Task.Delay(afterMs);
-                if (!await SendSinglePortals(remote, stream, ciphers, conn, what, id)) return;
+                if (!await SendSinglePortals(conn, what, id)) return;
                 await Task.Delay(MapPortalRelistMs);
-                await SendSinglePortals(remote, stream, ciphers, conn, what + ", listed again", id);
+                await SendSinglePortals(conn, what + ", listed again", id);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
             {
@@ -144,7 +144,7 @@ public static partial class Game
 
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
     // With an id, only while that portal stands. False when nothing was sent.
-    static async Task<bool> SendSinglePortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why, uint only = 0)
+    static async Task<bool> SendSinglePortals(ClientState conn, string why, uint only = 0)
     {
         if (conn.Closed || !SinglePortals.TryGetValue(conn, out var portals)) return false;
         bool Stands(uint id) => conn.ReturnPortal?.Id == id || conn.BackPortal?.Id == id;
@@ -153,14 +153,14 @@ public static partial class Game
         string owner = CharacterName(conn);
         var list = portals.OrderBy(p => p.Key)
             .Select(p => new InstanceMapDevice.Portal(p.Key, p.Value, owner, Variation: PortalVariation(conn, p.Key))).ToList();
-        await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, list),
+        await Send(conn, InstanceMapDevice.Portals(0, list),
             $"0x008f {string.Join(", ", list.Select(p => $"portal 0x{p.ObjectId:x} leads to 0x{p.Area:x4}"))} (variation {string.Join(", ", list.Select(p => p.Variation))}; {why})");
         return true;
     }
 
     // SÃ¢â€ ’C 0x8f: the device's portals and where they lead (21-hideouts.md Ã‚§5). Without it the client never draws them; a
     // portal listed with area 0 (one just taken) closes.
-    public static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
+    public static async Task SendMapPortals(ClientState conn, uint deviceId, ushort area, uint closed = 0)
     {
         byte style = conn.MapPortalStyle;
         List<(uint Id, int Index)> ids;
@@ -175,7 +175,7 @@ public static partial class Game
         var list = (closed == 0 ? [] : new List<InstanceMapDevice.Portal> { new(closed, 0) })
             .Concat(ids.Select(p => new InstanceMapDevice.Portal(p.Id, area, owner, style,
                 run is null ? PortalVariation(conn, p.Id) : MapPortalVariation(run, p.Index)))).ToList();
-        await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, list, RunBossKilled(run)),
+        await Send(conn, InstanceMapDevice.Portals(deviceId, list, RunBossKilled(run)),
             $"0x008f map device 0x{deviceId:x} portals: {ids.Count} open to 0x{area:x4}{(closed == 0 ? "" : $", 0x{closed:x} closed")}");
     }
 

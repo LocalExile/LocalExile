@@ -313,16 +313,16 @@ public static partial class Game
     internal static ushort RestoredGolemSource(ClientState conn, GolemState.Saved saved) =>
         RestoredMinionSource(conn, saved.Effect, saved.Skill, saved.Host, saved.Socket);
 
-    internal static Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static Task<bool> CastGolem(ClientState conn,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
         bool triggered = false) =>
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
         {
-            await SummonGolem(remote, stream, ciphers, conn, source, definition, aim, current: current);
+            await SummonGolem(conn, source, definition, aim, current: current);
             return true;
         });
 
-    public static async Task<uint> SummonGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<uint> SummonGolem(ClientState conn,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
         Func<bool>? current = null, double summonedSecondsRemaining = 0,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
@@ -388,7 +388,7 @@ public static partial class Game
             probe.Skills = GolemNativeSkills(conn, level, probe.Abilities);
         }
         var at = definition.Kind == "Flame" && definition.Special && !arrival ? aim : NextToPlayer(conn);
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
+        uint id = await SpawnMonster(conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
             ownedSkills: probe.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
@@ -439,8 +439,8 @@ public static partial class Game
         if (id == 0) return 0;
         if (!arrival && definition.Kind == "Flame" && definition.Special && !pools.Fatal)
             using (ProjectileMutation(conn))
-                if (conn.Golems.All.TryGetValue(id, out var spawned)) GolemMeteorLocked(remote, stream, ciphers, conn, spawned, AreaTime(conn));
-        await RefreshGolemBuffs(remote, stream, ciphers, conn);
+                if (conn.Golems.All.TryGetValue(id, out var spawned)) GolemMeteorLocked(conn, spawned, AreaTime(conn));
+        await RefreshGolemBuffs(conn);
         SaveGolems(conn);
         return id;
     }
@@ -463,7 +463,7 @@ public static partial class Game
         conn.Golems.RefreshAt = 0;
     }
 
-    public static async Task GolemsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task GolemsTick(ClientState conn, double now)
     {
         if (!conn.PlayerSent || !CurrentGameWork || conn.Closed || conn.LeavingArea) return;
         if (!conn.Golems.Restored)
@@ -494,7 +494,7 @@ public static partial class Game
                     }
                     continue;
                 }
-                await SummonGolem(remote, stream, ciphers, conn, source, definition, NextToPlayer(conn),
+                await SummonGolem(conn, source, definition, NextToPlayer(conn),
                     double.IsFinite(old.Life) ? Math.Clamp(old.Life, 0, 1) : 0, arrival: true,
                     summonedSecondsRemaining: old.SummonedSecondsRemaining, resources: old.Resources,
                     legacyArrival: old.Resources is null);
@@ -519,7 +519,7 @@ public static partial class Game
         }
         foreach (var (revive, current, source) in dueWaiting.Where(due => due.Current))
             if (GolemData.Find(revive.Saved.Effect) is { } definition)
-                await SummonGolem(remote, stream, ciphers, conn, source, definition, NextToPlayer(conn),
+                await SummonGolem(conn, source, definition, NextToPlayer(conn),
                     retainedSource: revive.GemSource, claimActivation: false);
         // Deadlines run at the companion cadence, independently of the slower stat-source refresh.
         List<(GolemState.Golem Golem, bool Current)> due;
@@ -539,15 +539,15 @@ public static partial class Game
             if (due.Count > 0) changed = true;
         }
         foreach (var (dead, current) in due.Where(due => due.Current))
-            await SummonGolem(remote, stream, ciphers, conn, dead.Source, dead.Definition, NextToPlayer(conn),
+            await SummonGolem(conn, dead.Source, dead.Definition, NextToPlayer(conn),
                 retainedSource: dead.GemSource, claimActivation: false);
         if (conn.Golems.All.Count == 0)
         {
             if (changed)
             {
                 SaveGolems(conn);
-                await RefreshGolemBuffs(remote, stream, ciphers, conn);
-                await PublishMinionOutcomes(remote, stream, ciphers, conn);
+                await RefreshGolemBuffs(conn);
+                await PublishMinionOutcomes(conn);
             }
             return;
         }
@@ -583,21 +583,21 @@ public static partial class Game
                 foreach (var surplus in conn.Golems.All.Values.OrderByDescending(g => g.SummonedAt).Skip(limit).ToArray())
                 { RemoveGolemLocked(conn, surplus, now); changed = true; }
             }
-            await RefreshGolemBuffs(remote, stream, ciphers, conn);
+            await RefreshGolemBuffs(conn);
         }
         foreach (var golem in rebuild)
-            if (await SummonGolem(remote, stream, ciphers, conn, golem.Source, golem.Definition, NextToPlayer(conn),
+            if (await SummonGolem(conn, golem.Source, golem.Definition, NextToPlayer(conn),
                 arrival: true, replacingOld: golem) != 0)
                 changed = true;
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
-            GolemIncomingContactsLocked(remote, stream, ciphers, conn, now);
+            GolemIncomingContactsLocked(conn, now);
             foreach (var golem in conn.Golems.All.Values.ToArray())
-                GolemStepLocked(remote, stream, ciphers, conn, golem, now);
+                GolemStepLocked(conn, golem, now);
         }
         if (changed) SaveGolems(conn);
-        await PublishMinionOutcomes(remote, stream, ciphers, conn);
+        await PublishMinionOutcomes(conn);
     }
 
     // One synchronous state transition for the normal refresh and direct physical-source retirement. The caller owns
@@ -669,9 +669,9 @@ public static partial class Game
         return ([.. bytes], changed);
     }
 
-    public static async Task RefreshGolemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RefreshGolemBuffs(ClientState conn)
     {
-        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+        await SendWorldRecords(conn, PlayerId, () =>
         {
             lock (conn.Monsters)
             {

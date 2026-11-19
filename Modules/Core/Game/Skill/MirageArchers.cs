@@ -62,7 +62,7 @@ public static partial class Game
                 if (Stats.Key("skill_used_by_mirage_archer") is uint mirage) stats[mirage] = 1;
                 var skill = SkillsFor(Conn).FindByRow(current.Skill, current.Source.Effect, current.Source.Level,
                     [.. stats.Select(p => (p.Key, p.Value))]);
-                await SpawnMonster(remote, stream, ciphers, Conn, variety, (byte)Math.Clamp(Conn.Pools.Level, 1, 100),
+                await SpawnMonster(Conn, variety, (byte)Math.Clamp(Conn.Pools.Level, 1, 100),
                     MonsterRarity.Normal, at.X, at.Y, friendly: true, log: false,
                     ownedLooks: Looks(Conn, ItemsOf(Conn)), ownedSkills: skill is null ? [] : [skill],
                     attachTo: (PlayerId, "Head_Attachment", 0, 3), ownedCurrent: Current,
@@ -72,8 +72,8 @@ public static partial class Game
                         actor.NoRewards = true; actor.EntranceGrace = true; actor.Attack = null;
                     });
                 if (current.Actor == 0) return;
-                await SendWorldRecord(remote, stream, ciphers, Conn, current.Actor, MirageDisplay(current.Actor), null, still: Current);
-                await SendWorldRecords(remote, stream, ciphers, Conn, PlayerId, () =>
+                await SendWorldRecord(Conn, current.Actor, MirageDisplay(current.Actor), null, still: Current);
+                await SendWorldRecords(Conn, PlayerId, () =>
                 {
                     lock (Conn.Monsters)
                     {
@@ -103,10 +103,10 @@ public static partial class Game
             Enqueue(async () =>
             {
                 if (current.BuffShown)
-                    await SendWorldRecord(remote, stream, ciphers, Conn, PlayerId,
+                    await SendWorldRecord(Conn, PlayerId,
                         InstanceEntities.RemoveBuff(PlayerId, current.Buff), null);
                 if (current.Actor != 0)
-                    await SendWorldRemoval(remote, stream, ciphers, Conn, current.Actor);
+                    await SendWorldRemoval(Conn, current.Actor);
             });
         }
 

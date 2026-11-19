@@ -57,11 +57,11 @@ public sealed class ForkNativeRegressionTests
         conn.LeavingArea = true;
         try
         {
-            await PortalsFeature.OpenTownPortal("portal-test", wire.Stream, wire.Ciphers, conn, 100, 100, "test");
+            await PortalsFeature.OpenTownPortal(conn, 100, 100, "test");
             Assert.Null(conn.ReturnPortal);
             Assert.False(PortalsRules.OpenPortals.ContainsKey(conn.Character!));
             conn.LeavingArea = false;
-            await PortalsFeature.OpenTownPortal("portal-test", wire.Stream, wire.Ciphers, conn, 100, 100, "test");
+            await PortalsFeature.OpenTownPortal(conn, 100, 100, "test");
             Assert.NotNull(conn.ReturnPortal);
             Assert.True(PortalsRules.OpenPortals.ContainsKey(conn.Character!));
         }

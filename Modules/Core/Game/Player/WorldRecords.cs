@@ -59,25 +59,24 @@ public static partial class Game
     public static Task SendWorldRecord(IPlayer player, uint id, byte[] bytes, string? log = null)
     {
         var conn = ConnOf(player); var wire = conn.Wire;
-        return SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, conn, id, bytes, log);
+        return SendWorldRecord(conn, id, bytes, log);
     }
 
     public static Task SendWorldRemoval(IPlayer player, uint id, string? log = null)
     {
         var conn = ConnOf(player); var wire = conn.Wire;
-        return SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, conn, id, log);
+        return SendWorldRemoval(conn, id, log);
     }
 
-    public static async Task SendWorldReceipt(ClientState conn, PlayerMinions.Output output,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers) wire)
+    public static async Task SendWorldReceipt(ClientState conn, PlayerMinions.Output output)
     {
         if (output.CreatesObject)
-            await SendWorldCreate(wire.Remote, wire.Stream, wire.Ciphers, conn, output.WorldId!.Value, output.Packet, output.Log);
+            await SendWorldCreate(conn, output.WorldId!.Value, output.Packet, output.Log);
         else if (output.RemovesObject)
-            await SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, conn, output.WorldId!.Value, output.Log);
+            await SendWorldRemoval(conn, output.WorldId!.Value, output.Log);
         else if (output.WorldId is { } id)
-            await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, conn, id, output.Packet, output.Log);
-        else await Send(wire.Remote, wire.Stream, wire.Ciphers, output.Packet, output.Log);
+            await SendWorldRecord(conn, id, output.Packet, output.Log);
+        else await Send(conn, output.Packet, output.Log);
     }
 
     // A declared single create; its common header is not inferred from an opaque concatenated send.
@@ -85,18 +84,17 @@ public static partial class Game
     // on (a projectile, an effect) does not need that hold: a lockstep create is written at the next frame end, so each
     // held create stalled its producer's queue for up to a frame.
     public static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
-        string? log = null, Func<bool>? still = null, bool wake = false,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null, bool awaitBirth = true,
+        string? log = null, Func<bool>? still = null, bool wake = false,  bool awaitBirth = true,
         // Records for the object that may be written with its create and read after it (a monster's wake and its rarity
         // glow): each waits for the birth otherwise, which on a lockstep client is a frame per object. An area's rare and
         // magic monsters alone held the entry's population for 3.2 s that way (live 2026-11-17).
         Func<IReadOnlyList<byte[]>?>? afterCreation = null)
     {
-        var wire = transport ?? conn.Wire;
+        var wire = conn.Wire;
         if (!conn.LockstepClient)
         {
             bool sent = false;
-            await Send(wire.Remote, wire.Stream, wire.Ciphers, [], log, still, atGate: () =>
+            await Send(conn, [], log, still, atGate: () =>
             {
                 if (create() is not { } bytes) return null;
                 sent = true;
@@ -130,54 +128,49 @@ public static partial class Game
                 foreach (var record in after.Where(r => r.Length > 0))
                     batch.Add(OutputRecord.AfterBirth(birth, RecordOrder(record, id), record));
             return new([.. batch]);
-        }, still, transport: transport, creates: reservations);
+        }, still, creates: reservations);
         // A producer may only start an action after the create's delimiter. No gameplay lock is held here.
         return admitted && (!awaitBirth || QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
     }
 
-    public static Task<bool> SendWorldCreate(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, byte[] bytes, string? log = null, Func<bool>? still = null) =>
-        SendWorldCreate(conn, id, () => bytes, log, still, transport: (remote, stream, ciphers));
+    public static Task<bool> SendWorldCreate(ClientState conn, uint id, byte[] bytes, string? log = null, Func<bool>? still = null) =>
+        SendWorldCreate(conn, id, () => bytes, log, still);
 
     // World output already batches at the frame boundary. Preserve the tick's projection order when it mixes
     // World and immediate records; predictive retains its existing one-write send batch.
-    static Task<bool> SendPlayerTickBatch(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, Func<Task<bool>> body) => conn.LockstepClient ? body()
-            : Program.SendBatched(remote, stream, ciphers, body);
+    static Task<bool> SendPlayerTickBatch(ClientState conn, Func<Task<bool>> body) => conn.LockstepClient ? body()
+            : Program.SendBatched(conn, body);
 
     // The caller declares one complete World record and its target. Opaque sends retain their original path.
-    public static Task SendWorldRecord(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, byte[] bytes, string? log, Func<bool>? still = null,
+    public static Task SendWorldRecord(ClientState conn, uint id, byte[] bytes, string? log, Func<bool>? still = null,
         Func<byte[]?>? atGate = null, string? sync = null)
     {
-        if (!conn.LockstepClient) return Send(remote, stream, ciphers, bytes, log, still, atGate, sync);
-        if (sync is not null && !MetricsFor(ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
+        if (!conn.LockstepClient) return Send(conn, bytes, log, still, atGate, sync);
+        if (sync is not null && !MetricsFor(conn.Wire.Ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
         var target = conn.WorldOutput.PublishedObject(id);
         return SendWorldBatch(conn, QuestKillCommitOutput is not null && atGate is null ? [] : [target], _ =>
         {
             var current = atGate is null ? bytes : atGate();
             if (current is null || current.Length == 0) return null;
             return new(PresentedRecord(target, current, log));
-        }, still, transport: (remote, stream, ciphers));
+        }, still);
     }
 
-    public static Task SendWorldRecords(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, Func<byte[][]?> records, string? log = null, Func<bool>? still = null, string? sync = null)
+    public static Task SendWorldRecords(ClientState conn, uint id, Func<byte[][]?> records, string? log = null, Func<bool>? still = null, string? sync = null)
     {
         if (!conn.LockstepClient)
-            return Send(remote, stream, ciphers, [], log, still, atGate: () =>
+            return Send(conn, [], log, still, atGate: () =>
                 records() is { } batch ? [.. batch.SelectMany(p => p)] : null, sync: sync);
-        if (sync is not null && !MetricsFor(ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
+        if (sync is not null && !MetricsFor(conn.Wire.Ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
         var target = conn.WorldOutput.PublishedObject(id);
         return SendWorldBatch(conn, [target], _ => records() is { } batch
             ? new(batch.Where(p => p.Length > 0).Select(p => PresentedRecord(target, p, log)).ToArray()) : null,
-            still, transport: (remote, stream, ciphers));
+            still);
     }
 
-    public static async Task SendWorldRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
+    public static async Task SendWorldRemoval(ClientState conn, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
-        if (!conn.LockstepClient) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), log, still, atGate);
+        if (!conn.LockstepClient) await Send(conn, InstanceProtocol.RemoveObject(id), log, still, atGate);
         else
         {
             var target = conn.WorldOutput.PublishedObject(id);
@@ -188,14 +181,14 @@ public static partial class Game
                 bytes = bytes.ToArray();
                 BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
                 return new(OutputRecord.Remove(target, WorldOrder.Last, bytes, log));
-            }, still, transport: (remote, stream, ciphers));
+            }, still);
             if (admitted && QuestKillCommitOutput is null) await target.Removed;
         }
         // A monster can leave the area without dying here (a minion's body, a wisp, a scripted encounter's removal; the
         // golem and minion queues send theirs through this same call): the map overlay's "X monsters remain" (S→C 0x1a0)
         // counts the living ones again. A corpse that is consumed changes nothing, and the count is only sent when it
         // really differs (MonsterRemaining.cs).
-        await SendRemainingMonsters(remote, stream, ciphers, conn);
+        await SendRemainingMonsters(conn);
     }
 
     static OutputRecord PresentedRecord(WorldObject target, byte[] bytes, string? log = null) =>
@@ -230,7 +223,7 @@ public static partial class Game
         {
             var wire = conn.Wire;
             bool sent = false;
-            await Send(wire.Remote, wire.Stream, wire.Ciphers, [], log, still, atGate: () =>
+            await Send(conn, [], log, still, atGate: () =>
             {
                 var bytes = record(); sent = bytes is not null; return bytes;
             });

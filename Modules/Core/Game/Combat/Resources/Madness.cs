@@ -140,11 +140,10 @@ public static partial class Game
         return result;
     }
 
-    public static async Task<bool> ToggleMadness(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
+    public static async Task<bool> ToggleMadness(ClientState conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
     {
         bool accepted = false;
-        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+        await SendWorldRecords(conn, PlayerId, () =>
         {
             lock (conn.Monsters)
             {

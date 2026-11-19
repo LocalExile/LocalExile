@@ -68,7 +68,7 @@ public static partial class Game
         }
     }
 
-    static Task SendSentinelOwnership(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Func<bool> current) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "owned sentinel roster",
+    static Task SendSentinelOwnership(ClientState conn,
+        Func<bool> current) => SendWorldRecord(conn, PlayerId, [], "owned sentinel roster",
             atGate: () => current() ? SentinelOwnershipPresentation(conn) : null);
 }

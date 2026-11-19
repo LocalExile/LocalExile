@@ -103,13 +103,12 @@ public static class MapStrongboxes
         var shown = Presented.GetOrCreateValue(conn);
         if (!replace && shown.Contains(box.Id)) return;
         if (StrongboxCatalog.Find(box.Type) is not { } type) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (shown.Contains(box.Id)) await SendWorldRemoval(remote, stream, ciphers, conn, box.Id, null);
-        await SendWorldCreate(remote, stream, ciphers, conn, box.Id,
+        if (shown.Contains(box.Id)) await SendWorldRemoval(conn, box.Id, null);
+        await SendWorldCreate(conn, box.Id,
             InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
                 StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase == 2)),
             $"strongbox 0x{box.Id:x} {type.Id} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
-        await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
+        await SendWorldRecord(conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
         conn.SetBlocker(box.Id, box.X, box.Y, 1);
         shown.Add(box.Id);
     }
@@ -122,15 +121,14 @@ public static class MapStrongboxes
         {
             int current = conn.ActionCount;
             var wire = conn.Wire;
-            await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
                 still: () => PlayerActionCurrent(conn, current));
             return true;
         }
         if (!TryBeginObjectWalk(conn, requestedAt, box.X, box.Y, 1, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
-        var (remote, stream, ciphers) = conn.Wire;
         if (!use.Started)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            await SendWorldRecord(conn, PlayerId,
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, box.X, box.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: box.Id), null,
                 still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
@@ -155,7 +153,7 @@ public static class MapStrongboxes
         finally
         {
             area.Gate.Release();
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
                 still: () => PlayerActionCurrent(conn, action));
         }
         return true;
@@ -189,12 +187,11 @@ public static class MapStrongboxes
     static async Task SpawnPending(ClientState conn, Area area, Box box)
     {
         byte level = (byte)Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
-        var (remote, stream, ciphers) = conn.Wire;
         while (box.Pending.Count > 0 && !conn.Closed && !conn.LeavingArea)
         {
             var spawn = box.Pending[0];
             if (Monsters.Find(spawn.Variety.ToString()) is not { } variety) return;
-            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, spawn.Rarity, spawn.X, spawn.Y,
+            uint id = await SpawnMonster(conn, variety, level, spawn.Rarity, spawn.X, spawn.Y,
                 unrisen: false, alone: false);
             if (id == 0) return;
             box.Guards.Add(id);
@@ -271,8 +268,7 @@ public static class MapStrongboxes
             var at = conn.Layout.Near((box.X + Random.Shared.Next(-5, 6), box.Y + Random.Shared.Next(-5, 6)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            var (remote, stream, ciphers) = conn.Wire;
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);
+            await SendGroundItem(conn, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);
         }
     }
 

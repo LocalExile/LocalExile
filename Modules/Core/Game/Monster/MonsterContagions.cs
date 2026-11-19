@@ -180,33 +180,33 @@ static partial class Game
 
     /// <summary>Plays the Contagion circle (<paramref name="ao"/>: the caster's skin's, else the default) at a spread, sized
     /// to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
-    internal static async Task ShowContagionSpread(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task ShowContagionSpread(ClientState conn,
         (int X, int Y) at, int radius, string ao)
     {
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? 180));
         // Every player in the instance sees it, each under an object id of its own client and through its own world output:
         // the killer here, the others on their own frame (KillShares, as shared kills are).
-        async Task Show(string r, NetworkStream s, ConnectionCiphers c, ClientState viewer)
+        async Task Show(ClientState viewer)
         {
             uint effect;
             lock (viewer.Monsters) effect = viewer.TakeObjectId();
-            await SendWorldCreate(r, s, c, viewer, effect, InstanceEntities.CreateObject(effect,
+            await SendWorldCreate(viewer, effect, InstanceEntities.CreateObject(effect,
                 InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
                 $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
-            await SendWorldRecord(r, s, c, viewer, effect, InstanceProtocol.EnterWakeZone(effect), null);
+            await SendWorldRecord(viewer, effect, InstanceProtocol.EnterWakeZone(effect), null);
             SendAfter(ContagionSpreadArtSeconds, async () =>
             {
                 if (viewer.Closed || viewer.LeavingArea) return;
-                await SendWorldRemoval(r, s, c, viewer, effect, null);
+                await SendWorldRemoval(viewer, effect, null);
             });
         }
-        await Show(remote, stream, ciphers, conn);
+        await Show(conn);
         foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
             if (peer.Owner is { } other && !other.Closed && !other.LeavingArea && other.PlayerSent)
-                other.KillShares.Enqueue((r, s, c) => Show(r, s, c, other));
+                other.KillShares.Enqueue(_ => Show(other));
     }
 
-    internal static async Task TickContagions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task TickContagions(ClientState conn)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
         var ended = new List<(uint Id, ushort Buff)>();
@@ -240,7 +240,7 @@ static partial class Game
                         m.Contagion.Died(fraction);
                     }
                     hits.Add((id, m, m.Life, damage, owner));
-                    if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
+                    if (stageStarts) CommitBossStage(conn, id, m, now);
                 }
                 if (m.Dead || m.Life == 0 || m.Contagion.Active is null)
                 {
@@ -261,24 +261,24 @@ static partial class Game
         }
         foreach (var (id, buff) in ended)
         {
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
+            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
             ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
         foreach (var (id, buff, skill, remaining) in updated)
-            await SendWorldRecord(remote, stream, ciphers, conn, id,
+            await SendWorldRecord(conn, id,
                 InstanceEntities.AddBuff(id, buff, ContagionBuffRow, PlayerId, skill,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining))),
                 $"0x01c1 monster 0x{id:x} contagion buff 0x{buff:x} from skill 0x{skill:x4}, {remaining:0.##} s");
         foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of contagion" : null);
             // The owner's kill (on its own frame when it is another player); with the owner gone, the death without any
             // player's on-kill effects.
-            if (life == 0 && owner is not null) await DotKilled(remote, stream, ciphers, conn, id, m);
-            else if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
+            if (life == 0 && owner is not null) await DotKilled(conn, id, m);
+            else if (life == 0) await MonsterKilled(conn, id, m, byMinion: true);
         }
     }
 }

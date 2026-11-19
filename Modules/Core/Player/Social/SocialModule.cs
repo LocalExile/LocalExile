@@ -44,26 +44,23 @@ public sealed class SocialModule : IModule
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => SocialFeature.CancelPlayerTrade(conn, why));
         GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
             if (conn.Trade is not { } trade) return false;
             var offer = InstanceNpcs.ReadTradeOffer(bytes);
-            await SocialFeature.PlayerTradeOffer(remote, conn, trade, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
+            await SocialFeature.PlayerTradeOffer(conn, trade, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
             return true;
         });
         foreach (ushort id in new[] { InstanceNpcs.TradeTakeBackId, InstanceNpcs.TradeMoveAllId })
             GameEvents.Packet(id).Add(module.Manifest.Id, async (conn, bytes) =>
             {
-                var remote = conn.Wire.Remote;
                 if (conn.Trade is not { } trade) return false;
                 var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
-                await SocialFeature.PlayerTradeOffer(remote, conn, trade, inventory, item);
+                await SocialFeature.PlayerTradeOffer(conn, trade, inventory, item);
                 return true;
             });
         GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
             if (conn.Trade is not { } trade) return false;
-            await SocialFeature.PlayerTradeAccept(remote, conn, trade, InstanceNpcs.ReadTradeAccept(bytes));
+            await SocialFeature.PlayerTradeAccept(conn, trade, InstanceNpcs.ReadTradeAccept(bytes));
             return true;
         });
         GameEvents.Packet(InstanceNpcs.TradeUnacceptId).Add(module.Manifest.Id, async (conn, bytes) =>
@@ -83,25 +80,21 @@ public sealed class SocialModule : IModule
         });
         GameEvents.Packet(InstanceSocial.TradeRequestAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
-            await SocialFeature.AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(bytes));
+            await SocialFeature.AcceptTradeRequest(conn, InstanceSocial.ReadTradeRequestAccept(bytes));
             return true;
         });
         GameEvents.Packet(InstanceSocial.TradeRequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
-            await SocialFeature.RequestTrade(remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceSocial.ReadTradeRequest(bytes));
+            await SocialFeature.RequestTrade(conn, InstanceSocial.ReadTradeRequest(bytes));
             return true;
         });
         GameEvents.Packet(InstanceSocial.PartyInviteId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
             // Other modules may resolve names that are not connected human characters.
             return await PartyRoster.InviteHuman(conn, InstanceSocial.ReadPartyInvite(bytes));
         });
         GameEvents.Packet(InstanceSocial.PartyAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
             await PartyRoster.AcceptHuman(conn, InstanceSocial.ReadPartyAccept(bytes));
             return true;
         });
@@ -109,7 +102,6 @@ public sealed class SocialModule : IModule
             PartyRoster.Kick(conn, InstanceSocial.ReadPartyKick(bytes)));
         GameEvents.Packet(InstanceSocial.PartyLeaveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var remote = conn.Wire.Remote;
             return await PartyRoster.LeaveHuman(conn, InstanceSocial.ReadPartyAccept(bytes));
         });
         // The panel's travel button: the member's row shows their area (0xa7 +0xa8), and this moves the player there.
@@ -160,16 +152,16 @@ static class SocialFeature
 
     // C→S 0xba: "Trade" on another player in the same instance. The requester sees the waiting notice (0xb8 without
     // flags) and the other player the request (0xb8 with TradeRequestFlag and the requester's name), answered by 0xb0.
-    internal static async Task RequestTrade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint target)
+    internal static async Task RequestTrade(ClientState conn, uint target)
     {
         if (conn.Instance.Player(target) is not { Owner: { Outbox: not null } other } || !PlayerTradeAllowed(conn, other)
             || other.Trade is not null || conn.Trade is not null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x00ba trade request to 0x{target:x}: not available");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x00ba trade request to 0x{target:x}: not available");
             return;
         }
         string me = CharacterName(conn), them = CharacterName(other);
-        Console.WriteLine($"[gateway] {remote} <= 0x00ba trade request: {me} -> {them} (0x{target:x})");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x00ba trade request: {me} -> {them} (0x{target:x})");
         conn.TradeRequestTo = other.PeerId;
         await Introduce(conn, other);
         await Introduce(other, conn);
@@ -201,18 +193,18 @@ static class SocialFeature
     }
 
     // C→S 0xb0: the request accepted (u32 the requester's object id). Both get the open trade window.
-    internal static async Task AcceptTradeRequest(string remote, ClientState conn, uint requester)
+    internal static async Task AcceptTradeRequest(ClientState conn, uint requester)
     {
         if (conn.Instance.Player(requester) is not { Owner: { } other } || other.TradeRequestTo != conn.PeerId
             || !PlayerTradeAllowed(conn, other) || other.Trade is not null || conn.Trade is not null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x00b0 trade accept from 0x{requester:x}: no pending request");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x00b0 trade accept from 0x{requester:x}: no pending request");
             return;
         }
         other.TradeRequestTo = 0;
         var trade = new PlayerTrade(other, conn);
         other.Trade = conn.Trade = trade;
-        Console.WriteLine($"[gateway] {remote} <= 0x00b0 trade accepted: {CharacterName(other)} <-> {CharacterName(conn)}");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x00b0 trade accepted: {CharacterName(other)} <-> {CharacterName(conn)}");
         foreach (var c in new[] { other, conn })
         {
             var them = trade.Other(c);
@@ -226,7 +218,7 @@ static class SocialFeature
 
     // C→S 0xb2 / 0xb3 / 0xb5 while a player trade is open: an item into the offer (a drop at x, y, or Ctrl / Shift
     // click into the first free cell), or an offered item taken back.
-    internal static async Task PlayerTradeOffer(string remote, ClientState conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
+    internal static async Task PlayerTradeOffer(ClientState conn, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
     {
         if (!PlayerTradeAllowed(conn, trade.Other(conn)))
         {
@@ -234,10 +226,10 @@ static class SocialFeature
             return;
         }
         var items = ItemsOf(conn);
-        if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(remote, conn, trade, itemId); return; }
+        if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(conn, trade, itemId); return; }
         byte? row = PlayerInventories.Row(inventory);
         var it = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
-        if (it is null || ShapeOf(it.Item) is not { } shape) { Console.WriteLine($"[gateway] {remote} trade offer: item {itemId} not in inventory {inventory}"); return; }
+        if (it is null || ShapeOf(it.Item) is not { } shape) { Console.WriteLine($"[gateway] {conn.Remote} trade offer: item {itemId} not in inventory {inventory}"); return; }
         (byte X, byte Y)? cell = x is byte cx && y is byte cy && cx != 0xff ? (cx, cy) : null;
         if (cell is null)
         {
@@ -249,7 +241,7 @@ static class SocialFeature
         }
         if (cell is not { } at || items.Offer(row!.Value, itemId, at.X, at.Y, ShapeOf) is not var (waits, waiting))
         {
-            Console.WriteLine($"[gateway] {remote} trade offer: no room for item {itemId}");
+            Console.WriteLine($"[gateway] {conn.Remote} trade offer: no room for item {itemId}");
             return;
         }
         var other = trade.Other(conn);
@@ -274,7 +266,7 @@ static class SocialFeature
         await SendTradeState(trade);
     }
 
-    internal static async Task PlayerTradeTakeBack(string remote, ClientState conn, PlayerTrade trade, uint itemId)
+    internal static async Task PlayerTradeTakeBack(ClientState conn, PlayerTrade trade, uint itemId)
     {
         var items = ItemsOf(conn);
         if (items.TakeBack(itemId) is not var (row, back)) return;
@@ -299,7 +291,7 @@ static class SocialFeature
 
     // C→S 0xb6: Accept, with the revision of the other's offer this client saw. Both accepted on the current offers
     // completes the trade; any later change clears both acceptances.
-    internal static async Task PlayerTradeAccept(string remote, ClientState conn, PlayerTrade trade, uint revision)
+    internal static async Task PlayerTradeAccept(ClientState conn, PlayerTrade trade, uint revision)
     {
         if (!PlayerTradeAllowed(conn, trade.Other(conn)))
         {
@@ -314,7 +306,7 @@ static class SocialFeature
             trade.Accepted[conn] = revision == trade.Revisions[conn].Theirs ? revision : null;
             complete = trade.Accepted[conn] is not null && trade.Accepted[other] == trade.Revisions[other].Theirs;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x00b6 trade accept (their offer revision {revision}){(complete ? ": both accepted" : "")}");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x00b6 trade accept (their offer revision {revision}){(complete ? ": both accepted" : "")}");
         if (complete) await CompletePlayerTrade(trade);
         else await SendTradeState(trade);
     }

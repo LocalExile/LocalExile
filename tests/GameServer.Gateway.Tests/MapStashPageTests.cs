@@ -55,7 +55,7 @@ public class MapStashPageTests : IDisposable
             for (int i = 1; i <= 2; i++)
             {
                 var held = items.Add(PlayerInventories.Cursor, 0, 0, map with { Quality = (byte)i });
-                await Game.PlaceInStash("map-stash-test", wire.Stream, wire.Ciphers, conn, mapTab,
+                await Game.PlaceInStash(conn, mapTab,
                     new InstanceItems.PlaceItem(stash.InventoryOf(mapTab), 0, 0, 0, 0, 0, 0));
                 Assert.Empty(items.Items(PlayerInventories.Cursor));
                 Assert.Equal(i, stash.Inventory(next).Items.Count);

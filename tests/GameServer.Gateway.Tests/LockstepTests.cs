@@ -270,7 +270,7 @@ public class LockstepTests : IDisposable
         var lifetime = new ModuleLifetime("Game");
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        var session = new Game.ProjectileSession("predictive-follow", null!, null!, predictive);
+        var session = new Game.ProjectileSession(predictive);
         predictive.ProjectileRuntimeState = session;
         try
         {
@@ -326,7 +326,7 @@ public class LockstepTests : IDisposable
         byte[]? Gate(ClientState c, LockstepAttack attack, double start)
         {
             c.LockstepFrame = (start, start + .033);
-            lock (c.Monsters) return Game.LockstepAttackAtGate("walk-up", c, attack, use);
+            lock (c.Monsters) return Game.LockstepAttackAtGate(c, attack, use);
         }
         void Replay(ClientState c, double to)   // the frames up to `to`, the start of the frame then being sent
         {
@@ -381,7 +381,7 @@ public class LockstepTests : IDisposable
             var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
             var gate = Program.SendGates.GetValue(ciphers, _ => new(1, 1));
             Assert.True(gate.Wait(0));   // the frame end holds the send gate
-            var starting = Game.LockstepAttackStart("walk-up", writer.GetStream(), ciphers, conn, use, drowned, sword,
+            var starting = Game.LockstepAttackStart(conn, use, drowned, sword,
                 1, ++conn.ActionCount, "attack");
             Assert.False(starting.IsCompleted);
             conn.LockstepFrame = (.066, .099);
@@ -544,10 +544,10 @@ public class LockstepTests : IDisposable
         conn.LockstepSkill.Press((8, 8), null, 0x0200, 0x0401, repeats: false);
         conn.LockstepSkill.Channelling(0x8001);
         conn.LastChannelUpdateAt = -10;
-        Game.OnLockstepRequest("test", conn, 0x192, Convert.FromHexString("01920000001400000005"));
+        Game.OnLockstepRequest(conn, 0x192, Convert.FromHexString("01920000001400000005"));
         Assert.True(conn.LastChannelUpdateAt >= 0);
         Assert.Equal((120, 105), conn.LockstepSkill.Aim);
-        Game.OnLockstepRequest("test", conn, 0x18e, Convert.FromHexString("018E00000014000000002909040000"));
+        Game.OnLockstepRequest(conn, 0x18e, Convert.FromHexString("018E00000014000000002909040000"));
         Assert.Equal((ushort)0x8001, conn.LockstepSkill.ChannelReleased());
         Assert.Null(conn.LockstepSkill.ChannelReleased());
         // A new Move may cancel at either end of a spell; a held repeat still waits for the full cast.

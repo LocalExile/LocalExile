@@ -8,7 +8,7 @@ public static partial class Game
     // estimate out (its next contacts and blockers), never the player: a teleport there snapped the player back to where
     // the server guessed them. Only the arrival (tell: Messages.cs, the area entry, before the client has moved) places
     // the player itself.
-    public static async Task PushOutOfCollision(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool living = false,
+    public static async Task PushOutOfCollision(ClientState conn, bool living = false,
         bool tell = false)
     {
         if (!conn.PlayerSent || conn.PlayerLife == 0 || conn.PendingTransfer is not null || conn.Closed
@@ -35,8 +35,8 @@ public static partial class Game
             conn.Walk.Teleport(to.X, to.Y, now);
         }
         if (!tell) return;
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), "stop action before collision correction");
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y, 0x7fffffff),
+        await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), "stop action before collision correction");
+        await SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y, 0x7fffffff),
             $"collision escape: ({from.X},{from.Y}) -> ({to.X},{to.Y})");
     }
 }

@@ -13,8 +13,8 @@ public sealed class CommandsModule : IModule
     {
         var played = new CharacterPlaytime();
         module.Lifetime.Own(played);
-        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) =>
-            CommandsFeature.Register(commands, remote, stream, ciphers, conn, played));
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, conn) =>
+            CommandsFeature.Register(commands, conn, played));
         GameEvents.EnterMessages.Add(module.Manifest.Id, conn => { played.Begin(conn); return []; });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => { played.Step(conn); return Task.CompletedTask; }));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { played.End(conn); return Task.CompletedTask; });

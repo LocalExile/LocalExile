@@ -24,11 +24,11 @@ public static partial class Game
     // An ordinary bow or wand shot on the shared runtime. The release waits for the weapon's contact (attack1_bow, or
     // the ACT-selected wand clip for this input's sequence), then freezes damage, chance and multiplier; conditional
     // critical rules read the live owner at impact, and target evasion and impales resolve at contact.
-    public static Task ScheduleOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleOrdinaryRanged(ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
         SkillCriticalRoll criticalRoll, double? swingAt = null)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         // A lockstep client's shot leaves on its own frame tick (LockstepShotAt), counted from the start of the frame its
         // action began in: a walk-up's swing frame, else the frame now being sent, which the echo after this goes in. The
@@ -172,15 +172,14 @@ public static partial class Game
 
     // The player's record goes out before the client has shown it runs lockstep (a lag byte or a request), so it has no
     // count; it goes again once it has, if a wand or bow is in hand. Beside the frames, which must not wait for it.
-    public static void SendLockstepDefaultAttack(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn)
+    public static void SendLockstepDefaultAttack(ClientState conn)
     {
         if (!conn.LockstepClient || conn.DefaultAttackRecordLockstep || !conn.PlayerSent) return;
         conn.DefaultAttackRecordLockstep = true;
         if (OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) is null) return;
         _ = Task.Run(async () =>
         {
-            try { await SendSkills(remote, stream, ciphers, conn); }
+            try { await SendSkills(conn); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         });
     }

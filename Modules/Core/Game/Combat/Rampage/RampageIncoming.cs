@@ -41,24 +41,22 @@ public static partial class Game
         return true;
     }
 
-    static async Task RunPlannedRampageWeaponSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, MonsterAiCadence cadence, uint id, SpawnedMonster attacker, int action,
+    static async Task RunPlannedRampageWeaponSwing(ClientState conn, MonsterAiCadence cadence, uint id, SpawnedMonster attacker, int action,
         uint targetId, SpawnedMonster weapon)
     {
-        try { await MonsterSwingAtRampageWeapon(remote, stream, ciphers, conn, id, attacker, action, targetId, weapon); }
+        try { await MonsterSwingAtRampageWeapon(conn, id, attacker, action, targetId, weapon); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
         finally { lock (conn.Monsters) cadence.CompleteSwing(attacker, action); }
     }
 
-    static async Task MonsterSwingAtRampageWeapon(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster attacker, int action, uint targetId, SpawnedMonster weapon)
+    static async Task MonsterSwingAtRampageWeapon(ClientState conn, uint id, SpawnedMonster attacker, int action, uint targetId, SpawnedMonster weapon)
     {
         if (attacker.Attack is not { } attack) return;
         bool TargetCurrent() => CurrentRampageWork && conn.OwnedCombatState is RampageWorld world
             && world.Actors.ContainsKey(targetId) && !weapon.Dead && weapon.Life > 0 && weapon.OwnerId == PlayerId
             && ReferenceEquals(conn.Monsters.GetValueOrDefault(targetId), weapon);
         double startedAt = 0;
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, attacker, action, () =>
+        if (!await SendMonsterAction(conn, id, attacker, action, () =>
         {
             if (!TargetCurrent()) return null;
             startedAt = conn.Clock.Elapsed.TotalSeconds;
@@ -70,7 +68,7 @@ public static partial class Game
                     attack.SkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetId);
         }, "Monster attacks Rampage weapon")) return;
         if (!await WaitMonsterActionTime(conn, id, attacker, action, startedAt + attack.Seconds / 2)) return;
-        await SendMonsterAction(remote, stream, ciphers, conn, id, attacker, action, () =>
+        await SendMonsterAction(conn, id, attacker, action, () =>
         {
             double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
             if (!TargetCurrent() || Dist(attacker.Walk.Position(now), weapon.Walk.Position(now)) > attack.Range + 2)

@@ -153,7 +153,6 @@ public sealed partial class DeliriumModule : IModule
     async Task Enter(ClientState conn)
     {
         if (!SimulacrumRules.IsArena(conn.Layout.Id)) return;
-        var (remote, stream, ciphers) = conn.Wire;
         var view = ViewOf(conn) ?? views.GetOrCreateValue(conn);
         if (view.Native || view.Repairing) return;
         view.Repairing = true;
@@ -163,9 +162,9 @@ public sealed partial class DeliriumModule : IModule
         {
         var stashAt = conn.Layout.Near((conn.Layout.SpawnX - 15, conn.Layout.SpawnY + 8));
         uint stash = conn.TakeObjectId(); view.Stash = stash;
-        await SendWorldCreate(remote, stream, ciphers, conn, stash, InstanceEntities.CreateObject(stash,
+        await SendWorldCreate(conn, stash, InstanceEntities.CreateObject(stash,
             InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), new StashObject(stashAt.X, stashAt.Y, 0).Blob()), "Simulacrum: stash between waves");
-        await SendWorldRecord(remote, stream, ciphers, conn, stash, InstanceProtocol.EnterWakeZone(stash), null);
+        await SendWorldRecord(conn, stash, InstanceProtocol.EnterWakeZone(stash), null);
         conn.StashObject = stash; conn.StashAt = stashAt;
         }
         SaveView(conn, view);
@@ -182,7 +181,7 @@ public sealed partial class DeliriumModule : IModule
         {
             var wire = conn.Wire;
             if (Descendancies.Find("Delirious") is { } bloodline)
-                await OpenDescendancySelector(wire.Remote, wire.Stream, wire.Ciphers, conn, bloodline.Index);
+                await OpenDescendancySelector(conn, bloodline.Index);
             return;
         }
         lock (conn.Monsters)
@@ -213,9 +212,8 @@ public sealed partial class DeliriumModule : IModule
                 Save(conn, run);
             }
             if (cleared.Count > 0) Console.WriteLine($"[gateway] Simulacrum wave {run.Wave}: {cleared.Count} items on the ground destroyed");
-            var (remote, stream, ciphers) = conn.Wire;
             foreach (uint id in shown)
-                await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (Simulacrum wave {run.Wave} begins)");
+                await SendWorldRemoval(conn, id, $"0x02bd remove world item 0x{id:x} (Simulacrum wave {run.Wave} begins)");
             await Broadcast(conn, $"Simulacrum — Wave {run.Wave}/15 · Monster level {SimulacrumRules.Level(run.Wave)} · {SimulacrumRules.Delirious(run.Wave)}% Delirious\n"
                 + string.Join("; ", run.ModifierNames));
             await PublishStarter(conn, run, recreate: false);

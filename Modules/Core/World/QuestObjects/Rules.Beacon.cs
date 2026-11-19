@@ -107,8 +107,7 @@ static partial class QuestobjectsRules
             {
                 if (refueled && !ClientHasQuestFlag(player, BeaconRefueled))
                 {
-                    var (remote, stream, ciphers) = player.Wire;
-                    await SetQuestFlags(remote, stream, ciphers, player, [BeaconRefueled]);
+                    await SetQuestFlags(player, [BeaconRefueled]);
                 }
                 await ShowBeacon(player, run, BeaconViews.GetValue(player, _ => new()));
             }
@@ -119,7 +118,6 @@ static partial class QuestobjectsRules
     static async Task CreateBeacon(ClientState conn, BeaconRun run, BeaconView view)
     {
         var placed = new QuestObjectTypes.AreaPlacements(Act6Areas.Beacon, conn.Seed, []);
-        var (remote, stream, ciphers) = conn.Wire;
         // Rebind the old quest rules and add missing objects when this module is hot-reloaded in an occupied area.
         foreach (var rule in QuestsOf(conn).Objects(Act6Areas.Beacon))
         {
@@ -128,7 +126,7 @@ static partial class QuestobjectsRules
                 foreach (var (id, o) in conn.QuestObjects.Where(p => p.Value.Rule.ObjectType == rule.ObjectType).ToArray())
                 { conn.QuestObjects[id] = (rule, o.At, o.Info); found = true; }
             if (!found)
-                foreach (var at in placed.Of(rule.ObjectType)) await CreateQuestObject(remote, stream, ciphers, conn, rule, at);
+                foreach (var at in placed.Of(rule.ObjectType)) await CreateQuestObject(conn, rule, at);
         }
         var starts = placed.Of(Act6Objects.BeaconPayload);
         if (!run.Loaded)
@@ -180,10 +178,10 @@ static partial class QuestobjectsRules
                     id = conn.TakeObjectId();
                     conn.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
                 }
-                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
+                await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
                     new QuestObject(position.X, position.Y, info.Components, position.Rotation, position.Z,
                         TransitionState: (byte)(cart.Walk.Complete ? 2 : 1), Team: 4).Blob()), $"[Beacon] fuel cart at ({position.X}, {position.Y})");
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             }
             lock (conn.QuestObjects)
                 if (conn.QuestObjects.TryGetValue(id, out var shown))
@@ -203,7 +201,6 @@ static partial class QuestobjectsRules
 
     static async Task ShowBeacon(ClientState conn, BeaconRun run, BeaconView view)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         int delivered = run.Carts.Count(c => c.Walk.Complete);
         bool flag = ClientHasQuestFlag(conn, BeaconDelivered), lit = flag || conn.Instance.HasState(Act6Objects.BeaconIgnited);
         for (int i = 0; i < view.Carts.Count; i++)
@@ -220,7 +217,7 @@ static partial class QuestobjectsRules
                 var target = cart.CommandTarget;
                 float seconds = cart.Moving ? (float)Math.Max(0.05, cart.CommandSeconds) : 0.05f;
                 var move = InstanceProtocol.MoveTo(id, target.Item1, target.Item2, seconds, InstanceProtocol.FollowTerrain);
-                await Send(remote, stream, ciphers, cart.Moving
+                await Send(conn, cart.Moving
                     ? [.. InstanceProtocol.Orientation(id, (float)Math.Atan2(target.Item1 - at.X, at.Y - target.Item2)), .. move] : move,
                     $"[Beacon] cart {i + 1} {(cart.Moving ? "moving" : "stopped")} at {cell}, target {target}");
             }
@@ -248,8 +245,7 @@ static partial class QuestobjectsRules
         int component;
         lock (conn.QuestObjects) component = conn.QuestObjects.TryGetValue(id, out var o) ? QuestObject.TransitionableIndex(o.Info.Components) : -1;
         if (component < 0) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Beacon] 0x{id:x} state {state}");
+        await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Beacon] 0x{id:x} state {state}");
         view.ShownStates[id] = state;
     }
 
@@ -267,8 +263,7 @@ static partial class QuestobjectsRules
                 var rarity = spawn.Type.EndsWith("Rare", StringComparison.Ordinal) ? MonsterRarity.Rare
                     : spawn.Type.EndsWith("Magic", StringComparison.Ordinal) ? MonsterRarity.Magic : MonsterRarity.Normal;
                 var pos = conn.Layout.Near((spawn.X, spawn.Y));
-                var (remote, stream, ciphers) = conn.Wire;
-                await SpawnMonster(remote, stream, ciphers, conn, variety, 49, rarity, pos.X, pos.Y);
+                await SpawnMonster(conn, variety, 49, rarity, pos.X, pos.Y);
             }
             Console.WriteLine($"[gateway] Beacon encounter at ({trigger.X}, {trigger.Y})");
         }

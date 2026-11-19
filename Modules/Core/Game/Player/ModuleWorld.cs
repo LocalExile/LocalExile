@@ -21,7 +21,7 @@ public static partial class Game
 
     public sealed class ModuleWorld(ClientState conn) : IPlayerWorld
     {
-        Task Send(byte[] message, string? log) => Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, message, log);
+        Task Send(byte[] message, string? log) => Program.Send(conn, message, log);
 
         public ushort AreaHash => conn.Layout.Hash;
         public (int X, int Y) Spawn => (conn.Layout.SpawnX, conn.Layout.SpawnY);
@@ -29,7 +29,7 @@ public static partial class Game
         public uint NewObjectId() => conn.TakeObjectId();
         public void SetBlocker(uint objectId, int x, int y, int size) => conn.SetBlocker(objectId, x, y, size);
         public void RemoveBlocker(uint objectId) => conn.RemoveBlocker(objectId);
-        public Task PushOutOfCollision() => Game.PushOutOfCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        public Task PushOutOfCollision() => Game.PushOutOfCollision(conn);
 
         public async Task<uint?> SpawnHideoutStation(HideoutSlot slot, string metadataPath, string editorKey, string name)
         {
@@ -42,7 +42,7 @@ public static partial class Game
             await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
                 $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
             await SendWorldRecord(conn, id, () => InstanceProtocol.EnterWakeZone(id));
-            await RegisterStationaryCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, metadataPath, x, y, rotation, editorKey);
+            await RegisterStationaryCollision(conn, id, metadataPath, x, y, rotation, editorKey);
             return id;
         }
 
@@ -62,18 +62,18 @@ public static partial class Game
         {
             conn.BenchOpen = false;
             conn.ModuleWindow = owner;
-            await RefreshBenchBalance(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, clear: true);
+            await RefreshBenchBalance(conn, clear: true);
             await Send(InstanceWaypoints.OpenUi(ui), log);
         }
 
         public string? OpenWindowOwner => conn.ModuleWindow;
 
-        public Task RefreshStats() => SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, PlayerStatChange.Build);
+        public Task RefreshStats() => SendCharacterStats(conn, PlayerStatChange.Build);
 
         public async Task<bool> TravelTo(string areaId, string reason)
         {
             if (AreaTransitionCatalog.HashOf(areaId) is not { } hash) return false;
-            await ChangeArea(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, new PendingTransfer(hash, 0, false, AtSpawn: true), reason);
+            await ChangeArea(conn, new PendingTransfer(hash, 0, false, AtSpawn: true), reason);
             return true;
         }
 
@@ -104,7 +104,7 @@ public static partial class Game
             return Send(InstanceNpcs.Talk(0), log);
         }
 
-        public Task NpcIdentifyItems() => TalkingTo() is { } npc ? IdentifyInventory(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, npc) : Task.CompletedTask;
+        public Task NpcIdentifyItems() => TalkingTo() is { } npc ? IdentifyInventory(conn, npc) : Task.CompletedTask;
         public Task<bool> NpcOfferReward(int offer) => OfferNpcReward(conn, offer);
 
         public uint ItemIdIn(byte row) => ItemsOf(conn).Items(row).FirstOrDefault()?.Id ?? 0;
@@ -124,7 +124,7 @@ public static partial class Game
                     await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                         items.NextRevision(PlayerInventories.MainInventory), [.. paid.Removed, .. paid.Changed.Select(c => c.Id)], paid.Changed),
                         $"{log}: paid from inventory");
-                await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, payment.Stash);
+                await SendStashPayment(conn, stash, payment.Stash);
             }
             return result.Changed;
         }
@@ -138,7 +138,7 @@ public static partial class Game
                 await Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                     items.NextRevision(PlayerInventories.MainInventory), [.. inventory.Removed, .. inventory.Changed.Select(c => c.Id)], inventory.Changed),
                     $"{log}: paid from inventory");
-            await SendStashPayment(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, stash, paid.Stash);
+            await SendStashPayment(conn, stash, paid.Stash);
             if (gold > 0) await Send(InstanceEntities.Gold(stash.Gold), $"0x02a9 gold: {stash.Gold} ({log})");
             return true;
         }

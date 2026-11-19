@@ -65,11 +65,10 @@ public static partial class Game
     public static uint CurrentExperience(ClientState conn) =>
         CharacterSaves.Experience(CharacterName(conn)) ?? conn.Experience;
 
-    public static async Task<bool> PublishExperienceChange(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ExperienceChange change, string why)
+    public static async Task<bool> PublishExperienceChange(ClientState conn, ExperienceChange change, string why)
     {
         var updates = LevelUpdatesFor(conn);
-        await Send(remote, stream, ciphers, [], $"0x02bc current player experience ({why})", atGate: () =>
+        await Send(conn, [], $"0x02bc current player experience ({why})", atGate: () =>
         {
             lock (updates.Gate)
             lock (conn.Monsters)
@@ -92,19 +91,18 @@ public static partial class Game
             if (!currentReset && level == conn.Pools.Level) return false;
             before = CommitExperienceLevel(conn, level);
         }
-        await PublishLevelChange(remote, stream, ciphers, conn, before, level);
+        await PublishLevelChange(conn, before, level);
         return true;
     }
 
-    public static async Task CompleteExperienceGain(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ExperienceChange change, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
+    public static async Task CompleteExperienceGain(ClientState conn, ExperienceChange change, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
-        bool applied = await PublishExperienceChange(remote, stream, ciphers, conn, change, why);
+        bool applied = await PublishExperienceChange(conn, change, why);
         if (!change.LevelChanged && !applied) return;
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
         var result = await SynchronizeAccountLevel(conn, control);
-        if (!result.Ok) Console.WriteLine($"[gateway] {remote} current level not saved to the account: {result.Error}");
+        if (!result.Ok) Console.WriteLine($"[gateway] {conn.Remote} current level not saved to the account: {result.Error}");
     }
 
     // Auth has unconditional set_level writes. Serialize every Gateway producer for this character, including resets

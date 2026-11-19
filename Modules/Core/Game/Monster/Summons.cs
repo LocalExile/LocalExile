@@ -103,7 +103,7 @@ public static partial class Game
         return Math.Max(1, GolemStat(gem.Stats, "number_of_monsters_to_summon"));
     }
 
-    internal static Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static Task<bool> CastSummon(ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current,
         bool triggered = false, bool playerConsumesCorpse = true) =>
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
@@ -124,30 +124,30 @@ public static partial class Game
                 {
                     var origin = conn.Walk.Position(AreaTime(conn));
                     var landing = MovementLanding(conn, gem.Effect, origin, aim);
-                    uint clone = await SummonFighterCore(remote, stream, ciphers, conn, source, definition,
+                    uint clone = await SummonFighterCore(conn, source, definition,
                         origin, target, current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
                     if (clone == 0) return false;
-                    await CommitTravelLanding(remote, stream, ciphers, conn, landing,
+                    await CommitTravelLanding(conn, landing,
                         () => conn.Summons.Fighters.ContainsKey(clone));
                 }
-                else await SummonFighterCore(remote, stream, ciphers, conn, source, definition, aim, target,
+                else await SummonFighterCore(conn, source, definition, aim, target,
                     current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
             }
             SaveSummons(conn);
             return true;
         });
 
-    public static Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task<uint> SummonFighter(ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
         GolemState.Golem? replacingOld = null, bool triggered = false, MonsterModSet? inheritedMods = null,
         MonsterRarity rarity = MonsterRarity.Normal) =>
-        SummonFighterCore(remote, stream, ciphers, conn, source, definition, aim, target, restoredVariety, life,
+        SummonFighterCore(conn, source, definition, aim, target, restoredVariety, life,
             current, restoredEquipment, remaining, resources, legacyArrival, replacingOld, triggered, inheritedMods: inheritedMods, rarity: rarity);
 
-    static async Task<uint> SummonFighterCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<uint> SummonFighterCore(ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
@@ -253,7 +253,7 @@ public static partial class Game
         }
         if (!conn.Layout.WalkableFor(aim.X, aim.Y, 0)) aim = NextToPlayer(conn);
         var consumed = corpse;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, rarity, aim.X, aim.Y,
+        uint id = await SpawnMonster(conn, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
             ownedSkills: fighter.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
@@ -331,9 +331,9 @@ public static partial class Game
         conn.Minions.StatRevision++;
     }
 
-    public static async Task SummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task SummonsTick(ClientState conn, double now)
     {
-        await HitSummonsTick(remote, stream, ciphers, conn, now);
+        await HitSummonsTick(conn, now);
         var state = conn.Summons;
         if (!state.Restored)
         {
@@ -352,7 +352,7 @@ public static partial class Game
                     if (SummonData.Find(old.Effect) is { Persistent: true } definition)
                     {
                         ushort source = RestoredSummonSource(conn, old);
-                        if (source != 0) await SummonFighter(remote, stream, ciphers, conn, source, definition,
+                        if (source != 0) await SummonFighter(conn, source, definition,
                             NextToPlayer(conn), restoredVariety: old.Variety, life: old.Life, restoredEquipment: old.Equipment,
                             resources: old.Resources, legacyArrival: old.Resources is null);
                     }
@@ -378,7 +378,7 @@ public static partial class Game
                     if (fighter.Definition.Kind == "AnimatedGuardian" && (fighter.Monster.Dead || fighter.Monster.Life == 0)) state.GuardianEquipment.Clear();
                     RemoveSummonLocked(conn, fighter, now); changed = true; continue;
                 }
-                if (player is null) { GolemStepLocked(remote, stream, ciphers, conn, fighter, now); continue; }
+                if (player is null) { GolemStepLocked(conn, fighter, now); continue; }
                 var gem = SupportedSkill(conn, fighter.Source);
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(conn, gem);
                 if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, "base_number_of_support_ghosts_allowed") <= 0)
@@ -400,11 +400,11 @@ public static partial class Game
                 }
                 fighter.Own = gem.Stats; fighter.GemLevel = gem.Level; fighter.Quality = gem.Quality;
                 RefreshGolemLocked(conn, fighter, player);
-                GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
+                GolemStepLocked(conn, fighter, now);
             }
         }
         foreach (var (old, definition, equipment, variety, aim) in rescaled)
-            if (await SummonFighter(remote, stream, ciphers, conn, old.Source, definition, aim,
+            if (await SummonFighter(conn, old.Source, definition, aim,
                 restoredVariety: variety, restoredEquipment: equipment, replacingOld: old) != 0)
                 changed = true;
         if (changed) SaveSummons(conn);

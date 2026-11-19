@@ -9,7 +9,7 @@ public static partial class Game
     /// not (or the connection closed). A run still sending skips the next.
     /// </summary>
     static void EveryAsPlayer(ClientState conn, int ms, Func<bool> keep,
-        Func<string, NetworkStream, ConnectionCiphers, ClientState, Task> work)
+        Func<ClientState, Task> work)
     {
         int interval = Math.Max(1, (int)Math.Round(ms / (double)Program.FrameMs));
         Task pass = Task.CompletedTask;
@@ -18,15 +18,14 @@ public static partial class Game
             if (conn.Closed || !keep()) { timer.Cancel(); return; }
             if (!pass.IsCompleted || !CurrentGameWork || conn.LeavingArea || conn.Paused
                 || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
-            var (remote, stream, ciphers) = conn.Wire;
-            pass = AsPlayer(conn, updates, () => work(remote, stream, ciphers, conn));
+            pass = AsPlayer(conn, updates, () => work(conn));
         }, source: CombatLifetime));
     }
 
     /// <summary>The player's work of every frame of the area (the fixed update): <paramref name="work"/> runs as the player
     /// each frame while <paramref name="keep"/> holds. The work reads the elapsed game time itself.</summary>
     static void EveryFrameAsPlayer(ClientState conn, Func<bool> keep,
-        Func<string, NetworkStream, ConnectionCiphers, ClientState, Task> work) => EveryAsPlayer(conn, Program.FrameMs, keep, work);
+        Func<ClientState, Task> work) => EveryAsPlayer(conn, Program.FrameMs, keep, work);
 
     /// <summary>One frame of the area, in seconds.</summary>
     static double FrameSeconds => Program.FrameMs / 1000.0;
@@ -40,12 +39,11 @@ public static partial class Game
 
     /// <summary>Runs <paramref name="work"/> once as the player on the area's timers in <paramref name="seconds"/>, while
     /// the player's updates still run.</summary>
-    static void AfterAsPlayer(ClientState conn, double seconds, Func<string, NetworkStream, ConnectionCiphers, ClientState, Task> work) =>
+    static void AfterAsPlayer(ClientState conn, double seconds, Func<ClientState, Task> work) =>
         AfterSeconds(conn, seconds, () =>
         {
             if (conn.LeavingArea || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
-            var (remote, stream, ciphers) = conn.Wire;
-            _ = AsPlayer(conn, updates, () => work(remote, stream, ciphers, conn));
+            _ = AsPlayer(conn, updates, () => work(conn));
         });
 
     // In the area's frame, once its world exists (a player's updates start before the frames' first member joined).

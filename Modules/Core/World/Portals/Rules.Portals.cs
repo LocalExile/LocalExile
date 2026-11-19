@@ -24,8 +24,8 @@ static partial class PortalsRules
                 var (r, s, c) = visitor.Wire;
                 foreach (uint id in ids)
                 {
-                    await SendMapPortals(r, s, c, visitor, MapDeviceHere(visitor)?.Id ?? 0, run.Area.Hash16, closed: id);
-                    await global::Game.SendWorldRemoval(r, s, c, visitor, id, $"map portal {index} used");
+                    await SendMapPortals(visitor, MapDeviceHere(visitor)?.Id ?? 0, run.Area.Hash16, closed: id);
+                    await global::Game.SendWorldRemoval(visitor, id, $"map portal {index} used");
                 }
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { } // A departing observer cannot stop entry.
@@ -37,7 +37,7 @@ static partial class PortalsRules
     // burst is not done yet (live 2026-10-20), so each portal is listed MapPortalListMs after its create; on entering the
     // area the objects also wait until the world is active (firstAfterMs). A newer Activate or the portals' removal stops
     // the sequence.
-    internal static Task SpawnMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MapDevice.OpenMap open, int firstAfterMs = 0)
+    internal static Task SpawnMapPortals(ClientState conn, MapDevice.OpenMap open, int firstAfterMs = 0)
     {
         if (MapDeviceHere(conn) is not { } device) return Task.CompletedTask;
         uint deviceId = device.Id;
@@ -67,10 +67,10 @@ static partial class PortalsRules
                     var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
                     var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
                         ? conn.Layout.Near(ring) : ring;
-                    await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, type,
+                    await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, type,
                             new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
                         $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})");
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+                    await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
                     bool keep;
                     lock (conn.MapPortals)
                     {
@@ -79,33 +79,33 @@ static partial class PortalsRules
                     }
                     if (!keep)
                     {
-                        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+                        await global::Game.SendWorldRemoval(conn, id, null);
                         continue;
                     }
                     await Task.Delay(MapPortalListMs);
                     if (!Current()) return;
-                    await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
+                    await SendMapPortals(conn, deviceId, open.Area.Hash16);
                 }
                 // Every portal but the last was listed again with the next one; the last gets its second listing here
                 // (Game.ListPortal says why one listing can be lost).
                 if (n == 0) return;
                 await Task.Delay(MapPortalRelistMs);
-                if (Current()) await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
+                if (Current()) await SendMapPortals(conn, deviceId, open.Area.Hash16);
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { } // The visitor left during the sequence.
         });
         return Task.CompletedTask;
     }
 
-    internal static async Task RemoveMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task RemoveMapPortals(ClientState conn)
     {
         List<uint> ids;
         Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
         lock (conn.MapPortals) { ids = [.. conn.MapPortals.Keys]; conn.MapPortals.Clear(); }
         uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
         if (ids.Count > 0 && deviceId != 0)
-            await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),
+            await Send(conn, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),
                 $"0x008f map device 0x{deviceId:x}: {ids.Count} portal(s) closed");
-        foreach (uint id in ids) await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
+        foreach (uint id in ids) await global::Game.SendWorldRemoval(conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
     }
 }

@@ -53,8 +53,7 @@ public static partial class Game
         }
     }
 
-    internal static async Task HitSummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now)
+    internal static async Task HitSummonsTick(ClientState conn, double now)
     {
         SummonedMinions.HitSummon[] pending;
         lock (conn.Monsters)
@@ -95,7 +94,7 @@ public static partial class Game
                     continue;
                 }
             }
-            uint id = await SummonFighterCore(remote, stream, ciphers, conn, request.Source, definition,
+            uint id = await SummonFighterCore(conn, request.Source, definition,
                 request.Monster.Walk.Position(now), current: Current, triggered: true,
                 consumedCorpse: request.ConsumeCorpse ? request.Monster : null,
                 inheritedMods: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse

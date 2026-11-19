@@ -132,20 +132,19 @@ static partial class SurvivorsSkills
     /// <summary>The skill bar's cooldown for one run skill: one server instant action per target runs the gem's own use
     /// there (the client draws its projectile and starts the bar's cooldown, live 2026-10-21), then the actor's cooldown
     /// trailer sets the exact time to the next cast.</summary>
-    internal static async Task SendSurvivorsCooldown(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
+    internal static async Task SendSurvivorsCooldown(ClientState conn, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         ushort id = SurvivorsSkillId(skill);
         if (id == 0) return;
         foreach (var aim in aims)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y),
                 $"0x01ce survivors skill 0x{id:x4} used at ({aim.X}, {aim.Y})", still: () => ownership.Current);
         if (!ownership.Current) return;
         var definition = StateOf(conn).SurvivorsCatalog is { } catalog && skill < catalog.Count ? catalog[skill] : null;
         float total = (definition is null ? 1000 : SurvivorsSkillCooldownMs(definition, rank)) / 1000f;
         float remaining = (float)Math.Clamp(interval, 0, total);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
             $"0x02bc survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
     }
 
@@ -449,7 +448,7 @@ static partial class SurvivorsSkills
     /// runtime, so the run follows the gem rather than one flat "base damage" number.
     /// Returns the interval to the next cast, 0 when nothing fired.
     /// </summary>
-    internal static async Task<double> SurvivorsCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<double> SurvivorsCast(ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, SurvivorsSkill skill, int rank, int skillIndex)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return 0;
@@ -528,19 +527,19 @@ static partial class SurvivorsSkills
                         hit = ApplyMonsterHitLocked(conn, target, cast.HeraldDamage);
                 if (hit is not { } applied) continue;
                 struck++;
-                await NotifyMonsterHit(remote, stream, ciphers, conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
+                await NotifyMonsterHit(conn, id, target!, applied, cast.HeraldDamage, skill.Name, log: false, melee: true, hitCode: hitCode);
                 if (!ownership.Current) return 0;
                 if (impact is { } art && strikes++ < effectBudget)
-                    await SurvivorsHeraldEffect(remote, stream, ciphers, conn, tx, ty, art.Ao, art.Ms, skill.Name);
+                    await SurvivorsHeraldEffect(conn, tx, ty, art.Ao, art.Ms, skill.Name);
             }
             if (struck == 0) return 0;
-            await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
+            await SurvivorsPlayCastAnimation(conn, skill, cast.Interval);
             if (!ownership.Current) return 0;
             ushort pulseId = SurvivorsSkillId(skillIndex);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, pulseId, origin.X, origin.Y),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, pulseId, origin.X, origin.Y),
                 $"0x01ce survivors pulse 0x{pulseId:x4} {skill.Name} around ({origin.X}, {origin.Y})", still: () => ownership.Current);
             if (!ownership.Current) return 0;
-            await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin], cast.Interval);
+            await SendSurvivorsCooldown(conn, skillIndex, rank, [origin], cast.Interval);
             return cast.Interval;
         }
         var profile = cast.Profile!;
@@ -551,14 +550,14 @@ static partial class SurvivorsSkills
             : inReach.OrderBy(t => t.Distance);
         aims = [.. pick.Take(Math.Min(cast.Count, inReach.Count)).Select(t => (t.X, t.Y))];
         if (SurvivorsTrace)
-            Console.WriteLine($"[gateway] {remote} survivors cast {skill.Name} rank {rank}: {aims.Count} aim(s) of {cast.Count}, " +
+            Console.WriteLine($"[gateway] {conn.Remote} survivors cast {skill.Name} rank {rank}: {aims.Count} aim(s) of {cast.Count}, " +
                 $"pierce {profile.Pierce}, chain {profile.Chain}, fork {profile.Fork}, radius {profile.Radius:0.#}, " +
                 $"speed {profile.Speed:0.#}, hit {shot.Hit}, crit {shot.CriticalChance / 100.0:0.##}%, " +
                 $"leech {shot.Leech.Life.MinTotal:0.#}, interval {cast.Interval:0.00} s");
-        await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
+        await SurvivorsPlayCastAnimation(conn, skill, cast.Interval);
         if (!ownership.Current) return 0;
         var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
-        var runtime = ProjectilesFor(remote, stream, ciphers, conn);
+        var runtime = ProjectilesFor(conn);
         long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
         foreach (var aim in aims)
         {
@@ -566,7 +565,7 @@ static partial class SurvivorsSkills
             { Payload = shot, ReturnAnchor = owner };
             runtime.Schedule(now, () => ownership.Current, () => use);
         }
-        await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, aims, cast.Interval);
+        await SendSurvivorsCooldown(conn, skillIndex, rank, aims, cast.Interval);
         return cast.Interval;
     }
 
@@ -576,8 +575,7 @@ static partial class SurvivorsSkills
     /// clip is the class/weapon stance's own (spell_projectile_wand, attack1_bow, ...), stretched over the cast
     /// interval, so the character visibly casts while the run keeps moving the player.
     /// </summary>
-    internal static async Task SurvivorsPlayCastAnimation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsSkill skill, double interval)
+    internal static async Task SurvivorsPlayCastAnimation(ClientState conn, SurvivorsSkill skill, double interval)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         // A cast clip replaces the rig's walk clip while it plays, which reads as the character strafing sideways.
@@ -591,7 +589,7 @@ static partial class SurvivorsSkills
         if (Animations.CastClip(ao, WeaponProfileFor(conn, activeSet: true), kind) is not { } clip) return;
         float speed = interval > 0 && clip.LengthMs > 0
             ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
             $"0x01b2 survivors cast {clip.Name} ({kind}) for {skill.Name}: index {clip.Index}, " +
             $"{clip.LengthMs} ms over {interval:0.00} s (speed {speed:0.##})", still: () => ownership.Current);
     }
@@ -602,8 +600,7 @@ static partial class SurvivorsSkills
     /// Agony's <c>mortarimpact</c>, Purity's <c>slam_impact</c>), removed when its clip ends. The same art the real
     /// client plays for that herald's hit.
     /// </summary>
-    internal static async Task SurvivorsHeraldEffect(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, int x, int y, string ao, int ms, string label)
+    internal static async Task SurvivorsHeraldEffect(ClientState conn, int x, int y, string ao, int ms, string label)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         int epoch = conn.ProjectileEpoch;
@@ -614,16 +611,16 @@ static partial class SurvivorsSkills
             id = conn.TakeObjectId();
             StateOf(conn).Effects.Add(id);
         }
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, ao).Blob()),
             $"0x02bb survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
+        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
         _ = Task.Run(async () =>
         {
             try { await Task.Delay(ms, ownership.Token); }
             catch (OperationCanceledException) when (ownership.Token.IsCancellationRequested) { }
             if (conn.ProjectileActive(epoch))
-                await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+                await global::Game.SendWorldRemoval(conn, id, null);
             lock (conn.Monsters) StateOf(conn).Effects.Remove(id);
         });
     }
@@ -660,8 +657,7 @@ static partial class SurvivorsSkills
 
     /// <summary>Drops one monster's experience as an orb at the kill cell. The client object is a permanent effect;
     /// the run tick removes it when the player passes within <see cref="SurvivorsRules.OrbPickupRadius"/>.</summary>
-    internal static async Task SurvivorsDropOrb(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at, int experience)
+    internal static async Task SurvivorsDropOrb(ClientState conn, (int X, int Y) at, int experience)
     {
         if (experience <= 0 || StateOf(conn).Survivors is null) return;
         uint id;
@@ -678,17 +674,16 @@ static partial class SurvivorsSkills
             id = conn.TakeObjectId();
             orbs.Add(new(id, at.X, at.Y, experience));
         }
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, SurvivorsOrbArt) { Scale = SurvivorsOrbScale }.Blob()),
             $"0x02bb survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
             still: () => StateOf(conn).Survivors is not null);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null,
+        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
     }
 
     /// <summary>Collects every orb inside the pickup radius around the player and pays its experience.</summary>
-    internal static async Task SurvivorsCollectOrbs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run)
+    internal static async Task SurvivorsCollectOrbs(ClientState conn, SurvivorsRun run)
     {
         if (StateOf(conn).Survivors is null || conn.PlayerLife == 0) return;
         var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -701,7 +696,7 @@ static partial class SurvivorsSkills
         }
         foreach (var orb in taken)
         {
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, orb.Id, null,
+            await global::Game.SendWorldRemoval(conn, orb.Id, null,
                 still: () => StateOf(conn).Survivors is not null);
             run.RecordOrbExperience(orb.Experience);
         }
@@ -714,7 +709,7 @@ static partial class SurvivorsSkills
         [.. orbs.Where(orb => Dist(here, (orb.X, orb.Y)) <= radius)];
 
     /// <summary>Removes the run's orbs from the client and the state (run end or a fresh start).</summary>
-    internal static async Task SurvivorsClearOrbs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsClearOrbs(ClientState conn)
     {
         uint[] ids;
         lock (conn.Monsters)
@@ -723,12 +718,11 @@ static partial class SurvivorsSkills
             StateOf(conn).SurvivorsOrbs.Clear();
         }
         foreach (uint id in ids)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            await global::Game.SendWorldRemoval(conn, id, null);
     }
 
     /// <summary>Removes the run's death ground zones from the client and the state (run end or a fresh start).</summary>
-    internal static async Task SurvivorsClearGroundZones(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn)
+    internal static async Task SurvivorsClearGroundZones(ClientState conn)
     {
         uint[] ids;
         lock (conn.Monsters)
@@ -737,13 +731,12 @@ static partial class SurvivorsSkills
             StateOf(conn).SurvivorsGroundZones.Clear();
         }
         foreach (uint id in ids)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            await global::Game.SendWorldRemoval(conn, id, null);
     }
 
     /// <summary>Drops one death ground zone for a killed monster: 50/50 under the monster or under the player, drawn
     /// as a desecrated ground patch and drained by <see cref="SurvivorsAdvanceDeathZones"/> while the player stays.</summary>
-    internal static async Task SurvivorsDropDeathZone(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at)
+    internal static async Task SurvivorsDropDeathZone(ClientState conn, (int X, int Y) at)
     {
         if (StateOf(conn).Survivors is null) return;
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -759,19 +752,18 @@ static partial class SurvivorsSkills
                 conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
                 SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));
         }
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, SurvivorsDeathZoneArt).Blob()),
             $"0x02bb survivors death zone 0x{id:x} at ({x}, {y})",
             still: () => StateOf(conn).Survivors is not null);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null,
+        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
     }
 
     /// <summary>Removes a dead monster's body from the server and the client after
     /// <see cref="SurvivorsRules.CorpseLingerSeconds"/>, so a long run's corpses do not pile up. Runs every half second
     /// from the run tick; the corpse time is tracked per connection.</summary>
-    internal static async Task SurvivorsSweepCorpses(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, HashSet<uint> horde)
+    internal static async Task SurvivorsSweepCorpses(ClientState conn, HashSet<uint> horde)
     {
         if (StateOf(conn).Survivors is null) return;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -795,15 +787,14 @@ static partial class SurvivorsSkills
             }
         }
         foreach (uint id in remove)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null,
+            await global::Game.SendWorldRemoval(conn, id, null,
                 still: () => StateOf(conn).Survivors is not null);
     }
 
     /// <summary>Advances the death ground zones each run tick: removes the expired ones and drains life while the
     /// player stands inside one. The drain is <see cref="SurvivorsRules.DeathZoneDamagePercentPerSecond"/> of maximum
     /// life a second; standing still in a zone is fatal.</summary>
-    internal static async Task SurvivorsAdvanceDeathZones(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double step)
+    internal static async Task SurvivorsAdvanceDeathZones(ClientState conn, double step)
     {
         if (StateOf(conn).Survivors is null) return;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -819,7 +810,7 @@ static partial class SurvivorsSkills
                 if (Dist(here, (zone.X, zone.Y)) <= zone.Radius) { damagePerSecond = zone.DamagePerSecond; break; }
         }
         foreach (uint id in expired)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null,
+            await global::Game.SendWorldRemoval(conn, id, null,
                 still: () => StateOf(conn).Survivors is not null);
         if (damagePerSecond <= 0 || step <= 0) return;
         int damage = (int)Math.Round(damagePerSecond * step);
@@ -831,7 +822,7 @@ static partial class SurvivorsSkills
             life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
             conn.PlayerLife = life;
         }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), "survivors death zone drain",
+        await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn), "survivors death zone drain",
             still: () => StateOf(conn).Survivors is not null);
     }
 
@@ -1158,8 +1149,7 @@ static partial class SurvivorsSkills
     /// </summary>
     /// <summary>Puts a learned Herald's aura buff on the player (S→C 0x1c1), so the client draws it and its icon; the
     /// instances are removed when the run ends.</summary>
-    internal static async Task SurvivorsPublishHeralds(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
+    internal static async Task SurvivorsPublishHeralds(ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return;
         foreach (var (index, _) in run.Skills)
@@ -1171,21 +1161,21 @@ static partial class SurvivorsSkills
             ushort skillId = SurvivorsSkillId(index);
             ushort aura = conn.NextBuff++;
             StateOf(conn).SurvivorsHeraldBuffs.Add(aura);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, aura, (ushort)row, PlayerId, skillId, auraSource: true, displayState: 0),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.AddBuff(PlayerId, aura, (ushort)row, PlayerId, skillId, auraSource: true, displayState: 0),
                 $"0x01c1 survivors herald aura {catalog[index].Name} (BuffDefinitions row {row})", still: () => ownership.Current);
             if (!ownership.Current) return;
             if (SkillsFor(conn).ActionHash(catalog[index].Effect) is ushort action)
             {
                 ushort icon = conn.NextBuff++;
                 StateOf(conn).SurvivorsHeraldBuffs.Add(icon);
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, icon, (ushort)row, PlayerId, skillId, activeSkill: (skillId, action)),
+                await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.AddBuff(PlayerId, icon, (ushort)row, PlayerId, skillId, activeSkill: (skillId, action)),
                     $"0x01c1 survivors herald icon {catalog[index].Name}", still: () => ownership.Current);
             }
         }
     }
 
     /// <summary>Removes every herald aura buff the run put on the player.</summary>
-    internal static async Task SurvivorsClearHeralds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsClearHeralds(ClientState conn)
     {
         ushort[] buffs;
         lock (conn.Monsters)
@@ -1195,7 +1185,7 @@ static partial class SurvivorsSkills
             StateOf(conn).SurvivorsHeraldSkills.Clear();
         }
         foreach (ushort buff in buffs)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), $"0x01c2 survivors herald buff {buff}");
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), $"0x01c2 survivors herald buff {buff}");
     }
 
 }

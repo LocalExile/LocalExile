@@ -164,11 +164,11 @@ public static partial class Game
         }
     }
 
-    static async Task SendSpiritChieftain(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendSpiritChieftain(ClientState conn)
     {
-        await Send(remote, stream, ciphers, [], null, atGate: () => SpiritChieftainPresentation(conn));
+        await Send(conn, [], null, atGate: () => SpiritChieftainPresentation(conn));
         if (!CurrentGameWork) return;
-        await SpiritChieftainMinion(remote, stream, ciphers, conn);
+        await SpiritChieftainMinion(conn);
     }
 
     /// <summary>
@@ -178,7 +178,7 @@ public static partial class Game
     /// his minion modifiers (minion_damage_+%, minion_attack_speed_+%, minion_attack_and_cast_speed_+%,
     /// minion_movement_speed_+%) as its own, until its Leadership ends. It is immortal: nothing on the server damages it.
     /// </summary>
-    public static async Task SpiritChieftainMinion(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SpiritChieftainMinion(ClientState conn)
     {
         var bytes = new List<byte>();
         SpiritChieftains.Summon? summon;
@@ -207,7 +207,7 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {CharacterName(conn)}: chieftain 0x{minion.Id:x} ({m.Label}) ends");
             }
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b1/0x02bd chieftain minion ends");
+        if (bytes.Count > 0) await Send(conn, [.. bytes], "0x01b1/0x02bd chieftain minion ends");
         if (!CurrentGameWork || summon is null || now >= summon.Until) return;
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {
@@ -225,7 +225,7 @@ public static partial class Game
         }) };
         (int X, int Y) at;
         lock (conn.Monsters) at = NextToPlayer(conn);
-        await SpawnMonster(remote, stream, ciphers, conn, variety, summon.Level, MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods,
+        await SpawnMonster(conn, variety, summon.Level, MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods,
             extraStats: MinionStats, owned: (id, m) =>
             {
                 if (ReferenceEquals(conn.SpiritChieftains.Pending, summon)) conn.SpiritChieftains.Pending = null;

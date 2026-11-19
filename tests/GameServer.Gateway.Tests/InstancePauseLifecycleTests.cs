@@ -24,7 +24,7 @@ public sealed class InstancePauseLifecycleTests
         {
             // Exit to character selection from the open menu: the connection closes with the clock still stopped.
             var leaver = runtime.Connection(instance, wire, "Leaver");
-            await Game.SetPaused("pause-exit", wire.Stream, wire.Ciphers, leaver, true);
+            await Game.SetPaused(leaver, true);
             Assert.False(instance.World.Clock.IsRunning);
             Close(leaver);
             Assert.True(instance.World.Clock.IsRunning);
@@ -32,14 +32,14 @@ public sealed class InstancePauseLifecycleTests
 
             // A pause a module took over (the Survivors reward window) is its module's to end.
             var holder = runtime.Connection(instance, wire, "Holder");
-            await Game.SetPaused("held-exit", wire.Stream, wire.Ciphers, holder, true);
+            await Game.SetPaused(holder, true);
             holder.PauseHeld = true;
             Close(holder);
             Assert.False(instance.World.Clock.IsRunning);
 
             // Nobody holds that stopped clock any more: the next arrival finds it running.
             Game.ValidateSavedProgress(arriving, null);
-            Game.PrepareCharacterForArea("pause-arrival-stale", arriving, 1);
+            Game.PrepareCharacterForArea(arriving, 1);
             Assert.True(instance.World.Clock.IsRunning);
 
             // The clock pauses only for a player alone in the instance: another player coming in ends that pause, and the
@@ -48,9 +48,9 @@ public sealed class InstancePauseLifecycleTests
             instance.PublishPlayer(new InstancePlayer(pauser.PeerId, 1, null!, 100, 100, 1000, pauser));
             var sent = new List<byte[]>();
             pauser.Outbox = (bytes, _) => { lock (sent) sent.Add(bytes); return Task.CompletedTask; };
-            await Game.SetPaused("pause-alone", wire.Stream, wire.Ciphers, pauser, true);
+            await Game.SetPaused(pauser, true);
             Assert.False(instance.World.Clock.IsRunning);
-            Game.PrepareCharacterForArea("pause-arrival", arriving, 1);
+            Game.PrepareCharacterForArea(arriving, 1);
             Assert.True(instance.World.Clock.IsRunning);
             Assert.Null(instance.World.PausedBy);
             lock (sent) Assert.Equal(InstancePause.State(false), Assert.Single(sent));
@@ -58,7 +58,7 @@ public sealed class InstancePauseLifecycleTests
             // A module-held pause of a player still there stays.
             pauser.PauseHeld = true;
             instance.World.Clock.Stop();
-            Game.PrepareCharacterForArea("pause-arrival-held", arriving, 1);
+            Game.PrepareCharacterForArea(arriving, 1);
             Assert.False(instance.World.Clock.IsRunning);
         }
         finally

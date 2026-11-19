@@ -46,11 +46,10 @@ static class UniqueBeltsFeature
     // and the old one stops.
     internal static async Task StepUniqueBeltEffects(ClientState conn)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         try
         {
             foreach (var packet in StepMagebloodBuffs(conn))
-                await Send(remote, stream, ciphers, packet, "0x01c1/0x01c2 Mageblood flask buff");
+                await Send(conn, packet, "0x01c1/0x01c2 Mageblood flask buff");
             if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0, out var belt, out var jewel) is null)
                 return;
             List<byte[]> packets = [];
@@ -61,8 +60,8 @@ static class UniqueBeltsFeature
                 Update(ref conn.InspiredLearningBuff, StolenMods.InspiredLearningBuffRow, jewel);
             }
             foreach (var packet in packets)
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, packet, "stolen modifier buff");
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
+                await global::Game.SendWorldRecord(conn, PlayerId, packet, "stolen modifier buff");
+            await SendCharacterStats(conn, PlayerStatChange.Build);
 
             void Update(ref ushort instance, ushort row, StolenMods.Buff state)
             {
@@ -74,7 +73,7 @@ static class UniqueBeltsFeature
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} unique belts: {ex.Message}");
+            if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} unique belts: {ex.Message}");
         }
     }
 }

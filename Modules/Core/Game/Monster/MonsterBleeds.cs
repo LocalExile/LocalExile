@@ -143,7 +143,7 @@ public static partial class Game
 
     /// <summary>A sure bleed of so much physical damage a second for so long, from no skill (a trap's hit that always
     /// bleeds: the Labyrinth's spikes), as an attack hit's bleed lands: the target's avoidance and immunity still apply.</summary>
-    public static async Task BleedMonsterFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task BleedMonsterFor(ClientState conn,
         uint id, SpawnedMonster m, double perSecond, double seconds)
     {
         List<byte[]>? packets;
@@ -155,7 +155,7 @@ public static partial class Game
             packets = BleedOnHitLocked(conn, id, m, new(100, perSecond, perSecond, perSecond, perSecond, seconds, 100), false, now);
             log = BleedingLog(id, m, false, now);
         }
-        await SendDotBuff(remote, stream, ciphers, packets, log);
+        await SendDotBuff(conn, packets, log);
     }
 
     public static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
@@ -198,6 +198,6 @@ public static partial class Game
 
     // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
-    public static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
+    public static Task BleedMonsters(ClientState conn) =>
+        TickStrongestDots(conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
 }

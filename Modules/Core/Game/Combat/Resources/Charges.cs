@@ -230,9 +230,9 @@ public static partial class Game
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
     // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
     // True when the skill was a warcry.
-    public static bool UseWarcryInstance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static bool UseWarcryInstance(ClientState conn,
         ushort skillId, int effect)
-        => SkillsFor(conn).IsWarcry(effect) && UseWarcry(remote, stream, ciphers, conn, effect, SupportedSkill(conn, skillId).Stats);
+        => SkillsFor(conn).IsWarcry(effect) && UseWarcry(conn, effect, SupportedSkill(conn, skillId).Stats);
 
     const int InfiniteWarcryPower = 999999;
 
@@ -245,7 +245,7 @@ public static partial class Game
         return Math.Max(TickSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(conn));
     }
 
-    public static bool UseWarcry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int effect,
+    public static bool UseWarcry(ClientState conn, int effect,
         IReadOnlyDictionary<uint, int> own)
     {
         if (!SkillsFor(conn).IsWarcry(effect)) return false;
@@ -287,7 +287,7 @@ public static partial class Game
                     lock (conn.Monsters)
                         if (conn.ProjectileActive(epoch) && conn.PlayerLife > 0)
                             ApplyIntimidatingCryLocked(conn, own, CharacterPlayerStats(conn), now);
-                await WarcryReleased(remote, stream, ciphers, conn, here, radius, epoch);
+                await WarcryReleased(conn, here, radius, epoch);
                 return;
             }
             lock (conn.Monsters)
@@ -307,7 +307,7 @@ public static partial class Game
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
             if (charges > 0) ChargesOf(conn).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
-            await WarcryReleased(remote, stream, ciphers, conn, here, radius, epoch);
+            await WarcryReleased(conn, here, radius, epoch);
         });
         return true;
     }
@@ -365,10 +365,10 @@ public static partial class Game
                 ChargeTickers.Remove(updates);
                 return false;
             }
-        }, (remote, stream, ciphers, conn) => StepCharges(remote, stream, ciphers, conn, updates));
+        }, conn => StepCharges(conn, updates));
     }
 
-    static async Task StepCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    static async Task StepCharges(ClientState conn, PlayerUpdatesState updates)
     {
         var session = ChargesOf(conn);
         try
@@ -410,15 +410,15 @@ public static partial class Game
                     conn.ApplyMovementSpeed();
                 }
             }
-            foreach (string line in step.Log) Console.WriteLine($"[gateway] {remote} {line} (t={now:0.000})");
+            foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Remote} {line} (t={now:0.000})");
             bool countsChanged = step.CountsChanged;
             if (presentationPending)
-                await Send(remote, stream, ciphers, [], null, atGate: () =>
+                await Send(conn, [], null, atGate: () =>
                 {
                     lock (conn.Monsters)
                     {
                         if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea) return null;
-                        var (packet, changed) = CurrentChargePresentationLocked(conn, remote);
+                        var (packet, changed) = CurrentChargePresentationLocked(conn, conn.Remote);
                         countsChanged |= changed;
                         return packet;
                     }
@@ -426,14 +426,14 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (countsChanged)
             {
-                await SendChargeStats(remote, stream, ciphers, conn,
+                await SendChargeStats(conn,
                     string.Join(", ", Charges.Types.Select(t => $"{session.Effective(t)} {Charges.Label(t, session.Converted(t))}")));
             }
         }
         catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { }
         catch (Exception ex) when (ex is not (IOException or ObjectDisposedException))
         {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} charges: {ServerLog.Describe(ex)}");
+            if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} charges: {ServerLog.Describe(ex)}");
         }
         catch (Exception) { }   // the connection has gone
     }
@@ -441,29 +441,29 @@ public static partial class Game
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in
     // its skill records), without SendSkills' skill-bar work (no skill came or went). A changed skill set (a gem moved at
     // the same moment) takes the full SendCharacterStats.
-    public static async Task SendChargeStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendChargeStats(ClientState conn, string why)
     {
         if (StatsPublishedByFrame(conn)) return;
-        await PublishStatValues(remote, stream, ciphers, conn, $"charges {why}");
+        await PublishStatValues(conn, $"charges {why}");
     }
 
     /// <summary>The stats after a change of their values: 0x1b3, the skills whose records changed and the Energy Shield
     /// (a changed skill set takes the full publication).</summary>
-    public static async Task PublishStatValues(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task PublishStatValues(ClientState conn,
         string why = "changed")
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
         var skills = PlayerSkills(conn);
         if (!conn.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
         {
-            await PublishCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
+            await PublishCharacterStats(conn, PlayerStatChange.Sources);
             return;
         }
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+        await SendPlayerStatSnapshot(conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+        await SendPlayerStatSnapshot(conn,
             () => PlayerSkillsIfChanged(conn, PlayerSkills(conn)),
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
-        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        await SendPlayerEnergyShield(conn);
     }
 }

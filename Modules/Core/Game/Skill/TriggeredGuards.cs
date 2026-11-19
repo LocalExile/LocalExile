@@ -63,16 +63,16 @@ public static partial class Game
                         hit = ApplyMonsterHitLocked(conn, monster, damage);
                     }
                     if (hit is { } applied)
-                        await NotifyMonsterHit(session.remote, session.stream, session.ciphers, conn, id, monster,
+                        await NotifyMonsterHit(conn, id, monster,
                             applied, damage, "Molten Shell reflected damage", deaths: deaths);
                 }
                 foreach (var (id, monster) in deaths)
-                    await MonsterKilled(session.remote, session.stream, session.ciphers, conn, id, monster);
+                    await MonsterKilled(conn, id, monster);
             });
         }
         guard.Armour = 0;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
-        session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, PlayerStatChange.Sources));
+        session.Enqueue(() => SendCharacterStats(conn, PlayerStatChange.Sources));
     }
 
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
@@ -131,7 +131,7 @@ public static partial class Game
             guard.Remaining = (int)Math.Min(Math.Max(0, Own("molten_shell_max_damage_absorbed")),
                 (long)conn.Pools.Armour * Math.Max(0, Own("molten_shell_damage_absorb_limit_%_of_armour")) / 100);
         guard.Buff = conn.NextBuff++;
-        session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, PlayerStatChange.Sources));
+        session.Enqueue(() => SendCharacterStats(conn, PlayerStatChange.Sources));
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
     }
 

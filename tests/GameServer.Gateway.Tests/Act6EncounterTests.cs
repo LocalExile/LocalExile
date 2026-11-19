@@ -173,16 +173,16 @@ public sealed class Act6EncounterTests
         int generation = boss.ActionGeneration;
         await fight.Bind(late);
         Assert.Equal(generation, boss.ActionGeneration); // No Actor update before its create reaches this client.
-        await Game.SyncInstanceMonsters("late", lateWire.Stream, lateWire.Ciphers, late);
+        await Game.SyncInstanceMonsters(late);
         late.AsleepMonsters.Add(id);
         await fight.Bind(late);
         Assert.Equal(generation, boss.ActionGeneration); // Sleeping clients cannot consume Actor updates either.
-        await Game.SyncInstanceMonsters("late", lateWire.Stream, lateWire.Ciphers, late);
+        await Game.SyncInstanceMonsters(late);
         Assert.DoesNotContain(id, late.BossBarsSeen);
         late.AsleepMonsters.Remove(id);
         await fight.Bind(late);
         Assert.True(boss.ActionGeneration > generation);
-        await Game.SyncInstanceMonsters("late", lateWire.Stream, lateWire.Ciphers, late);
+        await Game.SyncInstanceMonsters(late);
         Assert.Contains(id, late.BossBarsSeen);
     }
 

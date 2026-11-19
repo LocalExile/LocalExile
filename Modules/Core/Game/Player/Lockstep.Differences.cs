@@ -9,11 +9,11 @@ public static partial class Game
 {
     // The server frames themselves (their pacing on the clock, and 0x2b8), where they differ from GGG's, are the
     // framework's: Program.RunWorldFrames. What the rules do at each frame end is here.
-    public static async Task LockstepFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart)
+    public static async Task LockstepFrameEnded(ClientState conn, double nextFrameStart)
     {
-        await ProbeLockstepLatency(remote, stream, ciphers, conn);
-        SendLockstepDefaultAttack(remote, stream, ciphers, conn);
-        await StartLockstepActions(remote, stream, ciphers, conn, nextFrameStart);
+        await ProbeLockstepLatency(conn);
+        SendLockstepDefaultAttack(conn);
+        await StartLockstepActions(conn, nextFrameStart);
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the
@@ -38,17 +38,17 @@ public static partial class Game
     // the handlers a predictive client's request reaches, with the server's sequence in place of the client's, so their
     // echo starts the action, in key 0 as every other send here is. Those handlers hold the skills' rules; a second copy
     // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
-    static void StartLockstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort sequence, double at)
+    static void StartLockstepSkill(ClientState conn, ushort sequence, double at)
     {
         var request = conn.LockstepSkill;
         if (request.Target is { } target)
         {
-            _ = OnUseObject(remote, stream, ciphers, conn, new(target, request.Skill, sequence, request.Flags), at);
+            _ = OnUseObject(conn, new(target, request.Skill, sequence, request.Flags), at);
             return;
         }
         if (LockstepGroundMelee(conn, request.Skill, request.Flags))
         {
-            _ = StartLockstepGroundMelee(remote, stream, ciphers, conn, request.Aim, request.Skill, sequence, request.Flags);
+            _ = StartLockstepGroundMelee(conn, request.Aim, request.Skill, sequence, request.Flags);
             return;
         }
         byte[] use = new LoginWriter().U16(InstanceProtocol.UseSkillAtLocationId).U32((uint)request.Aim.X).U32((uint)request.Aim.Y)
@@ -57,7 +57,7 @@ public static partial class Game
         {
             try
             {
-                await OnClientMessages(remote, stream, ciphers, [(InstanceProtocol.UseSkillAtLocationId, use)], [], conn);
+                await OnClientMessages([(InstanceProtocol.UseSkillAtLocationId, use)], [], conn);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         });
@@ -85,7 +85,7 @@ public static partial class Game
     // shown it is in lockstep. It takes the wire alone, as
     // the 0x1c does, because a send gate held by game state would read as latency. The steps are random so that a probe
     // does not keep landing at the same point of a slow client's update.
-    static async Task ProbeLockstepLatency(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task ProbeLockstepLatency(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.LockstepClient || now < conn.LockstepNextProbeAt) return;
@@ -99,11 +99,11 @@ public static partial class Game
         }
         if (sent != 0) conn.LockstepLatency.Add(LockstepLatency.Lost);
         Interlocked.Exchange(ref conn.LockstepProbeSentAt, Stopwatch.GetTimestamp());
-        await SendPong(stream, ciphers, InstanceProtocol.AfkRequest());
+        await SendPong(conn.Wire.Stream, conn.Wire.Ciphers, InstanceProtocol.AfkRequest());
     }
 
     // The client's answer to 0x194: readAt is when its bytes reached the socket, so handlers running late do not count.
-    public static void AnswerLockstepProbe(string remote, ClientState conn, long readAt)
+    public static void AnswerLockstepProbe(ClientState conn, long readAt)
     {
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0) conn.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);

@@ -329,13 +329,13 @@ public static partial class Game
         }
     }
 
-    public static Task SendNativeCooldownRefresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task SendNativeCooldownRefresh(ClientState conn)
     {
         lock (conn.Monsters)
             if (!conn.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;
         int epoch;
         lock (conn.Monsters) epoch = conn.ProjectileEpoch;
-        return Send(remote, stream, ciphers, [], "0x02bc player active cooldown progress/rate refresh",
+        return Send(conn, [], "0x02bc player active cooldown progress/rate refresh",
             atGate: () => NativeCooldownRefresh(conn, epoch, () => GemSkillEffects(conn)
                 .Where(g => CooldownFor(conn, g.Effect, g.Level, g.Quality) is not null)
                 .Select(g => (g.Id, g.Effect)).ToArray()));

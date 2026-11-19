@@ -74,8 +74,8 @@ public static partial class Game
 
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
-    public static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        Func<byte[]> packet, string? label) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+    public static Task SendPlayerStatSnapshot(ClientState conn,
+        Func<byte[]> packet, string? label) => SendWorldRecords(conn, PlayerId, () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "stats"))
             {

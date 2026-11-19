@@ -54,8 +54,7 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
-    public static async Task<bool> ExplodeOnKill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
+    public static async Task<bool> ExplodeOnKill(ClientState conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
         var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -124,7 +123,7 @@ public static partial class Game
         // Per corpse and per monster hit: a pack kill wrote about 900 lines a second from inside the combat lock
         // (2026-11-17). Only under Game_TRACE=combat.
         if (ServerTrace.Combat)
-            Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
+            Console.WriteLine($"[gateway] {conn.Remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
                 $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
                 (showArt ? "" : ", no art (burst budget)"));
         string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
@@ -132,27 +131,27 @@ public static partial class Game
             new EffectObject(at.X, at.Y, art).Blob()) : null;
         try
         {
-            await SendKillExplosionBatch(remote, stream, ciphers, conn, effect, effectBytes, at, art,
+            await SendKillExplosionBatch(conn, effect, effectBytes, at, art,
                 removeCorpse, corpseId, corpse.Label, hits);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             // One admission problem must not end the projectile session that queued this explosion.
-            Console.WriteLine($"[gateway] {remote} kill explosion send failed: {ServerLog.Describe(ex)}");
+            Console.WriteLine($"[gateway] {conn.Remote} kill explosion send failed: {ServerLog.Describe(ex)}");
         }
-        if (removeCorpse) await SendRemainingMonsters(remote, stream, ciphers, conn);
+        if (removeCorpse) await SendRemainingMonsters(conn);
         if (showArt)
             SendAfter(ArtMs(art) / 1000.0, async () =>
             {
                 if (conn.Closed || conn.LeavingArea) return;
-                await Game.SendWorldRemoval(remote, stream, ciphers, conn, effect, null);
+                await Game.SendWorldRemoval(conn, effect, null);
             });
         foreach (var (id, m, hit) in hits)
         {
             if (ServerTrace.Combat)
-                Console.WriteLine($"[gateway] {remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
-            if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
-            if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
+                Console.WriteLine($"[gateway] {conn.Remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
+            if (hit.StageStarts) _ = RunBossStage(conn, id, m);
+            if (hit.Life == 0) await MonsterKilled(conn, id, m);
         }
         return removeCorpse;
     }
@@ -177,8 +176,7 @@ public static partial class Game
 
     // One gate turn for the effect's create/wake, the corpse removal and every life update. The client still reads
     // separate messages, but the server no longer waits behind four separate world sends for each corpse.
-    static async Task SendKillExplosionBatch(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint effect, byte[]? effectBytes, (int X, int Y) at, string art, bool removeCorpse,
+    static async Task SendKillExplosionBatch(ClientState conn, uint effect, byte[]? effectBytes, (int X, int Y) at, string art, bool removeCorpse,
         uint corpseId, string corpseLabel, IReadOnlyList<(uint Id, SpawnedMonster M, MonsterHit Hit)> hits)
     {
         string effectLog = $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})";
@@ -193,7 +191,7 @@ public static partial class Game
             }
             if (removeCorpse) all.AddRange(InstanceProtocol.RemoveObject(corpseId));
             foreach (var (id, _, hit) in hits) all.AddRange(InstanceProtocol.LifeUpdate(id, hit.Life));
-            await Send(remote, stream, ciphers, [.. all], "kill explosion", still: () => !conn.Closed && !conn.LeavingArea);
+            await Send(conn, [.. all], "kill explosion", still: () => !conn.Closed && !conn.LeavingArea);
             return;
         }
         // Each object by itself, as the separate sends this batch replaces did: a target another producer has already
@@ -233,6 +231,6 @@ public static partial class Game
                     $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion"));
             }
             return new OutputBatch([.. records]);
-        }, transport: (remote, stream, ciphers));
+        });
     }
 }

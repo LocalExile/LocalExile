@@ -26,7 +26,7 @@ public sealed class MapReentryPortalTests
             var entered = MapDevice.OpenOf(owner)!;
             var instance = new InstanceState();
             var inMap = Player(instance, 987700);
-            await PortalsFeature.OpenTownPortal("map-reentry", wire.Stream, wire.Ciphers, inMap, 120, 140, "test");
+            await PortalsFeature.OpenTownPortal(inMap, 120, 140, "test");
             var portal = (inMap.ReturnPortal!.Value.X, inMap.ReturnPortal!.Value.Y);
             // Still no extra entrance beside the device: re-entry spends the shared portals, and arrives at this one.
             Assert.False(PortalsRules.OpenPortals.ContainsKey(owner));
@@ -41,9 +41,9 @@ public sealed class MapReentryPortalTests
             // Back in that instance, the portal stands at its cell again, in place of the map's own portal back: one
             // portal per player, none by the map's start.
             var back = Player(instance, 987700);
-            await PortalsFeature.SpawnMapReturnPortal("map-reentry-back", wire.Stream, wire.Ciphers, back);
+            await PortalsFeature.SpawnMapReturnPortal(back);
             Assert.Null(back.ReturnPortal);
-            await PortalsFeature.SpawnTownPortals("map-reentry-back", wire.Stream, wire.Ciphers, back);
+            await PortalsFeature.SpawnTownPortals(back);
             Assert.Equal(portal, (back.ReturnPortal!.Value.X, back.ReturnPortal!.Value.Y));
 
             // A new run of the map is another instance: its entries start at the map's start.

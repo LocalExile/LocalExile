@@ -32,7 +32,7 @@ public static partial class Game
 
     /// <summary>The throw at the action's contact: 1 + number_of_additional_traps_to_throw traps toward the aim, the oldest of
     /// the owner's beyond Monster.ot's three (plus number_of_additional_traps_allowed) taken away.</summary>
-    static async Task ThrowMonsterTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task ThrowMonsterTraps(ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, MonsterAttack payload, (int X, int Y) aim)
     {
         if (a.Effect is not int effect) return;
@@ -77,19 +77,19 @@ public static partial class Game
             });
             if (born == 0) return;
             if (conn.LockstepClient)
-                await SendWorldRecords(remote, stream, ciphers, conn, born, () =>
+                await SendWorldRecords(conn, born, () =>
                 {
                     lock (conn.Monsters)
                         return conn.MonsterPlaced.Traps.ContainsKey(born) && !conn.Closed && !conn.LeavingArea
                             ? [.. PlacedThrowRecords(conn, born, from, aim, landsAt - AreaTime(conn))] : null;
                 }, "throw a monster's trap after birth");
-            Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) throws trap 0x{born:x} {path} to ({aim.X}, {aim.Y})");
+            Console.WriteLine($"[gateway] {conn.Remote} monster 0x{id:x} ({m.Label}) throws trap 0x{born:x} {path} to ({aim.X}, {aim.Y})");
         }
     }
 
     /// <summary>Each tick: traps land and arm, leave when their time is up or their owner is gone, and go off when the
     /// player or one of their minions stands within the trigger radius.</summary>
-    static async Task MonsterTrapsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task MonsterTrapsTick(ClientState conn)
     {
         if (conn.MonsterPlaced.Traps.Count == 0) return;
         List<(MonsterPlacedObjects.Trap Trap, (int X, int Y) Aim)> fired = [];
@@ -136,17 +136,17 @@ public static partial class Game
         });
         foreach (var (trap, aim) in fired)
         {
-            Console.WriteLine($"[gateway] {remote} trap 0x{trap.Id:x} of monster 0x{trap.Owner:x} ({trap.Monster.Label}) is set off");
+            Console.WriteLine($"[gateway] {conn.Remote} trap 0x{trap.Id:x} of monster 0x{trap.Owner:x} ({trap.Monster.Label}) is set off");
             bool Owner() { lock (conn.Monsters) return ReferenceEquals(conn.Monsters.GetValueOrDefault(trap.Owner), trap.Monster); }
             ushort sequence = conn.NextActionSequence();
             if (trap.Payload.Projectile is { } projectile)
-                LaunchDetachedMonsterProjectile(remote, stream, ciphers, conn, trap.Owner, trap.Monster, trap.Payload, projectile,
+                LaunchDetachedMonsterProjectile(conn, trap.Owner, trap.Monster, trap.Payload, projectile,
                     trap.At, Owner, sequence);
             else
-                await MonsterDetachedAreaHit(remote, stream, ciphers, conn, trap.Owner, trap.Monster, trap.Payload, trap.At,
+                await MonsterDetachedAreaHit(conn, trap.Owner, trap.Monster, trap.Payload, trap.At,
                     trap.Payload.AreaRadius > 0 ? trap.Payload.AreaRadius : trap.TriggerRadius, sequence, Owner);
             if (trap.Payload.Ground is not { ClientDrawn: true })
-                await SendWorldRemoval(remote, stream, ciphers, conn, trap.Id, $"0x0013 trap 0x{trap.Id:x} set off");
+                await SendWorldRemoval(conn, trap.Id, $"0x0013 trap 0x{trap.Id:x} set off");
         }
     }
 }

@@ -14,7 +14,7 @@ public sealed class CosmeticsModule : IModule
     {
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
         {
-            return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+            return CosmeticsFeature.SpawnPets(conn);
         });
         GameEvents.LocalGateUsed.Add(module.Manifest.Id, CosmeticsFeature.FollowThroughGate);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((conn, _) => CosmeticsFeature.StepPetFollow(conn)));
@@ -22,17 +22,17 @@ public sealed class CosmeticsModule : IModule
         {
             var asked = InstanceMicrotransactions.ReadRequest(bytes);
             module.Log($"{PlayerOf(conn).Character}: microtransaction lists asked: {asked}");
-            await CosmeticsFeature.AnswerMtxRequest(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, asked);
+            await CosmeticsFeature.AnswerMtxRequest(conn, asked);
             return true;
         });
         GameEvents.Packet(InstanceMicrotransactions.SlotId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await CosmeticsFeature.PickCosmetic(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceMicrotransactions.ReadSlot(bytes));
+            await CosmeticsFeature.PickCosmetic(conn, InstanceMicrotransactions.ReadSlot(bytes));
             return true;
         });
         GameEvents.Packet(InstanceMicrotransactions.SkillPickId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await CosmeticsFeature.PickSkillCosmetic(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceMicrotransactions.ReadSkillPick(bytes));
+            await CosmeticsFeature.PickSkillCosmetic(conn, InstanceMicrotransactions.ReadSkillPick(bytes));
             return true;
         });
     }
@@ -43,30 +43,30 @@ public static class CosmeticsFeature
     // The Microtransactions panel, the store and the hideout picker ask for their lists with C→S 0x1f2 and show "Loading…"
     // until each one arrives (23-microtransactions.md). Every account owns every microtransaction; the hideout and guild
     // personal hideout list includes all exported templates; the guild list stays empty.
-    internal static async Task AnswerMtxRequest(string remote, NetworkStream stream, ConnectionCiphers ciphers, InstanceMicrotransactions.Lists asked)
+    internal static async Task AnswerMtxRequest(ClientState conn, InstanceMicrotransactions.Lists asked)
     {
         var owned = Mtx.Owned;
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Records))
-            await Send(remote, stream, ciphers, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.Records),
+            await Send(conn, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.Records),
                 $"0x01f4 microtransactions: {owned.Count} owned (the panel's records)");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.StoreOwned))
-            await Send(remote, stream, ciphers, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.StoreOwned),
+            await Send(conn, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.StoreOwned),
                 $"0x01f4 microtransactions: {owned.Count} owned (the store's list)");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildStore))
-            await Send(remote, stream, ciphers, InstanceMicrotransactions.Added([], InstanceMicrotransactions.StoreSecond),
+            await Send(conn, InstanceMicrotransactions.Added([], InstanceMicrotransactions.StoreSecond),
                 "0x01f4 microtransactions: the guild's list, empty");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Hideouts))
-            await Send(remote, stream, ciphers, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
+            await Send(conn, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
                 $"0x01f5 owned hideouts: all {HideoutCatalog.OwnedRows.Length} templates including MTX");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildHideouts))
-            await Send(remote, stream, ciphers, InstanceMicrotransactions.Hideouts([], guild: true), "0x01f5 guild hideouts: none");
+            await Send(conn, InstanceMicrotransactions.Hideouts([], guild: true), "0x01f5 guild hideouts: none");
     }
 
     // C→S 0x1fa: a pick in one of the Cosmetics tab's skill slots (record 0 empties it). Saved for the slot's gem type and
     // effect slot type, then the skill slots again (what the client shows worn) and the skill list, so the gem's skill
     // carries the effect's stats (skill_art_variation: the art the client draws from the skill, and Righteous Fire's
     // server-made art the next time it is cast).
-    internal static async Task PickSkillCosmetic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint Key, uint RecordId) pick)
+    internal static async Task PickSkillCosmetic(ClientState conn, (uint Key, uint RecordId) pick)
     {
         InstanceMicrotransactions.SkillSlot slot;
         InstanceMicrotransactions.Record? record;
@@ -78,7 +78,7 @@ public static class CosmeticsFeature
             record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
             if (!conn.SkillSlots.TryGetValue(pick.Key, out var current))
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
                 return;
             }
             slot = current!;
@@ -86,33 +86,33 @@ public static class CosmeticsFeature
                 || (pick.RecordId != 0 && (record is null || ItemsFor(conn).ByHash(slot.GemHash) is not { } gem
                     || !MtxEffects.FitsSkill(record.MtxTypeHash, gem, slot.SlotType))))
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
                 return;
             }
             expectedRelight = conn.RighteousFire;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
             $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
         CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0, record.MtxTypeHash));
-        await SendWornCosmetics(remote, stream, ciphers, conn, "after the skill pick");
-        await SendSkills(remote, stream, ciphers, conn);
+        await SendWornCosmetics(conn, "after the skill pick");
+        await SendSkills(conn);
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
         // nothing, so it is lit again with the new ring and buff visuals only while the exact pick-time owner still exists.
-        await RelightRighteousFire(remote, stream, ciphers, conn, "restyled by the skill pick", expectedRelight, slot.GemHash);
+        await RelightRighteousFire(conn, "restyled by the skill pick", expectedRelight, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
     // worn table goes back in 0x1f3, which is what the client wears. The Portal slot also sets the portals' own variation
     // (the same one /cosmetic portal sets), so the map device's portals show the picked effect.
-    internal static async Task PickCosmetic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (byte Slot, uint RecordId, byte Option) pick)
+    internal static async Task PickCosmetic(ClientState conn, (byte Slot, uint RecordId, byte Option) pick)
     {
         var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
         if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId}: not a slot or not a record, ignored");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId}: not a slot or not a record, ignored");
             return;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
         var morph = WornMorph(conn);
         // The Portal slot's two choices that are no cosmetic (Game.PortalVariation): record 0 with option 1 or 2.
@@ -126,21 +126,21 @@ public static class CosmeticsFeature
             conn.CosmeticPortalVariation = variation;
             CharacterSaves.SetPortalCosmetic(character, variation);
             conn.WornCosmetics = null;
-            await ResendMapPortals(remote, stream, ciphers, conn);
+            await ResendMapPortals(conn);
         }
-        await SendWornCosmetics(remote, stream, ciphers, conn, "after the pick");
+        await SendWornCosmetics(conn, "after the pick");
         // The model and the stats: skins, attachments, character effects, footprints, apparitions.
-        await SendEquipment(remote, stream, ciphers, conn, ItemsOf(conn));
+        await SendEquipment(conn, ItemsOf(conn));
         // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
-        await SendMorph(remote, stream, ciphers, conn, morph);
-        if (pick.Slot is 18 or 19) await SpawnPets(remote, stream, ciphers, conn);
+        await SendMorph(conn, morph);
+        if (pick.Slot is 18 or 19) await SpawnPets(conn);
         if (pick.Slot == PortraitSlot)
         {
             ushort portrait = WornPortrait(conn);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02bc player portrait {portrait}");
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02bc player portrait {portrait}");
             // The character screen's list comes from Auth's account store.
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait", Ticket = conn.Ticket, Portrait = portrait });
-            if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait {portrait}: {told.Error}");
+            if (!told.Ok) Console.WriteLine($"[gateway] {conn.Remote} set_portrait {portrait}: {told.Error}");
         }
         if (pick.Slot == SocialFrameSlot)
         {
@@ -148,18 +148,18 @@ public static class CosmeticsFeature
             // client prints for the pick says (0x140cdd510).
             ushort frame = WornFrame(conn);
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait_frame", Ticket = conn.Ticket, PortraitFrame = frame });
-            if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait_frame {frame}: {told.Error}");
+            if (!told.Ok) Console.WriteLine($"[gateway] {conn.Remote} set_portrait_frame {frame}: {told.Error}");
         }
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the
     // old ones first. StepPetFollow walks them after the player.
-    internal static async Task SpawnPets(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnPets(ClientState conn)
     {
         List<uint> old;
         lock (conn.Pets) { old = [.. conn.Pets.Keys]; conn.Pets.Clear(); }
         foreach (uint id in old)
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
+            await global::Game.SendWorldRemoval(conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
         double now = conn.Clock.Elapsed.TotalSeconds;
         var (px, py) = conn.Walk.Position(now);
         foreach (var worn in WornCosmetics(conn).Where(w => w.Slot is 18 or 19))
@@ -167,15 +167,15 @@ public static class CosmeticsFeature
             if (MtxEffects.Of(worn.MtxTypeHash) is not { PetType: { Length: > 0 } type } fx) continue;
             if (!PetObject.CanSerialize(fx.PetComponents, fx.PetStates is not null))
             {
-                Console.WriteLine($"[gateway] {remote} pet {type}: components {string.Join(", ", fx.PetComponents ?? [])} not supported, not spawned");
+                Console.WriteLine($"[gateway] {conn.Remote} pet {type}: components {string.Join(", ", fx.PetComponents ?? [])} not supported, not spawned");
                 continue;
             }
             var (x, y) = PetSpot(conn, (px, py), worn.Slot == 18 ? 1 : -1);
             uint id = conn.TakeObjectId();
             var pet = new PetObject(x, y, PlayerId, fx.PetComponents, fx.PetStates);
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
                 $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }
     }
@@ -283,9 +283,8 @@ public static class CosmeticsFeature
                     pet.Target = to;
                     orders.Add((id, to, PetMove(conn, id, pet, to, now, following: true)));
                 }
-            var (remote, stream, ciphers) = conn.Wire;
             foreach (var (id, to, move) in orders)
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, [], null, atGate: () =>
+                await global::Game.SendWorldRecord(conn, id, [], null, atGate: () =>
                 {
                     lock (conn.Pets) return conn.Pets.TryGetValue(id, out var pet) && pet.Target == to ? move : null;
                 });

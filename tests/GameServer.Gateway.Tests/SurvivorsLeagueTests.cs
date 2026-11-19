@@ -172,7 +172,7 @@ public sealed class SurvivorsLeagueTests
             state.SurvivorsCatalog = [];
             conn.PlayerLife = 1;
             Assert.True(gate.Wait(0));
-            var pick = SurvivorsRewards.ApplySurvivorsChoice("ownership-test", null!, ciphers, conn, choice);
+            var pick = SurvivorsRewards.ApplySurvivorsChoice(conn, choice);
             Assert.False(pick.IsCompleted);
             SurvivorsRunRules.Release(conn, run);
             var replacement = new SurvivorsRun();
@@ -206,7 +206,7 @@ public sealed class SurvivorsLeagueTests
             Assert.Equal([123u], SurvivorsRunRules.SurvivorsCarried[99].ItemIds);
             // Fresh login has a different ticket and cannot consume the previous connection's carry.
             var login = Connection(conn.Character!, league);
-            await SurvivorsRunRules.ResumeSurvivors("fresh-login-test", null!, ciphers, login);
+            await SurvivorsRunRules.ResumeSurvivors(login);
             Assert.Null(SurvivorsSkills.StateOf(login).Survivors);
         }
         finally

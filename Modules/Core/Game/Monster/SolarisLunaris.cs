@@ -68,12 +68,12 @@ public static class SolarisLunaris
             }
             int component = m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable");
             foreach (var p in Present.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)).ToArray())
-            { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id,
+            { await SendWorldRecord(p, id,
                 InstanceEntities.TransitionableUpdate(id, (byte)component, state), $"[Sisters] {m.Variety.Name} state {state}"); }
             bool wasHidden;
             lock (c.Monsters) { wasHidden = m.WorldHidden; m.WorldHidden = state == 4; }
             if (wasHidden != m.WorldHidden) foreach (var p in Present.ToArray())
-                await SyncInstanceMonsters(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p);
+                await SyncInstanceMonsters(p);
         }
         static void Hold(ClientState c, SpawnedMonster m, bool held, double now)
         {
@@ -100,7 +100,7 @@ public static class SolarisLunaris
                 {
                     bool shown;
                     lock (p.Monsters) { shown = p.MonsterViews.Remove(id); p.AsleepMonsters.Remove(id); }
-                    if (shown) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, "[Sisters] celestial form leaves"); }
+                    if (shown) { await SendWorldRemoval(p, id, "[Sisters] celestial form leaves"); }
                 }
         }
         async Task Orb(ClientState c, int index, double now)
@@ -108,7 +108,7 @@ public static class SolarisLunaris
             var (_, body) = Body(index); string type = body.Variety!.Id + "CelestialForm";
             lock (c.Monsters) if (c.Monsters.Values.Any(m => m.Variety?.Id == type && Alive(m))) return;
             var at = body.Walk.Position(now); var w = c.Wire;
-            uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, c, Monsters.Find(type)!, body.Level,
+            uint id = await SpawnMonster(c, Monsters.Find(type)!, body.Level,
                 MonsterRarity.Normal, at.X, at.Y, scripted: true, owned: (_, m) =>
                 { m.NoRewards = true; m.EntranceGrace = true; m.Aggro = true; }, ownedCurrent: () => !stopped);
             if (id != 0 && c.Monsters.TryGetValue(id, out var actor))
@@ -162,7 +162,7 @@ public static class SolarisLunaris
             Hold(c, body, true, now); await State(c, active, 3);
             var at = body.Walk.Position(now);
             foreach (var p in Present.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)).ToArray())
-            { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id,
+            { await SendWorldRecord(p, id,
                 InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, TransformSkill,
                     p.NextActionSequence(), 0x0800, id), "[Sisters] corporeal form submerges"); }
             changing = true; deadline = now + TransformSeconds;

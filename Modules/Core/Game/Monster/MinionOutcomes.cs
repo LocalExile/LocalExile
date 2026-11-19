@@ -121,10 +121,10 @@ public static partial class Game
     }
 
     // Only the existing current minion role/caller drains. Selection, validation and consumption share the real send gate.
-    public static Task PublishMinionOutcomes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        PublishMinionOutcomesFor(remote, stream, ciphers, conn, CombatLifetime);
+    public static Task PublishMinionOutcomes(ClientState conn) =>
+        PublishMinionOutcomesFor(conn, CombatLifetime);
 
-    static async Task PublishMinionOutcomesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task PublishMinionOutcomesFor(ClientState conn,
         IModuleLifetime? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
@@ -145,22 +145,22 @@ public static partial class Game
                         using var mutation = ProjectileMutation(conn);
                         if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
                             || !ReferenceEquals(state.OutputQueue[0], output)) return null;
-                        var packets = CommitQuestKillOperation(remote, stream, ciphers, conn, output, admission);
+                        var packets = CommitQuestKillOperation(conn, output, admission);
                         state.OutputQueue.RemoveAt(0);
                         return packets;
-                    }, quest: true, transport: (remote, stream, ciphers));
+                    }, quest: true);
                 else
                 {
                     await conn.QuestGate.WaitAsync();
                     try
                     {
-                        await Send(remote, stream, ciphers, [], "accepted quest kill effects", atGate: () =>
+                        await Send(conn, [], "accepted quest kill effects", atGate: () =>
                         {
                             using var mutation = ProjectileMutation(conn);
                             if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
                                 || !ReferenceEquals(state.OutputQueue[0], output)) return null;
                             var admission = new WorldAdmission(conn.WorldOutput, []);
-                            var packets = CommitQuestKillOperation(remote, stream, ciphers, conn, output, admission);
+                            var packets = CommitQuestKillOperation(conn, output, admission);
                             admission.Finish(true);
                             state.OutputQueue.RemoveAt(0);
                             return [.. packets.Records.SelectMany(r => r.CopyBytes())];
@@ -184,7 +184,7 @@ public static partial class Game
                 await notification;
                 // A minion's kill is committed here, not through Game.MonsterKilled: the overlay's count (S→C 0x1a0) is one
                 // monster smaller too.
-                await SendRemainingMonsters(remote, stream, ciphers, conn);
+                await SendRemainingMonsters(conn);
                 continue;
             }
             if (output.Kind == PlayerMinions.OutputKind.GroundItem)
@@ -199,7 +199,7 @@ public static partial class Game
                         state.OutputQueue.RemoveAt(0);
                         return GroundItemPresentation(conn, groundId, conn.Instance.Ground.IsNewFor(conn, groundId), includeWake: false);
                     }
-                }, output.Log, wake: true, transport: (remote, stream, ciphers));
+                }, output.Log, wake: true);
                 continue;
             }
             byte[][]? actionRecords = null;
@@ -231,7 +231,7 @@ public static partial class Game
                         return InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), output.ItemIds!,
                             [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
                     }
-                    if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, remote);
+                    if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, conn.Remote);
                     if (output.Kind == PlayerMinions.OutputKind.RighteousFireRing)
                         return RighteousFireRingCurrentLocked(conn, output.RighteousFireRing!) ? output.Packet : null;
                     if (output.Target is not null && output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
@@ -267,17 +267,17 @@ public static partial class Game
             });
             if (output.Kind == PlayerMinions.OutputKind.QuestTransition)
                 await SendWorldBatch(conn, [], admission => Project() is null ? null
-                    : QuestTransitionRecords(conn, admission, output.TargetId!.Value, output.Transition!), transport: (remote, stream, ciphers));
+                    : QuestTransitionRecords(conn, admission, output.TargetId!.Value, output.Transition!));
             else if (output.CreatesObject)
-                await SendWorldCreate(conn, output.WorldId!.Value, Project, output.Log, transport: (remote, stream, ciphers));
+                await SendWorldCreate(conn, output.WorldId!.Value, Project, output.Log);
             else if (output.RemovesObject || output.Kind is PlayerMinions.OutputKind.Remove or PlayerMinions.OutputKind.QuestRoomRemove)
-                await SendWorldRemoval(remote, stream, ciphers, conn, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
+                await SendWorldRemoval(conn, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
             else if (output.Kind is PlayerMinions.OutputKind.GolemAction or PlayerMinions.OutputKind.EnergyShield)
-                await SendWorldRecords(remote, stream, ciphers, conn, output.TargetId!.Value,
+                await SendWorldRecords(conn, output.TargetId!.Value,
                     () => Project() is null ? null : actionRecords, output.Log);
             else if (worldId is uint targetId)
-                await SendWorldRecord(remote, stream, ciphers, conn, targetId, [], output.Log, atGate: Project);
-            else await Send(remote, stream, ciphers, [], output.Log, atGate: Project);
+                await SendWorldRecord(conn, targetId, [], output.Log, atGate: Project);
+            else await Send(conn, [], output.Log, atGate: Project);
 
         }
         while (true)
@@ -289,7 +289,7 @@ public static partial class Game
                 if (HardcoreProgressBlocked(conn)) { state.FlaskRewards.Clear(); break; }
                 reward = state.FlaskRewards[0];
             }
-            await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
+            await ChangeFlaskBar(conn, items =>
             {
                 if (conn.Closed || conn.LeavingArea || state.FlaskRewards.Count == 0 || !ReferenceEquals(state.FlaskRewards[0], reward)) return null;
                 state.FlaskRewards.RemoveAt(0);
@@ -319,14 +319,14 @@ public static partial class Game
         }
         if (revision != state.PresentedStatRevision)
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Minions);
+            await SendCharacterStats(conn, PlayerStatChange.Minions);
             if (!Current()) return;
-            await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "player life after minion outcomes", atGate: () =>
+            await SendPlayerMana(conn); await SendPlayerEnergyShield(conn);
+            await SendWorldRecord(conn, PlayerId, [], "player life after minion outcomes", atGate: () =>
             { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? PlayerLifeUpdate(conn) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
-        await SendSentinelOwnership(remote, stream, ciphers, conn, Current);
+        await SendSentinelOwnership(conn, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
         await SynchronizeAccountLevel(conn);
         lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);

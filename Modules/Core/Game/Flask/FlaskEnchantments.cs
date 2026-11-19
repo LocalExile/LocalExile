@@ -18,12 +18,10 @@ public static partial class Game
         }
     }
 
-    public static Task<bool> UseUtilityFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility)
-        => UseUtilityFlaskForSignal(remote, stream, ciphers, conn, slot, flask, type, utility, null);
+    public static Task<bool> UseUtilityFlask(ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility)
+        => UseUtilityFlaskForSignal(conn, slot, flask, type, utility, null);
 
-    static async Task<bool> UseUtilityFlaskForSignal(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility,
+    static async Task<bool> UseUtilityFlaskForSignal(ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility,
         FlaskAutomationStep? signal)
     {
         var state = Automation(conn);
@@ -34,14 +32,14 @@ public static partial class Game
             // Re-read after waiting: a move or earlier automatic/manual use may have changed the flask.
             var current = ItemsOf(conn).Items(PlayerInventories.Flask).FirstOrDefault(i => i.Id == flask.Id && i.X == slot);
             if (!CurrentGameWork || !ReferenceEquals(owner, CombatLifetime) || current is null) return false;
-            return await UseUtilityFlaskCore(remote, stream, ciphers, conn, slot, current, type, utility, signal);
+            return await UseUtilityFlaskCore(conn, slot, current, type, utility, signal);
         }
         finally { state.UseGate.Release(); }
     }
 
     // Runs as a stat presentation after a trigger was queued (QueueFlaskTrigger), outside combat/inventory locks. Each flask is used at most
     // once per event chain, preventing adjacent enchanted flasks from recursively emptying one another.
-    public static async Task DrainFlaskTriggers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task DrainFlaskTriggers(ClientState conn)
     {
         var state = Automation(conn);
         if (!CurrentGameWork || conn.Paused || conn.LeavingArea) return;
@@ -67,7 +65,7 @@ public static partial class Game
                 // Current charges are authoritative; an event cannot conjure charges or bypass Mageblood/death checks.
                 if (signal.Trigger == FlaskEnchantments.Trigger.Full
                     && flask.Item.Charges < FlaskCharges.Of(utility.Charges, local).MaxCharges) continue;
-                await UseUtilityFlaskForSignal(remote, stream, ciphers, conn, flask.X, flask, type, utility, signal);
+                await UseUtilityFlaskForSignal(conn, flask.X, flask, type, utility, signal);
                 if (!CurrentGameWork) return; // Leave an unfinished edge for the replacement drainer.
             }
             lock (conn.Monsters)

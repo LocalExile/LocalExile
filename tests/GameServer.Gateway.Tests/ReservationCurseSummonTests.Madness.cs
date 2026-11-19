@@ -59,7 +59,7 @@ public sealed partial class ReservationCurseSummonTests
             async Task<bool> Toggle()
             {
                 var skill = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "EmbraceMadness");
-                return await Game.ToggleMadness("madness", wire.Stream, wire.Ciphers, conn, skill.Id, skill.Effect, () => true);
+                return await Game.ToggleMadness(conn, skill.Id, skill.Effect, () => true);
             }
             void Reconcile() { Game.ReconcileOwnAuras(conn, validateSkills: true); Game.WithOwnAuraChanges(conn, () => []); }
             var boots = inventory.Add(PlayerInventories.Boots, 0, 0,

@@ -68,7 +68,7 @@ public sealed class TotemTests
             var source = Game.GemSkillEffects(conn).Single(g => g.Name == "Shockwave Totem");
             var variety = Game.TotemVariety(conn, source.Effect);
             Assert.NotNull(variety);
-            uint? placed = await Game.CreateTotem("test", wire.Stream, wire.Ciphers, conn, source.Id, source.Effect,
+            uint? placed = await Game.CreateTotem(conn, source.Id, source.Effect,
                 source.Level, variety!, (50, 50));
             Assert.NotNull(placed);
             var totem = conn.Totems.All.Single();
@@ -82,7 +82,7 @@ public sealed class TotemTests
 
             // A hostile outside its totem range (base_totem_range 80) starts no cast.
             conn.Monsters[0x08000002] = new SpawnedMonster("far", new(50, 140, 0), 100, 8, 1000);
-            Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
+            Game.TickTotemUses(conn);
             Assert.Equal(0, totem.Strike!.NextCast);
 
             // One inside the range starts it; at the contact only what stands within the radius of the totem is hit.
@@ -90,12 +90,12 @@ public sealed class TotemTests
             var outside = new SpawnedMonster("outside", new(50, 90, 0), 100, 8, 100000);
             conn.Monsters[0x08000001] = target; conn.Monsters[0x08000003] = outside;
             uint before = target.Life, outsideBefore = outside.Life;
-            Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
+            Game.TickTotemUses(conn);
             Assert.True(totem.Strike.NextCast > 0);
 
             // The contact is on the projectile runtime (a kill takes the XP gate before the Monsters lock): advance it to
             // the end of the cast instead of waiting on real time.
-            var session = Game.ProjectilesFor("test", wire.Stream, wire.Ciphers, conn);
+            var session = Game.ProjectilesFor(conn);
             using (Game.ProjectileMutation(conn, advance: false))
                 session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(totem.Strike.NextCast));
             Assert.True(target.Life < before, $"the nova dealt no damage: {target.Life} of {target.MaxLife}");

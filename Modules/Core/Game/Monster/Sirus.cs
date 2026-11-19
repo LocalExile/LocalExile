@@ -68,7 +68,7 @@ static partial class Sirus
             players.RemoveAll(p => p.Closed || p.LeavingArea);
             if (!players.Contains(c)) { players.Add(c); foreach (var fx in visuals) await CreateFx(c, fx); }
             if (body is not null && bound.Add(c) && Awake(c, id) && SkillsFor(c, body.Variety!, body.Level) is { } skills)
-                await SendWorldRecord(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, id,
+                await SendWorldRecord(c, id,
                     InstanceEntities.PlayerSkillsChange(id, skills, []), "[Sirus] native skills");
         }
         async Task All(uint actor, byte[] bytes, bool awake = false) => await All(actor, new[] { bytes }, awake);
@@ -76,18 +76,17 @@ static partial class Sirus
         {
             foreach (var p in Present.Where(p => !awake || Awake(p, actor)).ToArray())
             {
-                var w = p.Wire;
-                await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, p, actor, () => records.Select(r => r.ToArray()).ToArray(), null,
+                await SendWorldRecords(p, actor, () => records.Select(r => r.ToArray()).ToArray(), null,
                     still: () => CurrentGameWork && !stopped && !p.Closed && !p.LeavingArea);
             }
         }
         async Task Remove(uint actor)
         {
-            foreach (var p in Present.ToArray()) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, actor); }
+            foreach (var p in Present.ToArray()) { await SendWorldRemoval(p, actor); }
         }
         async Task Voice(ushort line, ushort speaker = 407)
         {
-            foreach (var p in Present.ToArray()) { var w = p.Wire; await Send(w.Remote, w.Stream, w.Ciphers, InstanceNpcs.TextAudio(0, speaker, line), $"[Sirus] NPCTextAudio {line}"); }
+            foreach (var p in Present.ToArray()) { await Send(p, InstanceNpcs.TextAudio(0, speaker, line), $"[Sirus] NPCTextAudio {line}"); }
         }
         async Task State(ClientState c, uint actor, params (string Name, int Value)[] changes)
         {
@@ -122,7 +121,7 @@ static partial class Sirus
         async Task<uint> Actor(ClientState c, string type, (int X, int Y) at, bool rewards = false)
         {
             if (Monsters.Find(type) is not { Supported: true } v || v.Id != type) throw new InvalidOperationException("Unsupported Sirus actor: " + type);
-            return await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, 84, MonsterRarity.Unique, at.X, at.Y,
+            return await SpawnMonster(c, v, 84, MonsterRarity.Unique, at.X, at.Y,
                 rotation: 3 * MathF.PI / 2, scripted: true, owned: (_, m) => { m.NoRewards = !rewards; m.EntranceGrace = true; });
         }
         async Task Initialize(ClientState c, double now)

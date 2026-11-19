@@ -33,6 +33,6 @@ public static partial class Game
         CharacterStatSources(conn);
         lock (conn.Monsters) TryGainElusiveLocked(conn, critical: true, kill: false, ResourceEffectsTime(conn));
     }
-    public static Task SyncElusive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendElusive(remote, stream, ciphers, conn);
+    public static Task SyncElusive(ClientState conn) =>
+        SendElusive(conn);
 }

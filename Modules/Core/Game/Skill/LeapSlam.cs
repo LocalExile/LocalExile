@@ -87,11 +87,11 @@ public static partial class Game
         conn.LandingUntil = Math.Max(conn.LandingUntil, use.At + use.Timing.End);
     }
 
-    public static Task ScheduleLeapSlam(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleLeapSlam(ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         int epoch = conn.ProjectileEpoch;
         bool Valid() => session.Active && conn.ProjectileActive(epoch) && PlayerStateAllowsAction(conn)
@@ -106,13 +106,13 @@ public static partial class Game
                     SkillRadius(conn, own, spell: false, effect: gem.Effect) * radiusMore,
                     ProjectileWorldTime(conn), own, use.From);
                 int count = 0;
-                var hit = AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, use.Landing, use.Landing,
+                var hit = AreaSkillHit(conn, skillId, gem, use.Landing, use.Landing,
                     immediate: true, sequence: sequence, criticalRoll: criticalRoll,
                     damageMore: damageMore, radiusMore: radiusMore, triggeredCurrent: Valid,
                     onHit: _ => count++, scheduledSession: session);
                 if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Leap Slam landing must not yield.");
                 hit.GetAwaiter().GetResult();
-                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: landed sequence=0x{sequence:x4} "
+                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: landed sequence=0x{sequence:x4} "
                     + $"from=({use.From.X}, {use.From.Y}) at=({use.Landing.X}, {use.Landing.Y}), hit={count}, "
                     + $"animation={use.Timing.Animation}, land={use.Timing.Land:0.000000}s (t={ProjectileWorldTime(conn):0.000000})");
             });

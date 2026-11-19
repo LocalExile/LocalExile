@@ -86,7 +86,7 @@ public static partial class Game
         return InstanceProtocol.InstantAction(PlayerId, gem.Id, aim.Item1, aim.Item2, sequence: sequence, flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
     }
 
-    static async Task DrainTwisterGains(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task DrainTwisterGains(ClientState conn)
     {
         int count;
         lock (conn.Monsters) count = Math.Min(64, conn.Twister.Pending.Count);
@@ -98,17 +98,17 @@ public static partial class Game
                 if (!conn.Twister.Pending.TryDequeue(out gain!)) break;
                 if (!TwisterGainCurrentLocked(conn, gain)) continue;
             }
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01ce Avian gain triggers Twister", atGate: () =>
+            await SendWorldRecord(conn, PlayerId, [], "0x01ce Avian gain triggers Twister", atGate: () =>
             {
                 using (ProjectileMutation(conn))
                 {
                     if (!TwisterGainCurrentLocked(conn, gain)) return null;
-                    var session = ProjectilesFor(remote, stream, ciphers, conn);
+                    var session = ProjectilesFor(conn);
                     session.Advance();
                     return AdmitTwisterGainLocked(conn, gain, session);
                 }
             });
         }
-        if (count > 0) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+        if (count > 0) await SendNativeCooldownRefresh(conn);
     }
 }

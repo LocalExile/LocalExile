@@ -43,7 +43,7 @@ static partial class Game
 
     // A use landed: its first landed sweep spends the charges it counted, unless the gem's quality roll keeps them
     // (discharge_chance_not_to_consume_charges_%). The caster's own charges: only its connection spends them.
-    internal static bool SpendDischargedCharges(string remote, ClientState conn, string skill, uint gem, DischargeUse use,
+    internal static bool SpendDischargedCharges(ClientState conn, string skill, uint gem, DischargeUse use,
         int keepChance, int hit)
     {
         if (!use.TakeSpend()) return false;
@@ -51,7 +51,7 @@ static partial class Game
         if (!keep)
             foreach (var (type, count) in use.Charges)
                 if (count > 0) ChargesOf(conn).Enqueue(new ChargeEvent.Spend(type, count, skill));
-        Console.WriteLine($"[gateway] {remote} {skill} discharged {string.Join(", ", use.Charges.Select(d => $"{d.Value} {Charges.Name(d.Key)}"))}"
+        Console.WriteLine($"[gateway] {conn.Remote} {skill} discharged {string.Join(", ", use.Charges.Select(d => $"{d.Value} {Charges.Name(d.Key)}"))}"
             + $", hit {hit} monster(s){(keep ? $", charges kept ({keepChance}% chance)" : "")}, skin {DischargeSkin(conn, gem)}");
         return true;
     }
@@ -62,7 +62,7 @@ static partial class Game
     // A triggered Discharge (Cast On Critical Strike) runs its action without the cast clip, and the clip is what draws
     // the explosion: the server draws it instead (MiscAnimated DischargeFire/Cold/Lightning and the skins' rows), one
     // per charge type spent, at the area centre and scaled to the radius. A cast by hand draws its own.
-    internal static async Task ShowTriggeredDischarge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task ShowTriggeredDischarge(ClientState conn,
         uint gem, DischargeUse use, (int X, int Y) at, int radius)
     {
         uint skin = CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
@@ -82,15 +82,15 @@ static partial class Game
             // the fire core's 200 (only its row carries one); art with no radius plays at its own size.
             int? native = Art.ArtRadius(arts[i]) ?? (arts[i].StartsWith(DischargeCore, StringComparison.Ordinal) ? 200 : null);
             float scale = native is int n and > 0 ? (float)(radius * (250d / 23) / n) : 1;
-            await Send(remote, stream, ciphers, CreateEffectObject(ids[i], new EffectObject(at.X, at.Y, arts[i]) { Scale = scale }),
+            await Send(conn, CreateEffectObject(ids[i], new EffectObject(at.X, at.Y, arts[i]) { Scale = scale }),
                 $"0x02bb triggered discharge effect 0x{ids[i]:x} {arts[i]} at ({at.X}, {at.Y}), scale {scale:0.###}");
         }
-        Console.WriteLine($"[gateway] {remote} triggered discharge art: {arts.Count} effect(s), skin 0x{skin:x8}, radius {radius}");
+        Console.WriteLine($"[gateway] {conn.Remote} triggered discharge art: {arts.Count} effect(s), skin 0x{skin:x8}, radius {radius}");
         var created = ids.ToArray();
         SendAfter(TriggeredDischargeArtSeconds, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;
-            foreach (uint id in created) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+            foreach (uint id in created) await Send(conn, InstanceProtocol.RemoveObject(id), null);
         });
     }
 

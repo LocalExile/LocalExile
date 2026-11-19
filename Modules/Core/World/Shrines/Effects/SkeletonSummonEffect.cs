@@ -128,8 +128,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
     async Task Follow(ShrineContext ctx, uint id, SpawnedMonster m, (int X, int Y) from, (int X, int Y) to)
     {
         var conn = ctx.Conn;
-        var (remote, stream, ciphers) = conn.Wire;
-        await SendWorldRecord(remote, stream, ciphers, conn, id,
+        await SendWorldRecord(conn, id,
             InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, conn.MonsterOrderFlags),
             $"0x01ab shrine ally 0x{id:x} follows the player from ({from.X}, {from.Y}) to ({to.X}, {to.Y})",
             still: () => CurrentGameWork && !conn.Closed && !conn.LeavingArea
@@ -148,8 +147,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
         (int X, int Y) spot;
         lock (conn.Monsters) spot = SpotLocked(conn, at, allied);
         var (x, y) = spot;
-        var (remote, stream, ciphers) = conn.Wire;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, x, y,
+        uint id = await SpawnMonster(conn, variety, level, MonsterRarity.Normal, x, y,
             friendly: allied, log: false, alone: false,
             owned: (id, m) =>
             {
@@ -166,7 +164,7 @@ sealed class SkeletonSummonEffect : IShrineEffect
             },
             ownedCurrent: () => conn.PlayerLife > 0 && !conn.LeavingArea);
         if (id == 0) return;
-        Console.WriteLine($"[gateway] {remote} shrine {shrine.Definition.Id} skeleton 0x{id:x} at ({x}, {y}) " +
+        Console.WriteLine($"[gateway] {conn.Remote} shrine {shrine.Definition.Id} skeleton 0x{id:x} at ({x}, {y}) " +
             $"level {level}, {(allied ? "the player's ally" : "the shrine's")}, {_expires.Count} of {MaxAlive}");
     }
 

@@ -6,8 +6,7 @@ public static partial class Game
 {
     // Petrified Blood is a reservation buff, not an aura: reservation and the received buff are its own, and the
     // own-aura restriction does not touch it. Its hit prevention lives in PetrifiedBloodState (Gateway Combat).
-    public static async Task<bool> TogglePetrifiedBlood(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
+    public static async Task<bool> TogglePetrifiedBlood(ClientState conn, ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         bool started;
         lock (conn.Monsters)
@@ -26,7 +25,7 @@ public static partial class Game
                 var context = ReservationContext(conn, skillId);
                 if (!ReservationBudgetFits(conn, reservation.ManaPercent, context.Life, context.Efficiency))
                 {
-                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
+                    Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
                     return false;
                 }
                 conn.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
@@ -40,11 +39,11 @@ public static partial class Game
             // new buff blocks recovery and the real rate when it does not.
             conn.AuraStatsDirty = true;
             CharacterSaves.SetPetrifiedBlood(CharacterName(conn), started);
-            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: {(started ? "on" : "off")}, " +
+            Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {name}: {(started ? "on" : "off")}, " +
                 $"Low Life threshold {conn.PetrifiedBlood.LowLifeThresholdPct}%");
         }
-        await SendOwnAuraChanges(remote, stream, ciphers, conn);
-        await SendPlayerMana(remote, stream, ciphers, conn,
+        await SendOwnAuraChanges(conn);
+        await SendPlayerMana(conn,
             $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved (Petrified Blood {(started ? "on" : "off")})");
         return true;
     }
@@ -126,8 +125,7 @@ public static partial class Game
         return packets.Count == 0 ? null : [.. packets.SelectMany(packet => packet)];
     }
 
-    public static Task SendPetrifiedBloodLoss(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn) => Send(remote, stream, ciphers, [], null, atGate: () =>
+    public static Task SendPetrifiedBloodLoss(ClientState conn) => Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {

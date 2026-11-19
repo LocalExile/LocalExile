@@ -197,8 +197,8 @@ public static partial class Game
             return bytes.Count == 0 ? null : [.. bytes];
         }
     }
-    public static Task SendBlind(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => BlindPresentation(conn));
+    public static Task SendBlind(ClientState conn) =>
+        Send(conn, [], null, atGate: () => BlindPresentation(conn));
 
     public const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
     public const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";

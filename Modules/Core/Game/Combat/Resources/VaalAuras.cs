@@ -36,7 +36,7 @@ public static partial class Game
         }
     }
 
-    static async Task<bool> ActivateVaalAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> ActivateVaalAura(ClientState conn,
         ushort skillId, Func<bool> current)
     {
         var gem = SupportedSkill(conn, skillId);
@@ -49,7 +49,7 @@ public static partial class Game
         lock (conn.Monsters) token = ++aura.Token;
         // Built fresh, as Flicker Strike's buff: the use's message holds a stats snapshot from before the buff.
         using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], $"0x01c1 {name}: {kind.Stat} for {seconds:0.##} s (buff row {kind.BuffRow})",
+        await Send(conn, [], $"0x01c1 {name}: {kind.Stat} for {seconds:0.##} s (buff row {kind.BuffRow})",
             still: current, atGate: () =>
             {
                 lock (conn.Monsters)
@@ -96,11 +96,11 @@ public static partial class Game
         }
     }
 
-    static async Task SendVaalAuraExpiry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendVaalAuraExpiry(ClientState conn)
     {
         if (!VaalAuraStates.TryGetValue(conn, out var aura) || aura.Buff == 0) return;
         using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], "Vaal aura expired", atGate: () =>
+        await Send(conn, [], "Vaal aura expired", atGate: () =>
         {
             lock (conn.Monsters)
             {

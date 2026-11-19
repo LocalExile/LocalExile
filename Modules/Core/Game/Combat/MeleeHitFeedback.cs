@@ -17,10 +17,9 @@ public static partial class Game
             flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 3, code: code, angle: angle,
             orderKey: orderKey, checkpoint: checkpoint);
 
-    static async Task PresentMeleeImpact(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string art, (int X, int Y) from, (int X, int Y) at)
+    static async Task PresentMeleeImpact(ClientState conn, string art, (int X, int Y) from, (int X, int Y) at)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         uint id;
         lock (conn.Monsters)
         {
@@ -35,7 +34,7 @@ public static partial class Game
         };
         bool created = await SendWorldCreate(conn, id,
             () => session.Active ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()) : null,
-            "native melee impact", wake: true, transport: (remote, stream, ciphers));
+            "native melee impact", wake: true);
         lock (conn.Monsters)
         {
             if (!created) { conn.ProjectileObjects.Remove(id); return; }

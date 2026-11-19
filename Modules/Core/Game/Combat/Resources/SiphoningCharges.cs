@@ -167,12 +167,12 @@ public static partial class Game
         return life;
     }
 
-    static async Task PresentSiphoningCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task PresentSiphoningCharges(ClientState conn)
     {
         lock (conn.Monsters)
             if (conn.Siphoning.Sources.Count == 0 && conn.Siphoning.Buff == 0) return;
         bool changed = false;
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "Siphoning charge state", atGate: () =>
+        await SendWorldRecord(conn, PlayerId, [], "Siphoning charge state", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -195,6 +195,6 @@ public static partial class Game
                 return [.. packets.SelectMany(p => p)];
             }
         });
-        if (changed) await SendChargeStats(remote, stream, ciphers, conn, "Siphoning charges");
+        if (changed) await SendChargeStats(conn, "Siphoning charges");
     }
 }

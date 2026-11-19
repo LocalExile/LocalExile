@@ -77,7 +77,7 @@ static partial class Sirus
     {
         var at = SceneOf(c).Centre;
         if (Monsters.Find(Throne) is not { Supported: true } v) return;
-        await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, 84, MonsterRarity.Unique, at.X, at.Y,
+        await SpawnMonster(c, v, 84, MonsterRarity.Unique, at.X, at.Y,
             rotation: 3 * MathF.PI / 2, scripted: true, owned: (_, m) => { m.NoRewards = true; m.EntranceGrace = true; });
     }
 }

@@ -85,9 +85,8 @@ public static class ArakaaliLasers
             foreach (var s in scenes)
             {
                 lock (c.Monsters) if (c.SceneViews.Contains(s.Id)) continue;
-                var w = c.Wire;
                 if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()),
-                    "[Arakaali] linked arena turret", wake: true, transport: w))
+                    "[Arakaali] linked arena turret", wake: true))
                     lock (c.Monsters) c.SceneViews.Add(s.Id);
             }
         }
@@ -103,8 +102,7 @@ public static class ArakaaliLasers
             var components = s.Object.Components.ToList();
             foreach (var p in Present.Where(p => p.SceneViews.Contains(s.Id)).ToArray())
             {
-                var w = p.Wire;
-                await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, p, s.Id, () =>
+                await SendWorldRecords(p, s.Id, () =>
                     [InstanceEntities.StateMachineUpdate(s.Id, (byte)components.IndexOf("StateMachine"), s.Object.StateMachine!),
                      InstanceEntities.TransitionableUpdate(s.Id, (byte)components.IndexOf("Transitionable"), transition)], "[Arakaali] turret rail state");
             }
@@ -127,8 +125,8 @@ public static class ArakaaliLasers
             bool Inside((int X, int Y) at) => LineDistance(at, (from.GridX, from.GridY), (to.GridX, to.GridY)) <= Radius;
             var attack = BossKits.AttackFor(p, boss.Variety!, boss.Level, 6879, boss.Attack?.SkillId ?? 0x4000)
                 with { Spell = true, Scripted = true };
-            var w = p.Wire; MonsterHitOutcome? outcome = null;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, bossId, [], null, atGate: () =>
+            MonsterHitOutcome? outcome = null;
+            await SendWorldRecord(p, bossId, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -138,12 +136,12 @@ public static class ArakaaliLasers
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, bossId, boss, minionAttack, now, area: true);
                     if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, bossId, boss, attack, now, p.Walk.Position(now),
+                    outcome = CommitMonsterHitLocked(p, bossId, boss, attack, now, p.Walk.Position(now),
                         (from.GridX, from.GridY), false, p.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, bossId, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, bossId, outcome);
         }
         public async Task Step(ClientState c, double now)
         {

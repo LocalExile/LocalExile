@@ -74,9 +74,8 @@ static partial class Sirus
 
         async Task GroundDamage(ClientState p, double now, double seconds)
         {
-            var w = p.Wire;
             bool died = false, shieldChanged = false;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, [], null, atGate: () =>
+            await SendWorldRecord(p, PlayerId, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -143,8 +142,8 @@ static partial class Sirus
                     return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
                 }
             });
-            if (shieldChanged) await SendPlayerEnergyShield(w.Remote, w.Stream, w.Ciphers, p);
-            if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "[Sirus] ground damage");
+            if (shieldChanged) await SendPlayerEnergyShield(p);
+            if (died) await PlayerDied(p, "[Sirus] ground damage");
         }
     }
 }

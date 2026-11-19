@@ -28,8 +28,7 @@ static partial class SurvivorsRunRules
         {
             // Re-use the retained area and run after an explicit Auth refusal, without wiping its inventory.
             SurvivorsCarried[conn.Ticket] = carry with { Stage = Math.Max(0, carry.Stage - 1) };
-            var (remote, stream, ciphers) = conn.Wire;
-            await ResumeSurvivors(remote, stream, ciphers, conn);
+            await ResumeSurvivors(conn);
         }
     }
 
@@ -50,15 +49,14 @@ static partial class SurvivorsRunRules
     internal static async Task EnterArea(ClientState conn)
     {
         if (!TryClaimAdmission(conn) || conn.Closed || conn.LeavingArea) return;
-        var (remote, stream, ciphers) = conn.Wire;
         if (InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null)
         {
             if (AreaTransitionCatalog.HashOf(SurvivorsLevels[0]) is { } first)
-                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(first, 0, false), "survivors entry");
+                await ChangeArea(conn, new PendingTransfer(first, 0, false), "survivors entry");
             return;
         }
-        await ResumeSurvivors(remote, stream, ciphers, conn);
-        if (StateOf(conn).Survivors is null) await StartSurvivors(remote, stream, ciphers, conn);
+        await ResumeSurvivors(conn);
+        if (StateOf(conn).Survivors is null) await StartSurvivors(conn);
     }
 
     /// <summary>
@@ -73,8 +71,7 @@ static partial class SurvivorsRunRules
         if (conn.PendingTransfer is not null) return;
         if (AreaTransitionCatalog.HashOf(SurvivorsLevels[0]) is { } first)
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(first, 0, false), "survivors resurrection");
+            await ChangeArea(conn, new PendingTransfer(first, 0, false), "survivors resurrection");
         }
     }
 
@@ -177,24 +174,23 @@ static partial class SurvivorsRunRules
         {
             try
             {
-                var (remote, stream, ciphers) = conn.Wire;
                 if (wasPaused)
-                    await Send(remote, stream, ciphers, InstancePause.State(false),
+                    await Send(conn, InstancePause.State(false),
                         "0x01d3 resumed (the survivors run ended)");
                 foreach (ushort buff in buffs)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
+                    await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
                 foreach (uint orb in orbs)
-                    await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, orb, "survivors retired xp orb");
+                    await global::Game.SendWorldRemoval(conn, orb, "survivors retired xp orb");
                 foreach (uint zone in zones)
-                    await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, zone, "survivors retired death zone");
+                    await global::Game.SendWorldRemoval(conn, zone, "survivors retired death zone");
                 if (closeWindow)
-                    await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "survivors retired reward window",
+                    await Send(conn, InstanceNpcs.Talk(0), "survivors retired reward window",
                         still: () => StateOf(conn).Survivors is null);
                 if (conn.PlayerObjectCreated && StateOf(conn).Survivors is null)
                 {
-                    await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
-                    await SendSkills(remote, stream, ciphers, conn);
-                    await SendSkillBar(remote, stream, ciphers, conn);
+                    await SendCharacterStats(conn, PlayerStatChange.Build);
+                    await SendSkills(conn);
+                    await SendSkillBar(conn);
                 }
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

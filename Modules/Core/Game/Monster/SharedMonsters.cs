@@ -46,7 +46,7 @@ public static partial class Game
 
     // At PopulateArea: this connection runs the monsters when nobody live does; true when the area's packs are still to
     // be placed (the first connection in, or one after a restart, from the instance's save).
-    public static bool ClaimMonsterHost(string remote, ClientState conn)
+    public static bool ClaimMonsterHost(ClientState conn)
     {
         var world = conn.Instance.World;
         lock (world.Monsters)
@@ -58,7 +58,7 @@ public static partial class Game
                 return true;
             }
         }
-        Console.WriteLine($"[gateway] {remote} monsters: the instance's own ({world.MonsterOrigins.Count}), run by {CharacterName(world.Runner!)}");
+        Console.WriteLine($"[gateway] {conn.Remote} monsters: the instance's own ({world.MonsterOrigins.Count}), run by {CharacterName(world.Runner!)}");
         return false;
     }
 
@@ -216,8 +216,8 @@ public static partial class Game
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
         if (record.Creates is not null) return SendWorldCreate(other, id, () => bytes);
         var wire = other.Wire;
-        if (record.Removes is not null) return SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, other, id);
-        return SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, bytes, null);
+        if (record.Removes is not null) return SendWorldRemoval(other, id);
+        return SendWorldRecord(other, id, bytes, null);
     }
 
     public static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
@@ -383,7 +383,7 @@ public static partial class Game
             {
                 if (keyed) System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
                 var record = bytes;
-                await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, [], null, atGate: () =>
+                await SendWorldRecord(other, id, [], null, atGate: () =>
                 {
                     lock (other.Monsters) return PeerRecordAtGate(other, id, record, speed);
                 });
@@ -569,7 +569,7 @@ public static partial class Game
     }
 
     // Another client's frame: the other players' minions created, moved, hurt and removed here, under ids of this client.
-    public static async Task SyncPeerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncPeerMinions(ClientState conn)
     {
         var shown = new Dictionary<(uint, uint), (ClientState Owner, SharedMonster M)>();
         foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
@@ -629,9 +629,9 @@ public static partial class Game
                 else conn.SeenMinions[key] = m;
             }
             return packets.Build();
-        }, transport: (remote, stream, ciphers));
+        });
         if (births.Count > 0 && await conn.WorldOutput.AwaitBirths(births))
-            await SyncPeerMinions(remote, stream, ciphers, conn);
+            await SyncPeerMinions(conn);
     }
 
     // The first message's length when the blob is one of Mirrorable's (any other: -1).
@@ -714,7 +714,7 @@ public static partial class Game
     // others' walks reach it (the runner's AI sends its own orders), every client gets the life the others' hits left,
     // and the ones gone from the instance go. A monster out of the runner's wake zone gets no order (an order wakes a
     // sleeping object and the next 0x1a9 crashed the client); the others never put one to sleep.
-    public static async Task SyncInstanceMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task SyncInstanceMonsters(ClientState conn,
         // False in the pass that only follows this pass's births, so one call reveals one round of held-back monsters.
         bool reveal = true)
     {
@@ -726,9 +726,9 @@ public static partial class Game
             watch = IsMonsterRunner(conn) && MonsterEmerge.Unwatched(conn);
         }
         // Monsters still in wait whose watcher left: the runner watches them now.
-        if (watch) WatchBuried(remote, stream, ciphers, conn);
+        if (watch) WatchBuried(conn);
         bool runner = IsMonsterRunner(conn);
-        if (reveal && runner) await RevealHeldBack(remote, stream, ciphers, conn);
+        if (reveal && runner) await RevealHeldBack(conn);
         // What goes to this client here is its own view: nothing of it goes on to the others (MirrorSharedMonsters).
         Mirroring.Value = true;
         var bossBars = new List<(uint Id, SpawnedMonster M)>();
@@ -803,9 +803,9 @@ public static partial class Game
                 conn.AwakeMonsters = AwakeMonsterIds(conn);
             }
             return packets.Build();
-        }, transport: (remote, stream, ciphers));
+        });
         if (births.Count > 0 && await conn.WorldOutput.AwaitBirths(births))
-            await SyncInstanceMonsters(remote, stream, ciphers, conn, reveal: false);
-        foreach (var (id, m) in bossBars) await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
+            await SyncInstanceMonsters(conn, reveal: false);
+        foreach (var (id, m) in bossBars) await ShowBossLifeBar(id, m, conn);
     }
 }

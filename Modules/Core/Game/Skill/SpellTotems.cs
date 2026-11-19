@@ -96,16 +96,14 @@ public static partial class Game
             && IsTotemSkill(conn, totem.SkillId);
     }
 
-    public static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, List<byte> bytes)
+    public static void TickSpellTotemsLocked(ClientState conn, List<byte> bytes)
     {
         var records = new WorldRecordBuilder(conn, null);
-        TickSpellTotemsLocked(remote, stream, ciphers, conn, records);
+        TickSpellTotemsLocked(conn, records);
         bytes.AddRange(records.Bytes());
     }
 
-    static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WorldRecordBuilder bytes)
+    static void TickSpellTotemsLocked(ClientState conn, WorldRecordBuilder bytes)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var totem in conn.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())
@@ -143,7 +141,7 @@ public static partial class Game
                 totem.Cooldown ??= new(now, cooldown.RecoveryRate);
                 if (!totem.Cooldown.TryUse(now, cooldown)) continue;
             }
-            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            var session = ProjectilesFor(conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
             bool arc = SkillsFor(conn).EffectId(gem.Effect) == "Arc";
@@ -160,9 +158,9 @@ public static partial class Game
                     {
                         if (!Current()) return;
                         if (summon is not null)
-                            await CastSummon(remote, stream, ciphers, conn, totem.SkillId, summon, aim,
+                            await CastSummon(conn, totem.SkillId, summon, aim,
                                 summonTarget, conn.ActionInterruptionGeneration, Current, triggered: true, playerConsumesCorpse: false);
-                        else await CastGolem(remote, stream, ciphers, conn, totem.SkillId, golem!, aim,
+                        else await CastGolem(conn, totem.SkillId, golem!, aim,
                             conn.ActionInterruptionGeneration, Current, triggered: true);
                     });
                 });

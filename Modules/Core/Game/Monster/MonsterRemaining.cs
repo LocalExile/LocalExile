@@ -38,8 +38,7 @@ public static partial class Game
         }
     }
 
-    public static async Task SendRemainingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, bool force = false)
+    public static async Task SendRemainingMonsters(ClientState conn, bool force = false)
     {
         var delivery = RemainingOf(conn);
         // Concurrent deaths and arrivals share this gate, so an older snapshot cannot overwrite a newer count.
@@ -67,7 +66,7 @@ public static partial class Game
                 // Encryption mutates the bytes. Construct plaintext independently for every recipient.
                 byte[] bytes = InstanceProtocol.MonstersRemaining(living);
                 if (own)
-                    await Send(remote, stream, ciphers, bytes, $"0x01a0 monsters remaining {living}");
+                    await Send(conn, bytes, $"0x01a0 monsters remaining {living}");
                 else if (recipient.Outbox is { } outbox)
                 {
                     try { await outbox(bytes, null); }

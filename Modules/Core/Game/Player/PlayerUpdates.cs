@@ -70,7 +70,6 @@ public static partial class Game
         Program.ActingPlayer.Value = conn;
         try
         {
-            var (remote, stream, ciphers) = conn.Wire;
             StartResourceRecovery(conn, state);
             StartMonsterAi(conn, state);
             StartLivingCollisions(conn, state);
@@ -82,8 +81,8 @@ public static partial class Game
             WakeFootsteps(conn);
             // The periodic work runs on the area's timers; the updates hold their claim until they stop, so that no second
             // start doubles the timers.
-            await Task.WhenAll(Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Tour, () => ContinueTour(remote, stream, ciphers, conn)),
+            await Task.WhenAll(Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(conn, state)),
+                Drive(PlayerUpdateRole.Tour, () => ContinueTour(conn)),
                 Task.Delay(Timeout.Infinite, state.Stop.Token));
         }
         catch (OperationCanceledException) when (state.Stop.IsCancellationRequested) { }
@@ -102,10 +101,9 @@ public static partial class Game
         }
     }
 
-    static async Task ResumeBossStages(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState state)
+    static async Task ResumeBossStages(ClientState conn, PlayerUpdatesState state)
     {
         foreach (var (id, monster) in state.PendingStages)
-            await RunBossStage(remote, stream, ciphers, conn, id, monster);
+            await RunBossStage(conn, id, monster);
     }
 }

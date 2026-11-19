@@ -63,12 +63,12 @@ public static partial class Game
                     a.Zones.Remove(zone);
                     return false;
                 }
-            }, (remote, stream, ciphers, conn) => StepDamageAura(remote, stream, ciphers, conn, aura, zone, FrameSeconds));
+            }, conn => StepDamageAura(conn, aura, zone, FrameSeconds));
         });
     }
 
     // One frame of a damage aura: the marks that came and went, then the damage to the monsters inside.
-    static async Task StepDamageAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task StepDamageAura(ClientState conn,
         DamageAura aura, Zone zone, double seconds)
     {
         if (!CurrentGameWork) return;
@@ -101,7 +101,7 @@ public static partial class Game
                         TriggerElementalRelicLocked(conn, m, hit: false, killed: true);   // damage over time is no hit
                     }
                     hits.Add((id.Value, m, m.Life, damage));
-                    if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id.Value, m, now);
+                    if (stageStarts) CommitBossStage(conn, id.Value, m, now);
                 }
             }
             left = [.. aura.Left];
@@ -110,7 +110,7 @@ public static partial class Game
         foreach (var (id, m, buff) in entered)
         {
             byte[] add = InstanceEntities.AddBuff(id, buff, aura.BuffRow, PlayerId, aura.Skill, visual: aura.Visual);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, add, null, atGate: () =>
+            await SendWorldRecord(conn, id, add, null, atGate: () =>
             {
                 lock (conn.Monsters)
                     return aura.Running()
@@ -121,14 +121,14 @@ public static partial class Game
             });
         }
         foreach (var (id, buff) in left)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
+            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) burnt to death by {aura.Name}" : null);
-            if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
+            if (life == 0) await MonsterKilled(conn, id, m, byHit: false);
         }
     }
 }

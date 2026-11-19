@@ -169,10 +169,10 @@ public static partial class Game
 
     // The chilled, frozen and shocked buffs on the player, as on monsters (AilmentBuff, on the fixed top instances that
     // NextBuff never hands out); a kind whose magnitude changed is sent again. The player's ignited buff is not sent.
-    static async Task SendPlayerAilmentBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    static async Task SendPlayerAilmentBuffs(ClientState conn,
         (bool Ignite, int Chill, bool Freeze, int Shock) before, (bool Ignite, int Chill, bool Freeze, int Shock) after)
     {
-        foreach (var (packet, log) in PlayerAilmentBuffs(before, after)) await Send(remote, stream, ciphers, packet, log);
+        foreach (var (packet, log) in PlayerAilmentBuffs(before, after)) await Send(conn, packet, log);
     }
 
     public static List<(byte[] Packet, string Log)> PlayerAilmentBuffs((bool Ignite, int Chill, bool Freeze, int Shock) before,

@@ -23,7 +23,7 @@ public sealed class MinionSupportExecutionTests
         items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Gnarled Branch")!) with
         { Sockets = names.Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(), Links = [(byte)names.Length] });
         ushort source = Game.GemSkillEffects(f.Conn).Single().Id;
-        uint id = await Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, source,
+        uint id = await Game.SummonFighter(f.Conn, source,
             Game.SummonData.Find("SummonSkeletons")!, (100, 100));
         var fighter = f.Conn.Summons.Fighters[id];
         fighter.Monster.Walk.Teleport(100, 100, 0);
@@ -88,14 +88,14 @@ public sealed class MinionSupportExecutionTests
                     Assert.Equal(repeat, pending.RepeatIndex);
                     time.Time = pending.At;
                     uint life = enemy.Life;
-                    Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, time.Time);
+                    Game.GolemStepLocked(f.Conn, fighter, time.Time);
                     Assert.True(enemy.Life < life);
                     if (repeat < 2)
                     {
                         Assert.Null(fighter.Pending);
                         Assert.NotNull(fighter.Repeat);
                         time.Time = fighter.Monster.BusyUntil;
-                        Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, time.Time);
+                        Game.GolemStepLocked(f.Conn, fighter, time.Time);
                         Assert.NotNull(fighter.Pending);
                     }
                     else { Assert.Null(fighter.Repeat); time.Time = fighter.Monster.BusyUntil; }
@@ -116,7 +116,7 @@ public sealed class MinionSupportExecutionTests
         var enemies = new[] { (999u, 105, 100, true), (998u, 108, 100, true), (997u, 160, 100, true), (996u, 108, 100, false) };
         foreach (var (id, x, y, hostile) in enemies)
             f.Conn.Monsters[id] = new("target", new(x, y, 0), 100, 3, 10000) { Hostile = hostile };
-        Invoke("GolemAbilityContactLocked", "test", f.Stream, f.Ciphers, f.Conn, fighter,
+        Invoke("GolemAbilityContactLocked", f.Conn, fighter,
             new GolemState.Action(ability, 999, f.Conn.Monsters[999], (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
         Assert.Equal(9900u, f.Conn.Monsters[999].Life);
         Assert.Equal(9940u, f.Conn.Monsters[998].Life);

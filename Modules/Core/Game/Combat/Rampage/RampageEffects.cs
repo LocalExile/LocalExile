@@ -25,8 +25,7 @@ public static partial class Game
         return SkillsFor(conn).HitDamage(effect, level).Scale(Math.Max(0, 100L + increased) / 100.0);
     }
 
-    static async Task<uint?> CreateRampageActor(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, RampageCatalog.VarietyPlan plan, int level, double lifetime,
+    static async Task<uint?> CreateRampageActor(ClientState conn, RampageCatalog.VarietyPlan plan, int level, double lifetime,
         RampageCatalog.WeaponKind? weapon, (int X, int Y) at, long epoch)
     {
         if (Monsters.Find(plan.Row.ToString()) is not { Supported: true } variety) return null;
@@ -59,12 +58,11 @@ public static partial class Game
                 bytes.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                 return bytes.Build();
             }
-        }, transport: (remote, stream, ciphers));
+        });
         return id;
     }
 
-    static async Task StartRampageTier(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, RampageCatalog.Tier tier)
+    static async Task StartRampageTier(ClientState conn, RampageCatalog.Tier tier)
     {
         long epoch; int level; (int X, int Y) origin;
         lock (conn.Monsters)
@@ -77,9 +75,9 @@ public static partial class Game
         double cast = tier.Skill.CastTimeMs / 1000.0 / Math.Max(.01, 1 + own.Get("base_cast_speed_+%") / 100.0);
         var steps = RampageExecution.Steps(tier, level);
         double end = cast + steps.Max(s => s.Delay) + .5;
-        uint? actor = await CreateRampageActor(remote, stream, ciphers, conn, tier.Daemon, level, end, null, origin, epoch);
+        uint? actor = await CreateRampageActor(conn, tier.Daemon, level, end, null, origin, epoch);
         if (actor is null) throw new InvalidOperationException($"Rampage tier {tier.Threshold} cannot create its actor");
-        await SendWorldRecord(remote, stream, ciphers, conn, actor.Value, InstanceProtocol.ActionStarted(actor.Value, origin.X, origin.Y,
+        await SendWorldRecord(conn, actor.Value, InstanceProtocol.ActionStarted(actor.Value, origin.X, origin.Y,
             origin.X, origin.Y, SkillCatalog.FirstSkillId, 0xffff, conn.MonsterOrderFlags), $"Rampage tier {tier.Threshold}",
             still: () => RampageEffectCurrent(conn, epoch));
         lock (conn.Monsters)
@@ -89,7 +87,7 @@ public static partial class Game
                         epoch, actor.Value, tier, step, origin, level));
     }
 
-    static async Task AdvanceRampageEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task AdvanceRampageEffects(ClientState conn)
     {
         int[] tiers; List<RampageWorld.Job> due; uint[] removals;
         lock (conn.Monsters)
@@ -110,12 +108,12 @@ public static partial class Game
                 if (conn.Monsters.Remove(id, out var dead)) dead.Dead = true;
         }
         foreach (uint id in removals)
-            await SendRampageRemoval(remote, stream, ciphers, conn, id);
+            await SendRampageRemoval(conn, id);
         foreach (int threshold in tiers)
         {
             var tier = RampageData.Tiers.SingleOrDefault(t => t.Threshold == threshold)
                 ?? throw new InvalidOperationException(RampageData.Error ?? "Missing Rampage tier");
-            await StartRampageTier(remote, stream, ciphers, conn, tier);
+            await StartRampageTier(conn, tier);
         }
         foreach (var job in due)
         {
@@ -124,19 +122,18 @@ public static partial class Game
             {
                 foreach (var summon in job.Tier.Summons)
                     for (int i = 0; i < summon.Count; i++)
-                        await CreateRampageActor(remote, stream, ciphers, conn, summon.Weapon.Variety, job.Level,
+                        await CreateRampageActor(conn, summon.Weapon.Variety, job.Level,
                             summon.DurationMs / 1000.0, summon.Weapon.Kind, job.Origin, job.Epoch);
             }
             else if (job.Step.Kind == RampageExecution.StepKind.Projectiles)
-                ReleaseRampageProjectiles(remote, stream, ciphers, conn, job);
-            else await RampagePulse(remote, stream, ciphers, conn, job);
+                ReleaseRampageProjectiles(conn, job);
+            else await RampagePulse(conn, job);
         }
-        await AdvanceRampageWeapons(remote, stream, ciphers, conn);
-        await ExpireRampageBlinds(remote, stream, ciphers, conn);
+        await AdvanceRampageWeapons(conn);
+        await ExpireRampageBlinds(conn);
     }
 
-    static async Task RampagePulse(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, RampageWorld.Job job)
+    static async Task RampagePulse(ClientState conn, RampageWorld.Job job)
     {
         var own = job.Tier.Skill.AtLevel(job.Level)!;
         var origins = new List<((int X, int Y) Position, DamagePacket Damage)>();
@@ -166,7 +163,7 @@ public static partial class Game
                 conn.Monsters.Remove(id);
                 conn.RampageWorld.PendingRemoval.Add(id);
             }
-            await SendRampageRemoval(remote, stream, ciphers, conn, id);
+            await SendRampageRemoval(conn, id);
         }
         foreach (var (origin, packet) in origins)
         {
@@ -179,12 +176,12 @@ public static partial class Game
                 && p.Value.OwnerId is null && Dist(p.Value.Walk.Position(ProjectileWorldTime(conn)), origin) <= radius)
                 .Select(p => (p.Key, p.Value)).ToArray();
             foreach (var (id, target) in targets)
-                await RampageOwnedHit(remote, stream, ciphers, conn, job.Epoch, id, target, packet, own,
+                await RampageOwnedHit(conn, job.Epoch, id, target, packet, own,
                     job.Step.Kind == RampageExecution.StepKind.Corpses ? "Rampage corpse explosion" : "Rampage nova");
         }
     }
 
-    static async Task<bool> RampageOwnedHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> RampageOwnedHit(ClientState conn,
         long epoch, uint id, SpawnedMonster target, DamagePacket packet, RampageCatalog.SkillLevel? own, string label,
         bool attack = false, int accuracy = 0)
     {
@@ -201,21 +198,21 @@ public static partial class Game
             hit = ApplyMonsterHitLocked(conn, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
             conn.RecentEvents.RecordCriticalOutcome(ProjectileWorldTime(conn), critical);
-            if (hit.Value.StageStarts) CommitBossStage(remote, stream, ciphers, conn, id, target, ProjectileWorldTime(conn));
+            if (hit.Value.StageStarts) CommitBossStage(conn, id, target, ProjectileWorldTime(conn));
             stun = RampageStatusLocked(conn, id, target, own, ProjectileWorldTime(conn));
         }
-        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, hit.Value.Life),
+        await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, hit.Value.Life),
             $"{label} hit 0x{id:x} for {damage}, life {hit.Value.Life}/{target.MaxLife}",
             still: () => RampageEffectCurrent(conn, epoch));
         if (!CurrentRampageWork) return hit.Value.Life == 0;
         if (hit.Value.Life == 0)
         {
-            await MonsterKilledBy(remote, stream, ciphers, conn, id, target, playerKill: false);
+            await MonsterKilledBy(conn, id, target, playerKill: false);
             if (own?.Get("explode_on_kill_%_fire_damage_to_deal") is int percent and > 0)
-                await RampageKillExplosion(remote, stream, ciphers, conn, epoch, id, target, percent);
+                await RampageKillExplosion(conn, epoch, id, target, percent);
         }
         else if (stun is not null)
-            await SendRampageStun(remote, stream, ciphers, conn, stun);
+            await SendRampageStun(conn, stun);
         return hit.Value.Life == 0;
     }
 
@@ -255,7 +252,7 @@ public static partial class Game
         return stun;
     }
 
-    static async Task SendRampageStun(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SendRampageStun(ClientState conn,
         RampageStunToken token)
     {
         var target = token.Target;
@@ -271,7 +268,7 @@ public static partial class Game
         {
             lock (conn.Monsters) if (!Current()) return;
             bool completed = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, token.Id, [], null, atGate: () =>
+            await SendWorldRecord(conn, token.Id, [], null, atGate: () =>
             {
                 lock (conn.Monsters)
                 {
@@ -298,8 +295,8 @@ public static partial class Game
         return packet;
     }
 
-    static Task SendRampageRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id) =>
-        SendWorldRemoval(remote, stream, ciphers, conn, id, "Rampage owned object ends", atGate: () =>
+    static Task SendRampageRemoval(ClientState conn, uint id) =>
+        SendWorldRemoval(conn, id, "Rampage owned object ends", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -330,9 +327,9 @@ public static partial class Game
         !world.Enabled || until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead || target.Life == 0
         || target.Mods.Effects["cannot_be_blinded"] != 0;
 
-    static Task ExpireRampageBlinds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    static Task ExpireRampageBlinds(ClientState conn) =>
         !RampageBlindWork(conn) ? Task.CompletedTask :
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+        Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -363,8 +360,7 @@ public static partial class Game
             }
         });
 
-    static async Task RampageKillExplosion(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, long epoch, uint corpseId, SpawnedMonster corpse, int percent)
+    static async Task RampageKillExplosion(ClientState conn, long epoch, uint corpseId, SpawnedMonster corpse, int percent)
     {
         var pending = new Queue<(uint Id, SpawnedMonster Corpse)>();
         pending.Enqueue((corpseId, corpse));
@@ -382,7 +378,7 @@ public static partial class Game
             }
             double fire = current.Corpse.MaxLife * percent / 100.0;
             foreach (var (id, target) in targets)
-                if (await RampageOwnedHit(remote, stream, ciphers, conn, epoch, id, target,
+                if (await RampageOwnedHit(conn, epoch, id, target,
                     DamagePacket.Of(DamageType.Fire, fire, fire), null, "Rampage kill explosion"))
                     pending.Enqueue((id, target));
         }

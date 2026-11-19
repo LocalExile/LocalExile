@@ -51,22 +51,22 @@ public sealed class SpellTotemExecutionTests
             ushort skill = Equip(conn, "SkillGemFireball", "SupportGemSpellTotem");
             var gem = Game.SupportedSkill(conn, skill);
             Assert.NotNull(Game.TotemVariety(conn, gem.Effect));
-            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
+            Assert.True(Game.ProjectilePathAvailable(conn, skill, gem.Effect));
             foreach (string active in new[] { "SkillGemFreezingPulse", "SkillGemSpark", "SkillGemIceSpear", "SkillGemFrostBolt" })
             {
                 skill = Equip(conn, active, "SupportGemSpellTotem");
                 gem = Game.SupportedSkill(conn, skill);
                 Assert.NotNull(Game.TotemVariety(conn, gem.Effect));
-                Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
+                Assert.True(Game.ProjectilePathAvailable(conn, skill, gem.Effect));
             }
             skill = Equip(conn, "SkillGemArc", "SupportGemSpellTotem");
             gem = Game.SupportedSkill(conn, skill);
-            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
+            Assert.True(Game.ProjectilePathAvailable(conn, skill, gem.Effect));
             skill = Equip(conn, "SkillGemShockwaveTotem", "SupportGemSpellTotem");
-            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
+            Assert.True(Game.ProjectilePathAvailable(conn, skill, Game.SupportedSkill(conn, skill).Effect));
             skill = Equip(conn, "SkillGemRejuvenationTotem", "SupportGemSpellTotem");
             Assert.NotNull(Game.TotemVariety(conn, Game.SupportedSkill(conn, skill).Effect));
-            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
+            Assert.True(Game.ProjectilePathAvailable(conn, skill, Game.SupportedSkill(conn, skill).Effect));
             Assert.Equal(1000u, conn.PlayerMana);
             skill = Equip(conn, "SkillGemSummonRagingSpirit", "SupportGemSpellTotem");
             var spirit = Game.GemSkillEffects(conn).Single();
@@ -75,12 +75,12 @@ public sealed class SpellTotemExecutionTests
             Assert.True(Game.TotemPathAvailable(conn, skill, spirit.Effect));
             using (var spiritWire = new Wire())
             {
-                var spiritSession = Game.ProjectilesFor("spirit-totem", spiritWire.Stream, spiritWire.Ciphers, conn);
+                var spiritSession = Game.ProjectilesFor(conn);
                 var spiritTotem = new TotemState.Totem(778, skill, (100, 100), 100, 100, null)
                 { Effect = spirit.Effect, SourceGem = spirit.Gem, SourceHost = spiritSource.Host, SourceItem = spiritSource.SourceGem };
                 conn.Totems.Place(spiritTotem, 1, 0);
                 conn.Monsters[901] = new("spirit-target", new(110, 100, 0), 0, 0, 10000) { Hostile = true };
-                Game.TickSpellTotemsLocked("spirit-totem", spiritWire.Stream, spiritWire.Ciphers, conn, new List<byte>());
+                Game.TickSpellTotemsLocked(conn, new List<byte>());
                 spiritSession.AdvanceTo(ProjectileRuntime.Time(spiritTotem.NextCast));
                 var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 spiritSession.Enqueue(() => { released.SetResult(); return Task.CompletedTask; });
@@ -94,7 +94,7 @@ public sealed class SpellTotemExecutionTests
             skill = Equip(conn, "SkillGemSpark", "SupportGemSpellTotem");
             conn.Clock.Start();
             using var wire = new Wire();
-            var session = Game.ProjectilesFor("spark-totem", wire.Stream, wire.Ciphers, conn);
+            var session = Game.ProjectilesFor(conn);
             try
             {
                 var spark = Game.GemSkillEffects(conn).Single();
@@ -104,7 +104,7 @@ public sealed class SpellTotemExecutionTests
                 conn.Totems.Place(totem, 1, 0);
                 conn.Monsters[900] = new("spark-target", new(120, 20, 0), 0, 0, 10000);
                 var actions = new List<byte>();
-                Game.TickSpellTotemsLocked("spark-totem", wire.Stream, wire.Ciphers, conn, actions);
+                Game.TickSpellTotemsLocked(conn, actions);
                 // Inspect the release itself. By two seconds a random Spark can already have hit or expired.
                 Assert.True(totem.NextCast > 0);
                 session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
@@ -129,7 +129,7 @@ public sealed class SpellTotemExecutionTests
         {
             var conn = Connection("SummonTotem" + Guid.NewGuid().ToString("N"));
             using var wire = new Wire();
-            var session = Game.ProjectilesFor("summon-totem", wire.Stream, wire.Ciphers, conn);
+            var session = Game.ProjectilesFor(conn);
             try
             {
                 ushort skill = Equip(conn, active, "SupportGemSpellTotem");
@@ -152,7 +152,7 @@ public sealed class SpellTotemExecutionTests
                 var totem = new TotemState.Totem(777, skill, (100, 100), 100, 100, null)
                 { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem };
                 conn.Totems.Place(totem, 1, 0);
-                Game.TickSpellTotemsLocked("summon-totem", wire.Stream, wire.Ciphers, conn, new List<byte>());
+                Game.TickSpellTotemsLocked(conn, new List<byte>());
                 Assert.True(totem.NextCast > 0);
                 session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
                 var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -174,8 +174,7 @@ public sealed class SpellTotemExecutionTests
                         playerCorpse.Ignites.Add(0, 1, 1000);
                         playerCorpse.Ignites.Clear();
                         conn.Monsters[corpseId] = playerCorpse;
-                        Assert.NotEqual(0u, await Game.SummonFighter("player-summon", wire.Stream, wire.Ciphers,
-                            conn, skill, summon!, (120, 100), corpseId, triggered: triggered));
+                        Assert.NotEqual(0u, await Game.SummonFighter(conn, skill, summon!, (120, 100), corpseId, triggered: triggered));
                         Assert.True(playerCorpse.CorpseConsumed);
                         Assert.Equal(triggered ? 2 : 1, conn.IgnitedCorpsesConsumed);
                     }
@@ -185,7 +184,7 @@ public sealed class SpellTotemExecutionTests
                 {
                     ushort sequence = totem.Sequence;
                     totem.NextCast = 0;
-                    Game.TickSpellTotemsLocked("summon-totem", wire.Stream, wire.Ciphers, conn, new List<byte>());
+                    Game.TickSpellTotemsLocked(conn, new List<byte>());
                     Assert.Equal(sequence, totem.Sequence);
                     Assert.NotNull(totem.Cooldown);
                     Assert.True(totem.Cooldown.RemainingSeconds > 0);

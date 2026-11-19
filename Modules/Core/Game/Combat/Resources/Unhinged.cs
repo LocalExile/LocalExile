@@ -110,8 +110,7 @@ public static partial class Game
         return receipt.DestroyCorpse;
     }
 
-    public static Task PublishUnhingedCorpseDestruction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, bool committed)
+    public static Task PublishUnhingedCorpseDestruction(ClientState conn, uint id, SpawnedMonster m, bool committed)
     {
         if (!committed) return Task.CompletedTask;
         lock (conn.Monsters)
@@ -123,7 +122,7 @@ public static partial class Game
         // Item text: "Enemies Killed by your Hits are destroyed while Insane." The extraction supplies only the boolean,
         // so remove the accepted hit's corpse without inventing damage, another kill event, loot roll or experience award.
         // `committed` is the qualification captured at the lethal hit: later source/toggle changes cannot rewrite it.
-        return SendWorldRemoval(remote, stream, ciphers, conn, id,
+        return SendWorldRemoval(conn, id,
             $"0x02bb corpse of 0x{id:x} destroyed while unhinged", still: () =>
             {
                 lock (conn.Monsters)
@@ -132,11 +131,10 @@ public static partial class Game
             });
     }
 
-    public static async Task<bool> ToggleUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId, int effect, Func<bool> current)
+    public static async Task<bool> ToggleUnhinged(ClientState conn, ushort skillId, int effect, Func<bool> current)
     {
         bool toggled = false;
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01c1 player buff unhinged toggled", atGate: () =>
+        await SendWorldRecord(conn, PlayerId, [], "0x01c1 player buff unhinged toggled", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -161,8 +159,8 @@ public static partial class Game
         return toggled;
     }
 
-    public static Task SendUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => UnhingedPresentationRecords(conn));
+    public static Task SendUnhinged(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () => UnhingedPresentationRecords(conn));
 
     public static byte[]? UnhingedPresentation(ClientState conn) =>
         UnhingedPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;

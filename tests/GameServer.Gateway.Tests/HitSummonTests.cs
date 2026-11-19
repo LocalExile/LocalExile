@@ -40,19 +40,19 @@ public sealed class HitSummonTests
             var rare=Target(f,901,MonsterRarity.Rare); Mark(f,rare,source,1,new HighRandom()); Assert.Empty(f.Conn.Summons.HitSummons);
             Mark(f,rare,source,1,new ZeroRandom()); Assert.Single(f.Conn.Summons.HitSummons);
             var boss=Target(f,902,MonsterRarity.Unique); Mark(f,boss,source,1,new ZeroRandom());
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             Assert.Equal(2,f.Conn.Summons.Fighters.Count); Assert.False(rare.CorpseConsumed); Assert.False(boss.CorpseConsumed);
             Kill(f,902,boss,1); Assert.Empty(f.Conn.Summons.HitSummons);
             var shattered=Target(f,903); Mark(f,shattered,source,1); shattered.Ailments.Shatter(); Kill(f,903,shattered,1);
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             Assert.Equal(2,f.Conn.Summons.Fighters.Count); Assert.False(shattered.CorpseConsumed);
             var removed=Target(f,904); Mark(f,removed,source,1); Kill(f,904,removed,1);
             f.Equip(("Summon Skeletons",20));
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             Assert.Equal(2,f.Conn.Summons.Fighters.Count); Assert.False(removed.CorpseConsumed);
             source=f.Equip(("Absolution",20)).Single();
             var reused=Target(f,905); Mark(f,reused,source,1); Kill(f,905,reused,1); Target(f,905);
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             Assert.Equal(2,f.Conn.Summons.Fighters.Count); Assert.False(reused.CorpseConsumed);
         }
         finally { Game.AreaUpdateContext.Value=outer; }
@@ -72,12 +72,12 @@ public sealed class HitSummonTests
             var rare=Target(f,920,MonsterRarity.Rare);
             Game.PhantasmsOnHitLocked(f.Conn,rare,source,1,new HighRandom()); Assert.Empty(f.Conn.Summons.HitSummons);
             Game.PhantasmsOnHitLocked(f.Conn,rare,source,1,new ZeroRandom());
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             var ghost=Assert.Single(f.Conn.Summons.Fighters).Value;
             Assert.Equal("Phantasm",ghost.Definition.Kind); Assert.Equal(4,ghost.Monster.Level);
             Assert.Equal(16,f.Conn.Summons.Until[ghost.Id]);
             Assert.Contains(ghost.Abilities,a=>a.Attack.Spell&&a.Attack.Damage.MaxTotal>0);
-            ghost.Monster.Walk.Teleport(100,100,1); Game.GolemStepLocked("test",f.Stream,f.Ciphers,f.Conn,ghost,1);
+            ghost.Monster.Walk.Teleport(100,100,1); Game.GolemStepLocked(f.Conn,ghost,1);
             Assert.True(ghost.Pending!.Ability.Attack.Spell);
             Game.PhantasmsOnHitLocked(f.Conn,rare,source,1,new ZeroRandom(),ghost); Assert.Empty(f.Conn.Summons.HitSummons);
             rare.Life=0; rare.Dead=true;
@@ -85,13 +85,13 @@ public sealed class HitSummonTests
             Assert.Equal(2,f.Conn.Summons.HitSummons.Count);
             f.Conn.Summons.HitSummons.Clear(); rare.Life=1000; rare.Dead=false;
             for(int i=0;i<7;i++) Game.PhantasmsOnHitLocked(f.Conn,rare,source,1,new ZeroRandom());
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             Assert.Equal(5,f.Conn.Summons.Fighters.Count);
             Game.PhantasmsOnHitLocked(f.Conn,rare,source,1,new ZeroRandom());
             Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1,host.Id,item=>item with { Links=[1,1] });
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.HitSummonsTick(f.Conn,1);
             Assert.Equal(5,f.Conn.Summons.Fighters.Count);
-            await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
+            await Game.SummonsTick(f.Conn,1);
             Assert.Empty(f.Conn.Summons.Fighters);
         }
         finally { Game.AreaUpdateContext.Value=outer; }
@@ -116,7 +116,7 @@ public sealed class HitSummonTests
                 var target = Target(f, 940, MonsterRarity.Rare);
                 target.Walk.Teleport(140, 100, 1);
                 Game.PhantasmsOnHitLocked(f.Conn, target, source, 1, new ZeroRandom());
-                await Game.HitSummonsTick("test", f.Stream, f.Ciphers, f.Conn, 1);
+                await Game.HitSummonsTick(f.Conn, 1);
                 var ghost = Assert.Single(f.Conn.Summons.Fighters).Value;
                 f.Conn.Clock.Reset();
                 ghost.Monster.Walk.Teleport(100, 100, 1);
@@ -125,7 +125,7 @@ public sealed class HitSummonTests
                 typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!
                     .Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, ghost,
                         new GolemState.Action(ability, 940, target, (140, 100), 1, ghost.Monster.ActionGeneration), 1d]);
-                var session = Game.ProjectilesFor("test", f.Stream, f.Ciphers, f.Conn);
+                var session = Game.ProjectilesFor(f.Conn);
                 session.AdvanceTo(ProjectileRuntime.Time(1));
                 var shots = session.Runtime.Projectiles.ToArray();
                 Assert.Equal(supported ? 5 : 1, shots.Length);
@@ -157,7 +157,7 @@ public sealed class HitSummonTests
             Assert.False(Admit());
             for(int i=0;i<50;i++) Assert.True(f.Conn.VaalSouls.Gain());
             Assert.True(Admit());
-            Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100)));
+            Assert.True(await Game.CastGemSkill(f.Conn,vaal.Id,(100,100),(120,100)));
             Assert.Equal(0u,Assert.Single(f.Conn.VaalSouls.Read()).Current);
             Assert.Equal(18,f.Conn.Summons.Fighters.Count);
             foreach(var (kind,count) in new[]{("Melee",14),("Ranged",2),("Spellcaster",1),("General",1)})
@@ -165,9 +165,9 @@ public sealed class HitSummonTests
             var archer=f.Conn.Summons.Fighters.Values.First(g=>g.Monster.Variety!.Id.Contains("Ranged",StringComparison.Ordinal));
             Assert.Contains(archer.Abilities,a=>a.Projectile is not null);
             var enemy=Target(f,930); archer.Monster.Walk.Teleport(500,500,clock.Time); enemy.Walk.Teleport(510,500,clock.Time);
-            Game.GolemStepLocked("test",f.Stream,f.Ciphers,f.Conn,archer,clock.Time);
+            Game.GolemStepLocked(f.Conn,archer,clock.Time);
             Assert.Equal(930u,archer.Target);
-            clock.Time=22; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time); Assert.Empty(f.Conn.Summons.Fighters);
+            clock.Time=22; await Game.SummonsTick(f.Conn,clock.Time); Assert.Empty(f.Conn.Summons.Fighters);
 
             // The native supports apply, but Vaal proxy use budgets are not implemented. Reject before payment.
             foreach (string support in new[] { "Spell Totem Support", "Trap Support", "Blastchain Mine Support" })
@@ -190,7 +190,7 @@ public sealed class HitSummonTests
                 double prevention = f.Conn.VaalPreventionUntil;
                 var admission = f.Conn.VaalUse;
                 Assert.False(Admit());
-                Assert.False(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100)));
+                Assert.False(await Game.CastGemSkill(f.Conn,vaal.Id,(100,100),(120,100)));
                 Assert.Equal(50u,Assert.Single(f.Conn.VaalSouls.Read()).Current);
                 Assert.Equal(action,f.Conn.ActionCount);
                 Assert.Equal(mana,f.Conn.PlayerMana);
@@ -229,7 +229,7 @@ public sealed class HitSummonTests
                     () => f.Conn.ActionCount++, out _);
                 Assert.False(Admit());
                 var victim = Target(f,940,MonsterRarity.Rare); Mark(f,victim,source,clock.Time); Kill(f,940,victim,clock.Time);
-                await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                await Game.HitSummonsTick(f.Conn,clock.Time);
                 var normal = Assert.Single(f.Conn.Summons.Fighters).Value;
                 Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 var owned = Assert.Single(f.Conn.Summons.PresentedOwnership).Value;
@@ -242,7 +242,7 @@ public sealed class HitSummonTests
                 Assert.Null(Game.SentinelOwnershipPresentation(f.Conn));
                 normal.Monster.Life = normal.Monster.MaxLife / 2;
                 Assert.True(Admit());
-                Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),normal.Id));
+                Assert.True(await Game.CastGemSkill(f.Conn,vaal.Id,(100,100),(120,100),normal.Id));
                 var ascended = Assert.Single(f.Conn.Summons.Fighters).Value;
                 Assert.NotEqual(normal.Id,ascended.Id); Assert.Equal(vaalId,ascended.Definition.Kind);
                 Assert.Equal(normal.Monster.Level,ascended.Monster.Level);
@@ -251,28 +251,28 @@ public sealed class HitSummonTests
                 Assert.Equal(absolution ? 51 : 4,Assert.Single(f.Conn.Summons.PresentedOwnership).Value.Type);
                 Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
                 Assert.Equal(-70,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_taken_+%_final")!.Value]);
-                clock.Time++; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                clock.Time++; await Game.SummonsTick(f.Conn,clock.Time);
                 Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
                 if (!absolution)
                     for (uint extra=941;extra<=942;extra++)
                     {
                         var next=Target(f,extra,MonsterRarity.Rare); Mark(f,next,source,clock.Time); Kill(f,extra,next,clock.Time);
-                        await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                        await Game.HitSummonsTick(f.Conn,clock.Time);
                         var body=f.Conn.Summons.Fighters.Values.Single(g=>g.Definition.Kind=="DominatingRare");
                         for(int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
                         Assert.True(Admit());
-                        Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),body.Id));
+                        Assert.True(await Game.CastGemSkill(f.Conn,vaal.Id,(100,100),(120,100),body.Id));
                     }
                 int count=f.Conn.Summons.Fighters.Count;
                 Assert.Equal(absolution?1:3,count);
                 uint life=ascended.Monster.Life; double oldUntil=f.Conn.Summons.Until[ascended.Id]; clock.Time++;
                 for(int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
                 Assert.True(Admit());
-                Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),ascended.Id));
+                Assert.True(await Game.CastGemSkill(f.Conn,vaal.Id,(100,100),(120,100),ascended.Id));
                 Assert.Equal(count,f.Conn.Summons.Fighters.Count); Assert.Same(ascended,f.Conn.Summons.Fighters[ascended.Id]);
                 Assert.Equal(life,ascended.Monster.Life); Assert.True(f.Conn.Summons.Until[ascended.Id]>oldUntil);
                 _ = Game.SentinelOwnershipPresentation(f.Conn);
-                clock.Time+=35; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                clock.Time+=35; await Game.SummonsTick(f.Conn,clock.Time);
                 Assert.Empty(f.Conn.Summons.Fighters); Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 Assert.Empty(f.Conn.Summons.PresentedOwnership); f.Conn.NextAttackAt=0;
                 foreach (string support in new[] { "Spell Totem Support", "Trap Support", "Blastchain Mine Support" })

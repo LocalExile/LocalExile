@@ -47,7 +47,7 @@ public sealed class PlayerBotsMcpTests
             var before = BotDirector.Template(resident);
             actor.PeerType = before.Type; actor.PeerTemplate = before.Player; actor.Experience = before.Player.Experience;
             Game.RefreshPeerScale(actor, 100);
-            await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
+            await Game.SyncInstancePlayers(observer);
             Assert.Equal(CharacterStats.ExperienceFor(59), observer.SeenPlayers[resident.PeerId].Template.Experience);
             Assert.Empty(observer.TemporarySkillEffects);
             actor.Experience = CharacterStats.ExperienceFor(60);
@@ -59,7 +59,7 @@ public sealed class PlayerBotsMcpTests
             string levelUpdate = Convert.ToHexString(GameServer.Core.Protocol.Instance.InstanceEntities.StatsUpdate(
                 resident.PeerId, [(levelKey, 60)]));
             int LevelCount() => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(levelUpdate, StringComparison.Ordinal));
-            await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
+            await Game.SyncInstancePlayers(observer);
             Assert.Equal(1, Count());
             Assert.Equal(1, LevelCount());
             uint effect = Assert.Single(observer.TemporarySkillEffects).Key;
@@ -68,12 +68,12 @@ public sealed class PlayerBotsMcpTests
                 new GameServer.Core.Protocol.Instance.EffectObject(actor.Walk.Position(0).X, actor.Walk.Position(0).Y,
                     "Metadata/Effects/misc/levelup_new/rig.ao") { Parent = actor.PeerId }.Blob())[..6]);
             Assert.Contains(Program.HistoryFor(wire.Ciphers).Lines(), line => line.Contains(effectPacket, StringComparison.Ordinal));
-            await Game.SyncInstancePlayers("town", wire.Stream, wire.Ciphers, observer);
+            await Game.SyncInstancePlayers(observer);
             Assert.Equal(1, Count());
             Assert.Equal(1, LevelCount());
             Assert.Single(observer.TemporarySkillEffects);
             observer.TemporarySkillEffects[effect] = -1;
-            await Game.SendTemporarySkillEffects("town", wire.Stream, wire.Ciphers, observer);
+            await Game.SendTemporarySkillEffects(observer);
             Assert.Empty(observer.TemporarySkillEffects);
             resident.Gear = ["test gear"]; resident.GearLevel = 59; resident.Level = 60; resident.Leader = observer;
             Assert.False(BotDirector.NeedsBuildOnResume(resident, "1", CharacterStats.ExperienceFor(60) + 123));

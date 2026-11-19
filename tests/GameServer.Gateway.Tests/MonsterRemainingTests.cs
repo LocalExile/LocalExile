@@ -46,14 +46,14 @@ public class MonsterRemainingTests
         instance.PublishPlayer(new(peer.PeerId, 0, new("counter-peer", 0, 100, 100, 100, 100), 100, 100, 100, peer));
         using (Game.HoldMonstersRemaining(conn))
         {
-            await Game.SendRemainingMonsters("remaining", peerWire.Stream, peerWire.Ciphers, peer, force: true);
+            await Game.SendRemainingMonsters(peer, force: true);
             Assert.Equal(-1, peer.SentMonstersRemaining);
         }
         // The packet history keeps the messages, not the log text: "12:34:56.789 => 0x01a0     3 B 01A002".
         List<string> SentSince(int index) => [.. Program.HistoryFor(wire.Ciphers).Lines()
             .Where(line => line.Contains("=> 0x01a0 ", StringComparison.Ordinal))
             .Select(line => line[(line.LastIndexOf(' ') + 1)..]).Skip(index)];
-        Task Send() => Game.SendRemainingMonsters("remaining", wire.Stream, wire.Ciphers, conn);
+        Task Send() => Game.SendRemainingMonsters(conn);
 
         await Send();
         Assert.Equal(["01A002"], SentSince(0));
@@ -70,7 +70,7 @@ public class MonsterRemainingTests
         // A kill: the corpse stays in the roster and the overlay counts one fewer.
         var victim = instance.World.Monsters[0x08000001];
         (victim.Dead, victim.Life) = (true, 0);
-        await Game.MonsterKilled("remaining", wire.Stream, wire.Ciphers, conn, 0x08000001, victim);
+        await Game.MonsterKilled(conn, 0x08000001, victim);
         Assert.Equal(["01A002", "01A001"], SentSince(0));
 
         // The area's last one, then a monster that joins it (a summon): the count follows both ways.

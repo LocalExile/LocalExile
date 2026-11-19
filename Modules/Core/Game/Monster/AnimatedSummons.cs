@@ -86,7 +86,7 @@ public static partial class Game
     static readonly IReadOnlyDictionary<byte, byte> SummonVisibleSlots = new Dictionary<byte, byte>
         { [1] = 2, [2] = 0, [3] = 1, [4] = 4, [5] = 11, [6] = 8, [7] = 9, [8] = 5, [9] = 6, [10] = 10 };
 
-    static async Task<bool> AnimateGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> AnimateGroundItem(ClientState conn,
         WorldItemObject ground, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
@@ -95,11 +95,11 @@ public static partial class Game
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, skill.Effect, CooldownForSkill(conn, use.SkillId), false,
             () => { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(here.X, here.Y, AreaTime(conn)); }, out var accepted, requestedAt: requestedAt)) return true;
         bool acknowledged = false;
-        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+        await SendWorldRecords(conn, PlayerId, () =>
             [InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, aim.GridX, aim.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 InstanceProtocol.ActionEnded(PlayerId)], "animate ground equipment",
             still: () => acknowledged = SkillAcknowledgementAllowed(conn, skill.Effect, use.SkillId, () => accepted?.CommitNativeUse(conn, use.SkillId) ?? true));
-        if (acknowledged) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, here, aim, use.TargetId,
+        if (acknowledged) _ = CastGemSkill(conn, use.SkillId, here, aim, use.TargetId,
             sequence: use.Sequence, actionToken: accepted?.ActionToken, cooldownUse: accepted);
         return true;
     }

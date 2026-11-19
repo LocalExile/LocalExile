@@ -107,7 +107,7 @@ public sealed class AnimatedAdmissionTests
         internal Task<uint> Summon(string effect, uint target)
         {
             ushort source = Game.GemSkillEffects(Conn).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
-            return Game.SummonFighter("test", Stream, Ciphers, Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
+            return Game.SummonFighter(Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
         }
         public void Dispose()
         {

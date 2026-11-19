@@ -49,14 +49,12 @@ static partial class KitavaActTen
             lock (c.ShownTransitions) shown = c.ShownTransitions.Remove(objectId);
             if (shown)
             {
-                var w = c.Wire;
-                await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, c, objectId, "Kitava portal now leads to the epilogue");
+                await SendWorldRemoval(c, objectId, "Kitava portal now leads to the epilogue");
             }
         }
         if (changed.Count > 0)
         {
-            var w = c.Wire;
-            await UpdateShownTransitions(w.Remote, w.Stream, w.Ciphers, c, "Kitava epilogue portal");
+            await UpdateShownTransitions(c, "Kitava epilogue portal");
         }
     }
     static string Flag(string name) => Quests.InstanceFlag("KitavaAct10-" + name);
@@ -150,13 +148,13 @@ static partial class KitavaActTen
             if (bound.Add(c) && Awake(c))
             {
                 if (SkillsFor(c, body.Variety!, body.Level) is { } skills)
-                { var w = c.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, id, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Kitava A10] native skill roster"); }
+                { await SendWorldRecord(c, id, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Kitava A10] native skill roster"); }
                 foreach (uint ally in new[] { sinId, innocenceId }.Where(ally => ally != 0))
                 {
                     KeepAllyVisible(c, ally);
                     if (c.MonsterViews.ContainsKey(ally) && c.Monsters.TryGetValue(ally, out var m)
                         && m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable") is int component and >= 0)
-                    { var w = c.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, ally,
+                    { await SendWorldRecord(c, ally,
                         InstanceEntities.TransitionableUpdate(ally, (byte)component, 2), null); }
                 }
                 if (stage == 10) RegisterSin(c);
@@ -166,13 +164,13 @@ static partial class KitavaActTen
         async Task All(uint target, byte[][] records, bool actor = false)
         {
             foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
-            { var w = p.Wire; await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
+            { await SendWorldRecords(p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
                 still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
         }
         async Task AllRemoval(uint target)
         {
             foreach (var p in Present.ToArray())
-            { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, target); }
+            { await SendWorldRemoval(p, target); }
         }
         async Task Basic(ClientState c, uint actor, ushort action, double now, double seconds, uint? target = null)
         {
@@ -190,14 +188,14 @@ static partial class KitavaActTen
                 lock (p.Monsters) if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     p.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = body.States } };
                 if (Awake(p) && body.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine") is int component and >= 0)
-                { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
+                { await SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
                 if (shown) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id);
             }
         }
         async Task<uint> Ally(ClientState c, string type, (int X, int Y) at)
         {
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing Kitava ally");
-            uint obj = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, body.Level, MonsterRarity.Unique,
+            uint obj = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
                 at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true, instanceOwned: true);
             if (obj == 0) throw new InvalidOperationException("Unsupported Kitava ally");
             lock (c.Monsters)
@@ -237,7 +235,7 @@ static partial class KitavaActTen
                 {
                     if (!c.HasQuestFlag(Started)) { initialized = false; return; }
                     c.Instance.SetState(Flag("Started")); body.EntranceGrace = true;
-                    foreach (var p in Present) { var w = p.Wire; await UpdateQuestNpcs(w.Remote, w.Stream, w.Ciphers, p, "Kitava fight begins"); }
+                    foreach (var p in Present) { await UpdateQuestNpcs(p, "Kitava fight begins"); }
                     await Allies(c, now); await Bar(false); await Basic(c, id, 16641, now, 4.833); stage = 1; deadline = now + 4.833;
                     Console.WriteLine("[Kitava A10] encounter begins"); return;
                 }
@@ -257,7 +255,7 @@ static partial class KitavaActTen
             {
                 if (heart is null)
                 {
-                    heartId = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, Monsters.Find(Heart)!, body.Level,
+                    heartId = await SpawnMonster(c, Monsters.Find(Heart)!, body.Level,
                         MonsterRarity.Unique, heartAt.X, heartAt.Y, rotation: anchor.Rotation, scripted: true);
                     if (heartId == 0) throw new InvalidOperationException("Unsupported final Kitava heart");
                     heart = c.Monsters[heartId]; heart.SummonerId = id; heart.LifePhases ??= Phases(heart.Variety!);
@@ -321,12 +319,12 @@ static partial class KitavaActTen
             {
                 c.Instance.SetState(Flag("Won")); stage = 10;
                 if (heart is not null && c.Instance.SetState(Flag("Rewards")))
-                    await MonsterKilled(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, heartId, heart);
+                    await MonsterKilled(c, heartId, heart);
                 await RemoveHeart(c);
                 foreach (var p in Present.Where(p => p.PlayerLife > 0 && Distance(p.Walk.Position(now), heartAt) < 180).ToArray())
                 {
-                    var w = p.Wire; await Leaving(p); await SetQuestFlags(w.Remote, w.Stream, w.Ciphers, p, [Quests.EndGameAvailable]);
-                    await ReadySin(p); await UpdateShownTransitions(w.Remote, w.Stream, w.Ciphers, p, "Kitava defeated");
+                    await Leaving(p); await SetQuestFlags(p, [Quests.EndGameAvailable]);
+                    await ReadySin(p); await UpdateShownTransitions(p, "Kitava defeated");
                 }
                 Console.WriteLine("[Kitava A10] victory; Sin can open the epilogue portal");
             }
@@ -342,7 +340,7 @@ static partial class KitavaActTen
             var v = Monsters.Find(type); if (v is not { Supported: true } || v.Id != type) throw new InvalidOperationException($"Unsupported Kitava guard {type}");
             double a = ordinal * 2.1;
             var at = c.Layout.Near((heartAt.X + (int)(Math.Cos(a) * 23), heartAt.Y + (int)(Math.Sin(a) * 23)));
-            uint obj = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, body.Level, rarity, at.X, at.Y);
+            uint obj = await SpawnMonster(c, v, body.Level, rarity, at.X, at.Y);
             if (obj != 0) { guards.Add(obj); c.Monsters[obj].SummonerId = id; }
         }
         async Task Wave(ClientState c, double now)
@@ -387,8 +385,7 @@ static partial class KitavaActTen
             var obj = origin.Object with { StateMachine = states, HasDialogue = true, TransitionState = 2 };
             p.Instance.World.MonsterOrigins[sinId] = origin with { Object = obj };
             if (p.Monsters.TryGetValue(sinId, out var m)) m.States = states;
-            var w = p.Wire;
-            await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, sinId);
+            await SendWorldRemoval(p, sinId);
             await SendWorldCreate(p, sinId, () => InstanceEntities.CreateObject(sinId, origin.Type, obj.Blob()), "[Kitava A10] Sin's post-fight dialogue");
             await SendWorldRecord(p, sinId, () => InstanceProtocol.EnterWakeZone(sinId));
             RegisterSin(p);
@@ -396,7 +393,7 @@ static partial class KitavaActTen
         public void Stop()
         {
             stopped = true;
-            foreach (var p in Present.ToArray()) { _ = Leaving(p); foreach (var fx in visuals) _ = SendWorldRemoval(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p, fx.Id); }
+            foreach (var p in Present.ToArray()) { _ = Leaving(p); foreach (var fx in visuals) _ = SendWorldRemoval(p, fx.Id); }
         }
     }
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));

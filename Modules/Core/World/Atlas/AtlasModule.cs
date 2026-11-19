@@ -25,7 +25,7 @@ public sealed class AtlasModule : IModule
             conn.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
             if (CharacterName(conn) is { } character)
                 CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
-            await global::Game.SendAtlasSlots(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, label);
+            await global::Game.SendAtlasSlots(conn, label);
             await player.Tell($"Atlas: {conn.AtlasPassivePoints - before} passive point(s) for the maps completed " +
                 $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
         }
@@ -62,12 +62,12 @@ public sealed class AtlasModule : IModule
             if (AtlasProgress.OfArea(kill.Player.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)
                 || !AtlasProgress.Complete(WorldOf(kill.Player).CharacterData, [node])) return;
             var conn = ConnOf(kill.Player);
-            await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, AtlasProgress.NodeMessage(node),
+            await Send(conn, AtlasProgress.NodeMessage(node),
                 $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
             // The Atlas panel and the map device's portal panel draw their "completed" marks from the completed set of
             // the last 0x1a3; without this they keep what the area entry sent and the map that just completed still
             // reads as unfinished there.
-            await AtlasFeature.Refresh(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+            await AtlasFeature.Refresh(conn);
             await kill.Player.Tell($"Atlas: {node.Name} completed.");
             await AwardMapPoints(conn, kill.Player, 1, "Atlas map completed");
         });
@@ -104,13 +104,13 @@ public sealed class AtlasModule : IModule
         GameEvents.Packet(InstanceEntities.AtlasAllocateId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var (preset, node) = InstanceEntities.ReadAtlasAllocate(bytes);
-            await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: true);
+            await AtlasFeature.ChangeAtlasPassive(conn, preset, node, allocate: true);
             return true;
         });
         GameEvents.Packet(InstanceEntities.AtlasRefundId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
-            await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: false);
+            await AtlasFeature.ChangeAtlasPassive(conn, preset, node, allocate: false);
             return true;
         });
         GameEvents.Packet(InstanceEntities.AtlasTreeTabId).Add(module.Manifest.Id, async (conn, bytes) =>
@@ -120,7 +120,7 @@ public sealed class AtlasModule : IModule
         });
         GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await AtlasFeature.SocketVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
+            await AtlasFeature.SocketVoidstone(conn,
                 InstanceMapDevice.ReadSocket(bytes).ItemId);
             return true;
         });
@@ -129,7 +129,7 @@ public sealed class AtlasModule : IModule
         // has to socket the stone itself. Dropping onto a socket is C→S 0x2a into inventory 40.
         GameEvents.Packet(InstanceItems.PickUpItemId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            return await AtlasFeature.PickVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
+            return await AtlasFeature.PickVoidstone(conn,
                 InstanceItems.ReadPickUpItem(bytes));
         });
         GameEvents.InventoryPlace.Add(module.Manifest.Id, async (conn, place) =>
@@ -139,8 +139,7 @@ public sealed class AtlasModule : IModule
             if (held is null || ItemsFor(conn).ByHash(held.Item.TypeHash) is not { } type
                 || MapBossFights.Current.StoneByItem(type.Id) is null)
                 return false;
-            var (remote, stream, ciphers) = conn.Wire;
-            await AtlasFeature.SocketVoidstone(remote, stream, ciphers, conn, held.Id);
+            await AtlasFeature.SocketVoidstone(conn, held.Id);
             return true;
         });
         // Kirac's invitation rows FinishNPCChat + DispatchRulesetEvent("open_maven_invitation …"). The chat end ran
@@ -207,15 +206,14 @@ static class AtlasFeature
         bool leagueChanged = ApplyLeagueFlags(conn);
         if (!conn.PlayerSent) return missing.Count + (leagueChanged ? 1 : 0);
         int n = 0;
-        var (remote, stream, ciphers) = conn.Wire;
         if (missing.Count > 0)
         {
-            await SetQuestFlags(remote, stream, ciphers, conn, missing);
+            await SetQuestFlags(conn, missing);
             n += missing.Count;
         }
         if (leagueChanged)
         {
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
                 "0x02bc Atlas league flags");
             n++;
         }
@@ -287,8 +285,7 @@ static class AtlasFeature
     internal static async Task SyncTreeFlags(ClientState conn)
     {
         if (!ApplyTreeFlags(conn) || !conn.PlayerSent) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+        await global::Game.SendWorldRecord(conn, PlayerId,
             InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)), "0x02bc Atlas tree flags");
     }
 
@@ -315,8 +312,7 @@ static class AtlasFeature
         }
         var added = items.Put(PlayerInventories.MainInventory,
             new InventoryItem(items.NewItemId(), cell.X, cell.Y, ItemCatalog.Create(type)));
-        var (remote, stream, ciphers) = conn.Wire;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
             items.NextRevision(PlayerInventories.MainInventory), [], [added]),
             $"0x00bf inventory 1: Kirac invitation {type.Name}");
         await PlayerOf(conn).Tell($"Atlas: {type.Name}.");
@@ -325,22 +321,21 @@ static class AtlasFeature
     // C→S 0x2a8: a tab of the Atlas tree picked. The client switches only on a 0x3d with that preset alone.
     internal static async Task SelectPreset(ClientState conn, byte preset)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         if (preset >= conn.AtlasPassives.Length)
         {
-            Console.WriteLine($"[gateway] {remote} <= Atlas tree tab {preset} refused: no such preset");
-            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab refused");
+            Console.WriteLine($"[gateway] {conn.Remote} <= Atlas tree tab {preset} refused: no such preset");
+            await SendAtlasSlots(conn, "Atlas tab refused");
             return;
         }
         if (!TreeUnlocked(conn, preset))
         {
-            Console.WriteLine($"[gateway] {remote} <= Atlas tree tab {preset} refused: locked (needs {TreeUnlockMaps[preset]} completed maps)");
-            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab locked");
+            Console.WriteLine($"[gateway] {conn.Remote} <= Atlas tree tab {preset} refused: locked (needs {TreeUnlockMaps[preset]} completed maps)");
+            await SendAtlasSlots(conn, "Atlas tab locked");
             return;
         }
         SetAtlasActivePreset(conn, preset);
         await SyncTreeFlags(conn);
-        await Send(remote, stream, ciphers, AtlasSlots(conn, preset),
+        await Send(conn, AtlasSlots(conn, preset),
             $"0x003d Atlas tree tab: preset {preset} active, {conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points");
     }
 
@@ -348,15 +343,15 @@ static class AtlasFeature
     // preset and send all three presets back so the client and the save agree. The server holds the Atlas graph
     // (client.db) and refuses a node that is off it, an icon-only node, an allocation not touching the start or an
     // allocated node, and a refund that would cut allocated nodes off from the start.
-    internal static async Task ChangeAtlasPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task ChangeAtlasPassive(ClientState conn,
         byte preset, uint node, bool allocate)
     {
         if (preset >= conn.AtlasPassives.Length || node > ushort.MaxValue
             || AtlasPassiveNodes.Find((ushort)node) is not { } passive || passive.Id == "atlas_start_node")
         {
-            Console.WriteLine($"[gateway] {remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {node} refused: " +
+            Console.WriteLine($"[gateway] {conn.Remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {node} refused: " +
                 "preset or node unknown");
-            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refused");
+            await SendAtlasSlots(conn, "Atlas refused");
             return;
         }
         conn.AtlasPreset = preset;
@@ -370,22 +365,22 @@ static class AtlasFeature
                     || !AtlasPassives.CanAllocate(nodes, (ushort)node, links, AtlasPassives.StartGraphId))
                 : nodes.Contains((ushort)node) && !AtlasPassives.CanRefund(nodes, (ushort)node, links, AtlasPassives.StartGraphId)))
         {
-            Console.WriteLine($"[gateway] {remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {passive.Name} ({node}) " +
+            Console.WriteLine($"[gateway] {conn.Remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {passive.Name} ({node}) " +
                 "refused: an icon, off the graph or not connected to the start, or it would disconnect the tree");
-            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refused");
+            await SendAtlasSlots(conn, "Atlas refused");
             return;
         }
         if (allocate)
         {
             if (nodes.Contains((ushort)node))
             {
-                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas already allocated");
+                await SendAtlasSlots(conn, "Atlas already allocated");
                 return;
             }
             if (nodes.Count >= AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, nodes, hardMode))
             {
-                Console.WriteLine($"[gateway] {remote} <= Atlas allocate {passive.Name} ({node}) refused: no points left");
-                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas no points");
+                Console.WriteLine($"[gateway] {conn.Remote} <= Atlas allocate {passive.Name} ({node}) refused: no points left");
+                await SendAtlasSlots(conn, "Atlas no points");
                 return;
             }
             nodes.Add((ushort)node);
@@ -395,7 +390,7 @@ static class AtlasFeature
         {
             if (!nodes.Contains((ushort)node))
             {
-                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas not allocated");
+                await SendAtlasSlots(conn, "Atlas not allocated");
                 return;
             }
             // A refund spends one respec point (the client's check 0x141ef3710), and may not take away the points
@@ -406,9 +401,9 @@ static class AtlasFeature
                 || !AtlasPassives.IsReached(nodes, (ushort)node, links, AtlasPassives.StartGraphId));
             if ((respec == 0 && !stale) || rest.Count > AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, rest, hardMode))
             {
-                Console.WriteLine($"[gateway] {remote} <= Atlas refund {passive.Name} ({node}) refused: " +
+                Console.WriteLine($"[gateway] {conn.Remote} <= Atlas refund {passive.Name} ({node}) refused: " +
                     (respec == 0 && !stale ? "no respec points" : "the remaining nodes need its points"));
-                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refund refused");
+                await SendAtlasSlots(conn, "Atlas refund refused");
                 return;
             }
             nodes.Remove((ushort)node);
@@ -416,10 +411,10 @@ static class AtlasFeature
         }
         if (character is not null)
             CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
-        Console.WriteLine($"[gateway] {remote} <= Atlas preset {preset} {(allocate ? "allocate" : "refund")} " +
+        Console.WriteLine($"[gateway] {conn.Remote} <= Atlas preset {preset} {(allocate ? "allocate" : "refund")} " +
             $"{passive.Name} ({node}), {nodes.Count}/{AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, nodes, hardMode)} " +
             $"points, {respec} respec");
-        await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas changed");
+        await SendAtlasSlots(conn, "Atlas changed");
     }
 
     static ItemMoves.BenchMove? PlaceVoidstone(PlayerInventories items, uint itemId, byte slot) =>
@@ -444,7 +439,7 @@ static class AtlasFeature
 
     // C→S 0xf6 / a bag click / a drop onto inventory 40: a Voidstone into AtlasUpgrades1. GrantAtlasUpgrade is set
     // the first time a stone goes in. A filled 0x1a3 then refreshes the quadrant T16 bits while the Atlas is open.
-    internal static async Task<bool> SocketVoidstone(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<bool> SocketVoidstone(ClientState conn,
         uint itemId)
     {
         var items = ItemsOf(conn);
@@ -456,27 +451,26 @@ static class AtlasFeature
         if (held is null || stone is null
             || PlaceVoidstone(items, itemId, (byte)stone.Slot) is not { } move)
         {
-            Console.WriteLine($"[gateway] {remote} <= Voidstone item {itemId}: refused (not there, not a stone or no room)");
+            Console.WriteLine($"[gateway] {conn.Remote} <= Voidstone item {itemId}: refused (not there, not a stone or no room)");
             return false;
         }
         bool into = move.To == PlayerInventories.AtlasUpgrades;
         if (CharacterName(conn) is { } name) MapBossFights.Current.SetSocketed(name, stone.Slot, into);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.From),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.From),
             items.NextRevision(move.From), [itemId], []),
             $"0x00f6 Voidstone: item {itemId} leaves row {move.From}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.To),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(move.To),
             items.NextRevision(move.To), [], [move.Placed]),
             $"0x00f6 Voidstone: item {itemId} into row {move.To} slot {move.Placed.X}");
         if (into && stone.Flag.Length > 0 && !ClientHasQuestFlag(conn, stone.Flag))
-            await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
-        await Refresh(remote, stream, ciphers, conn);
+            await SetQuestFlags(conn, [stone.Flag]);
+        await Refresh(conn);
         return true;
     }
 
     // C→S 0x28: inventory 40 unsockets onto the cursor; a Voidstone in the bag sockets into its Atlas slot (the
     // window only sends 0xf6 on Ctrl + click, so a plain click would otherwise do nothing).
-    internal static async Task<bool> PickVoidstone(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, InstanceItems.PickUpItem pick)
+    internal static async Task<bool> PickVoidstone(ClientState conn, InstanceItems.PickUpItem pick)
     {
         uint atlas = PlayerInventories.InventoryId(PlayerInventories.AtlasUpgrades);
         uint main = PlayerInventories.InventoryId(PlayerInventories.MainInventory);
@@ -486,20 +480,20 @@ static class AtlasFeature
             var items = ItemsOf(conn);
             if (items.PickUp(PlayerInventories.AtlasUpgrades, pick.ItemId) is not { } held)
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x0028 Voidstone pick {pick.ItemId}: refused (not in Atlas upgrades)");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x0028 Voidstone pick {pick.ItemId}: refused (not in Atlas upgrades)");
                 return true;
             }
             if (ItemsFor(conn).ByHash(held.Item.TypeHash) is { } type
                 && MapBossFights.Current.StoneByItem(type.Id) is { } stone
                 && CharacterName(conn) is { } name)
                 MapBossFights.Current.SetSocketed(name, stone.Slot, false);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(pick.InventoryId,
+            await Send(conn, InstanceItems.InventoryChange(pick.InventoryId,
                 items.NextRevision(PlayerInventories.AtlasUpgrades), [held.Id], []),
                 $"0x0028 Voidstone: item {held.Id} leaves Atlas upgrades");
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(cursor,
+            await Send(conn, InstanceItems.InventoryChange(cursor,
                 items.NextRevision(PlayerInventories.Cursor), [], [held]),
                 $"0x00bf cursor: add item {held.Id} (unsocketed Voidstone)");
-            await Refresh(remote, stream, ciphers, conn);
+            await Refresh(conn);
             return true;
         }
         if (pick.InventoryId != main) return false;
@@ -507,17 +501,17 @@ static class AtlasFeature
         if (bag is null || ItemsFor(conn).ByHash(bag.Item.TypeHash) is not { } bagType
             || MapBossFights.Current.StoneByItem(bagType.Id) is null)
             return false;
-        return await SocketVoidstone(remote, stream, ciphers, conn, pick.ItemId);
+        return await SocketVoidstone(conn, pick.ItemId);
     }
 
-    internal static async Task Refresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task Refresh(ClientState conn)
     {
         await EnsureUnlocked(conn);
         var player = PlayerOf(conn);
         var completed = AtlasProgress.Completed(WorldOf(player).CharacterData);
         var slots = SlotsOf(player);
         byte stones = AtlasProgress.VoidstoneMask(slots);
-        await Send(remote, stream, ciphers, AtlasProgress.FullMessage(completed, stones, (byte)slots.Count),
+        await Send(conn, AtlasProgress.FullMessage(completed, stones, (byte)slots.Count),
             $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), {completed.Count} map(s)");
     }
 

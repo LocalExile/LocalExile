@@ -8,11 +8,10 @@ public static partial class Game
     /// <summary>Releases a player minion's catalogue projectile at its rig contact toward the hostile target captured
     /// by the accepted swing. The shared runtime owns flight, walls and moving-target contact; this payload only names
     /// the source-owned minion, and the existing minion damage/outcome pipeline owns every contact.</summary>
-    public static bool ReleaseMinionProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
+    public static bool ReleaseMinionProjectile(ClientState conn, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
     {
         if (!MinionProjectileAttackCurrent(conn, attack)) return false;
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         ProjectileUse? released = null;
         session.Schedule(session.Runtime.Now, () => MinionProjectileAttackCurrent(conn, attack), () =>
@@ -97,7 +96,7 @@ public static partial class Game
         var hit = accepted.Hit;
         if (hit.StageStarts)
         {
-            CommitBossStage(session.remote, session.stream, session.ciphers, conn, contact.Target.Id, target, now);
+            CommitBossStage(conn, contact.Target.Id, target, now);
             hit = hit with { StageStarts = false };
         }
         var to = target.Walk.Position(now);
@@ -108,7 +107,7 @@ public static partial class Game
             contact.Target.Id, target));
         CommitMinionHitLocked(conn, contact.Target.Id, target, hit, accepted.Damage, now,
             $"minion 0x{shot.MinionId:x} ({shot.Monster.Label})");
-        session.Enqueue(() => PublishMinionOutcomesFor(session.remote, session.stream, session.ciphers, conn,
+        session.Enqueue(() => PublishMinionOutcomesFor(conn,
             CombatLifetime));
         return ProjectileHitResult.Hit;
     }

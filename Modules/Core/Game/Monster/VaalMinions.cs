@@ -66,8 +66,7 @@ public static partial class Game
             : minion.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || minion.Definition.Kind == "VaalDomination";
     }
 
-    internal static async Task<bool> ReleaseVaalMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort source, (int X,int Y) aim, Func<bool> current, uint target = 0)
+    internal static async Task<bool> ReleaseVaalMinions(ClientState conn, ushort source, (int X,int Y) aim, Func<bool> current, uint target = 0)
     {
         var gem=SupportedSkill(conn,source);
         bool Live() => current() && SameTriggerSource(gem, SupportedSkill(conn, source));
@@ -83,7 +82,7 @@ public static partial class Game
                 for (int i=0;i<Math.Clamp(GolemStat(gem.Stats,"number_of_"+stat+"_skeletons_to_summon"),0,200)&&Live();i++)
                 {
                     string path="Metadata/Monsters/RaisedSkeletons/RaisedSkeleton"+body+Random.Shared.Next(1,variants+1)+"Army";
-                    if (await SummonFighter(remote,stream,ciphers,conn,source,definition,aim,restoredVariety:path,
+                    if (await SummonFighter(conn,source,definition,aim,restoredVariety:path,
                         current:Live,remaining:duration,triggered:true)==0) return false;
                 }
             return true;
@@ -109,7 +108,7 @@ public static partial class Game
         var upgrade=new Dictionary<uint,int>();
         foreach(string name in new[]{"vaal_upgrade_minion_damage_+%_final","vaal_upgrade_minion_damage_taken_+%_final"})
             if(Stats.Key(name) is uint key) upgrade[key]=GolemStat(gem.Stats,name);
-        return await SummonFighterCore(remote,stream,ciphers,conn,old.Source,definitionVaal,old.Monster.Walk.Position(now),
+        return await SummonFighterCore(conn,old.Source,definitionVaal,old.Monster.Walk.Position(now),
             current:()=>current()&&GolemCurrent(conn,old)&&!old.Monster.Dead&&SameTriggerSource(gem,SupportedSkill(conn,source)),
             remaining:duration,replacingOld:old,triggered:true,
             inheritedMods:old.InheritedMods,rarity:old.Monster.Rarity,retainedStats:upgrade)!=0;

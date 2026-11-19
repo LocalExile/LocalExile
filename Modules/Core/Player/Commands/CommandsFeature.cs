@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 /// (LocalExile-Mods).</summary>
 static class CommandsFeature
 {
-    internal static ChatCommands Register(ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GameServer.Modules.M_commands.CharacterPlaytime played)
+    internal static ChatCommands Register(ChatCommands commands, ClientState conn, GameServer.Modules.M_commands.CharacterPlaytime played)
     {
         return commands
         .Add("played", "/played (time spent online with this character)", async _ =>
@@ -19,7 +19,7 @@ static class CommandsFeature
         })
         .Add("oos", "/oos (puts you and the monsters around you back where the server has them when you are out of sync)", async _ =>
         {
-            await SendResync(remote, stream, ciphers, conn, "/oos");
+            await SendResync(conn, "/oos");
             await conn.Commands!.Reply("Resynced.");
         });
     }

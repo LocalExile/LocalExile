@@ -45,16 +45,16 @@ public sealed class GroundStackPickupTests
         uint id = f.Conn.Instance.Ground.Add(gold, f.Conn, shared: false);
         uint before = Game.PersonalStashOf(f.Conn).Gold;
         Saves.FailWrite = _ => true;
-        try { await Assert.ThrowsAsync<IOException>(() => Game.PickUpGold("test", wire.Stream, wire.Ciphers, f.Conn, id, gold, "auto-looted")); }
+        try { await Assert.ThrowsAsync<IOException>(() => Game.PickUpGold(f.Conn, id, gold, "auto-looted")); }
         finally { Saves.FailWrite = null; }
         Assert.Same(gold, f.Conn.Instance.Ground.Get(id));
         Assert.Equal(((object?)f.Conn, false), f.Conn.Instance.Ground.Origin(id));
         Assert.Equal(before, Game.PersonalStashOf(f.Conn).Gold);
         f.Conn.Walk.Teleport(800, 800, 0);
-        await Game.PickUpGold("test", wire.Stream, wire.Ciphers, f.Conn, id, gold, "auto-looted");
+        await Game.PickUpGold(f.Conn, id, gold, "auto-looted");
         Assert.Same(gold, f.Conn.Instance.Ground.Get(id));
         f.Conn.Walk.Teleport(100, 100, 0);
-        await Game.PickUpGold("test", wire.Stream, wire.Ciphers, f.Conn, id, gold, "auto-looted");
+        await Game.PickUpGold(f.Conn, id, gold, "auto-looted");
         Assert.Null(Game.TakeGroundStack(f.Conn, id, gold));
         Assert.Equal(before + 7, Game.PersonalStashOf(f.Conn).Gold);
     }

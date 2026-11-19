@@ -33,8 +33,8 @@ public static partial class Game
     }
 
     // A nearby presentation (StatPresentations: a walker moved, a debuff changed or ended) steps the player's debuffs on monsters.
-    public static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
+    public static Task TickPassiveAuras(ClientState conn) =>
+        EnemyDebuffsTick(conn, AreaTime(conn));
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
     // shows the taunted buff (408) for its time left and goes when it ends, the monster dies or the player dies (wiki: a
@@ -68,7 +68,7 @@ public static partial class Game
         return double.IsFinite(next) ? next : null;
     }
 
-    public static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task EnemyDebuffsTick(ClientState conn, double now)
     {
         ushort[] nodes;
         lock (conn.Monsters)
@@ -78,7 +78,7 @@ public static partial class Game
         }
         // Outside the lock: the first call loads the aura table from PassiveSkills.
         var all = PassiveBuffAuras.EnemyAurasFor(nodes, LeagueFor(conn).HardMode, EnemyAuraActs);
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -273,7 +273,7 @@ public static partial class Game
                     if (blinded) added++; else removed++;
                 }
                 if (bytes.Count == 0) return null;
-                Console.WriteLine($"[gateway] {remote} enemy debuffs: {added} added, {removed} removed (t={now:0.000})");
+                Console.WriteLine($"[gateway] {conn.Remote} enemy debuffs: {added} added, {removed} removed (t={now:0.000})");
                 return [.. bytes];
             }
         });

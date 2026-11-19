@@ -101,7 +101,7 @@ public static partial class Game
     }
 
     /// <summary>Takes summoned monsters out of the area (as a player's expired minion is: Golems.RemoveGolemLocked).</summary>
-    static async Task RetireSummonedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task RetireSummonedMonsters(ClientState conn,
         IReadOnlyCollection<uint> ids, string why)
     {
         List<uint> gone = [];
@@ -114,11 +114,11 @@ public static partial class Game
                     gone.Add(id);
                 }
         foreach (uint id in gone)
-            await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x0013 summoned monster 0x{id:x} {why}");
+            await SendWorldRemoval(conn, id, $"0x0013 summoned monster 0x{id:x} {why}");
     }
 
     /// <summary>The summoned monsters whose duration has run out leave (MonsterSummonInfo.Lifetime).</summary>
-    static Task ExpireSummonedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static Task ExpireSummonedMonsters(ClientState conn)
     {
         uint[] expired;
         lock (conn.Monsters)
@@ -127,6 +127,6 @@ public static partial class Game
             expired = [.. conn.Monsters.Where(p => p.Value.ExpiresAt <= now && !p.Value.Dead).Select(p => p.Key)];
         }
         return expired.Length == 0 ? Task.CompletedTask
-            : RetireSummonedMonsters(remote, stream, ciphers, conn, expired, "expires");
+            : RetireSummonedMonsters(conn, expired, "expires");
     }
 }

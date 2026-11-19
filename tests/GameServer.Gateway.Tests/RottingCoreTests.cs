@@ -21,10 +21,10 @@ public sealed class RottingCoreTests
         var v = Game.Monsters.Find(DepravedTrinity.Souls[0])!;
         int visible = v.StateMachine!.IndexOf("visible");
         Assert.Equal(0, v.StateMachine.SharedStates[visible]);
-        uint first = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v, 64,
+        uint first = await Game.SpawnMonster(c, v, 64,
             MonsterRarity.Unique, 2100, 2100);
         AssertVisible(first);
-        uint restored = await Game.RestoreMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v,
+        uint restored = await Game.RestoreMonster(c, v,
             new(v.Row, 64, MonsterRarity.Unique, true, 2200, 2200, 50));
         AssertVisible(restored);
         Assert.Equal(50u, c.Monsters[restored].Life);

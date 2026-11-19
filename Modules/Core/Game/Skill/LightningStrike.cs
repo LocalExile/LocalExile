@@ -9,12 +9,11 @@ static partial class Game
 
     // One paid use has a single melee contact and a volley. Both start at the strike's contact keyframe;
     // the client already draws the bolts. A melee victim is excluded from this volley's contacts.
-    internal static Task ScheduleLightningStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    internal static Task ScheduleLightningStrike(ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
         CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         double acceptedAt = swingAt ?? ProjectileWorldTime(conn);
         double duration = SupportedAttackSeconds(conn, skillId);
@@ -31,14 +30,13 @@ static partial class Game
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
                 () => Valid() && (index == 0 || conn.ActionCount == action), () =>
-                ReleaseLightningStrike(remote, stream, ciphers, conn, session, skillId, gem, from, aim, targetId,
+                ReleaseLightningStrike(conn, session, skillId, gem, from, aim, targetId,
                     criticalRoll, sequence, index, cryExerted, ruthless));
         }
         return Task.CompletedTask;
     }
 
-    internal static ProjectileUse ReleaseLightningStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ProjectileSession session, ushort skillId,
+    internal static ProjectileUse ReleaseLightningStrike(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0,
         bool cryExerted = false, double? ruthlessMore = null)
@@ -54,7 +52,7 @@ static partial class Game
             var at = monster.Walk.Position(now);
             // Immediate means the scheduler already waited for contact. Selection is one strike, not the
             // generic area approximation, and its success is known before presentation can await network IO.
-            var melee = AreaSkillHitForUse(ruthlessMore, remote, stream, ciphers, conn, skillId, gem, from, at,
+            var melee = AreaSkillHitForUse(ruthlessMore, conn, skillId, gem, from, at,
                 immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: primary,
                 radiusOverride: WeaponFor(conn).Range + monster.StopRange, damageMore: more,
                 singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session, cryExerted: cryExerted, repeat: repeat);
@@ -113,9 +111,9 @@ static partial class Game
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, Random.Shared);
-            session.Enqueue(() => MaybeCreateProfaneGround(session.remote, session.stream, session.ciphers, conn, target));
+            session.Enqueue(() => MaybeCreateProfaneGround(conn, target));
         }
         if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, Random.Shared);
-        if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(session.remote, session.stream, session.ciphers, conn, id, monster));
+        if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(conn, id, monster));
     }
 }

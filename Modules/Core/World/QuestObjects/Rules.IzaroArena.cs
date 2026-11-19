@@ -35,7 +35,7 @@ static partial class QuestobjectsRules
     // The arena's small elevators (lowered), its mechanic on them, and what the run's earlier trials left: in the arena's
     // alcoves (by the trial that left it: the first alcove from the top of the map for the first trial) and on the ledges
     // of the room before it (the right one, largest x, for the first trial: the original, live).
-    static async Task<IzaroArena> PlaceIzaroMechanics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<IzaroArena> PlaceIzaroMechanics(ClientState conn,
         IzaroFights.Trial trial, List<AreaPopulation.RoomObject> all, List<(uint Id, AreaPopulation.RoomObject At)> railings, bool beaten)
     {
         var arena = new IzaroArena(trial);
@@ -45,22 +45,22 @@ static partial class QuestobjectsRules
         foreach (var at in all.Where(o => o.Type == IzaroStatues.SmallElevator))
         {
             uint lift = conn.TakeObjectId();
-            await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(lift, InstanceEntities.ObjectTypeHash(at.Type),
+            await Send(conn, [.. InstanceEntities.CreateObject(lift, InstanceEntities.ObjectTypeHash(at.Type),
                 IzaroFights.Blob(at.Type, at.Model, at.X, at.Y, at.Angle, IzaroFights.Lowered)), .. InstanceProtocol.EnterWakeZone(lift)],
                 $"0x02bb small elevator 0x{lift:x} at ({at.X}, {at.Y})");
             arena.Lifts.Add((lift, at));
         }
-        if (!beaten && IzaroEffects.InArena(trial, IzaroStatues.Mechanic)) await PlaceIzaroStatues(remote, stream, ciphers, conn, arena);
-        if (!beaten && IzaroEffects.InArena(trial, IzaroGargoyles.Mechanic)) await PlaceIzaroGargoyles(remote, stream, ciphers, conn, arena);
-        if (!beaten && IzaroEffects.InArena(trial, IzaroPortals.Mechanic)) await PlaceIzaroPortals(remote, stream, ciphers, conn, arena);
-        if (!beaten && IzaroEffects.InArena(trial, IzaroChronos.Mechanic)) await PlaceIzaroIdols(remote, stream, ciphers, conn, arena);
-        if (!beaten && IzaroEffects.InArena(trial, IzaroLieutenants.Mechanic)) await PlaceIzaroLieutenants(remote, stream, ciphers, conn, arena);
-        await PlaceIzaroCarried(remote, stream, ciphers, conn, arena, all, beaten);
+        if (!beaten && IzaroEffects.InArena(trial, IzaroStatues.Mechanic)) await PlaceIzaroStatues(conn, arena);
+        if (!beaten && IzaroEffects.InArena(trial, IzaroGargoyles.Mechanic)) await PlaceIzaroGargoyles(conn, arena);
+        if (!beaten && IzaroEffects.InArena(trial, IzaroPortals.Mechanic)) await PlaceIzaroPortals(conn, arena);
+        if (!beaten && IzaroEffects.InArena(trial, IzaroChronos.Mechanic)) await PlaceIzaroIdols(conn, arena);
+        if (!beaten && IzaroEffects.InArena(trial, IzaroLieutenants.Mechanic)) await PlaceIzaroLieutenants(conn, arena);
+        await PlaceIzaroCarried(conn, arena, all, beaten);
         return arena;
     }
 
     // What the run's earlier trials left, where the room brings it back (its "…2" secret).
-    static async Task PlaceIzaroCarried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static async Task PlaceIzaroCarried(ClientState conn, IzaroArena arena,
         List<AreaPopulation.RoomObject> all, bool beaten)
     {
         if (conn.Character is not { Length: > 0 } character) return;
@@ -88,7 +88,7 @@ static partial class QuestobjectsRules
                 foreach (var at in new[] { inAlcove, onLedge }.OfType<AreaPopulation.RoomObject>())
                 {
                     uint doodad = conn.TakeObjectId();
-                    await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(doodad, InstanceEntities.ObjectTypeHash(effect.Type),
+                    await Send(conn, [.. InstanceEntities.CreateObject(doodad, InstanceEntities.ObjectTypeHash(effect.Type),
                         IzaroStatues.Blob(effect, at.X, at.Y, at.Angle, IzaroStatues.DoodadOn)), .. InstanceProtocol.EnterWakeZone(doodad)],
                         $"0x02bb {effect.Id} 0x{doodad:x} at ({at.X}, {at.Y}), left by trial {from}");
                 }
@@ -96,42 +96,42 @@ static partial class QuestobjectsRules
             }
             else if (effect.Mechanic == IzaroGargoyles.Mechanic)
             {
-                if (inAlcove is { } at && await SpawnIzaroGargoyle(remote, stream, ciphers, conn, effect, at, id, alcove.Railing) is { } slot)
+                if (inAlcove is { } at && await SpawnIzaroGargoyle(conn, effect, at, id, alcove.Railing) is { } slot)
                     arena.Gargoyles.Add(slot);
-                if (onLedge is { } ledge) await SpawnIzaroGargoyle(remote, stream, ciphers, conn, effect, ledge, id, null);
+                if (onLedge is { } ledge) await SpawnIzaroGargoyle(conn, effect, ledge, id, null);
             }
             else if (effect.Mechanic == IzaroPortals.Mechanic)
             {
-                if (inAlcove is { } at && await SpawnIzaroPortal(remote, stream, ciphers, conn, effect, at) is { } slot)
+                if (inAlcove is { } at && await SpawnIzaroPortal(conn, effect, at) is { } slot)
                 {
                     (slot.Carried, slot.Railing) = (id, alcove.Railing);
                     arena.Portals.Add(slot);
                 }
-                if (onLedge is { } ledge) await SpawnIzaroPortal(remote, stream, ciphers, conn, effect, ledge);
+                if (onLedge is { } ledge) await SpawnIzaroPortal(conn, effect, ledge);
             }
             else if (effect.Mechanic == IzaroChronos.Mechanic)
             {
                 // An idol stands in its alcove behind the railing (it does not move) and casts from there.
-                if (!beaten && inAlcove is { } at && await SpawnIzaroIdol(remote, stream, ciphers, conn, effect, at) is { } slot)
+                if (!beaten && inAlcove is { } at && await SpawnIzaroIdol(conn, effect, at) is { } slot)
                 {
                     slot.Carried = id;
                     arena.Idols.Add(slot);
                 }
-                if (onLedge is { } ledge) await SpawnIzaroIdol(remote, stream, ciphers, conn, effect, ledge);
+                if (onLedge is { } ledge) await SpawnIzaroIdol(conn, effect, ledge);
             }
             else if (effect.Mechanic == IzaroLieutenants.Mechanic)
             {
                 // In its alcove until the railing lowers; the one on the ledge only stands there (as a ledge's gargoyle).
-                if (!beaten && inAlcove is { } at && await SpawnIzaroLieutenant(remote, stream, ciphers, conn, effect, at) is { } slot)
+                if (!beaten && inAlcove is { } at && await SpawnIzaroLieutenant(conn, effect, at) is { } slot)
                 {
                     (slot.Carried, slot.Railing) = (id, alcove.Railing);
                     arena.Lieutenants.Add(slot);
                 }
-                if (onLedge is { } ledge) await SpawnIzaroLieutenant(remote, stream, ciphers, conn, effect, ledge);
+                if (onLedge is { } ledge) await SpawnIzaroLieutenant(conn, effect, ledge);
             }
             placed++;
         }
-        if (placed > 0) Console.WriteLine($"[gateway] {remote} Izaro's trial {arena.Trial.Number}: {placed} thing(s) the earlier trials left");
+        if (placed > 0) Console.WriteLine($"[gateway] {conn.Remote} Izaro's trial {arena.Trial.Number}: {placed} thing(s) the earlier trials left");
     }
 
     // A small elevator's place with the angle towards Izaro's elevator.
@@ -142,20 +142,20 @@ static partial class QuestobjectsRules
         Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 
     // Izaro rises: the arena's gargoyles rise with him, and its first statue or portal (the original, live).
-    static void RiseIzaroMechanics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static void RiseIzaroMechanics(ClientState conn, IzaroArena arena,
         uint izaro, SpawnedMonster boss, Func<bool> here)
     {
         arena.Izaro = izaro;
         arena.Boss = boss;
-        if (arena.Gargoyles.Any(g => g.Carried is null)) _ = RaiseIzaroGargoyles(remote, stream, ciphers, conn, arena, here);
-        if (arena.Statues.Count > 0) _ = RaiseIzaroStatues(remote, stream, ciphers, conn, arena, here);
-        if (arena.Portals.Any(p => p.Carried is null)) _ = RaiseIzaroPortals(remote, stream, ciphers, conn, arena, here);
-        if (arena.Idols.Any(i => i.Carried is null)) _ = RaiseIzaroIdols(remote, stream, ciphers, conn, arena, here);
-        if (arena.Lieutenants.Any(l => l.Carried is null)) _ = RaiseIzaroLieutenants(remote, stream, ciphers, conn, arena, here);
+        if (arena.Gargoyles.Any(g => g.Carried is null)) _ = RaiseIzaroGargoyles(conn, arena, here);
+        if (arena.Statues.Count > 0) _ = RaiseIzaroStatues(conn, arena, here);
+        if (arena.Portals.Any(p => p.Carried is null)) _ = RaiseIzaroPortals(conn, arena, here);
+        if (arena.Idols.Any(i => i.Carried is null)) _ = RaiseIzaroIdols(conn, arena, here);
+        if (arena.Lieutenants.Any(l => l.Carried is null)) _ = RaiseIzaroLieutenants(conn, arena, here);
     }
 
     // Izaro fights: the earlier trials' statues' buffs go on him, their gargoyles come out and their portals open up.
-    static async Task StartIzaroMechanics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+    static async Task StartIzaroMechanics(ClientState conn, IzaroArena arena,
         uint izaro, SpawnedMonster boss, Func<bool> here)
     {
         arena.Izaro = izaro;
@@ -165,19 +165,19 @@ static partial class QuestobjectsRules
             ushort buff;
             lock (conn.Monsters) buff = conn.NextBuff++;
             arena.Returned[i] = (arena.Returned[i].Effect, buff);
-            await Send(remote, stream, ciphers, InstanceEntities.AddBuff(izaro, buff, arena.Returned[i].Effect.Buff, izaro),
+            await Send(conn, InstanceEntities.AddBuff(izaro, buff, arena.Returned[i].Effect.Buff, izaro),
                 $"0x01c1 Izaro 0x{izaro:x} has {arena.Returned[i].Effect.Id}");
         }
         lock (conn.Monsters) UpdateIzaroStats(arena);
-        await ReleaseIzaroGargoyles(remote, stream, ciphers, conn, arena, here);
-        await ReleaseIzaroPortals(remote, stream, ciphers, conn, arena, here);
-        await ReleaseIzaroIdols(remote, stream, ciphers, conn, arena, here);
-        await ReleaseIzaroLieutenants(remote, stream, ciphers, conn, arena, here);
+        await ReleaseIzaroGargoyles(conn, arena, here);
+        await ReleaseIzaroPortals(conn, arena, here);
+        await ReleaseIzaroIdols(conn, arena, here);
+        await ReleaseIzaroLieutenants(conn, arena, here);
         if (arena.GoddessMonster is { } goddess)
-            _ = GoddessOfJustice.Run(remote, stream, ciphers, conn, arena.Goddess, goddess, boss, () => here() && !arena.Over);
-        _ = RunIzaroGuardians(remote, stream, ciphers, conn, arena, here);
-        if (arena.Gargoyles.Count > 0) _ = WatchIzaroGargoyles(remote, stream, ciphers, conn, arena, here);
-        if (arena.Lieutenants.Count > 0) _ = WatchIzaroLieutenants(remote, stream, ciphers, conn, arena, here);
+            _ = GoddessOfJustice.Run(conn, arena.Goddess, goddess, boss, () => here() && !arena.Over);
+        _ = RunIzaroGuardians(conn, arena, here);
+        if (arena.Gargoyles.Count > 0) _ = WatchIzaroGargoyles(conn, arena, here);
+        if (arena.Lieutenants.Count > 0) _ = WatchIzaroLieutenants(conn, arena, here);
     }
 
     // What is on Izaro as his encounter stats: the statues on and the earlier trials', the gargoyles giving their buff.
@@ -197,7 +197,7 @@ static partial class QuestobjectsRules
     // The trial ends: what of the arena's mechanic is still on stays on Izaro for the run's later trials (the earlier
     // trials' gargoyles killed here are gone), the risen statues and idols go down with their elevators. His line after the end
     // line: the arena's mechanic's (IzaroFinish…), or null.
-    static async Task<string?> EndIzaroMechanics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task<string?> EndIzaroMechanics(ClientState conn)
     {
         if (!IzaroArenas.TryGetValue(conn, out var arena)) return null;
         string? finish = null;
@@ -221,7 +221,7 @@ static partial class QuestobjectsRules
                 if (!trial.Last && left.Count > 0) LabyrinthDay.Carry(character, trial.Number, left);
                 if (killed.Count > 0) LabyrinthDay.Uncarry(character, killed);
             }
-            if (left.Count > 0) Console.WriteLine($"[gateway] {remote} Izaro's trial {trial.Number} left on him: {string.Join(", ", left)}");
+            if (left.Count > 0) Console.WriteLine($"[gateway] {conn.Remote} Izaro's trial {trial.Number} left on him: {string.Join(", ", left)}");
             if (arena.Statues.Count > 0) finish = IzaroStatues.FinishLine(statues);
             else if (arena.Gargoyles.Any(g => g.Carried is null)) finish = IzaroGargoyles.FinishLine(gargoyles.Count);
             else if (arena.Portals.Any(p => p.Carried is null)) finish = IzaroPortals.FinishLine(portals.Count);
@@ -231,8 +231,8 @@ static partial class QuestobjectsRules
             foreach (var s in risen) s.State = IzaroStatues.Lowering;
             idolsUp = [.. arena.Idols.Where(i => i.Carried is null && i.Lift is not null && i.Up)];
         }
-        await LowerIzaroStatues(remote, stream, ciphers, conn, risen);
-        await LowerIzaroIdols(remote, stream, ciphers, conn, idolsUp);
+        await LowerIzaroStatues(conn, risen);
+        await LowerIzaroIdols(conn, idolsUp);
         return finish;
     }
 }

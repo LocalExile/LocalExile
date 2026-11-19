@@ -186,7 +186,7 @@ public sealed partial class DelveModule : IModule
                 world.NpcEndTalk();
                 var conn = ConnOf(talk.Player); var wire = conn.Wire;
                 if (conn.Layout.Hash != Hub)
-                    await ChangeArea(wire.Remote, wire.Stream, wire.Ciphers, conn,
+                    await ChangeArea(conn,
                         new PendingTransfer(Hub, 0, false, AtWaypoint: true), $"{talk.Npc}: {talk.Option}");
                 return true;
             }
@@ -346,7 +346,7 @@ public sealed partial class DelveModule : IModule
     static Task RemoveSceneObject(IPlayer player, uint id)
     {
         var conn = ConnOf(player); var wire = conn.Wire;
-        return global::Game.SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, conn, id);
+        return global::Game.SendWorldRemoval(conn, id);
     }
 
     async Task OpenChart(IModuleContext module, IPlayer player)

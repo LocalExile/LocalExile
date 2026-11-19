@@ -184,7 +184,7 @@ public static partial class Game
     // The skill list is the expensive part of a Rage change (every gem's panel damage): build it before the send gate, so
     // the gate, which every hit and echo waits on, normally holds only comparison and packet assembly. Changed inputs
     // fall back to a current build rather than publishing the prepared list under the wrong owner state.
-    public static Task SendRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task SendRage(ClientState conn)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
         RagePrepared? prepared = null;
@@ -209,6 +209,6 @@ public static partial class Game
             // A change during the build cannot be cached under the earlier inputs.
             if (inputs.Matches(conn, CharacterPlayerStats(conn))) prepared = new(next, skills, inputs);
         }
-        return Send(remote, stream, ciphers, [], null, atGate: () => RagePresentation(conn, prepared));
+        return Send(conn, [], null, atGate: () => RagePresentation(conn, prepared));
     }
 }

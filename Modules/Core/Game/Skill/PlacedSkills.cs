@@ -183,7 +183,7 @@ public static partial class Game
                 local: inputs.Attack ? MainHandLocalSources(conn) : null) };
     }
 
-    static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> PlaceSkill(ClientState conn,
         (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
         lock (conn.Monsters)
@@ -281,10 +281,10 @@ public static partial class Game
                 accepted = true;
                 return bytes.Build();
             }
-        }, transport: (remote, stream, ciphers));
+        });
         if (conn.LockstepClient)
             foreach (var (id, landsAt) in born)
-                await SendWorldRecords(remote, stream, ciphers, conn, id, () =>
+                await SendWorldRecords(conn, id, () =>
                 {
                     lock (conn.Monsters)
                     {
@@ -319,11 +319,10 @@ public static partial class Game
         bytes.AddRange(records.Bytes());
     }
 
-    public static void PlacedGroundsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now, List<byte> bytes)
+    public static void PlacedGroundsLocked(ClientState conn, double now, List<byte> bytes)
     {
         var records = new WorldRecordBuilder(conn, null);
-        PlacedGroundRecordsLocked(remote, stream, ciphers, conn, now, records);
+        PlacedGroundRecordsLocked(conn, now, records);
         bytes.AddRange(records.Bytes());
     }
 
@@ -344,7 +343,7 @@ public static partial class Game
         PlacedLandRecords(conn, placed.Id, placed.At, bytes);
     }
 
-    static void PlacedDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void PlacedDamageLocked(ClientState conn,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
@@ -408,7 +407,7 @@ public static partial class Game
                 }
             }
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
-            if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
+            if (hit.StageStarts) { CommitBossStage(conn, id, m, now); hit = hit with { StageStarts = false }; }
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
                 CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
             AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical: false, 100, player, placed.Own, now,
@@ -431,8 +430,7 @@ public static partial class Game
         }
     }
 
-    static void PlacedGroundRecordsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now, WorldRecordBuilder bytes)
+    static void PlacedGroundRecordsLocked(ClientState conn, double now, WorldRecordBuilder bytes)
     {
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
         foreach (var (id, monster) in conn.Monsters.ToArray())
@@ -446,7 +444,7 @@ public static partial class Game
                 * MonsterDotTaken(monster, DamageType.Fire, now) + ground.Carry.GetValueOrDefault(id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
             if (damage <= 0 || ApplyMonsterHitLocked(conn, monster, damage, allyAt: ground.At) is not { } hit) continue;
-            if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, monster, now); hit = hit with { StageStarts = false }; }
+            if (hit.StageStarts) { CommitBossStage(conn, id, monster, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, "Fire Trap burning ground", playerKill: false);
         }
         foreach (var ground in conn.Placed.Grounds.ToArray())
@@ -458,7 +456,7 @@ public static partial class Game
         }
     }
 
-    static async Task PlacedSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    static async Task PlacedSkillsTick(ClientState conn, double now)
     {
         await SendWorldBatch(conn, [], admission =>
         {
@@ -491,7 +489,7 @@ public static partial class Game
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
                         conn.RecentEvents.Record(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds);
-                    PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
+                    PlacedDamageLocked(conn, placed, now, bytes);
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");
                     if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")
                     {
@@ -507,9 +505,9 @@ public static partial class Game
                     bytes.World(PlayerId, InstanceEntities.PlayerSkillsChange(PlayerId, [], [], canDetonateMines: detonation));
                     conn.Placed.DetonationPublished = detonation;
                 }
-                PlacedGroundRecordsLocked(remote, stream, ciphers, conn, now, bytes);
+                PlacedGroundRecordsLocked(conn, now, bytes);
                 return bytes.Count > 0 ? bytes.Build() : null;
             }
-        }, transport: (remote, stream, ciphers));
+        });
     }
 }

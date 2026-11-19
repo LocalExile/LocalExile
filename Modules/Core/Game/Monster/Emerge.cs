@@ -9,11 +9,11 @@ public static partial class Game
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    public static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static void WatchBuried(ClientState conn)
     {
         bool start;
         lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
-        if (start) _ = RunEmergeWatch(remote, stream, ciphers, conn);
+        if (start) _ = RunEmergeWatch(conn);
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
@@ -23,7 +23,7 @@ public static partial class Game
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead. The watch ends with the rules that started it: what still waits is
     // the instance's (ClientState.EmergeGround), and after a reload the new rules' SyncInstanceMonsters watches it.
-    public static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RunEmergeWatch(ClientState conn)
     {
         var rules = CombatLifetime;
         try
@@ -46,9 +46,9 @@ public static partial class Game
                             risen.AddRange(Emerges.RiseLocked(conn, other.Walk.Position(now), now, out watching));
                 }
                 foreach (var (id, m, at, seconds) in risen)
-                    _ = Emerge(remote, stream, ciphers, conn, id, m, at, seconds);
+                    _ = Emerge(conn, id, m, at, seconds);
                 // Emerging moves a living enemy between rosters without changing the remaining count.
-                if (risen.Count > 0) await SendRemainingMonsters(remote, stream, ciphers, conn);
+                if (risen.Count > 0) await SendRemainingMonsters(conn);
                 if (!watching) return;
             }
         }
@@ -80,7 +80,7 @@ public static partial class Game
             m.BusyUntil = Math.Max(m.BusyUntil, frame.Start + frames * (frame.End - frame.Start));
     }
 
-    public static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task Emerge(ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;
@@ -89,13 +89,13 @@ public static partial class Game
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
             var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
-            await Send(remote, stream, ciphers, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            await Send(conn, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
             ToOthers(conn, id, [.. messages[0], .. messages[1]]);
             // Predictive mode waits for 0x1ac in the pending-action gate (0x141e9afc0); lockstep starts directly.
             // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e99d50).
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
-            await Send(remote, stream, ciphers, [],
+            await Send(conn, [],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",
                 still: Still, atGate: () =>
                 {

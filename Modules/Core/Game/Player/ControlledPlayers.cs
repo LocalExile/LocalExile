@@ -6,7 +6,7 @@ public static partial class Game
     public static async Task InitializeControlledPlayer(ClientState conn, ClientState leader)
     {
         RegisterVitalsAdmission(conn);
-        PrepareCharacterForArea(conn.Wire.Remote, conn, conn.Pools.Level);
+        PrepareCharacterForArea(conn, conn.Pools.Level);
         InitializeCharacterVitals(conn);
         conn.ControlledPrepared = true;
         var at = ControlledFollowerPoint(conn, leader, arrival: true);
@@ -17,7 +17,7 @@ public static partial class Game
         conn.PlayerSent = conn.PlayerObjectCreated = true;
         Program.InGame[conn] = 0;
         global::HotReload.Register(conn);
-        await PopulateArea(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        await PopulateArea(conn);
         if (conn.Closed) return;
         PublishPlayerPose(conn);
         EnsurePlayerUpdates(conn);
@@ -33,7 +33,7 @@ public static partial class Game
             if (double.IsNaN(conn.ControlledDeadSince)) conn.ControlledDeadSince = now;
             if (now - conn.ControlledDeadSince >= 3)
             {
-                await Resurrect(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, inTown: false);
+                await Resurrect(conn, inTown: false);
                 conn.ControlledDeadSince = double.NaN;
             }
             return;
@@ -54,7 +54,7 @@ public static partial class Game
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
             }
-            await SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, PlayerStatChange.Build);
+            await SendCharacterStats(conn, PlayerStatChange.Build);
         }
         if (await ExecuteControlledIntent(conn, leader, now, following)) return;
         // Reactive reservation hits do not make their toggles usable as automatic attacks.
@@ -85,8 +85,7 @@ public static partial class Game
             HoldControlledFollowerAttack(conn, now, seconds, enemy.Id);
             var bytes = new LoginWriter().U16(InstanceTransfer.UseSkillOnObjectId).U32(enemy.Id)
                 .U16(gem.Id).U16(0xffff).U16(onTheMove ? (ushort)1 : (ushort)0).ToArray();
-            await OnClientMessages(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
-                [(InstanceTransfer.UseSkillOnObjectId, bytes)], [], conn);
+            await OnClientMessages([(InstanceTransfer.UseSkillOnObjectId, bytes)], [], conn);
         }
         else if (!following) IdleControlledFollower(conn, leader, now);
     }

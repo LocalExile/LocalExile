@@ -202,9 +202,8 @@ public static class Slayer
                     + $"area +{Stat("skill_area_of_effect_+%")}%");
             }
         }
-        var (remote, stream, ciphers) = conn.Wire;
-        foreach (var packet in packets) await Send(remote, stream, ciphers, packet, null);
-        if (changed) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
+        foreach (var packet in packets) await Send(conn, packet, null);
+        if (changed) await SendCharacterStats(conn, PlayerStatChange.Sources);
     }
 
     // A Headsman buff: shown for its time left while on, shown again when a kill moved its deadline, taken off when it

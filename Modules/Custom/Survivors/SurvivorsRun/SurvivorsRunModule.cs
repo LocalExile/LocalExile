@@ -22,11 +22,11 @@ public sealed class SurvivorsRunModule : IModule
             run.RecordKill(kill.Monster.Rarity);
             // Experience waits on the ground as an orb; the run tick collects it when the player passes near.
             int experience = SurvivorsRules.ExperienceForKill(kill.Monster.Rarity);
-            var (remote, stream, ciphers) = kill.Conn.Wire;
-            kill.Later(() => SurvivorsDropOrb(remote, stream, ciphers, kill.Conn, kill.At, experience));
+            var conn = kill.Conn;
+            kill.Later(() => SurvivorsDropOrb(kill.Conn, kill.At, experience));
             // A share of kills leave a death ground zone: a DOT that lands under the monster or under the player.
             if (Random.Shared.NextDouble() < SurvivorsRules.DeathZoneChance)
-                kill.Later(() => SurvivorsDropDeathZone(remote, stream, ciphers, kill.Conn, kill.At));
+                kill.Later(() => SurvivorsDropDeathZone(kill.Conn, kill.At));
         });
         GameEvents.LootAllowed.Add(module.Manifest.Id, conn => StateOf(conn).Survivors is null);
         GameEvents.IncomingDamage.Add(module.Manifest.Id, (conn, damage) =>

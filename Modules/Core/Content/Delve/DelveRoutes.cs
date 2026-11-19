@@ -102,7 +102,7 @@ public sealed partial class DelveModule
                 // Without DelveOwner the native 0x7b handler opens only the current terrain's local preview in a mine.
                 if (!ready.HasQuestFlag("DelveOwner"))
                 {
-                    var w = ready.Wire; await SetQuestFlags(w.Remote, w.Stream, w.Ciphers, ready, ["DelveOwner"]);
+                    await SetQuestFlags(ready, ["DelveOwner"]);
                 }
                 await SpawnCrawler(module, player);
             }
@@ -201,9 +201,9 @@ public sealed partial class DelveModule
 
     async Task TransferChunk(IModuleContext module, IPlayer player, Attempt attempt)
     {
-        var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+        var conn = ConnOf(player);
         lock (attempt.Departures) attempt.Departures.Add(conn);
-        await ChangeArea(remote, stream, ciphers, conn,
+        await ChangeArea(conn,
             new PendingTransfer(InstanceDelve.MineArea, 0, true, AtSpawn: true) { Seed = attempt.Seed }, "Delve route segment");
         if (!conn.LeavingArea) await AbortTrip(module, player, attempt, "departure refused");
     }

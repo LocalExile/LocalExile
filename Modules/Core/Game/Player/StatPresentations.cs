@@ -6,7 +6,7 @@ public static partial class Game
     // What the client is shown of state the player's stats already follow (S2 marks and times each change): these
     // presentations run when the stats change (PlayerStatsUpdated), or when their state changes without a stat
     // (PresentStats), not on the player tick.
-    static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] StatPresentations =
+    static readonly Func<ClientState, Task>[] StatPresentations =
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
@@ -18,49 +18,49 @@ public static partial class Game
     ];
 
     // After the others, outside their batch: Spirit Chieftain's minion follows its published state.
-    static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] StatPresentationsAfter =
+    static readonly Func<ClientState, Task>[] StatPresentationsAfter =
     [
         SendSpiritChieftain,
     ];
 
     // The quest items' grant flags follow the items carried (dropped, sold, stashed ones too): on an inventory change
     // (PlayerInventories.Changed); no inventory change here (the message path removes items).
-    static Task SendQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static Task SendQuestItems(ClientState conn)
     {
         if (conn.PlayerLife == 0) return Task.CompletedTask;
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return Task.CompletedTask;
-        return SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
+        return SyncQuestItems(conn, removeItems: false);
     }
 
     // What depends on where the player and the monsters stand: run when a walker moved to another cell (the area's
     // movement), a blocker was added, and with the stat presentations (a stat change moves radii and grants).
-    static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] NearbyPresentations =
+    static readonly Func<ClientState, Task>[] NearbyPresentations =
     [
         SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld, SendQuestThresholds,
         SendFlaskGrounds,
     ];
 
     // A monster that never dies reached its quest threshold (its PresentationChanged).
-    static Task SendQuestThresholds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static Task SendQuestThresholds(ClientState conn)
     {
         if (conn.PlayerLife == 0) return Task.CompletedTask;
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return Task.CompletedTask;
-        return CheckQuestThresholds(remote, stream, ciphers, conn);
+        return CheckQuestThresholds(conn);
     }
 
-    static Task SendExpandedInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    static Task SendExpandedInventory(ClientState conn) =>
         SyncExpandedInventory(conn);
 
-    static Task SendPushOut(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        PushOutOfCollision(remote, stream, ciphers, conn);
+    static Task SendPushOut(ClientState conn) =>
+        PushOutOfCollision(conn);
 
     // The party's auras: the ones this player gives and gets by range.
-    static Task SendNearbyAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    static Task SendNearbyAuras(ClientState conn) =>
         conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
             || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0)
-            ? SendOwnAuraChanges(remote, stream, ciphers, conn) : Task.CompletedTask;
+            ? SendOwnAuraChanges(conn) : Task.CompletedTask;
 
     // What the player comes near, as zones (OwnedZones): the waypoint's activation range and the Glyph Wall's sight (at
     // them, reaching the player), and the quests' sight of the watched monsters (around the player). Coming in presents
@@ -84,7 +84,7 @@ public static partial class Game
     }
 
     // The waypoint, the gold in the auto-loot radius and the quests' sight rules, where the player stands.
-    static async Task SendNearbyWorld(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendNearbyWorld(ClientState conn)
     {
         if (conn.PlayerLife == 0) return;
         var watched = QuestsOf(conn).Watched(conn.Layout.Id);
@@ -94,10 +94,10 @@ public static partial class Game
             SyncSightZones(conn, watched);
         }
         if (conn.Layout.Waypoint is not null && Sees(conn, WaypointSight))
-            await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
+            await ActivateWaypoint(conn, "the player came near");
         // The way walked since the last check counts (PickUpNearbyGold), not only where the player stands.
         var presenting = PresentingOf.GetOrCreateValue(conn);
-        presenting.GoldCheckedAt = await PickUpNearbyGold(remote, stream, ciphers, conn, presenting.GoldCheckedAt);
+        presenting.GoldCheckedAt = await PickUpNearbyGold(conn, presenting.GoldCheckedAt);
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
         var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -109,30 +109,30 @@ public static partial class Game
                 seen = [.. ZoneMembers(conn, conn.PeerId, SightZones + " around", MonsterSight).Select(id => conn.Monsters.GetValueOrDefault(id.Value))
                     .Where(m => m is { Dead: false, Life: > 0, Variety: not null }).Select(m => m!.Variety!.Id).Distinct()];
             foreach (string variety in seen)
-                await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterSeen(conn.Layout.Id, variety));
+                await SetQuestFlags(conn, QuestsOf(conn).OnMonsterSeen(conn.Layout.Id, variety));
         }
         // a1q4: coming near the Glyph Wall ("Investigate the Mud Flats for a way to lower the water").
         if (conn.Glyphs?.Wall is not null && !conn.HasQuestFlag(GlyphQuest.SeenGlyphWall) && Sees(conn, GlyphWallSight))
-            await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
+            await SetQuestFlags(conn, [GlyphQuest.SeenGlyphWall]);
         // The quest engine's sight rules (room objects, exits).
-        await CheckQuestSights(remote, stream, ciphers, conn, at);
-        if (conn.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(remote, stream, ciphers, conn, at);
+        await CheckQuestSights(conn, at);
+        if (conn.QuestNearSpawns.Count > 0) await CheckQuestNearSpawns(conn, at);
     }
 
     // Death ends the auras, Righteous Fire and Bladefall of Trarthus; an empty mana pool ends Bladefall (the resource
     // writer spends it). Both are stat conditions, so their flip runs this.
-    static async Task SendLifeAndManaEndings(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendLifeAndManaEndings(ClientState conn)
     {
         if (conn.PlayerLife == 0)
         {
-            await EndAurasOnDeath(remote, stream, ciphers, conn);
+            await EndAurasOnDeath(conn);
             RighteousFireState? rf;
             lock (conn.Monsters) rf = conn.RighteousFire;
-            if (rf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "death", rf);
-            if (conn.BladefallTrarthus is not null) await EndBladefallTrarthus(remote, stream, ciphers, conn, "death");
+            if (rf is not null) await EndRighteousFire(conn, "death", rf);
+            if (conn.BladefallTrarthus is not null) await EndBladefallTrarthus(conn, "death");
         }
         else if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
-            await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
+            await EndBladefallTrarthus(conn, "out of mana");
     }
 
     sealed class Presenting
@@ -148,7 +148,7 @@ public static partial class Game
     }
 
     // The bleed and poison buffs on the player, against the ones the client was shown.
-    static async Task SendIncomingAilmentChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendIncomingAilmentChanges(ClientState conn)
     {
         IncomingDamagingAilments.State nextIncoming;
         IncomingDamagingAilments.State presented;
@@ -163,7 +163,7 @@ public static partial class Game
         if (nextIncoming == presented) return;
         {
             foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, conn.Clock.Elapsed.TotalSeconds))
-                await Send(remote, stream, ciphers, [], log, atGate: () =>
+                await Send(conn, [], log, atGate: () =>
                 {
                     lock (conn.Monsters)
                     {
@@ -184,14 +184,14 @@ public static partial class Game
     }
 
     // The player's elemental ailment buffs, against the ones the client was shown.
-    static async Task SendElementalAilmentChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendElementalAilmentChanges(ClientState conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
         var next = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
         if (next == presenting.Ailments) return;
         var before = presenting.Ailments;
         presenting.Ailments = next;
-        await SendPlayerAilmentBuffs(remote, stream, ciphers, before, next);
+        await SendPlayerAilmentBuffs(conn, before, next);
     }
     static readonly Store<ClientState, Presenting> PresentingOf = new();
 
@@ -226,20 +226,19 @@ public static partial class Game
         bool all = presenting.Pending;
         presenting.Pending = presenting.NearbyPending = false;
         presenting.Ran = true;
-        var (remote, stream, ciphers) = conn.Wire;
         presenting.Running = AsPlayer(conn, updates, async () =>
         {
-            if (!await SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
+            if (!await SendPlayerTickBatch(conn, async () =>
             {
                 if (all)
                     foreach (var send in StatPresentations)
                     {
-                        await send(remote, stream, ciphers, conn);
+                        await send(conn);
                         if (!PlayerUpdatesCurrent(conn, updates)) return false;
                     }
                 foreach (var send in NearbyPresentations)
                 {
-                    await send(remote, stream, ciphers, conn);
+                    await send(conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 }
                 return true;
@@ -247,7 +246,7 @@ public static partial class Game
             if (all)
                 foreach (var send in StatPresentationsAfter)
                 {
-                    await send(remote, stream, ciphers, conn);
+                    await send(conn);
                     if (!PlayerUpdatesCurrent(conn, updates)) return;
                 }
         });
@@ -257,7 +256,7 @@ public static partial class Game
     static readonly bool VerifyPresentations = Environment.GetEnvironmentVariable("Game_PRESENT_VERIFY") == "1";
     static readonly AsyncLocal<string?> PresentVerifyTag = new();
 
-    static async Task VerifyStatPresentations(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task VerifyStatPresentations(ClientState conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
         if (!VerifyPresentations || !presenting.Ran) return;
@@ -267,7 +266,7 @@ public static partial class Game
         foreach (var send in StatPresentations.Concat(NearbyPresentations).Concat(StatPresentationsAfter))
         {
             PresentVerifyTag.Value = send.Method.Name;
-            try { await send(remote, stream, ciphers, conn); }
+            try { await send(conn); }
             finally { PresentVerifyTag.Value = null; }
         }
     }

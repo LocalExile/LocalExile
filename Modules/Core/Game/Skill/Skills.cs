@@ -751,8 +751,8 @@ public static partial class Game
     // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
-    public static Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(conn));
+    public static Task SendSkillBar(ClientState conn) =>
+        Send(conn, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(conn));
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
     internal static byte[]? SkillBarRecord(ClientState conn)
@@ -1108,21 +1108,20 @@ public static partial class Game
     // its level change): the level's stats (0x1b3: level, life, mana, accuracy, ...), the skills with them (0x2bc Actor),
     // full life, as a level up gives, and the passive skill points (0x33). Passives beyond a lower level's points are
     // taken back, last allocated first.
-    public static async Task ApplyLevel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int level)
+    public static async Task ApplyLevel(ClientState conn, int level)
     {
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
         int before = CommitLevelChange(conn, CaptureLevelChange(conn, level));
-        await PublishLevelChange(remote, stream, ciphers, conn, before, level);
+        await PublishLevelChange(conn, before, level);
     }
 
-    public static async Task PublishLevelChange(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, int before, int level)
+    public static async Task PublishLevelChange(ClientState conn, int before, int level)
     {
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {before} â†’ {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
+        Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}: level {before} â†’ {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
+        await SendCharacterStats(conn, PlayerStatChange.Build);
         int mana = UnreservedMana(conn);
         lock (conn.Monsters)
         {
@@ -1131,9 +1130,9 @@ public static partial class Game
             (conn.PlayerLife, conn.PlayerMana) = (LifeCap(conn), (uint)mana);
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
         }
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
-        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
-        await SendPassives(remote, stream, ciphers, conn);
+        await SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
+        await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana}");
+        await SendPassives(conn);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.
@@ -1141,7 +1140,7 @@ public static partial class Game
     sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
     static readonly Store<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
 
-    public static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerStatChange why)
+    public static async Task SendCharacterStats(ClientState conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;   // a build change: the skill list is built again
         if (QuestKillCommitOutput is not null)
@@ -1151,22 +1150,22 @@ public static partial class Game
         }
         // In an area's frames the next Stats phase builds and publishes them, once for all the changes of a frame.
         if (PublishByFrame(conn, why)) return;
-        await PublishCharacterStats(remote, stream, ciphers, conn, why);
+        await PublishCharacterStats(conn, why);
     }
 
     // The character panel, the skills and the Energy Shield as they are now.
-    internal static async Task PublishCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerStatChange why)
+    internal static async Task PublishCharacterStats(ClientState conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+        await SendPlayerStatSnapshot(conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
-        await SendSkills(remote, stream, ciphers, conn);
-        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        await SendSkills(conn);
+        await SendPlayerEnergyShield(conn);
     }
 
     // The player's skills again, and the removal of the ones the client still has whose gems left the equipment, in one
     // Actor 0x20 update (PlayerSkillsChange): the 0x40 list neither removes skills nor tells the character panel.
-    public static async Task SendSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendSkills(ClientState conn)
     {
         if (!CurrentGameRules) return;
         lock (conn.Monsters) ReconcileBeastCompanionsLocked(conn);
@@ -1226,7 +1225,7 @@ public static partial class Game
         // Built at the send gate, as every full stat and Actor refresh is (SendPlayerStatSnapshot): the packet that is
         // written last is then the one built last, the own-aura records it depends on go with it, and a lockstep client
         // gets it as a world record of the player.
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () =>
+        await SendPlayerStatSnapshot(conn, () =>
         {
             var skills = PlayerSkills(conn);
             gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
@@ -1236,8 +1235,8 @@ public static partial class Game
             return PlayerSkillsWithVaalSouls(conn, skills, gone);
         }, "0x02bc player Actor: current skill stats");
         if (!CurrentGameRules) return;
-        await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
-        if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
+        await SendNativeCooldownRefresh(conn);
+        if (gone.Count > 0) await EndSkillEffects(conn, gone);
 
         // The update can take a bound skill off the skill bar (live 2026-10-21: Haste's slot emptied when its aura went on,
         // and came back with the area change's 0x53), and a gem socketed again does not get its slot back by itself, so the
@@ -1249,14 +1248,14 @@ public static partial class Game
         // Transient league skills are not part of the saved bar.
         if (GameEvents.ExtraSkills(conn).Count > 0
             || added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
-            await SendSkillBar(remote, stream, ciphers, conn);
+            await SendSkillBar(conn);
         // The same recalculation may have changed which worn weapons qualify.
-        await SendModelIfHandsChanged(remote, stream, ciphers, conn);
+        await SendModelIfHandsChanged(conn);
     }
 
     // Skills the player no longer has (their gems left the equipment): their auras and Righteous Fire end with them, and the
     // reserved mana comes back.
-    public static async Task EndSkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<ushort> gone)
+    public static async Task EndSkillEffects(ClientState conn, IReadOnlyCollection<ushort> gone)
     {
         if (!CurrentGameRules || !CurrentGameWork) return;
         (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) ending;
@@ -1299,18 +1298,18 @@ public static partial class Game
         }
         SaveSummons(conn);
         SaveGolems(conn);
-        await RefreshGolemBuffs(remote, stream, ciphers, conn);
+        await RefreshGolemBuffs(conn);
         if (ending.EndedAuras.Count > 0 || ending.PetrifiedEnded)
         {
-            await SendOwnAuraChanges(remote, stream, ciphers, conn);
+            await SendOwnAuraChanges(conn);
             string why = ending.EndedAuras.Count > 0
                 ? $"aura {string.Join(", ", ending.EndedAuras.Select(a => a.Name))} off (gem left)"
                 : "Petrified Blood off (gem left)";
-            Console.WriteLine($"[gateway] {remote} {why}");
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
-            await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
+            Console.WriteLine($"[gateway] {conn.Remote} {why}");
+            await SendCharacterStats(conn, PlayerStatChange.Auras);
+            await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         }
-        if (expectedRf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left", expectedRf);
+        if (expectedRf is not null) await EndRighteousFire(conn, "its gem left", expectedRf);
     }
 
     // The non-Righteous-Fire owners that end with an actual source can share this synchronous mutation. The caller holds

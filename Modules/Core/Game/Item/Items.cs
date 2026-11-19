@@ -7,14 +7,14 @@ public static partial class Game
     // C→S 0x28: a click on an item. It moves to the cursor inventory (row 12) in one save (PlayerInventories.PickUp): one 0xbf
     // removes it from its inventory, another adds it to the cursor at (0, 0). Refused (logged) when the cursor already holds an
     // item or the item is not there.
-    public static async Task PickUpItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.PickUpItem pick)
+    public static async Task PickUpItem(ClientState conn, InstanceItems.PickUpItem pick)
     {
         if (await GameEvents.AnyInventoryPick(conn, pick)) return;
-        if (StashOf(conn).TabOf(pick.InventoryId) is int tab) { await PickUpFromStash(remote, stream, ciphers, conn, tab, pick); return; }
+        if (StashOf(conn).TabOf(pick.InventoryId) is int tab) { await PickUpFromStash(conn, tab, pick); return; }
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(pick.InventoryId) is not byte row)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused (unknown inventory)");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0028 pick up {pick}: refused (unknown inventory)");
             return;
         }
         InventoryItem? picked = null;
@@ -89,7 +89,7 @@ public static partial class Game
         }
         if (picked is not { } held)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused" +
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0028 pick up {pick}: refused" +
                 (passiveRefusal is null ? "" : $" ({passiveRefusal})"));
             return;
         }
@@ -101,15 +101,15 @@ public static partial class Game
             equipmentOutputs.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                 items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id}"));
         }
-        foreach (var (packet, label) in equipmentOutputs) await Send(remote, stream, ciphers, packet, label);
-        if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
-        if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
+        foreach (var (packet, label) in equipmentOutputs) await Send(conn, packet, label);
+        if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(conn, items);
+        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(conn);
+        if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(conn);
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
     // item is replaced in its inventory (0xbf removing and adding the same id). Gems in equipment grant skills.
-    public static async Task SocketGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
+    public static async Task SocketGem(ClientState conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
         (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? done = null;
@@ -150,21 +150,21 @@ public static partial class Game
         }
         if (missing is not null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({missing})");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0030 socket {s}: refused ({missing})");
             return;
         }
         if (done is not { } result)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0030 socket {s}: refused ({why})");
             return;
         }
         var (item, before, now) = result;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(conn, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
-        if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(conn, items);
     }
 
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
@@ -218,7 +218,7 @@ public static partial class Game
 
     // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x1424763d0), so
     // the server writes the next level's threshold and replaces the item; the client then derives the level and its skill.
-    public static async Task LevelUpGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
+    public static async Task LevelUpGem(ClientState conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
@@ -249,10 +249,10 @@ public static partial class Game
             if (why is not null) await conn.Commands!.Reply(why);
             return;
         }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(conn, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
-        await SendSkills(remote, stream, ciphers, conn);
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
+        await SendSkills(conn);
+        Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
     }
 
     static void ReconcileLeveledGemSourcesLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
@@ -269,12 +269,12 @@ public static partial class Game
     // is skipped without affecting the others. The client derives each new level from the experience, so the server replaces
     // every changed item (the remove and add idiom, one per row) and re-sends the skills once, so the prompts and XP bars
     // follow.
-    public static async Task LevelUpAllGems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task LevelUpAllGems(ClientState conn)
     {
         var changed = LevelUpReadyGems(conn);
         if (changed.Count == 0)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0032 level up all gems: no socketed gem is ready");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0032 level up all gems: no socketed gem is ready");
             return;
         }
         var items = ItemsOf(conn);
@@ -282,19 +282,19 @@ public static partial class Game
         foreach (var row in changed.GroupBy(c => c.Row))
         {
             uint[] ids = [.. row.Select(c => c.Item.Id)];
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+            await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
                 ids, [.. row.Select(c => c.Item)]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: {ids.Length} item(s) with ready gems levelled at once");
         }
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
-            Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} levels to " +
+            Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} levels to " +
                 $"{ItemsFor(conn).GemLevel(after)} (from {ItemsFor(conn).GemLevel(before)})");
-        await SendSkills(remote, stream, ciphers, conn);
+        await SendSkills(conn);
     }
 
     // C→S 0xd7: a right-click on a socketed gem toggles its level lock (SkillGem +0x10 bit 2); the item is replaced with the
     // new flag so the client shows the lock again after a login.
-    public static async Task LockGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.LockGem s)
+    public static async Task LockGem(ClientState conn, InstanceItems.LockGem s)
     {
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
@@ -308,13 +308,13 @@ public static partial class Game
             return it with { Sockets = sockets };
         });
         if (after is null) return;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(conn, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem {(s.Locked ? "locked" : "unlocked")}");
-        Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
+        Console.WriteLine($"[gateway] {conn.Remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
     }
 
     // C→S 0x2f: a socketed gem goes onto the cursor; the item is replaced in its inventory.
-    public static async Task UnsocketGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
+    public static async Task UnsocketGem(ClientState conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
         (InventoryItem Item, InventoryItem Held)? done = null;
@@ -346,15 +346,15 @@ public static partial class Game
         }
         if (done is not { } result)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x002f unsocket {s}: refused ({why})");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x002f unsocket {s}: refused ({why})");
             return;
         }
         var (item, held) = result;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(conn, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
-        if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(conn, items);
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
@@ -677,7 +677,7 @@ public static partial class Game
 
     /// <summary>Recomputes and sends the stats after a jewel entered or left a passive tree socket. The pane's own 0xbf
     /// is sent by the item move; this is the 0x1b3/0x2bc half.</summary>
-    public static async Task SendPassiveJewelStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendPassiveJewelStats(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -685,18 +685,18 @@ public static partial class Game
             conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
+        await SendCharacterStats(conn, PlayerStatChange.Build);
         // 0x1b3 carries the new maximum; the current life needs its own 0x1b1, or the client keeps it above a maximum
         // that a refund lowered (a "5000 of 4997" overfill).
         var timeless = ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
             .Select(i => TimelessJewelCatalog.Read(i.Item, ItemsFor(conn).Mods)).FirstOrDefault(s => s is not null);
-        Console.WriteLine($"[gateway] {remote} passive jewel stats: life {conn.Pools.Life}, mana {conn.Pools.Mana}, " +
+        Console.WriteLine($"[gateway] {conn.Remote} passive jewel stats: life {conn.Pools.Life}, mana {conn.Pools.Mana}, " +
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
+        await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
-        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
+        await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
 
     /// <summary>Why these ordinary nodes cannot be refunded, or null: a jewel socket that still holds a jewel must be
@@ -772,33 +772,33 @@ public static partial class Game
     }
 
     // C→S 0x16 /destroy (the town popup's Destroy): the held item is gone.
-    public static async Task DestroyHeldItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task DestroyHeldItem(ClientState conn)
     {
-        if (await TakeHeld(remote, stream, ciphers, ItemsOf(conn), "destroyed") is null)
-            Console.WriteLine($"[gateway] {remote} <= 0x0016 /destroy: nothing held");
+        if (await TakeHeld(conn, ItemsOf(conn), "destroyed") is null)
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0016 /destroy: nothing held");
     }
 
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
-    public static Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SyncGround(remote, stream, ciphers, conn, entering: true);
+    public static Task SendGroundItems(ClientState conn) =>
+        SyncGround(conn, entering: true);
 
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
     // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff
     // (13-items.md §8): its quality, its mods and the character's flask stats count (FlaskCharges, FlaskRecovery). Without
     // enough charges, while dead, or when its recovery pools are full, nothing happens. A utility flask goes to UseUtilityFlask.
-    public static async Task UseFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot)
+    public static async Task UseFlask(ClientState conn, uint slot)
     {
         if (!CurrentGameWork) return;
         var items = ItemsOf(conn);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
         if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } utilityType && ItemsFor(conn).UtilityFlaskOf(utilityType) is { } utility)
         {
-            await UseUtilityFlask(remote, stream, ciphers, conn, slot, flask, utilityType, utility);
+            await UseUtilityFlask(conn, slot, flask, utilityType, utility);
             return;
         }
         if (flask is null || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskOf(type) is not { } use)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a flask (not handled)")}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot}: {(flask is null ? "no flask there" : "not a flask (not handled)")}");
             return;
         }
         Dictionary<uint, int> character;
@@ -814,7 +814,7 @@ public static partial class Game
         var charges = FlaskCharges.Of(use, local, Get);
         if (conn.PlayerLife == 0 || Flasks.Spend(flask.Item, charges) is null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {(conn.PlayerLife == 0 ? "dead" : $"{flask.Item.Charges}/{charges.MaxCharges} charges, a use needs {charges.ChargesPerUse}")}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): {(conn.PlayerLife == 0 ? "dead" : $"{flask.Item.Charges}/{charges.MaxCharges} charges, a use needs {charges.ChargesPerUse}")}");
             return;
         }
         bool canRecover, copyLife;
@@ -838,7 +838,7 @@ public static partial class Game
         }
         if (!canRecover)
         {
-            await Send(remote, stream, ciphers, InstanceItems.ItemUsed(flask.Item.TypeHash,
+            await Send(conn, InstanceItems.ItemUsed(flask.Item.TypeHash,
                 PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id, result: 0x4e2),
                 $"0x0263 flask {slot} ({type.Name}) refused: recovery pools full (0x4e2), charges unchanged");
             // The client can hold a lower pool than the server (a use it started but the server did not pay for): the
@@ -847,19 +847,19 @@ public static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
+                await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)
-                await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (full pool, flask refused)");
+                await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana} (full pool, flask refused)");
             return;
         }
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
-        await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local, during));
+        await SpendFlask(conn, flask, charges, slot, CurrentRecovery,
+            spent => AcceptRecoveryFlaskLocked(conn, slot, spent, type, use, r, copyLife, local, during));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -869,15 +869,15 @@ public static partial class Game
         Flasks.Fill(items, catalog ?? Items, charges, saveNow);
 
     // FillFlasks, and the changed flasks to the client (one S→C 0xbf).
-    public static Task GainFlaskCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int charges, string why) =>
-        ChangeFlaskBar(remote, stream, ciphers, conn, items => Flasks.Fill(items, ItemsFor(conn), charges, saveNow: false,
+    public static Task GainFlaskCharges(ClientState conn, int charges, string why) =>
+        ChangeFlaskBar(conn, items => Flasks.Fill(items, ItemsFor(conn), charges, saveNow: false,
                 canGain: flask => CanGainFlaskCharges(conn, flask)) is { Count: > 0 } changed
                 ? ([.. changed.Select(c => c.Id)], changed) : null,
             changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
-    public static async Task PlaceStartWeapon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task PlaceStartWeapon(ClientState conn)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         if (ItemsOf(conn).StartWeapon is not { } weapon || WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true }) return;
@@ -885,27 +885,27 @@ public static partial class Game
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground, conn) is not { } id) return;
-        await SendGroundItem(remote, stream, ciphers, conn, id, ground,
+        await SendGroundItem(conn, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
     }
 
     // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
-    public static async Task DropItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task DropItem(ClientState conn)
     {
-        if (await TakeHeld(remote, stream, ciphers, ItemsOf(conn), "dropped") is not { } held)
+        if (await TakeHeld(conn, ItemsOf(conn), "dropped") is not { } held)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0029 drop: nothing held");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0029 drop: nothing held");
             return;
         }
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item) { PlayerDropped = true };
         uint id = conn.Instance.Ground.Add(ground, conn);
-        await SendGroundItem(remote, stream, ciphers, conn, id, ground,
+        await SendGroundItem(conn, id, ground,
             $"0x02bb create world item 0x{id:x} at ({x}, {y})", justDropped: true);
     }
 
     // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
-    public static async Task PickUpGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground,
+    public static async Task PickUpGroundItem(ClientState conn, uint id, WorldItemObject ground,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         // A quest item done with (its remove_flag set: a glyph after the placement, a Medicine Chest after Nessa has one, a
@@ -920,17 +920,17 @@ public static partial class Game
                 removed = conn.Instance.Ground.Take(id) is not null;
             }
             if (removed)
-                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
+                await Game.SendWorldRemoval(conn, id, $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
         if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupToleranceOf(conn, ground.Item))) return;
         var (action, now, here, stop, arrive) = objectWalk;
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
         // A lockstep client got its start from the frame pass already (use.Started).
         if (!use.Started)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         lock (conn.Monsters)
@@ -945,7 +945,7 @@ public static partial class Game
         }
         if (IsGold(ground))
         {
-            await PickUpGold(remote, stream, ciphers, conn, id, ground, "picked up");
+            await PickUpGold(conn, id, ground, "picked up");
             return;
         }
         var items = ItemsOf(conn);
@@ -960,7 +960,7 @@ public static partial class Game
             {
                 if (HardcoreProgressBlocked(conn) || (pickup = TakeGroundStack(conn, id, ground)) is null) return;
             }
-            await SendPickup(remote, stream, ciphers, conn, id, pickup);
+            await SendPickup(conn, id, pickup);
             return;
         }
         InventoryItem? placed;
@@ -973,7 +973,7 @@ public static partial class Game
             {
                 if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is not { } free)
                 {
-                    Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory");
+                    Console.WriteLine($"[gateway] {conn.Remote} world item 0x{id:x}: no room in the inventory");
                     return;
                 }
                 cell = free;
@@ -981,7 +981,7 @@ public static partial class Game
             if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
             // The start weapon stops waiting; the Put below saves both changes at once.
             if (conn.Instance.IsStartWeapon(CharacterName(conn), id) && items.ClaimStartWeapon())
-                Console.WriteLine($"[gateway] {remote} start weapon picked up");
+                Console.WriteLine($"[gateway] {conn.Remote} start weapon picked up");
 
             // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
             pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(conn, f));
@@ -995,12 +995,12 @@ public static partial class Game
                 return questFlags is not null ? QuestItems.Claim(CharacterName(conn), questFlags, Put) : Put();
             }, id);
         }
-        await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
+        await Game.SendWorldRemoval(conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
             toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
-        if (pickupFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, pickupFlags);
-        if (questFlags is not null) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: false);
+        if (pickupFlags.Count > 0) await SetQuestFlags(conn, pickupFlags);
+        if (questFlags is not null) await SyncQuestItems(conn, removeItems: false);
     }
 
     public static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
@@ -1013,7 +1013,7 @@ public static partial class Game
     /// (<paramref name="from"/>, as a straight line), not only of where it stands now: at a walk's 37 cells/s a 250 ms
     /// tick moves 9 cells, a movement skill or a late tick many more, and gold passed between two checks stayed there.
     /// Returns where the player stood, for the next check.</summary>
-    internal static async Task<(int X, int Y)> PickUpNearbyGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<(int X, int Y)> PickUpNearbyGold(ClientState conn,
         (int X, int Y)? from = null)
     {
         var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
@@ -1025,7 +1025,7 @@ public static partial class Game
         foreach (var (id, gold) in conn.Instance.Ground.Within(middle.Item1, middle.Item2, radius + Dist(start, at) / 2 + 1, IsGold))
         {
             if (DistanceToPath((gold.GridX, gold.GridY), start, at) > radius) continue;
-            await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted", start);
+            await PickUpGold(conn, id, gold, "auto-looted", start);
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return at;
         }
         return at;
@@ -1042,7 +1042,7 @@ public static partial class Game
 
     // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory. Auto-loot takes it
     // within the radius of the way from pathFrom to where the player is when the pickup is sent.
-    public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how,
+    public static async Task PickUpGold(ClientState conn, uint id, WorldItemObject ground, string how,
         (int X, int Y)? pathFrom = null)
     {
         // The removal goes as a world record, after the pile's create: on a lockstep client the create applies only at
@@ -1060,16 +1060,16 @@ public static partial class Game
             // hold the pile's create (live 2026-11-17: Fireball kills, auto-looted gold, the create failed).
             lock (conn.Monsters)
                 if (!conn.SeenGround.Contains(id) || !conn.WorldOutput.Has(id)) return;
-            await SendWorldRemoval(remote, stream, ciphers, conn, id, log, atGate: () =>
+            await SendWorldRemoval(conn, id, log, atGate: () =>
             {
                 if (Take() is not { } bytes) return null;
                 update = bytes[InstanceProtocol.RemoveObject(id).Length..];
                 return bytes[..InstanceProtocol.RemoveObject(id).Length];
             });
-            if (update is { Length: > 0 }) await Send(remote, stream, ciphers, update, null);
+            if (update is { Length: > 0 }) await Send(conn, update, null);
             return;
         }
-        await Send(remote, stream, ciphers, [], log, atGate: Take);
+        await Send(conn, [], log, atGate: Take);
 
         byte[]? Take()
         {
@@ -1093,15 +1093,15 @@ public static partial class Game
 
     public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
 
-    public static async Task SendPickup(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task SendPickup(ClientState conn,
         uint id, GroundPickup pickup)
     {
         if (pickup.Rest is { } rest)
-            await SendWorldCreate(remote, stream, ciphers, conn, pickup.RestId,
+            await SendWorldCreate(conn, pickup.RestId,
                 InstanceEntities.CreateObject(pickup.RestId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
                 $"0x02bb create remainder 0x{pickup.RestId:x} from 0x{id:x}");
-        await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (pickup)");
-        await Send(remote, stream, ciphers, pickup.Update, pickup.Log);
+        await SendWorldRemoval(conn, id, $"0x02bd remove world item 0x{id:x} (pickup)");
+        await Send(conn, pickup.Update, pickup.Log);
     }
 
     // Commits the visible gold or stack once. The caller checks reach and sends the captured update after the lock.
@@ -1160,7 +1160,7 @@ public static partial class Game
 
     // C→S 0x7c: Shift + click on a stack, then the split window's amount. The stack shrinks in place (0xbf removing and adding
     // its id), the split-off part is held as a new item (0xbf cursor).
-    public static async Task SplitStack(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SplitStack split, string hex)
+    public static async Task SplitStack(ClientState conn, InstanceItems.SplitStack split, string hex)
     {
         var items = ItemsOf(conn);
         int amount = (int)Math.Min(split.Amount, ushort.MaxValue);
@@ -1170,13 +1170,13 @@ public static partial class Game
             var stash = StashOf(conn);
             if (ItemMoves.SplitFromStash(stash, items, tab, split.ItemId, amount, ShapeOf) is not var (left, part))
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x007c split {split} in stash tab {tab}: refused: {hex}");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x007c split {split} in stash tab {tab}: refused: {hex}");
                 return;
             }
-            Console.WriteLine($"[gateway] {remote} <= 0x007c split {split} in stash tab {tab}" + (left is null ? " (the whole stack: picked up)" : ""));
-            await SendTabChange(remote, stream, ciphers, conn, stash, tab, [left?.Id ?? part.Id], left is null ? [] : [left],
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x007c split {split} in stash tab {tab}" + (left is null ? " (the whole stack: picked up)" : ""));
+            await SendTabChange(conn, stash, tab, [left?.Id ?? part.Id], left is null ? [] : [left],
                 left is null ? $"0x00bf stash tab {tab}: remove item {part.Id}" : $"0x00bf stash tab {tab}: stack {left.Id} now {left.Item.StackSize}");
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+            await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                 items.NextRevision(PlayerInventories.Cursor), [], [part]), $"0x00bf cursor: hold {part.Item.StackSize} as item {part.Id}");
             return;
         }
@@ -1184,18 +1184,18 @@ public static partial class Game
         var done = PlayerInventories.Row(split.InventoryId) is byte row ? items.Split(row, split.ItemId, amount, out why) : null;
         if (done is not var (stack, held) || PlayerInventories.Row(split.InventoryId) is not byte r)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x007c split {split}: refused ({why}): {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x007c split {split}: refused ({why}): {hex}");
             return;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x007c split {split}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(split.InventoryId, items.NextRevision(r), [stack.Id], [stack]),
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x007c split {split}");
+        await Send(conn, InstanceItems.InventoryChange(split.InventoryId, items.NextRevision(r), [stack.Id], [stack]),
             $"0x00bf inventory {split.InventoryId}: stack {stack.Id} now {stack.Item.StackSize}");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold {held.Item.StackSize} as item {held.Id}");
     }
 
     // C→S 0x58: use an item that needs no target (a right-click), such as an Orb of Regret: one item becomes one refund point.
-    public static async Task UseItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task UseItem(ClientState conn,
         InstanceItems.UseItemRequest use, string hex)
     {
         const string Regret = "Metadata/Items/Currency/CurrencyPassiveRefund";
@@ -1209,34 +1209,34 @@ public static partial class Game
             }
         if (row is not byte r || items.Items(r).FirstOrDefault(i => i.Id == use.ItemId) is not { } item)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: no such item: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use item {use}: no such item: {hex}");
             return;
         }
         if (ItemsFor(conn).ByHash(item.Item.TypeHash) is not { } type)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
             return;
         }
         if (await GameEvents.AnyItemUse(conn, r, item, type)) return;
         // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
         if (type.Quest?.Use is not null)
         {
-            await UseQuestItem(remote, stream, ciphers, conn, items, r, item, type);
+            await UseQuestItem(conn, items, r, item, type);
             return;
         }
         if (type.Name == SkillBook)
         {
-            await UseSkillBook(remote, stream, ciphers, conn, items, r, item, type);
+            await UseSkillBook(conn, items, r, item, type);
             return;
         }
         if (type.Id == CurrencyEffects.OrbOfUnmaking)
         {
-            await UseOrbOfUnmaking(remote, stream, ciphers, conn, items, r, item, type);
+            await UseOrbOfUnmaking(conn, items, r, item, type);
             return;
         }
         if (type.Id != Regret && type.Name != RegretBook)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0058 use item {use}: {type.Name} is not handled: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use item {use}: {type.Name} is not handled: {hex}");
             return;
         }
         // Read the current balance inside the same transaction as consumption. An older area must not restore
@@ -1251,7 +1251,7 @@ public static partial class Game
         });
         if (result.Taken is not { } taken)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: refund cap reached or item {use.ItemId} disappeared: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use {type.Name}: refund cap reached or item {use.ItemId} disappeared: {hex}");
             return;
         }
         ushort refunds = result.Points;
@@ -1263,17 +1263,17 @@ public static partial class Game
         uint inventoryId = PlayerInventories.InventoryId(r);
         // Every change removes the id first: the client keeps an item by id, so a stack that only shrinks needs the remove
         // and the add of the same id with its new Stack component (as SendMerged does).
-        await Send(remote, stream, ciphers,
+        await Send(conn,
             InstanceItems.InventoryChange(inventoryId, items.NextRevision(r), [item.Id],
                 taken.Left is { } left ? [left] : []),
             $"0x00bf inventory {inventoryId}: {type.Name} used" + (taken.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
-        await SendPassives(remote, stream, ciphers, conn);
-        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({use.ItemId}): {refunds} refund point(s)");
+        await SendPassives(conn);
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use {type.Name} ({use.ItemId}): {refunds} refund point(s)");
     }
 
     // Orb of Unmaking (C→S 0x58, right-click; CurrencyItems Action atlas_skill_point_respec, "Grants an atlas passive
     // skill refund point"): one Atlas passive respec point, which a refund (C→S 0x3f) spends; the orb is consumed.
-    public static async Task UseOrbOfUnmaking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task UseOrbOfUnmaking(ClientState conn,
         PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         PlayerInventories.Consumption? taken;
@@ -1283,7 +1283,7 @@ public static partial class Game
             respec = AtlasRespecPoints(conn);
             if (respec == ushort.MaxValue)
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: Atlas respec points are already at the maximum");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use {type.Name}: Atlas respec points are already at the maximum");
                 return;
             }
             if (items.ConsumeOne(row, item.Id) is not { } consumed) return;
@@ -1291,17 +1291,17 @@ public static partial class Game
             SetAtlasRespecPoints(conn, ++respec);
         }
         uint inventoryId = PlayerInventories.InventoryId(row);
-        await Send(remote, stream, ciphers,
+        await Send(conn,
             InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id],
                 taken.Left is { } left ? [left] : []),
             $"0x00bf inventory {inventoryId}: {type.Name} used");
-        await SendAtlasSlots(remote, stream, ciphers, conn, "Orb of Unmaking");
-        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}): {respec} Atlas respec point(s)");
+        await SendAtlasSlots(conn, "Orb of Unmaking");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use {type.Name} ({item.Id}): {respec} Atlas respec point(s)");
     }
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
     // the book is used up and the character gets one more passive skill point, as /add_passive_points 1 (S→C 0x33).
-    public static async Task UseSkillBook(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
+    public static async Task UseSkillBook(ClientState conn, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         ushort extra;
@@ -1309,7 +1309,7 @@ public static partial class Game
         {
             if (conn.ExtraPassivePoints == ushort.MaxValue)
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: extra passive points are already at the maximum");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use {type.Name}: extra passive points are already at the maximum");
                 return;
             }
             extra = (ushort)(conn.ExtraPassivePoints + 1);
@@ -1318,10 +1318,10 @@ public static partial class Game
         if (ItemMoves.UseForPassivePoint(items, CharacterName(conn), row, item.Id, extra) is not { } taken) return;
         lock (conn.Monsters) conn.ExtraPassivePoints = extra;
         uint inventoryId = PlayerInventories.InventoryId(row);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
+        await Send(conn, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
             $"0x00bf inventory {inventoryId}: {type.Name} used");
-        await SendPassives(remote, stream, ciphers, conn);
-        Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name} ({item.Id}, {type.Id}): +1 passive point, {extra} extra in all");
+        await SendPassives(conn);
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0058 use {type.Name} ({item.Id}, {type.Id}): +1 passive point, {extra} extra in all");
     }
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
@@ -1395,7 +1395,7 @@ public static partial class Game
 
     // C→S 0x71: an item used on another one. A Scroll of Wisdom identifies an unidentified item (its explicit mods and rare
     // name are sent from now on) and loses one from its stack. Socket currency uses the same update path, including Shift.
-    public static async Task UseItemOn(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.UseItemOn use, string hex)
+    public static async Task UseItemOn(ClientState conn, InstanceItems.UseItemOn use, string hex)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var items = ItemsOf(conn);
@@ -1413,7 +1413,7 @@ public static partial class Game
             : items.RowOf(use.TargetId) is not null ? items.Items(targetRow).FirstOrDefault(i => i.Id == use.TargetId) : null;
         if (used is null || target is null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0071 use item on item {use}: no such item" + (stashTab is int t ? $" (currency in stash tab {t})" : "")
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0071 use item on item {use}: no such item" + (stashTab is int t ? $" (currency in stash tab {t})" : "")
                 + (targetTab is int tt ? $" (target in stash tab {tt})" : "") + $": {hex}");
             return;
         }
@@ -1421,8 +1421,8 @@ public static partial class Game
         bool isEssence = type is not null && EssencesFor(conn).Contains(type.Hash);
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
-            if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
-            await MirrorItem(remote, stream, ciphers, conn, items, RollsFor(conn), usedRow, used, target);
+            if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {conn.Remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
+            await MirrorItem(conn, items, RollsFor(conn), usedRow, used, target);
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
@@ -1451,7 +1451,7 @@ public static partial class Game
                 Console.WriteLine($"[gateway] Jeweller target {target.Id}: {refusedType.Id}, class {refusedType.Class}, ilvl {target.Item.ItemLevel}, " +
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
-            Console.WriteLine($"[gateway] {remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
                 (isEssence || CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") || type?.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
                     ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
@@ -1469,8 +1469,8 @@ public static partial class Game
             identified = changedItem;
             async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
             {
-                if (tab is int t) await SendTabChange(remote, stream, ciphers, conn, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
-                else await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
+                if (tab is int t) await SendTabChange(conn, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
+                else await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
                     $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
             }
             List<InventoryItem> usedNow = left is { } l ? [l] : [];
@@ -1480,7 +1480,7 @@ public static partial class Game
             {
                 await SendPlace(stashTab, usedRow, [used.Id], usedNow, $"{type!.Name} used" + (left is null ? ", stack gone" : $", {left.Item.StackSize} left"));
                 await SendPlace(targetTab, targetRow, [target.Id], [identified], $"item {target.Id} changed");
-                if (targetTab is null && PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
+                if (targetTab is null && PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(conn, items);
             }
         }
         else
@@ -1490,18 +1490,18 @@ public static partial class Game
             // Remove and add the same ids: the client replaces an item only that way (see UseItem).
             uint usedInventory = PlayerInventories.InventoryId(usedRow);
             if (usedRow == targetRow)
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [used.Id, target.Id],
+                await Send(conn, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [used.Id, target.Id],
                     taken.Left is { } left ? [left, identified] : [identified]), $"0x00bf inventory {targetInventory}: item {target.Id} changed, {type!.Name} used");
             else
             {
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
+                await Send(conn, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
                     taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: {type!.Name} used");
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [target.Id], [identified]),
+                await Send(conn, InstanceItems.InventoryChange(targetInventory, items.NextRevision(targetRow), [target.Id], [identified]),
                     $"0x00bf inventory {targetInventory}: item {target.Id} changed");
-                if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
+                if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(conn, items);
             }
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
             : $"sockets {string.Join(" ", identified.Item.Sockets.Select(k => k.Colour))}; link groups {string.Join(",", identified.Item.Links ?? [])}"));
@@ -1509,28 +1509,28 @@ public static partial class Game
 
     // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
     // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
-    public static async Task MirrorItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
+    public static async Task MirrorItem(ClientState conn, PlayerInventories items,
         ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
     {
         if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty)");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty)");
             return;
         }
         var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
             items.ConsumeOne(usedRow, used.Id) is { } taken ? (taken, items.Add(PlayerInventories.Cursor, 0, 0, copy)) : null);
         if (done is not var (taken, held)) return;
         uint usedInventory = PlayerInventories.InventoryId(usedRow), cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
+        await Send(conn, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
             taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: Mirror of Kalandra used");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(cursor, items.NextRevision(PlayerInventories.Cursor), [], [held]),
+        await Send(conn, InstanceItems.InventoryChange(cursor, items.NextRevision(PlayerInventories.Cursor), [], [held]),
             $"0x00bf cursor: mirrored copy {held.Id}");
-        Console.WriteLine($"[gateway] {remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor");
     }
 
     // C→S 0x4a: the held item clicked on an item. A stack of the same type with room takes what fits (PlayerInventories.MergeOnto,
     // AccountStash.Merge); anything else (currency on an item …) is not handled yet.
-    public static async Task HeldOntoItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.ItemAction a, string hex)
+    public static async Task HeldOntoItem(ClientState conn, InstanceItems.ItemAction a, string hex)
     {
         var items = ItemsOf(conn);
         if (StashOf(conn).TabOf(a.InventoryId) is int tab)
@@ -1538,11 +1538,11 @@ public static partial class Game
             // On a stash tab: as 0x2a on the clicked item's cell (merge, one with Shift, or a swap).
             if (StashOf(conn).Inventory(tab).Items.FirstOrDefault(i => i.Id == a.ItemId) is not { } onto)
             {
-                Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a} in stash tab {tab}: no such item: {hex}");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x004a held item onto {a} in stash tab {tab}: no such item: {hex}");
                 return;
             }
-            Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a} in stash tab {tab}: {hex}");
-            await PlaceInStash(remote, stream, ciphers, conn, tab, new InstanceItems.PlaceItem(a.InventoryId, onto.X, onto.Y, (byte)(OneOf(a) ? 1 : 0), a.B, 0, 0));
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x004a held item onto {a} in stash tab {tab}: {hex}");
+            await PlaceInStash(conn, tab, new InstanceItems.PlaceItem(a.InventoryId, onto.X, onto.Y, (byte)(OneOf(a) ? 1 : 0), a.B, 0, 0));
             return;
         }
         Item? held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
@@ -1579,48 +1579,48 @@ public static partial class Game
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a}: refused ({why}): {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x004a held item onto {a}: refused ({why}): {hex}");
             return;
         }
-        Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a}: {hex}");
-        if (done.Merged || done.Rest is not null) { await SendMerged(remote, stream, ciphers, items, done); return; }
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x004a held item onto {a}: {hex}");
+        if (done.Merged || done.Rest is not null) { await SendMerged(conn, items, done); return; }
         // Not a stack with room: swapped, as 0x2a on that cell.
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
+        await Send(conn, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
             $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
-        if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(conn, items);
+        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(conn);
         if (done.Row == PlayerInventories.PassiveJewels)
-            await SendPassiveJewelStats(remote, stream, ciphers, conn);
+            await SendPassiveJewelStats(conn);
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
     public static bool OneOf(InstanceItems.ItemAction a) => (a.Flags & 0x04) != 0;
 
     // A held stack went onto a stack of its type: that one grows in place (same id), the held one shrinks (same id) or is gone.
-    public static async Task SendMerged(string remote, NetworkStream stream, ConnectionCiphers ciphers, PlayerInventories items, PlayerInventories.Placement done)
+    public static async Task SendMerged(ClientState conn, PlayerInventories items, PlayerInventories.Placement done)
     {
         uint target = PlayerInventories.InventoryId(done.Row);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), done.Merged ? [done.Placed.Id] : [], [done.Placed]),
+        await Send(conn, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), done.Merged ? [done.Placed.Id] : [], [done.Placed]),
             $"0x00bf inventory {target}: " + (done.Merged ? $"stack {done.Placed.Id} now {done.Placed.Item.StackSize}" : $"add one as item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})")
             + (Items.ByHash(done.Placed.Item.TypeHash) is { } now && now.Hash != done.Held.Item.TypeHash ? $", became {now.Name}" : ""));
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], done.Rest is { } rest ? [rest] : []),
             $"0x00bf cursor: " + (done.Rest is { } r ? $"stack {r.Id} now {r.Item.StackSize}" : $"remove item {done.Held.Id} (merged)"));
     }
 
     // C→S 0x2a: put the held item into an inventory cell (PlayerInventories.Place). The target inventory gets one 0xbf (the
     // item it displaced removed, the held item added), the cursor another (the held item removed, the displaced one added).
-    public static async Task PlaceItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.PlaceItem place)
+    public static async Task PlaceItem(ClientState conn, InstanceItems.PlaceItem place)
     {
         if (await GameEvents.AnyInventoryPlace(conn, place)) return;
-        if (StashOf(conn).TabOf(place.InventoryId) is int tab) { await PlaceInStash(remote, stream, ciphers, conn, tab, place); return; }
+        if (StashOf(conn).TabOf(place.InventoryId) is int tab) { await PlaceInStash(conn, tab, place); return; }
         var items = ItemsOf(conn);
-        if (place.A != 0) Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: one of the held stack (Shift)");
+        if (place.A != 0) Console.WriteLine($"[gateway] {conn.Remote} <= 0x002a place {place}: one of the held stack (Shift)");
         PlayerInventories.Placement? done = null;
         string why = "unknown inventory";
         Item? placement;
@@ -1684,21 +1684,21 @@ public static partial class Game
         }
         if (done is null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x002a place {place}: refused ({why})");
             return;
         }
         if (done.Row == PlayerInventories.Flask) done = done with { Placed = EmptyIfEquippedInHostileArea(conn, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
-        if (done.Merged || done.Rest is not null) { await SendMerged(remote, stream, ciphers, items, done); return; }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
+        if (done.Merged || done.Rest is not null) { await SendMerged(conn, items, done); return; }
+        await Send(conn, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
             $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+        await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
-        if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
-        if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
+        if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(conn, items);
+        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(conn);
+        if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(conn);
     }
 
     static void CompletePassiveJewelMutationLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)

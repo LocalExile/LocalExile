@@ -179,15 +179,14 @@ public static partial class Game
             Stance = selected,
         };
 
-    public static async Task<bool> PublishStanceUse(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, StanceUseReceipt receipt, string name)
+    public static async Task<bool> PublishStanceUse(ClientState conn, StanceUseReceipt receipt, string name)
     {
         if (!receipt.Current(conn)) return false;
-        await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        await SendOwnAuraChanges(conn);
         if (!receipt.Current(conn)) return false;
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
+        await SendCharacterStats(conn, PlayerStatChange.Auras);
         if (!receipt.Current(conn)) return false;
-        await SendPlayerMana(remote, stream, ciphers, conn,
+        await SendPlayerMana(conn,
             $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         return receipt.Current(conn);
     }

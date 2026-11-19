@@ -67,7 +67,7 @@ public sealed class BossStageTests
             using var writer = new TcpClient();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             using var reader = await accepting;
-            var session = new Game.ProjectileSession("stage-test", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            var session = new Game.ProjectileSession(conn);
             var chronological = new SpawnedMonster("Hillock", new PlayerWalk(10, 10, 1), 60, 2, maxLife: 311)
             {
                 Stage = BossFights.For(hillock), StageRunning = true, Life = 141,

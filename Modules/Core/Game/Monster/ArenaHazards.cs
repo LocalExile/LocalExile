@@ -44,8 +44,8 @@ internal static class ArenaHazards
     internal static async Task Hit(ClientState p, uint id, SpawnedMonster source, MonsterAttack attack,
         Func<(int X, int Y), bool> inside, Func<bool> current, double minionFactor = 1)
     {
-        var w = p.Wire; MonsterHitOutcome? outcome = null;
-        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
+        MonsterHitOutcome? outcome = null;
+        await SendWorldRecord(p, id, [], null, atGate: () =>
         {
             lock (p.Monsters)
             {
@@ -55,20 +55,20 @@ internal static class ArenaHazards
                 foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     if (!g.Monster.Dead && inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, id, source, minion, now, area: true);
                 if (p.PlayerLife == 0 || !inside(p.Walk.Position(now))) return null;
-                outcome = CommitMonsterHitLocked(w.Remote, p, id, source, attack, now, p.Walk.Position(now),
+                outcome = CommitMonsterHitLocked(p, id, source, attack, now, p.Walk.Position(now),
                     source.Walk.Position(now), false, p.NextActionSequence());
                 return outcome?.HitPacket;
             }
         });
-        if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
+        if (outcome is not null) await PresentMonsterHit(p, id, outcome);
     }
     internal static async Task Ground(ClientState p, Exposure e, double now,
         Func<(int X, int Y), bool, DamagePacket> rawAt, Func<bool> current)
     {
         double seconds = double.IsNaN(e.Last) ? 0 : Math.Clamp(now - e.Last, 0, .5); e.Last = now;
         if (seconds == 0) return;
-        var w = p.Wire; bool shieldChanged = false, died = false;
-        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, [], null, atGate: () =>
+        bool shieldChanged = false, died = false;
+        await SendWorldRecord(p, PlayerId, [], null, atGate: () =>
         {
             lock (p.Monsters)
             {
@@ -126,7 +126,7 @@ internal static class ArenaHazards
                 return before == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
             }
         });
-        if (shieldChanged) await SendPlayerEnergyShield(w.Remote, w.Stream, w.Ciphers, p);
-        if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "campaign arena ground");
+        if (shieldChanged) await SendPlayerEnergyShield(p);
+        if (died) await PlayerDied(p, "campaign arena ground");
     }
 }

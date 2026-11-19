@@ -77,7 +77,7 @@ static partial class SurvivorsRunRules
     internal static IReadOnlyList<MonsterCatalog.Variety> SurvivorsRangedPool(SurvivorsRoster roster) =>
         roster.Ranged is { Count: > 0 } ranged ? ranged : [];
 
-    internal static async Task StartSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task StartSurvivors(ClientState conn,
         int? only = null)
     {
         if (!Enabled(conn)) return;
@@ -97,7 +97,7 @@ static partial class SurvivorsRunRules
             StateOf(conn).SurvivorsPausedByWindow = false;
             conn.PauseHeld = false;
             if (!conn.Clock.IsRunning) conn.Clock.Start();
-            await Send(remote, stream, ciphers, InstancePause.State(false),
+            await Send(conn, InstancePause.State(false),
                 "0x01d3 resumed (a previous window was closed)");
         }
         if (SurvivorsRosterFor(conn) is not { } roster)
@@ -123,15 +123,15 @@ static partial class SurvivorsRunRules
         if (only is int pick) run.Learn(pick);
         else run.RecordExperience(SurvivorsRules.LevelRequirement(1));
         var ownership = BindRun(conn, run);
-        await SurvivorsResetInventory(remote, stream, ciphers, conn);
+        await SurvivorsResetInventory(conn);
         if (!ownership.Current) return;
-        await SurvivorsGiveFlask(remote, stream, ciphers, conn);
+        await SurvivorsGiveFlask(conn);
         if (!ownership.Current) return;
         StateOf(conn).SurvivorsCatalog = catalog;
         StateOf(conn).SurvivorsSupports = supports;
         StateOf(conn).Stage = 0;
         // A run has no entry protection: the horde (and later the gate boss) must start pressing at once.
-        if (InGracePeriod(conn)) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+        if (InGracePeriod(conn)) await EndGracePeriod(conn, action: true);
         await conn.Commands!.Reply(
             "--- Survivors ---:\n" +
             $"Survive seven stages. Your skills cast themselves at the nearest monster. " +
@@ -145,34 +145,34 @@ static partial class SurvivorsRunRules
             "the supports a skill is missing); /survivors stop ends the run. /survivors curve prints the difficulty and " +
             "power curve.");
         if (!ownership.Current) return;
-        Console.WriteLine($"[gateway] {remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
+        Console.WriteLine($"[gateway] {conn.Remote} survivors run started in {conn.Layout.Id} at level {roster.Level}: " +
             $"{roster.Varieties.Count} varieties, {roster.Bosses.Count} boss(es), {run.MaxAlive} alive at most, " +
             $"base damage {roster.WeaponDamage} (skill scale {roster.SkillScale:0.###}), {catalog.Count} skills, " +
             $"{SurvivorsBlessingsFor(conn).Count} blessings");
         // The run hides the loot already lying in the area: the client forgets the objects and the instance drops them.
-        await SurvivorsClearGround(remote, stream, ciphers, conn);
+        await SurvivorsClearGround(conn);
         if (!ownership.Current) return;
         // The run's skills go out as Actor skills, which puts their gems and cooldowns on the skill bar.
-        await SendSkills(remote, stream, ciphers, conn);
+        await SendSkills(conn);
         if (!ownership.Current) return;
-        await SurvivorsPublishHeralds(remote, stream, ciphers, conn, run, catalog);
+        await SurvivorsPublishHeralds(conn, run, catalog);
         if (!ownership.Current) return;
         // Deal the opening window before the runner starts: the clock stops here, so the first spawn waits for the
         // pick and monsters are already frozen at the very start (the runner would otherwise spawn a wave first).
-        await SurvivorsOfferIfDue(remote, stream, ciphers, conn, run, catalog);
+        await SurvivorsOfferIfDue(conn, run, catalog);
         if (!ownership.Current) return;
-        StartRunner(conn, token => RunSurvivors(remote, stream, ciphers, conn, run, roster, catalog, stage: 0, token));
+        StartRunner(conn, token => RunSurvivors(conn, run, roster, catalog, stage: 0, token));
     }
 
     /// <summary>Restores a run that changed area, on the next connection.</summary>
-    internal static async Task ResumeSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task ResumeSurvivors(ClientState conn)
     {
         if (!Enabled(conn) || StateOf(conn).Survivors is not null || conn.Character is null) return;
         if (!SurvivorsCarried.TryRemove(conn.Ticket, out var carry) || carry.Character != conn.Character) return;
         if (DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
         if (SurvivorsRosterFor(conn) is not { Varieties.Count: > 0 } roster || SurvivorsCatalogFor(conn) is not { Count: > 0 } catalog)
         {
-            Console.WriteLine($"[gateway] {remote} survivors run cannot resume in {conn.Layout.Id}: " +
+            Console.WriteLine($"[gateway] {conn.Remote} survivors run cannot resume in {conn.Layout.Id}: " +
                 $"the area has no spawnable varieties");
             return;
         }
@@ -189,41 +189,41 @@ static partial class SurvivorsRunRules
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
+        await SendCharacterStats(conn, PlayerStatChange.Build);
         if (!ownership.Current) return;
-        Console.WriteLine($"[gateway] {remote} survivors run resumes in {conn.Layout.Id} (level {carry.Stage + 1}, " +
+        Console.WriteLine($"[gateway] {conn.Remote} survivors run resumes in {conn.Layout.Id} (level {carry.Stage + 1}, " +
             $"{carry.Run.Kills} kills, run level {carry.Run.Level})");
         // The player object was created without the run's skills: publish them, and the bar with them.
-        await SendSkills(remote, stream, ciphers, conn);
+        await SendSkills(conn);
         if (!ownership.Current) return;
-        await SendSkillBar(remote, stream, ciphers, conn);
+        await SendSkillBar(conn);
         if (!ownership.Current) return;
-        await SurvivorsPublishHeralds(remote, stream, ciphers, conn, carry.Run, catalog);
+        await SurvivorsPublishHeralds(conn, carry.Run, catalog);
         if (!ownership.Current) return;
         // The new area's ground too: the run keeps the map clear.
-        await SurvivorsClearGround(remote, stream, ciphers, conn);
+        await SurvivorsClearGround(conn);
         if (!ownership.Current) return;
         await conn.Commands!.Reply($"--- Level {carry.Stage + 1} ---\nThe run resumes: {SurvivorsClock(carry.Run.Elapsed)}, " +
             $"{carry.Run.Kills} kills.");
         if (!ownership.Current) return;
-        StartRunner(conn, token => RunSurvivors(remote, stream, ciphers, conn, carry.Run, roster, catalog, carry.Stage, token));
+        StartRunner(conn, token => RunSurvivors(conn, carry.Run, roster, catalog, carry.Stage, token));
     }
 
     /// <summary>Ends the run: no more spawns or casts, the run's skills off the Actor, and the result in chat. Safe when no
     /// run is active.</summary>
-    internal static async Task EndSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    internal static async Task EndSurvivors(ClientState conn, string why)
     {
         if (StateOf(conn).Survivors is not { } run) return;
-        await SurvivorsClearOrbs(remote, stream, ciphers, conn);
-        await SurvivorsClearGroundZones(remote, stream, ciphers, conn);
+        await SurvivorsClearOrbs(conn);
+        await SurvivorsClearGroundZones(conn);
         Release(conn, run);
         SurvivorsCarried.TryRemove(conn.Ticket, out _);
-        await SurvivorsClearHeralds(remote, stream, ciphers, conn);
+        await SurvivorsClearHeralds(conn);
         // Take the run's skills off the Actor and the bar: the client prunes the slots the ids no longer fill.
         if (conn.PlayerObjectCreated)
         {
-            await SendSkills(remote, stream, ciphers, conn);
-            await SendSkillBar(remote, stream, ciphers, conn);
+            await SendSkills(conn);
+            await SendSkillBar(conn);
         }
         string opening = why switch
         {
@@ -243,9 +243,8 @@ static partial class SurvivorsRunRules
     /// <summary>The /survivors command: start, stop, pick a choice without the window, or report the run.</summary>
     internal static async Task SurvivorsCommand(ClientState conn, string[] args)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         string what = args.Length == 0 ? "status" : args[0].ToLowerInvariant();
-        if (what == "start") { await StartSurvivors(remote, stream, ciphers, conn); return; }
+        if (what == "start") { await StartSurvivors(conn); return; }
         // Dev: restart the run with one named gem only, so each gem and its supports can be verified in isolation.
         if (what == "test")
         {
@@ -257,8 +256,8 @@ static partial class SurvivorsRunRules
                 await conn.Commands!.Reply("Usage: /survivors test <gem name>, e.g. /survivors test fireball.");
                 return;
             }
-            if (StateOf(conn).Survivors is not null) await EndSurvivors(remote, stream, ciphers, conn, "stopped");
-            await StartSurvivors(remote, stream, ciphers, conn, index);
+            if (StateOf(conn).Survivors is not null) await EndSurvivors(conn, "stopped");
+            await StartSurvivors(conn, index);
             await conn.Commands!.Reply($"Test run: {known[index].Name} only (dev).");
             return;
         }
@@ -302,8 +301,8 @@ static partial class SurvivorsRunRules
             int rank = args.Length > 1 && int.TryParse(args[1], out int wantedRank)
                 ? Math.Clamp(wantedRank, 1, SurvivorsRules.MaxRank) : SurvivorsRules.MaxRank;
             foreach (int index in devRun.Skills.Keys.ToList()) devRun.SetRank(index, rank);
-            await SendSkills(remote, stream, ciphers, conn);
-            await SendSkillBar(remote, stream, ciphers, conn);
+            await SendSkills(conn);
+            await SendSkillBar(conn);
             await conn.Commands!.Reply($"Every learned skill is at rank {rank} (dev).");
             return;
         }
@@ -329,9 +328,9 @@ static partial class SurvivorsRunRules
             if (index < 0) { await conn.Commands!.Reply("No Herald skill gem in the catalogue."); return; }
             heraldRun.Learn(index);
             await conn.Commands!.Reply($"Learned {heraldCatalog[index].Name} (herald, dev).");
-            await SendSkills(remote, stream, ciphers, conn);
-            await SendSkillBar(remote, stream, ciphers, conn);
-            await SurvivorsPublishHeralds(remote, stream, ciphers, conn, heraldRun, heraldCatalog);
+            await SendSkills(conn);
+            await SendSkillBar(conn);
+            await SurvivorsPublishHeralds(conn, heraldRun, heraldCatalog);
             return;
         }
         // Dev: link a named support to the first learned skill, for the per-support verification pass.
@@ -371,7 +370,7 @@ static partial class SurvivorsRunRules
                 await conn.Commands!.Reply($"Usage: /survivors unique <name>, e.g. /survivors unique The Searing Touch.");
                 return;
             }
-            bool equipped = await SurvivorsEquip(remote, stream, ciphers, conn, unique);
+            bool equipped = await SurvivorsEquip(conn, unique);
             await conn.Commands!.Reply(equipped
                 ? $"Equipped {wanted} (dev)." : $"{wanted} could not be equipped.");
             return;
@@ -435,13 +434,13 @@ static partial class SurvivorsRunRules
         // Dev: sweep the whole unique catalogue and report what can be equipped and what its mods do.
         if (what == "uniques")
         {
-            await SurvivorsUniqueReport(remote, stream, ciphers, conn);
+            await SurvivorsUniqueReport(conn);
             return;
         }
         if (what == "stop")
         {
             if (StateOf(conn).Survivors is null) { await conn.Commands!.Reply("No survivors run is active."); return; }
-            await EndSurvivors(remote, stream, ciphers, conn, "stopped");
+            await EndSurvivors(conn, "stopped");
             return;
         }
         if (what == "pick")
@@ -458,7 +457,7 @@ static partial class SurvivorsRunRules
             }
             int index = args.Length > 1 ? int.Parse(args[1]) : 0;
             if (index < 1 || index > picking.Offer.Count
-                || !await ApplySurvivorsChoice(remote, stream, ciphers, conn, picking.Offer[index - 1]))
+                || !await ApplySurvivorsChoice(conn, picking.Offer[index - 1]))
             {
                 await conn.Commands!.Reply($"Pick a number from 1 to {picking.Offer.Count}.");
                 return;
@@ -490,7 +489,7 @@ static partial class SurvivorsRunRules
             $"horde up to {run.TargetAlive} of {run.MaxAlive}." + offer);
     }
 
-    internal static async Task RunSurvivors(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task RunSurvivors(ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, IReadOnlyList<SurvivorsSkill> catalog, int stage, CancellationToken token)
     {
         // Each stage is one area: two minutes of horde (with its champions), then a gate boss whose death opens the
@@ -525,16 +524,16 @@ static partial class SurvivorsRunRules
                     continue;
                 }
                 run.Advance(step);
-                if (InGracePeriod(conn)) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
-                if (conn.PlayerLife == 0) { await EndSurvivors(remote, stream, ciphers, conn, "defeat"); break; }
-                await SurvivorsCollectOrbs(remote, stream, ciphers, conn, run);
+                if (InGracePeriod(conn)) await EndGracePeriod(conn, action: true);
+                if (conn.PlayerLife == 0) { await EndSurvivors(conn, "defeat"); break; }
+                await SurvivorsCollectOrbs(conn, run);
                 // Death ground zones: expire the old ones and drain life while the player stands inside one.
-                await SurvivorsAdvanceDeathZones(remote, stream, ciphers, conn, step);
+                await SurvivorsAdvanceDeathZones(conn, step);
                 // Dead monsters are removed after a short linger: a long run's corpses otherwise pile up and glitch.
                 if (now >= nextCorpseSweep)
                 {
                     nextCorpseSweep = now + 0.5;
-                    await SurvivorsSweepCorpses(remote, stream, ciphers, conn, horde);
+                    await SurvivorsSweepCorpses(conn, horde);
                 }
                 // The stage's own champions pay their ladder experience as an orb when they fall.
                 foreach (var (id, total) in bossBonuses.ToList())
@@ -549,7 +548,7 @@ static partial class SurvivorsRunRules
                     if (!dead) continue;
                     bossBonuses.Remove(id);
                     int bonus = total - SurvivorsRules.ExperienceForKill(MonsterRarity.Unique);
-                    if (bonus > 0) await SurvivorsDropOrb(remote, stream, ciphers, conn, at, bonus);
+                    if (bonus > 0) await SurvivorsDropOrb(conn, at, bonus);
                     await conn.Commands!.Reply(id == stageBoss
                         ? $"{bossName} falls. +{total} run experience."
                         : id == gateFight?.BossId
@@ -560,7 +559,7 @@ static partial class SurvivorsRunRules
                 if (!gateSpawned && run.Elapsed - stageStart >= SurvivorsRules.StageSeconds)
                 {
                     gateSpawned = true;
-                    gateFight = await SpawnSurvivorsGateBoss(remote, stream, ciphers, conn, roster, run, stage, horde, token);
+                    gateFight = await SpawnSurvivorsGateBoss(conn, roster, run, stage, horde, token);
                     if (gateFight is not null) bossBonuses[gateFight.BossId] = SurvivorsRules.BossExperience(stage);
                 }
                 // No cell for it: do not seal the run behind a boss that never arrived; the way opens instead.
@@ -573,7 +572,7 @@ static partial class SurvivorsRunRules
                     gateDefeated = true;
                     if (stage + 1 >= SurvivorsLevels.Length)
                     {
-                        await EndSurvivors(remote, stream, ciphers, conn, "victory");
+                        await EndSurvivors(conn, "victory");
                         break;
                     }
                     if (AreaTransitionCatalog.HashOf(SurvivorsLevels[stage + 1]) is { } nextArea)
@@ -585,27 +584,27 @@ static partial class SurvivorsRunRules
                         carried = true;
                         string nextName = AreaTransitionCatalog.NameOf(nextArea) ?? SurvivorsLevels[stage + 1];
                         await conn.Commands!.Reply($"--- Level {stage + 2} ---\nMoving to {nextName}.");
-                        await ChangeArea(remote, stream, ciphers, conn, transfer, "survivors level");
+                        await ChangeArea(conn, transfer, "survivors level");
                         break;
                     }
                 }
                 if (!gateSpawned && now >= nextSpawn)
                 {
                     nextSpawn = now + SurvivorsRules.SpawnIntervalSeconds;
-                    await SpawnSurvivorsWave(remote, stream, ciphers, conn, run, roster, horde);
+                    await SpawnSurvivorsWave(conn, run, roster, horde);
                 }
                 // The ground never shows loot during a run: anything dropped or placed is swept once a second.
                 if (now >= nextSweep)
                 {
                     nextSweep = now + 1;
-                    await SurvivorsClearGround(remote, stream, ciphers, conn);
+                    await SurvivorsClearGround(conn);
                 }
                 // The stage's champions arrive 15 s in and every minute after; the gate phase stops new hordes and rings.
                 if (!gateSpawned && roster.Bosses.Count > 0 && run.Elapsed >= nextBoss)
                 {
                     if (!bossSpawned)
                     {
-                        stageBoss = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, run, stage, horde);
+                        stageBoss = await SpawnSurvivorsBoss(conn, roster, run, stage, horde);
                         if (stageBoss != 0)
                         {
                             bossSpawned = true;
@@ -617,7 +616,7 @@ static partial class SurvivorsRunRules
                     }
                     else
                     {
-                        uint id = await SpawnSurvivorsBoss(remote, stream, ciphers, conn, roster, run, stage, horde,
+                        uint id = await SpawnSurvivorsBoss(conn, roster, run, stage, horde,
                             bossIndex: bossNumber);
                         if (id != 0)
                         {
@@ -632,13 +631,13 @@ static partial class SurvivorsRunRules
                 if (!gateSpawned && run.Elapsed >= nextRing)
                 {
                     nextRing = run.Elapsed + SurvivorsRingIntervalSeconds;
-                    await SpawnSurvivorsRing(remote, stream, ciphers, conn, run, roster, horde);
+                    await SpawnSurvivorsRing(conn, run, roster, horde);
                 }
                 // Every twenty seconds a ring of archers/wands shoots from 22 cells: standing still is not safe.
                 if (!gateSpawned && run.Elapsed >= nextRanged)
                 {
                     nextRanged = run.Elapsed + SurvivorsRules.RangedWaveIntervalSeconds;
-                    await SpawnSurvivorsRangedRing(remote, stream, ciphers, conn, run, roster, horde);
+                    await SpawnSurvivorsRangedRing(conn, run, roster, horde);
                 }
                 foreach (var (skill, rank) in run.Skills)
                 {
@@ -646,18 +645,18 @@ static partial class SurvivorsRunRules
                     double ready;
                     lock (conn.Monsters) nextFire.TryGetValue(skill, out ready);
                     if (now < ready) continue;
-                    double fired = await SurvivorsCast(remote, stream, ciphers, conn, run, roster, catalog[skill], rank, skill);
+                    double fired = await SurvivorsCast(conn, run, roster, catalog[skill], rank, skill);
                     // The cast returns the interval from the gem's own cast time; an empty cast (nothing in reach)
                     // retries sooner than a full cooldown.
                     lock (conn.Monsters) nextFire[skill] = now + (fired > 0 ? fired : 0.2);
                 }
-                await SurvivorsOfferIfDue(remote, stream, ciphers, conn, run, catalog);
+                await SurvivorsOfferIfDue(conn, run, catalog);
                 if (run.Elapsed >= nextReport)
                 {
                     nextReport = run.Elapsed + 10;
                     int alive;
                     lock (conn.Monsters) alive = horde.Count(id => conn.Monsters.GetValueOrDefault(id) is { Dead: false, Life: > 0 });
-                    Console.WriteLine($"[gateway] {remote} survivors {SurvivorsClock(run.Elapsed)}: horde {alive}/{run.TargetAlive}, " +
+                    Console.WriteLine($"[gateway] {conn.Remote} survivors {SurvivorsClock(run.Elapsed)}: horde {alive}/{run.TargetAlive}, " +
                         $"{run.Kills} kills, run level {run.Level}, {run.Skills.Count} skills, {run.Blessings.Count} blessings, level {stage + 1}");
                 }
                 await Task.Delay(SurvivorsStepMs, token);
@@ -672,13 +671,13 @@ static partial class SurvivorsRunRules
             if (!carried && ReferenceEquals(StateOf(conn).Survivors, run))
             {
                 Release(conn, run);
-                Console.WriteLine($"[gateway] {remote} survivors run ended early at {SurvivorsClock(run.Elapsed)} " +
+                Console.WriteLine($"[gateway] {conn.Remote} survivors run ended early at {SurvivorsClock(run.Elapsed)} " +
                     $"with {run.Kills} kills (area change or closed connection)");
             }
         }
     }
 
-    internal static async Task SpawnSurvivorsWave(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task SpawnSurvivorsWave(ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         if (roster.Varieties.Count == 0) return;
@@ -699,7 +698,7 @@ static partial class SurvivorsRunRules
                 ? ranged[Random.Shared.Next(ranged.Count)]
                 : roster.Varieties[pool[Random.Shared.Next(pool.Length)]];
             if (SurvivorsSpawnCell(conn, 60) is not { } cell) continue;
-            horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
+            horde.Add(await SpawnMonster(conn, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
                 log: false, extraMods: SurvivorsMonsterMods(run, isRanged)));
         }
     }
@@ -708,8 +707,7 @@ static partial class SurvivorsRunRules
     /// A ring of the area's ranged varieties, every twenty run-seconds: the archers/wands/mortars that shoot at the
     /// player from 22 cells, so standing still means eating projectiles.
     /// </summary>
-    internal static async Task SpawnSurvivorsRangedRing(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
+    internal static async Task SpawnSurvivorsRangedRing(ClientState conn, SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         var ranged = SurvivorsRangedPool(roster);
         if (ranged.Count == 0) return;
@@ -723,11 +721,11 @@ static partial class SurvivorsRunRules
             int x = (int)Math.Round(px + Math.Cos(angle) * 44), y = (int)Math.Round(py + Math.Sin(angle) * 44);
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
             if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
-            horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, SurvivorsRarity(run), x, y,
+            horde.Add(await SpawnMonster(conn, variety, roster.Level, SurvivorsRarity(run), x, y,
                 log: false, extraMods: SurvivorsMonsterMods(run, ranged: true)));
             spawned++;
         }
-        Console.WriteLine($"[gateway] {remote} survivors ranged ring at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
+        Console.WriteLine($"[gateway] {conn.Remote} survivors ranged ring at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
         if (spawned > 0) await conn.Commands!.Reply("Archers close in!");
     }
 
@@ -735,7 +733,7 @@ static partial class SurvivorsRunRules
     /// Halfway between bosses, a closing ring of the moment's weakest: 28 bodies at the start, 88 by the end. The
     /// reference mode's surround wave, which punishes standing still more than the trickle does.
     /// </summary>
-    internal static async Task SpawnSurvivorsRing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task SpawnSurvivorsRing(ClientState conn,
         SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         if (roster.Varieties.Count == 0) return;
@@ -750,25 +748,25 @@ static partial class SurvivorsRunRules
             int x = (int)Math.Round(px + Math.Cos(angle) * 52), y = (int)Math.Round(py + Math.Sin(angle) * 52);
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
             if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
-            horde.Add(await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, MonsterRarity.Normal, x, y,
+            horde.Add(await SpawnMonster(conn, variety, roster.Level, MonsterRarity.Normal, x, y,
                 log: false, extraMods: SurvivorsMonsterMods(run)));
             spawned++;
         }
-        Console.WriteLine($"[gateway] {remote} survivors ring wave at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
+        Console.WriteLine($"[gateway] {conn.Remote} survivors ring wave at {SurvivorsClock(run.Elapsed)}: {spawned} of {count} spawned");
         if (spawned > 0) await conn.Commands!.Reply("They're surrounding you!");
     }
 
-    internal static async Task<uint> SpawnSurvivorsBoss(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<uint> SpawnSurvivorsBoss(ClientState conn,
         SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde, int bossIndex = 0)
     {
         if (roster.Bosses.Count == 0) return 0;
         var boss = roster.Bosses[bossIndex % roster.Bosses.Count];
         if (SurvivorsSpawnCell(conn, 24) is not { } cell)
         {
-            Console.WriteLine($"[gateway] {remote} survivors: no cell for boss {boss.Name}");
+            Console.WriteLine($"[gateway] {conn.Remote} survivors: no cell for boss {boss.Name}");
             return 0;
         }
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, boss, roster.Level, MonsterRarity.Unique, cell.X, cell.Y,
+        uint id = await SpawnMonster(conn, boss, roster.Level, MonsterRarity.Unique, cell.X, cell.Y,
             mods: SurvivorsBossMods(roster, boss, run, stage));
         horde.Add(id);
         string area = SurvivorsAreaName(conn.Layout.Id);

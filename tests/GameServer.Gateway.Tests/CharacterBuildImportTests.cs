@@ -95,7 +95,7 @@ public sealed class CharacterBuildImportTests
             ChatCommands Commands()
             {
                 var commands = new ChatCommands { Send = (_, _) => Task.CompletedTask, Reply = player.Tell };
-                foreach (var build in GameEvents.CommandsBuilding.All) commands = build(commands, "", null!, null!, conn);
+                foreach (var build in GameEvents.CommandsBuilding.All) commands = build(commands, conn);
                 return commands;
             }
             Directory.CreateDirectory(Path.Combine(mods, "probe"));
@@ -270,7 +270,7 @@ public sealed class CharacterBuildImportTests
             var admitted = new ClientState(new(1, "pob-readiness", 1000, 1000, 100, 100, null, []), 1, 1)
             { Character = record.Name, CharacterId = record.Id, ClassRow = row,
                 Pools = CharacterStats.For(Program.Skills.ClassFor(row), 90) };
-            Game.PrepareCharacterForArea("test", admitted, 90);
+            Game.PrepareCharacterForArea(admitted, 90);
             Assert.Empty(CharacterEquipmentState.Inactive[record.Name]);
             Assert.Equal(Program.Skills.ClassFor(row).Strength + addedStrength, (int)admitted.Pools.Strength);
             var importedSkill = Game.GemSkillEffects(admitted).Single(g => g.Name == "Fireball");

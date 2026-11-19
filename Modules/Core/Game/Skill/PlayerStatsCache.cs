@@ -299,10 +299,9 @@ public static partial class Game
             (why, frame.Publish, frame.PublishValues) = (frame.Publish, null, false);
             frame.Published++;
         }
-        var (remote, stream, ciphers) = conn.Wire;
         frame.Publishing = AsPlayer(conn, updates, () => why is { } asked
-            ? PublishCharacterStats(remote, stream, ciphers, conn, asked)
-            : PublishStatValues(remote, stream, ciphers, conn));
+            ? PublishCharacterStats(conn, asked)
+            : PublishStatValues(conn));
     }
 
     static StatGraph PlayerStatGraph(ClientState conn, FrameStats frame)

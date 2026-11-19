@@ -213,10 +213,10 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
             Rules.EnsurePlayerUpdates(conn);
     }
-    public Task WorldFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart) =>
-        Rules.LockstepFrameEnded(remote, stream, ciphers, conn, nextFrameStart);
-    public Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt) =>
-        Rules.OnClientMessages(remote, stream, ciphers, messages, unknown, conn, readAt);
+    public Task WorldFrameEnded(ClientState conn, double nextFrameStart) =>
+        Rules.LockstepFrameEnded(conn, nextFrameStart);
+    public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt) =>
+        Rules.OnClientMessages(messages, unknown, conn, readAt);
 
     public void Admitting(ClientState conn) => Rules.RegisterVitalsAdmission(conn);
 
@@ -248,10 +248,10 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         return true;
     }
 
-    public int PrepareCharacter(string remote, ClientState conn, int level)
+    public int PrepareCharacter(ClientState conn, int level)
     {
         Rules.RefuseInterruptedHardcoreDeath(conn);
-        level = Rules.PrepareCharacterForArea(remote, conn, level);
+        level = Rules.PrepareCharacterForArea(conn, level);
         global::KitavaActTen.ConfigurePortal(conn);
         // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
         Rules.InitializeCharacterVitals(conn);
@@ -260,7 +260,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
 
     public IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn) => Rules.LeagueStatsFor(conn);
 
-    public async Task Entered(string remote, ClientState conn, int level, int ticketLevel)
+    public async Task Entered(ClientState conn, int level, int ticketLevel)
     {
         // The client generates the area from here (S→C 0x1d) until its 0x7d: the packs are planned meanwhile.
         Rules.PlanPopulationAhead(conn);
@@ -268,10 +268,10 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         {
             // The saved experience is the character's level: Auth's (the ticket's) was not updated at the last level-up.
             var fixedLevel = await Rules.SynchronizeAccountLevel(conn);
-            Console.WriteLine($"[gateway] {remote} {Program.CharacterName(conn)}: level {level} from the saved experience (the account had {ticketLevel})" +
+            Console.WriteLine($"[gateway] {conn.Remote} {Program.CharacterName(conn)}: level {level} from the saved experience (the account had {ticketLevel})" +
                 (fixedLevel.Ok ? "" : $"; not saved to the account: {fixedLevel.Error}"));
         }
-        Console.WriteLine($"[gateway] {remote} {Program.CharacterName(conn)}: {Rules.SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
+        Console.WriteLine($"[gateway] {conn.Remote} {Program.CharacterName(conn)}: {Rules.SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType} (Characters row {conn.ClassRow}), level {conn.Pools.Level} (experience {conn.Experience}, {conn.Passives.Count} passive(s), life {conn.Pools.Life}, mana {conn.Pools.Mana}, attack speed +{conn.Pools.AttackSpeedPct}%), league {conn.League ?? "?"}");
     }
 
     public void Closing(ClientState conn)

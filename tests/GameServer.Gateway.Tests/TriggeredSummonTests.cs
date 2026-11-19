@@ -57,7 +57,7 @@ public sealed class TriggeredSummonTests
             if (name == "Raise Zombie")
             {
                 var zombie = Assert.Single(f.Conn.Summons.Fighters).Value;
-                uint restored = await Game.SummonFighter("restore", f.Stream, f.Ciphers, f.Conn, source,
+                uint restored = await Game.SummonFighter(f.Conn, source,
                     Game.SummonData.Find("RaiseZombie")!, (100,100), restoredVariety: zombie.Monster.Variety!.Id, life: .5);
                 Assert.NotEqual(0u, restored); // Restoring a persistent triggered minion is not a manual cast.
                 Assert.InRange(f.Conn.Summons.Fighters[restored].Monster.Life / (double)zombie.Monster.MaxLife, .49, .51);
@@ -155,12 +155,12 @@ public sealed class TriggeredSummonTests
             reader = accept.GetAwaiter().GetResult();
             drain = Task.Run(async () => { try { var bytes = new byte[65536]; while (await reader.GetStream().ReadAsync(bytes) > 0) { } }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { } });
-            Session = new("trigger-summon", Stream, Ciphers, Conn);
+            Session = new(Conn);
         }
         internal Task<uint> Summon(string effect, uint target)
         {
             ushort source = Game.GemSkillEffects(Conn).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
-            return Game.SummonFighter("test", Stream, Ciphers, Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
+            return Game.SummonFighter(Conn, source, Game.SummonData.Find(effect)!, (100, 100), target);
         }
         internal ushort[] Equip(params (string Name, int Level)[] gems)
         {

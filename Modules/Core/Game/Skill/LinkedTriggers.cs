@@ -89,7 +89,7 @@ public static partial class Game
             state.Rotation[key] = (source, (index + 1) % source.Spells.Length);
             release();
             if (mana > 0 || life > 0)
-                session.Enqueue(() => SendSkillCost(session.remote, session.stream, session.ciphers, conn, life, family + " cost"));
+                session.Enqueue(() => SendSkillCost(conn, life, family + " cost"));
             return true;
         }
         return false;

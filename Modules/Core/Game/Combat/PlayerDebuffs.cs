@@ -102,11 +102,10 @@ public static partial class Game
             instance = conn.NextBuff++;
             set.Active.Add(new(instance, row, caster, stats, holder is null ? now + seconds : double.PositiveInfinity, holder));
         }
-        var (remote, stream, ciphers) = conn.Wire;
         foreach (ushort old in replaced)
-            await Send(remote, stream, ciphers, GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(PlayerId, old), null);
+            await Send(conn, GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(PlayerId, old), null);
         if (row != 0)
-            await Send(remote, stream, ciphers, BuffRows.Add(PlayerId, instance, row, caster, stats, holder is null ? seconds : null),
+            await Send(conn, BuffRows.Add(PlayerId, instance, row, caster, stats, holder is null ? seconds : null),
                 $"0x01c1 the player gets {info?.Id ?? row.ToString()} from 0x{caster:x}" + (holder is null ? $" for {seconds:0.#} s" : " while in it"));
         await RefreshDebuffedPlayer(conn);
     }
@@ -141,10 +140,9 @@ public static partial class Game
 
     static async Task EndPlayerDebuffs(ClientState conn, PlayerDebuffSet set, IReadOnlyList<ushort> instances)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         if (!conn.Closed)
             foreach (ushort instance in instances)
-                await Send(remote, stream, ciphers, GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(PlayerId, instance), null);
+                await Send(conn, GameServer.Core.Protocol.Instance.InstanceEntities.RemoveBuff(PlayerId, instance), null);
         await RefreshDebuffedPlayer(conn);
     }
 
@@ -159,7 +157,7 @@ public static partial class Game
             conn.Degens[DebuffsOf.GetValue(conn, _ => new())] = DebuffDegenLocked(conn);
         }
         var wire = conn.Wire;
-        await SendPlayerStatSnapshot(wire.Remote, wire.Stream, wire.Ciphers, conn, () => PlayerStatsOffFrames(conn), null);
+        await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn), null);
     }
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over

@@ -177,7 +177,7 @@ public static partial class Game
                 timer.Running = false;
                 return false;
             }
-        }, async (remote, stream, ciphers, conn) =>
+        }, async conn =>
         {
             double now = updates.Schedule.Now(conn);
             int steps;
@@ -190,7 +190,7 @@ public static partial class Game
             if (steps == 0) return;
             foreach (var skill in FootstepSkills(conn, now))
                 for (int i = 0; i < steps && PlayerUpdatesCurrent(conn, updates); i++)
-                    await TriggerFootstepSkill(remote, stream, ciphers, conn, skill);
+                    await TriggerFootstepSkill(conn, skill);
         });
     }
 
@@ -250,7 +250,7 @@ public static partial class Game
     // hostile monster within its radius (FootstepExplosionRadius grown by area of effect, SkillArea) of the player, as an
     // area spell's sweep (AreaSkillHit) without a gem: no cost, no cast time, crits and rolls per monster, every hit before
     // the sweep's deaths. A landed hit ignites a surviving monster with its 25% chance or a critical strike (IgniteFromHit).
-    public static async Task TriggerFootstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task TriggerFootstepSkill(ClientState conn,
         PassiveGrantedSkills.Grant skill)
     {
         var rules = CombatLifetime; var source = AscendancyPolicies.SourceOwner(conn);
@@ -286,7 +286,7 @@ public static partial class Game
                     return InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                         new EffectObject(at.X, at.Y, art!).Blob());
                 }
-            }, wake: true, transport: (remote, stream, ciphers));
+            }, wake: true);
         if (!CurrentSource() || targets.Count == 0) return;
 
         using (ProjectileMutation(conn))
@@ -366,7 +366,7 @@ public static partial class Game
                 var applied = ApplyMonsterHitLocked(conn, m, damage);
                 if (applied is { StageStarts: true } staged)
                 {
-                    CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
+                    CommitBossStage(conn, id, m, ProjectileWorldTime(conn));
                     applied = staged with { StageStarts = false };
                 }
                 if (applied is not null)
@@ -395,7 +395,7 @@ public static partial class Game
             foreach (var (id, m) in deaths) CommitAcceptedKillLocked(conn, id, m, ProjectileWorldTime(conn), playerKill: true, charges);
             if (charges.Count > 0) CommitAcceptedChargeBatchLocked(conn, charges, player);
         }
-        await PublishMinionOutcomesFor(remote, stream, ciphers, conn, rules);
+        await PublishMinionOutcomesFor(conn, rules);
     }
 
     // The current footstep role removes accepted temporary art at its pause-clock deadline, including
@@ -410,7 +410,7 @@ public static partial class Game
         AfterAsPlayer(conn, seconds, SendTemporarySkillEffects);
     }
 
-    public static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendTemporarySkillEffects(ClientState conn) =>
         conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
@@ -424,5 +424,5 @@ public static partial class Game
                 foreach (uint id in due) records.Remove(id);
                 return records.Build();
             }
-        }, transport: (remote, stream, ciphers));
+        });
 }

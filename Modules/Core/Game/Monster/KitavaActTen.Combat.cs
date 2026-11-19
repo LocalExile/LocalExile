@@ -243,11 +243,11 @@ static partial class KitavaActTen
         }
         async Task Damage(ClientState p, Hit hit)
         {
-            var w = p.Wire; MonsterHitOutcome? outcome = null; var attack = Attack(p, body.Variety!, body.Level, hit.Effect);
+            MonsterHitOutcome? outcome = null; var attack = Attack(p, body.Variety!, body.Level, hit.Effect);
             bool Inside((int X, int Y) at) => hit.Cross ? Distance(at, hit.Aim) <= hit.Radius
                 && Math.Min(Math.Abs(at.X - hit.Aim.X - at.Y + hit.Aim.Y), Math.Abs(at.X - hit.Aim.X + at.Y - hit.Aim.Y)) <= (hit.Effect == 6589 ? 11 : 6)
                 : hit.End is { } end ? LineDistance(at, hit.Aim, end) <= hit.Radius : Distance(at, hit.Aim) <= hit.Radius;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
+            await SendWorldRecord(p, id, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -257,11 +257,11 @@ static partial class KitavaActTen
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id))) GolemTakeHitLocked(p, g, id, body, ma, now, area: true);
                     if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struck.Add((hit.Group, p, PlayerId))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, id, body, attack, now, p.Walk.Position(now), hit.Aim, false, p.NextActionSequence());
+                    outcome = CommitMonsterHitLocked(p, id, body, attack, now, p.Walk.Position(now), hit.Aim, false, p.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
         async Task Fx(ClientState c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
         {

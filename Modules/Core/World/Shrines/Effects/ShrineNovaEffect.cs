@@ -100,8 +100,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                             var mitigated = DamageModel.Mitigate(packet.Roll(Random.Shared), type => MonsterHitResistance(monster, type, default));
                             dealt = MonsterTakesMitigated(monster, mitigated, spell: true);
                         }
-                        if (dealt <= 0 || !await HitMonster(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
-                            conn, id, monster, dealt, cold ? "shrine Ice Nova" : "shrine Shock Nova", log: false)) continue;
+                        if (dealt <= 0 || !await HitMonster(conn, id, monster, dealt, cold ? "shrine Ice Nova" : "shrine Shock Nova", log: false)) continue;
                         lock (conn.Monsters)
                             if (!monster.Dead && monster.Life > 0)
                                 monster.Ailments.Inflict(DamagePacket.Of(spell.Element, dealt, dealt), false,
@@ -129,7 +128,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
             Set("total_skill_area_of_effect_radius_+%_including_final", spell.RadiusPercent);
             var skill = catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]);
             if (skill is null) return false;
-            daemon = await SpawnMonster(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, variety,
+            daemon = await SpawnMonster(conn, variety,
                 ShrineManager.AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y, friendly: true, log: false, alone: false, scripted: true,
                 ownedSkills: [skill], placement: MonsterPlacement.Established,
                 owned: (_, m) =>
@@ -146,7 +145,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
             if (!conn.Monsters.TryGetValue(daemon, out var monster)) { daemon = 0; return false; }
             monster.Walk.Teleport(at.X, at.Y, now);
         }
-        await SendWorldRecord(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, daemon,
+        await SendWorldRecord(conn, daemon,
             [.. InstanceProtocol.ActionStarted(daemon, at.X, at.Y, at.X, at.Y, skillId, 0xffff, conn.MonsterOrderFlags),
                 .. InstanceProtocol.ActionEnded(daemon)], $"shrine nova {spell.Effect}, radius {spell.Radius}");
         return true;

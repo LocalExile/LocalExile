@@ -335,7 +335,7 @@ public class DormantMonsterTests
                 Assert.True(MonsterEmerge.StartWatch(conn));
             }
             rules.Stop(ex => throw ex);
-            await Game.RunEmergeWatch("emerge-reload", null!, null!, conn);
+            await Game.RunEmergeWatch(conn);
             lock (conn.Monsters)
             {
                 Assert.Contains(0x3050u, instance.World.EmergeGround.Lurking);
@@ -389,7 +389,7 @@ public class DormantMonsterTests
                 Variety = variety, Level = 1, Rarity = MonsterRarity.Normal,
             };
             conn.Instance.Monsters = SavedMonster.Save([active], 0, [buried]);
-            await Game.PopulateArea("restore-cells", stream, ciphers, conn);
+            await Game.PopulateArea(conn);
             var activeEntry = Assert.Single(conn.Monsters);
             var buriedEntry = Assert.Single(MonsterEmerge.Buried(conn));
             Assert.Equal((50, 50), activeEntry.Value.Walk.Position(0));
@@ -407,7 +407,7 @@ public class DormantMonsterTests
             Assert.Equal([(activeEntry.Key, 50, 50), (buriedEntry.Key, 53, 50)], creates);
 
             // A newly proposed spawn still uses the existing placement policy; restoration is a distinct contract.
-            uint fresh = await Game.SpawnMonster("restore-cells", stream, ciphers, conn, variety, 1,
+            uint fresh = await Game.SpawnMonster(conn, variety, 1,
                 MonsterRarity.Normal, 50, 50, log: false, mods: MonsterModSet.None, unrisen: false);
             Assert.NotEqual((50, 50), conn.Monsters[fresh].Walk.Position(0));
 
@@ -433,7 +433,7 @@ public class DormantMonsterTests
             Assert.Equal(MonsterEmerge.UnrisenState, origin.Object.TransitionState);
             byte[] dormantCreate = GameServer.Core.Protocol.Instance.InstanceEntities.CreateObject(buriedEntry.Key,
                 origin.Type, (origin.Object with { Life = buriedEntry.Value.Life }).Blob(), headerU32: uint.MaxValue);
-            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            await Game.SyncInstanceMonsters(peer);
             Assert.Contains(sent, bytes => bytes.AsSpan().IndexOf(dormantCreate) >= 0);
             Assert.Contains(buriedEntry.Key, peer.MonsterViews.Keys);
             Assert.Contains(buriedEntry.Key, peer.AwakeMonsters);
@@ -442,12 +442,12 @@ public class DormantMonsterTests
             Assert.Contains(buriedEntry.Key, peer.AwakeMonsters);
             Assert.DoesNotContain(buriedEntry.Key, peer.RunMonsters);
             sent.Clear();
-            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
-            await Game.SyncInstanceMonsters("restore-cells", stream, ciphers, conn);
+            await Game.SyncInstanceMonsters(peer);
+            await Game.SyncInstanceMonsters(conn);
             Assert.Empty(sent);
             Assert.Contains(buriedEntry.Key, conn.MonsterViews.Keys);
             peer.AsleepMonsters.Add(buriedEntry.Key);
-            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            await Game.SyncInstanceMonsters(peer);
             Assert.DoesNotContain(buriedEntry.Key, peer.AwakeMonsters);
             Assert.Contains(buriedEntry.Key, peer.MonsterViews.Keys);
             Assert.Empty(sent);
@@ -456,12 +456,12 @@ public class DormantMonsterTests
             // A runner handoff must rebind even dormant walkers to the new connection's collision/frame view.
             var oldWalk = buriedEntry.Value.Walk;
             conn.Closed = true;
-            Assert.False(Game.ClaimMonsterHost("restore-peer", peer));
+            Assert.False(Game.ClaimMonsterHost(peer));
             Assert.Same(peer, conn.Instance.World.Runner);
             Assert.NotSame(oldWalk, buriedEntry.Value.Walk);
             Assert.Equal((53, 50), buriedEntry.Value.Walk.Position(1));
             Assert.Equal(peer.LockstepFrame, buriedEntry.Value.Walk.FrameOf!(1));
-            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            await Game.SyncInstanceMonsters(peer);
             Assert.Contains(buriedEntry.Key, peer.AwakeMonsters);
 
             // Rising keeps the already-created object. Its actual component/action sends precede a sync that
@@ -472,14 +472,14 @@ public class DormantMonsterTests
                 risen = Assert.Single(new MonsterEmerge().RiseLocked(peer, (53, 50), 1, out watching));
             Assert.False(watching);
             Assert.Same(buriedEntry.Value, risen.Monster);
-            await Game.Emerge("restore-peer", stream, peerCiphers, peer, risen.Id, risen.Monster, risen.At, risen.Seconds);
+            await Game.Emerge(peer, risen.Id, risen.Monster, risen.At, risen.Seconds);
             Assert.Equal(2, sent.Count);
             Assert.Equal(GameServer.Core.Protocol.Instance.InstanceEntities.TransitionableUpdate(risen.Id,
                 (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), MonsterEmerge.RisenState(variety)), sent[0]);
             Assert.Equal(0x01ab, BinaryPrimitives.ReadUInt16BigEndian(sent[1]));
             Assert.Equal(risen.Id, BinaryPrimitives.ReadUInt32BigEndian(sent[1].AsSpan(2)));
             sent.Clear();
-            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            await Game.SyncInstanceMonsters(peer);
             Assert.Empty(sent);
             Assert.Same(buriedEntry.Value, peer.Monsters[risen.Id]);
             Assert.Contains(risen.Id, peer.MonsterViews.Keys);
@@ -488,7 +488,7 @@ public class DormantMonsterTests
             conn.Closed = false;
             conn.Instance.World.Runner = conn;
             lock (conn.Monsters) Assert.True(conn.Monsters.Remove(risen.Id));
-            await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
+            await Game.SyncInstanceMonsters(peer);
             var removal = GameServer.Core.Protocol.Instance.InstanceProtocol.RemoveObject(risen.Id);
             BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
             Assert.Equal(removal, Assert.Single(sent));

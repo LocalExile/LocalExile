@@ -148,7 +148,7 @@ public static partial class Game
     // that keeps the skill's own cooldown ticket and the Vaal/channel admission but not the token; what still stops a
     // stray placement is everything below. A live round should measure casts attempted against totems actually placed
     // (Agents/docs/protocol/11-skills.md §10g).
-    static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task PlaceTotem(ClientState conn,
         ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
     {
         double factor, speed;
@@ -177,7 +177,7 @@ public static partial class Game
         bool spell = SpellTotemEffect(conn, effect);
         double contact = spell ? start + seconds * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject) : placedAt;
         if (await WaitUntil(contact))
-            await CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, at, Valid,
+            await CreateTotem(conn, skillId, effect, level, variety, at, Valid,
                 spell ? () => WaitUntil(placedAt) : null);
     }
 
@@ -188,11 +188,11 @@ public static partial class Game
     /// and the skill's), replacing the oldest. Its aura's stats and radius are the skill's at this moment. Null when the
     /// limit is below one (the client refuses the use itself then) or the player is gone.
     /// </summary>
-    public static Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task<uint?> CreateTotem(ClientState conn,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null) =>
-        CreateTotem(remote, stream, ciphers, conn, skillId, effect, gemLevel, variety, at, current, null);
+        CreateTotem(conn, skillId, effect, gemLevel, variety, at, current, null);
 
-    internal static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<uint?> CreateTotem(ClientState conn,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
         Func<Task<bool>>? finishPlacement)
     {
@@ -311,7 +311,7 @@ public static partial class Game
                 created = objectId;
                 return bytes.Build();
             }
-        }, transport: (remote, stream, ciphers));
+        });
         if (created is not uint pendingId || finishPlacement is null) return created;
         bool active = false;
         try
@@ -339,7 +339,7 @@ public static partial class Game
                         active = true;
                         return bytes.Build();
                     }
-                }, transport: (remote, stream, ciphers));
+                });
                 if (!paused) break;
             }
             return active ? pendingId : null;
@@ -347,7 +347,7 @@ public static partial class Game
         finally
         {
             if (!active && !conn.Closed && !conn.LeavingArea)
-                await SendWorldRemoval(remote, stream, ciphers, conn, pendingId, "cancelled totem placement");
+                await SendWorldRemoval(conn, pendingId, "cancelled totem placement");
         }
     }
 
@@ -460,7 +460,7 @@ public static partial class Game
     // The nova's contact is scheduled on the projectile runtime, as the Arc totem's release is: a hit can kill, and a kill
     // takes the XP gate, which goes before the Monsters lock (ProjectileMutationScope). This tick holds only the Monsters
     // lock, so a kill committed here deadlocked against any scope waiting on it (live 2026-11-17).
-    static void TotemUseLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void TotemUseLocked(ClientState conn,
         TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
         if (conn.PlayerLife == 0) return;
@@ -469,7 +469,7 @@ public static partial class Game
         double range = TotemTargetRange(conn, totem.SkillId);
         if (!conn.Monsters.Values.Any(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range)) return;
         if (TotemCastSeconds(conn, totem.SkillId) is not double seconds) return;
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         ushort sequence = ++totem.Sequence;
         strike.NextCast = now + seconds;
         bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
@@ -575,18 +575,17 @@ public static partial class Game
     /// <summary>A dedicated totem skill novas or devours; a totemified spell flies through
     /// <see cref="TickSpellTotemsLocked"/> instead, which keys on <c>Effect >= 0</c>, so neither double-casts the other's
     /// totems.</summary>
-    static void TickTotemUsesLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WorldRecordBuilder bytes)
+    static void TickTotemUsesLocked(ClientState conn, WorldRecordBuilder bytes)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var t in conn.Totems.Living(now).Where(t => t.Effect < 0).ToArray())
-            TotemUseLocked(remote, stream, ciphers, conn, t, now, bytes);
+            TotemUseLocked(conn, t, now, bytes);
     }
 
     /// <summary>The same tick, taking the lock and dropping the records: what each totem's own use does to the world.</summary>
-    public static void TickTotemUses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static void TickTotemUses(ClientState conn)
     {
-        lock (conn.Monsters) TickTotemUsesLocked(remote, stream, ciphers, conn, new WorldRecordBuilder(conn, null));
+        lock (conn.Monsters) TickTotemUsesLocked(conn, new WorldRecordBuilder(conn, null));
     }
 
     // While the player has totems, every frame: their casts and uses, expiry, removal, life and aura.
@@ -611,16 +610,16 @@ public static partial class Game
         }, SendTotems);
     }
 
-    static Task SendTotems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    static Task SendTotems(ClientState conn) =>
         SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Paused || conn.Closed || conn.LeavingArea) return null;
                 var bytes = new WorldRecordBuilder(conn, admission);
-                TickSpellTotemsLocked(remote, stream, ciphers, conn, bytes);
-                TickTotemUsesLocked(remote, stream, ciphers, conn, bytes);
+                TickSpellTotemsLocked(conn, bytes);
+                TickTotemUsesLocked(conn, bytes);
                 return TotemRecords(conn, bytes);
             }
-        }, transport: (remote, stream, ciphers));
+        });
 }

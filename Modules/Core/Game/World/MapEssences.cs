@@ -138,22 +138,21 @@ public static class MapEssences
         var shown = Presented.GetValue(conn, _ => []);
         if (!replace && shown.Contains(monolith.Id)) return;
         if (Monsters.Find(monolith.Variety) is not { } variety) return;
-        var w = conn.Wire;
         if (replace && shown.Contains(monolith.Id))
         {
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, monolith.Id,
+            await SendWorldRecord(conn, monolith.Id,
                 InstanceEntities.TransitionableUpdate(monolith.Id, 4, monolith.Stage), null);
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, monolith.Id,
+            await SendWorldRecord(conn, monolith.Id,
                 InstanceEntities.StateMachineUpdate(monolith.Id, 6, MonolithObject.States(monolith.Stage)), null);
             if (monolith.Stage >= 4) conn.RemoveBlocker(monolith.Id);
             return;
         }
         var obj = new MonolithObject(monolith.X, monolith.Y, variety.Hash16,
             [.. monolith.Essences.Select(MapEssenceCatalog.Find).OfType<MapEssenceCatalog.Essence>().Select(e => e.Hash)], monolith.Stage);
-        await SendWorldCreate(w.Remote, w.Stream, w.Ciphers, conn, monolith.Id,
+        await SendWorldCreate(conn, monolith.Id,
             InstanceEntities.CreateObject(monolith.Id, InstanceEntities.ObjectTypeHash(Type), obj.Blob()),
             $"essence monolith 0x{monolith.Id:x} stage={monolith.Stage} essences={monolith.Essences.Count} at ({monolith.X}, {monolith.Y})");
-        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, monolith.Id, InstanceProtocol.EnterWakeZone(monolith.Id), null);
+        await SendWorldRecord(conn, monolith.Id, InstanceProtocol.EnterWakeZone(monolith.Id), null);
         if (monolith.Stage < 4) conn.SetBlocker(monolith.Id, monolith.X, monolith.Y, 4);
         else conn.RemoveBlocker(monolith.Id);
         shown.Add(monolith.Id);
@@ -166,15 +165,14 @@ public static class MapEssences
         if (monolith.Stage >= 4)
         {
             var wire = conn.Wire;
-            await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
             return true;
         }
         // The native .ot overrides its interaction distance to twenty cells.
         if (!TryBeginObjectWalk(conn, requestedAt, monolith.X, monolith.Y, 20, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
-        var w = conn.Wire;
         if (!use.Started)
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
+            await SendWorldRecord(conn, PlayerId,
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, monolith.X, monolith.Y, use.SkillId, use.Sequence, use.Flags,
                     targetObjectId: monolith.Id), null, still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
@@ -189,7 +187,7 @@ public static class MapEssences
                 if (Monsters.Find(monolith.Variety) is not { Supported: true } variety) return true;
                 byte level = (byte)Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
                 var mods = MapEssenceCatalog.Mods(conn, variety, level, monolith.Essences);
-                uint monster = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Rare,
+                uint monster = await SpawnMonster(conn, variety, level, MonsterRarity.Rare,
                     monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false,
                     owned: (id, _) =>
                     {
@@ -207,7 +205,7 @@ public static class MapEssences
         finally
         {
             area.Gate.Release();
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
                 still: () => PlayerActionCurrent(conn, action));
         }
         return true;

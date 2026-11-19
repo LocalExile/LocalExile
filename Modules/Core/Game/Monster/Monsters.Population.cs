@@ -35,13 +35,13 @@ public static partial class Game
 
     // The plan made ahead, when it was made for what the area is now: the arrival that 0x7d settled on and the quest
     // flags (a quest the entry advanced can bring or hold a boss).
-    static async Task<PopulationPlan?> PlannedPopulation(string remote, ClientState conn, AreaLayout layout)
+    static async Task<PopulationPlan?> PlannedPopulation(ClientState conn, AreaLayout layout)
     {
         if (!PopulationsAhead.TryGetValue(conn, out var ahead)) return null;
         PopulationsAhead.Remove(conn);
         if (await ahead is not { } plan) return null;
         if (plan.Layout == layout && plan.QuestFlags.SetEquals(conn.QuestFlagsSnapshot())) return plan;
-        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: planned again on arrival ({(plan.Layout == layout ? "quest flags" : "arrival")} changed)");
+        Console.WriteLine($"[gateway] {conn.Remote} area {layout.Id} monsters: planned again on arrival ({(plan.Layout == layout ? "quest flags" : "arrival")} changed)");
         return null;
     }
 

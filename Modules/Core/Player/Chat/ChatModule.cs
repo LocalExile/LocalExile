@@ -185,7 +185,7 @@ sealed class ChatService : IDisposable
         if (channels.Count == 0) return;
         Session(conn).Entered(conn);
         foreach (var (kind, channel, language) in channels)
-            await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, InstanceChat.ChannelJoined(kind, channel, language), $"0x0135 still on {kind} chat channel {channel}");
+            await Send(conn, InstanceChat.ChannelJoined(kind, channel, language), $"0x0135 still on {kind} chat channel {channel}");
     }
 
     // A load while players are in game (a changed setting, a new build) knows no channels, and the clients do not join

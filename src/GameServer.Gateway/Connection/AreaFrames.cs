@@ -321,7 +321,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                 }
                 if (Program.GameLogicOrNull is { } rules)
                     foreach (var m in ended)
-                        await Guard(m, async () => { await rules.WorldFrameEnded(m.Remote, m.Stream, m.Ciphers, m.Conn, m.LastEnded); return true; });
+                        await Guard(m, async () => { await rules.WorldFrameEnded(m.Conn, m.LastEnded); return true; });
             }
         }
         catch (Exception ex) { Console.WriteLine($"[frames] area driver failed: {ServerLog.Describe(ex)}"); }

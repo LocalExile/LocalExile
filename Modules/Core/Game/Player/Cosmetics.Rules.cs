@@ -18,13 +18,13 @@ public static partial class Game
         return conn.WornCosmetics = Mtx.Equipped(worn);
     }
 
-    public static async Task SendWornCosmetics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendWornCosmetics(ClientState conn, string why)
     {
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await Send(conn, [], null, atGate: () =>
         {
             var worn = WornCosmetics(conn);
             var skills = SkillSlots(conn);
-            Console.WriteLine($"[gateway] {remote} => 0x01f3 worn cosmetics ({why}): " +
+            Console.WriteLine($"[gateway] {conn.Remote} => 0x01f3 worn cosmetics ({why}): " +
                 $"{string.Join(", ", worn.Select(w => $"slot {w.Slot} = record {w.Id}"))}; " +
                 $"skills: {string.Join(", ", skills.Select(s => $"key {s.Key} gem 0x{s.GemHash:x8} inventory {s.Inventory} socket {s.Socket} type {s.SlotType} record {s.RecordId}"))}");
             return InstanceMicrotransactions.Purchased([], worn, skills);
@@ -63,8 +63,7 @@ public static partial class Game
     // Ends a burning Righteous Fire and lights it again from its gem (only from the gem of type `gem`, when given), so a
     // change of art or ring size shows at once. `expectedRelight` is the exact owner seen by the producer before its own
     // awaits; null means no RF was present and never late-binds to one that appeared later.
-    public static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
+    public static async Task<bool> RelightRighteousFire(ClientState conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
     {
         PlayerSkillSource source;
         lock (conn.Monsters)
@@ -83,10 +82,10 @@ public static partial class Game
                 || source.Identity != lifetime.Key || (gem is uint type && source.Gem != type))
                 return false;
         }
-        if (!await EndRighteousFire(remote, stream, ciphers, conn, why, expectedRelight, source,
+        if (!await EndRighteousFire(conn, why, expectedRelight, source,
                 expectedRelight.Instance))
             return false;
-        await ActivateRighteousFire(remote, stream, ciphers, conn, source.Id, source.Effect, source.Level,
+        await ActivateRighteousFire(conn, source.Id, source.Effect, source.Level,
             source.Quality, source.Gem, expectedRelight, source);
         return true;
     }
@@ -285,25 +284,25 @@ public static partial class Game
     // The morph to the client again after a pick changed it: the stat goes with the player's stats (CosmeticStats); the
     // model is the Animated component's (0x2bc) and the animation set the Actor's (0x1b6), back to the class's own when
     // the morph ended.
-    public static async Task SendMorph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Morph? before)
+    public static async Task SendMorph(ClientState conn, Morph? before)
     {
         var now = WornMorph(conn);
         if (now == before) return;
         var cls = SkillsFor(conn).ClassFor(conn.ClassRow);
         string model = now?.Model ?? Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject;
         string actor = now?.Actor ?? System.IO.Path.ChangeExtension(model, ".act").Replace('\\', '/');
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AnimatedModel(PlayerId, PlayerObject.AnimatedIndex, model),
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.AnimatedModel(PlayerId, PlayerObject.AnimatedIndex, model),
             $"0x02bc player model {model} (morph {now?.Index ?? 0})");
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.ActorFile(PlayerId, actor),
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.ActorFile(PlayerId, actor),
             $"0x01b6 player animation set {actor}");
         // The client loads the new set but leaves the animation that was playing (0x1b6 only stores it), so the new
         // model stands frozen in its bind pose until its next action (seen live 2026-11-12). The transformation sets
         // define Emerge for this: their idle with the pets' summon effect, after which the Actor idles on the new set.
         if (now is not null)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActorAnimation(PlayerId, MorphEmergeSeconds, EmergeAnimation),
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActorAnimation(PlayerId, MorphEmergeSeconds, EmergeAnimation),
                 $"0x01d1 player animation Emerge (morph {now.Index})");
         // The model was built anew: what it wears again.
-        await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "morph");
+        await SendModel(conn, Looks(conn, ItemsOf(conn)), "morph");
     }
 
     // The worn portrait's variation (the Player component's +0x1aa), 0 for the class's own.

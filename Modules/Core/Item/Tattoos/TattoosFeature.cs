@@ -11,8 +11,7 @@ static class TattoosFeature
     /// tattoo-use packet is traced: the client command names the tattoo and the passive graph id. The tattoo is
     /// saved independently of the allocation, so refunding the passive keeps it.
     /// </summary>
-    internal static async Task<string?> ApplyTattoo(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string name, ushort node, byte? consumeRow = null, uint consumeItemId = 0,
+    internal static async Task<string?> ApplyTattoo(ClientState conn, string name, ushort node, byte? consumeRow = null, uint consumeItemId = 0,
         ushort? chosenKeystone = null)
     {
         var tree = PassivesFor(conn);
@@ -82,13 +81,13 @@ static class TattoosFeature
         if (taken is { } usedStack && consumeRow is byte usedRow)
         {
             uint inventory = PlayerInventories.InventoryId(usedRow);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(usedRow), [consumeItemId],
+            await Send(conn, InstanceItems.InventoryChange(inventory, items.NextRevision(usedRow), [consumeItemId],
                 usedStack.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: tattoo used" + (usedStack.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
-        await SendPassives(remote, stream, ciphers, conn);
-        Console.WriteLine($"[gateway] {remote} tattoo {entry.Name} on {node} {passive.Name} ({conn.Tattoos.Count} applied" +
+        await SendCharacterStats(conn, PlayerStatChange.Build);
+        await SendPassives(conn);
+        Console.WriteLine($"[gateway] {conn.Remote} tattoo {entry.Name} on {node} {passive.Name} ({conn.Tattoos.Count} applied" +
             (chosen is { } chosenEntry ? $", keystone {chosenEntry.Name})"
                 : grantedNotable is ushort grantedId && tree.Find(grantedId) is { } granted ? $", notable {granted.Name})" : ")"));
         return null;
@@ -96,47 +95,45 @@ static class TattoosFeature
 
     /// <summary>The client's tattoo-on-passive packet (C→S 0x77): consume one tattoo from the inventory and install
     /// it on the named allocated passive. The packet carries the inventory row, the item id and the passive graph id.</summary>
-    internal static async Task UseTattooOnPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, InstanceItems.UseItemOnPassive use, string hex)
+    internal static async Task UseTattooOnPassive(ClientState conn, InstanceItems.UseItemOnPassive use, string hex)
     {
         if (PlayerInventories.Row(use.InventoryId) is not byte row)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0077 tattoo use: unknown inventory {use.InventoryId}: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0077 tattoo use: unknown inventory {use.InventoryId}: {hex}");
             return;
         }
         var items = ItemsOf(conn);
         if (items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } item)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0077 tattoo use: no item {use.ItemId} in inventory {use.InventoryId}: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0077 tattoo use: no item {use.ItemId} in inventory {use.InventoryId}: {hex}");
             return;
         }
         if (ItemsFor(conn).ByHash(item.Item.TypeHash) is not { } type)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0077 unknown item type {use.ItemId}: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0077 unknown item type {use.ItemId}: {hex}");
             return;
         }
         // The same 0x77 packet is used for an Orb of Scouring on a tattooed passive: the item decides whether the
         // passive is tattooed or restored.
         if (type.Id == CurrencyEffects.OrbOfScouring)
         {
-            string? removed = await RemoveTattoo(remote, stream, ciphers, conn, use.Node, row, use.ItemId);
+            string? removed = await RemoveTattoo(conn, use.Node, row, use.ItemId);
             if (removed is not null)
-                Console.WriteLine($"[gateway] {remote} <= 0x0077 scouring passive {use.Node} refused: {removed}: {hex}");
+                Console.WriteLine($"[gateway] {conn.Remote} <= 0x0077 scouring passive {use.Node} refused: {removed}: {hex}");
             return;
         }
         if (TattooCatalogue.Find(type.Name) is not { } entry)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0077 item {use.ItemId} is not a tattoo: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0077 item {use.ItemId} is not a tattoo: {hex}");
             return;
         }
-        string? error = await ApplyTattoo(remote, stream, ciphers, conn, entry.Name, use.Node, row, use.ItemId);
+        string? error = await ApplyTattoo(conn, entry.Name, use.Node, row, use.ItemId);
         if (error is not null)
-            Console.WriteLine($"[gateway] {remote} <= 0x0077 tattoo {entry.Name} on {use.Node} refused: {error}: {hex}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0077 tattoo {entry.Name} on {use.Node} refused: {error}: {hex}");
     }
 
     /// <summary>Removes the tattoo from a passive and restores the passive's own stats.</summary>
-    internal static async Task<string?> RemoveTattoo(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort node, byte? consumeRow = null, uint consumeItemId = 0)
+    internal static async Task<string?> RemoveTattoo(ClientState conn, ushort node, byte? consumeRow = null, uint consumeItemId = 0)
     {
         if (PassivesFor(conn).Find(node) is not { } passive) return $"unknown passive {node}";
         if (!conn.Tattoos.ContainsKey(node)) return $"{passive.Name} ({node}) has no tattoo";
@@ -169,13 +166,13 @@ static class TattoosFeature
         if (taken is { } usedStack && consumeRow is byte usedRow)
         {
             uint inventory = PlayerInventories.InventoryId(usedRow);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(usedRow), [consumeItemId],
+            await Send(conn, InstanceItems.InventoryChange(inventory, items.NextRevision(usedRow), [consumeItemId],
                 usedStack.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: tattoo removed" + (usedStack.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
-        await SendPassives(remote, stream, ciphers, conn);
-        Console.WriteLine($"[gateway] {remote} tattoo removed from {node} {passive.Name} ({conn.Tattoos.Count} applied)");
+        await SendCharacterStats(conn, PlayerStatChange.Build);
+        await SendPassives(conn);
+        Console.WriteLine($"[gateway] {conn.Remote} tattoo removed from {node} {passive.Name} ({conn.Tattoos.Count} applied)");
         return null;
     }
 

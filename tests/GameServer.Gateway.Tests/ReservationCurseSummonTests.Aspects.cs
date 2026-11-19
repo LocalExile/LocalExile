@@ -58,7 +58,7 @@ public sealed partial class ReservationCurseSummonTests
                 [false] = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell: false),
                 [true] = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell: true),
             };
-            Assert.True(await Game.ToggleAura("avian", wire.Stream, wire.Ciphers, conn,
+            Assert.True(await Game.ToggleAura(conn,
                 source.Id, source.Effect, source.Name, cost, source.Level, source.Quality));
             Assert.Equal(ReservationState.AvianPhase.Might, conn.Reservations.Avian);
             Assert.Equal(1040, conn.Reservations.PresentedAvianRow);
@@ -93,10 +93,10 @@ public sealed partial class ReservationCurseSummonTests
             // The local buff is not scaled by ordinary aura effect.
             Assert.Equal(100, Source("aspect_of_the_avian_buff_effect_+%"));
             schedule.At = mightEnd - .001;
-            await Game.ReservationSkillsTick("avian", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(ReservationState.AvianPhase.Might, conn.Reservations.Avian);
             schedule.At = mightEnd;
-            await Game.ReservationSkillsTick("avian", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(ReservationState.AvianPhase.Flight, conn.Reservations.Avian);
             Assert.Equal(1041, conn.Reservations.PresentedAvianRow);
             Assert.Equal(0, Stat("chance_to_deal_double_damage_%"));
@@ -125,12 +125,12 @@ public sealed partial class ReservationCurseSummonTests
             inventory.Add(PlayerInventories.Helmet, 0, 0, uniques.Create("Farrul's Bite", new Random(504))!);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             var cat = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "AspectOfTheCat");
-            Assert.False(await Game.ToggleAura("avian-exclusive", wire.Stream, wire.Ciphers, conn,
+            Assert.False(await Game.ToggleAura(conn,
                 cat.Id, cat.Effect, cat.Name, Game.SupportedReservationCost(conn, cat.Id)!.Value, cat.Level, cat.Quality));
             Assert.Single(conn.Auras);
             var owner = conn.Reservations.AvianOwner;
             schedule.At += 1000000;
-            await Game.ReservationSkillsTick("avian", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(owner, conn.Reservations.AvianOwner);
             Assert.True(conn.Reservations.AvianDeadline > schedule.At);
             inventory.Remove(PlayerInventories.Boots, talons.Id);
@@ -188,19 +188,19 @@ public sealed partial class ReservationCurseSummonTests
             int Stat(string name) => Program.Stats.Key(name) is uint key
                 ? Game.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
             var source = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "AspectOfTheCrab");
-            Assert.True(await Game.ToggleAura("crab", wire.Stream, wire.Ciphers, conn, source.Id, source.Effect,
+            Assert.True(await Game.ToggleAura(conn, source.Id, source.Effect,
                 source.Name, Game.SupportedReservationCost(conn, source.Id)!.Value, source.Level, source.Quality));
             Assert.Equal(15, conn.Reservations.CrabMaximum);
             Assert.Equal(0, conn.Reservations.CrabBarriers);
             schedule.At = 100.499;
-            await Game.ReservationSkillsTick("crab", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(0, conn.Reservations.CrabBarriers);
             schedule.At = 100.5;
-            await Game.ReservationSkillsTick("crab", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(1, conn.Reservations.CrabBarriers);
             Assert.Equal(2, Game.PlayerDamageReduction(conn).Physical);
             schedule.At = 105;
-            await Game.ReservationSkillsTick("crab", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(10, conn.Reservations.CrabBarriers);
             Assert.Equal(20, Game.PlayerDamageReduction(conn).Physical);
             Assert.Equal(10, Stat("current_crab_aspect_stacks"));
@@ -216,7 +216,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(0, conn.Reservations.CrabBarriers);
             Assert.Equal(0, Game.PlayerDamageReduction(conn).Physical);
             schedule.At = 112.5;
-            await Game.ReservationSkillsTick("crab", wire.Stream, wire.Ciphers, conn, schedule.At);
+            await Game.ReservationSkillsTick(conn, schedule.At);
             Assert.Equal(15, conn.Reservations.CrabBarriers);
             Assert.Equal(30, Game.PlayerDamageReduction(conn).Physical);
             var chitin = inventory.Add(PlayerInventories.Helmet, 0, 0,

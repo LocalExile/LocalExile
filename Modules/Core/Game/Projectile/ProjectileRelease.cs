@@ -50,7 +50,7 @@ public static partial class Game
 
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
-    public static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
+    public static bool ProjectilePathAvailable(ClientState conn, ushort skillId, int effect)
     {
         if (!TotemPathAvailable(conn, skillId, effect)) return false;
         if (!UsesProjectileRuntime(effect)) return true;
@@ -71,17 +71,17 @@ public static partial class Game
         }
         catch (InvalidOperationException ex)
         {
-            Console.WriteLine($"[gateway] {remote} {SkillsFor(conn).EffectId(effect)} unavailable: {ex.Message}");
+            Console.WriteLine($"[gateway] {conn.Remote} {SkillsFor(conn).EffectId(effect)} unavailable: {ex.Message}");
             return false;
         }
     }
 
-    public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleGemProjectile(ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
         ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;

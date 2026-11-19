@@ -67,12 +67,12 @@ public sealed class IncomingHitEventsTests
                         else
                         {
                             // A missed contact must not create any accepted-hit bookkeeping.
-                            Assert.Null(Game.CommitMonsterHitLocked("test", conn, 1, monster, attack, now,
+                            Assert.Null(Game.CommitMonsterHitLocked(conn, 1, monster, attack, now,
                                 (1000, 1000), (0, 0), checkRange: true));
                             Assert.Empty(conn.RecentEvents.Snapshot(now));
                             Assert.Equal(0, conn.RecentEnemyHits.Count(now));
                             Assert.False(Game.ChargesOf(conn).Pending);
-                            realHit = Game.CommitMonsterHitLocked("test", conn, 1, monster, attack, now,
+                            realHit = Game.CommitMonsterHitLocked(conn, 1, monster, attack, now,
                                 (0, 0), (0, 0), checkRange: false);
                             Assert.NotNull(realHit);
                             Assert.Equal(block, realHit.Blocked);
@@ -103,7 +103,7 @@ public sealed class IncomingHitEventsTests
                         Assert.NotNull(flask);
                         Assert.Equal(0, Game.ItemsOf(conn).Items(PlayerInventories.Flask).Single(f => f.Id == flask.Id).Item.Charges);
                         var triggers = conn.FlaskAutomation.Events.Select(e => e.Trigger).ToArray();
-                        await Game.PresentMonsterHit("incoming-hit-events", wire.Stream, wire.Ciphers, conn, 1, realHit);
+                        await Game.PresentMonsterHit(conn, 1, realHit);
                         Assert.Equal(chargesPerHit,
                             Game.ItemsOf(conn).Items(PlayerInventories.Flask).Single(f => f.Id == flask.Id).Item.Charges);
                         Assert.Equal(triggers, conn.FlaskAutomation.Events.Select(e => e.Trigger));

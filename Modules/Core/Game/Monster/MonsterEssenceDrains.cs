@@ -59,7 +59,7 @@ static partial class Game
         if (caster is null || caster.Closed || caster.LeavingArea || caster.PlayerLife == 0) return;
         if (ReferenceEquals(caster, runner)) { SiphonLeechLocked(runner, m, life); return; }
         if (caster.Instance is null || !ReferenceEquals(caster.Instance, runner.Instance)) return;
-        caster.KillShares.Enqueue((_, _, _) =>
+        caster.KillShares.Enqueue(_ =>
         {
             using (ProjectileMutation(caster)) SiphonLeechLocked(caster, m, life);
             return Task.CompletedTask;
@@ -82,7 +82,7 @@ static partial class Game
         TrimLeechLocked(conn);
     }
 
-    internal static async Task TickEssenceDrains(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task TickEssenceDrains(ClientState conn)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
         double leeched = 0;
@@ -122,20 +122,20 @@ static partial class Game
                     m.EssenceDrain.Clear();
                 }
                 hits.Add((id, m, m.Life, damage, owner));
-                if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
+                if (stageStarts) CommitBossStage(conn, id, m, now);
             }
         }
         foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of essence drain" : null);
             if (life == 0)
             {
                 Console.WriteLine($"[gateway] essence drain killed 0x{id:x} ({m.Label})");
-                if (owner is not null) await DotKilled(remote, stream, ciphers, conn, id, m);
-                else await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
+                if (owner is not null) await DotKilled(conn, id, m);
+                else await MonsterKilled(conn, id, m, byMinion: true);
             }
         }
         // One log line a second at most: the damage and leech the debuffs dealt since the last line.

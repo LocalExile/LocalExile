@@ -46,21 +46,21 @@ public sealed class QuestNpcInstanceTests
         Assert.Empty(Game.AppearedBefore(fresh));
 
         boss.Dead = true; boss.Life = 0;
-        await Game.QuestNpcsAppear("test", wire.Stream, wire.Ciphers, player, variety, (120, 130));
+        await Game.QuestNpcsAppear(player, variety, (120, 130));
         Assert.Equal(1, Assert.Single(player.Npcs).Value.State);
         Assert.Equal((120, 130), (Assert.Single(player.QuestNpcs).X, Assert.Single(player.QuestNpcs).Y));
 
         // The instance saves only living monsters; the appearance must not need its discarded corpse.
         player.Monsters.Clear();
         returning.QuestNpcs.AddRange(Game.AppearedBefore(returning));
-        await Game.UpdateQuestNpcs("return", returnWire.Stream, returnWire.Ciphers, returning, "return");
+        await Game.UpdateQuestNpcs(returning, "return");
         var restored = Assert.Single(returning.QuestNpcs);
         Assert.Equal((120, 130), (restored.X, restored.Y));
         Assert.Equal(2, Assert.Single(returning.Npcs).Value.State);
         Assert.Empty(Game.AppearedBefore(fresh));
 
         returning.QuestFlags.Add("appearance-reward");
-        await Game.UpdateQuestNpcs("return", returnWire.Stream, returnWire.Ciphers, returning, "reward");
+        await Game.UpdateQuestNpcs(returning, "reward");
         Assert.Empty(returning.Npcs);
     }
 }

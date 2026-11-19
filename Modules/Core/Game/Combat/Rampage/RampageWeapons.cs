@@ -6,8 +6,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static void ReleaseRampageProjectiles(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, RampageWorld.Job job)
+    static void ReleaseRampageProjectiles(ClientState conn, RampageWorld.Job job)
     {
         var own = job.Tier.Skill.AtLevel(job.Level)!;
         var metadata = SkillsFor(conn).ProjectileFor(job.Tier.Skill.Row);
@@ -19,7 +18,7 @@ public static partial class Game
             Pierce = own.Get("always_pierce") != 0 ? int.MaxValue : 0,
             Chain = Math.Max(0, own.Get("number_of_chains")),
         };
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         ProjectileActorKey emitter;
         lock (conn.Monsters)
         {
@@ -36,7 +35,7 @@ public static partial class Game
                     NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(conn)) } });
     }
 
-    static async Task AdvanceRampageWeapons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task AdvanceRampageWeapons(ClientState conn)
     {
         List<(uint Id, SpawnedMonster Actor, RampageWorld.Actor Plan, uint TargetId, SpawnedMonster Target)> swings = [];
         List<(uint Id, (int X, int Y) From, (int X, int Y) To)> moves = [];
@@ -71,7 +70,7 @@ public static partial class Game
             }
         }
         foreach (var (id, from, to) in moves)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
+            await SendWorldRecord(conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
                 0x2909, 0xffff, conn.MonsterOrderFlags), "Rampage weapon moves", still: () =>
                 conn.OwnedCombatState is RampageWorld current && current.Actors.TryGetValue(id, out var actor)
                     && RampageEffectCurrent(conn, actor.Epoch));
@@ -80,7 +79,7 @@ public static partial class Game
             if (!CurrentRampageWork) return;
             var from = swing.Actor.Walk.Position(ProjectileWorldTime(conn));
             var to = swing.Target.Walk.Position(ProjectileWorldTime(conn));
-            await SendWorldRecord(remote, stream, ciphers, conn, swing.Id, InstanceProtocol.ActionStartedNow(swing.Id, from.X, from.Y, to.X, to.Y,
+            await SendWorldRecord(conn, swing.Id, InstanceProtocol.ActionStartedNow(swing.Id, from.X, from.Y, to.X, to.Y,
                 SkillCatalog.FirstSkillId, 0xffff, conn.MonsterOrderFlags, swing.TargetId), "Rampage weapon attacks",
                 still: () => RampageEffectCurrent(conn, swing.Plan.Epoch));
             var variety = swing.Actor.Variety!;
@@ -93,7 +92,7 @@ public static partial class Game
             int accuracy = (int)Math.Clamp((long)(Monsters.BaseAccuracy((byte)swing.Plan.Level) ?? 0) * Math.Max(0L, 100L + accuracyInc) / 100, 0, int.MaxValue);
             if (swing.Plan.Weapon == RampageCatalog.WeaponKind.Bow)
             {
-                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                var session = ProjectilesFor(conn);
                 var arrow = SkillsFor(conn).Projectile("Metadata/Projectiles/DefaultArrow");
                 var profile = new ProjectileProfile(arrow?.Id ?? "Metadata/Projectiles/DefaultArrow")
                 { Speed = ProjectileSpeed.CellsPerSecond(arrow?.Speed ?? 3260, _ => 0, _ => 0), Range = 120 };
@@ -139,7 +138,7 @@ public static partial class Game
                     && Dist(p.Value.Walk.Position(now), at) <= (strike.Area ? 20 : 12)).ToArray();
             }
             foreach (var target in targets)
-                await RampageOwnedHit(remote, stream, ciphers, conn, strike.Epoch,
+                await RampageOwnedHit(conn, strike.Epoch,
                     target.Key, target.Value, strike.Damage, null, "Rampage weapon", attack: true, accuracy: strike.Accuracy);
         }
     }

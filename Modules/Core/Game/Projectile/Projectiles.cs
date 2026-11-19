@@ -46,9 +46,6 @@ public static partial class Game
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
     public sealed partial class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
-        public readonly string remote;
-        public readonly NetworkStream stream;
-        public readonly ConnectionCiphers ciphers;
         public readonly ClientState Conn;
         readonly int epoch;
         readonly Channel<Func<Task>> output = Channel.CreateBounded<Func<Task>>(
@@ -97,9 +94,9 @@ public static partial class Game
         public Task OutputCompleted { get; }
         public bool Active => CurrentGameRules && !invalid && Conn.ProjectileActive(epoch);
 
-        public ProjectileSession(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+        public ProjectileSession(ClientState conn)
         {
-            (this.remote, this.stream, this.ciphers, Conn, epoch) = (remote, stream, ciphers, conn, conn.ProjectileEpoch);
+            (Conn, epoch) = (conn, conn.ProjectileEpoch);
             Runtime = new(this);
             OutputCompleted = RunOutput();
             lifetime = CombatLifetime?.Own(new ConnectionProjectileRetirement(conn, this));
@@ -119,7 +116,7 @@ public static partial class Game
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[gateway] {remote} projectile pump failed: {ex}");
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile pump failed: {ex}");
                 Conn.Closed = true;
             }
             finally { Invalidate(); }
@@ -159,7 +156,7 @@ public static partial class Game
                         if (!Active || !valid()) return;
                         try { ReleaseNow(release()); }
                         catch (InvalidOperationException ex)
-                        { Console.WriteLine($"[gateway] {remote} projectile path unavailable: {ex.Message}"); }
+                        { Console.WriteLine($"[gateway] {Conn.Remote} projectile path unavailable: {ex.Message}"); }
                     });
         }
 
@@ -169,7 +166,7 @@ public static partial class Game
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
-                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
                     + $"origin={seeded.Origin} aim={seeded.Aim} speed={seeded.Profile.Speed:0.###}");
             return useId;
@@ -204,8 +201,8 @@ public static partial class Game
                 if (!keepsWorldGroup) openWorld = null;
                 if (!Active || output.Writer.TryWrite(intent)) return;
                 // Never stall gameplay or silently lose ordered lifecycle/inventory packets on a slow socket.
-                Console.WriteLine($"[gateway] {remote} projectile output backlog exceeded 8192 intents; closing connection");
-                Conn.Closed = true; Invalidate(); stream.Close();
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile output backlog exceeded 8192 intents; closing connection");
+                Conn.Closed = true; Invalidate(); Conn.Wire.Stream.Close();
             }
         }
         // A kill's aftermath (its loot roll, its explosion, the remaining-monsters count) waits behind the presentation
@@ -236,7 +233,7 @@ public static partial class Game
         public void PresentCharges() => Packet(() =>
         {
             _ = CharacterPlayerStats(Conn);
-            var (packet, changed) = CurrentChargePresentationLocked(Conn, remote);
+            var (packet, changed) = CurrentChargePresentationLocked(Conn, Conn.Remote);
             if (changed) Conn.Minions.StatRevision++;
             return packet;
         });
@@ -246,7 +243,7 @@ public static partial class Game
             while (Active)
             {
                 bool completed = false;
-                await Send(remote, stream, ciphers, [], log, atGate: () =>
+                await Send(Conn, [], log, atGate: () =>
                 {
                     lock (Conn.Monsters)
                     {
@@ -309,7 +306,7 @@ public static partial class Game
                     }
                 }
                 if (!Conn.LockstepClient)
-                    await Send(remote, stream, ciphers, [], log, atGate: () => Project() is { } records
+                    await Send(Conn, [], log, atGate: () => Project() is { } records
                         ? [.. records.SelectMany(p => p)] : null);
                 else
                     await SendWorldBatch(Conn, [], admission =>
@@ -322,7 +319,7 @@ public static partial class Game
                         foreach (var move in records[1..])
                             batch.Add(OutputRecord.AfterBirth(birth, RecordOrder(move, id), move, log));
                         return new([.. batch]);
-                    }, transport: (remote, stream, ciphers));
+                    });
                 if (completed || Conn.WorldOutput.Closed) return;
                 await Task.Delay(16);
             }
@@ -384,7 +381,7 @@ public static partial class Game
                                     if (record.Length > 0) records.Add(PresentedRecord(target, record, log));
                         return records.Count == 0 ? null : new([.. records]);
                     }
-                }, transport: (remote, stream, ciphers));
+                });
                 // Admitted, or projected with nothing to send: done. Refused before its projection (a target not ready at
                 // the gate) and not for a pause: record by record, as before.
                 if (admitted || completed || world.Closed) return;
@@ -410,9 +407,9 @@ public static partial class Game
                 }
                 if (create)
                     await SendWorldCreate(Conn, id, () => Project() is { } records ? records.Single() : null,
-                        log, wake: wake, transport: (remote, stream, ciphers), awaitBirth: false);
+                        log, wake: wake, awaitBirth: false);
                 else if (!Conn.LockstepClient || !remove)
-                    await SendWorldRecords(remote, stream, ciphers, Conn, id, Project, log);
+                    await SendWorldRecords(Conn, id, Project, log);
                 else
                 {
                     var target = Conn.WorldOutput.PublishedObject(id);
@@ -425,7 +422,7 @@ public static partial class Game
                         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
                         batch.Add(OutputRecord.Remove(target, WorldOrder.Last, removal, log));
                         return new([.. batch]);
-                    }, transport: (remote, stream, ciphers));
+                    });
                 }
                 if (completed || Conn.WorldOutput.Closed) return;
                 await Task.Delay(16);
@@ -448,7 +445,7 @@ public static partial class Game
             { Conn.Closed = true; Invalidate(); }
             catch (Exception ex)
             {
-                Console.WriteLine($"[gateway] {remote} projectile output failed: {ex}");
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile output failed: {ex}");
                 Conn.Closed = true; Invalidate();
             }
         }
@@ -609,11 +606,11 @@ public static partial class Game
                     CommitProjectileKill(this, contact.Target.Id, target, contact.At,
                         contact.Projectile.RewardRandomSource, playerKill: false);
                     if (shot.RampageSkill?.Get("explode_on_kill_%_fire_damage_to_deal") is int pct and > 0)
-                        Enqueue(() => RampageKillExplosion(remote, stream, ciphers, Conn, ownedEpoch,
+                        Enqueue(() => RampageKillExplosion(Conn, ownedEpoch,
                             contact.Target.Id, target, pct));
                 }
                 else if (stun is not null)
-                    Enqueue(() => SendRampageStun(remote, stream, ciphers, Conn, stun));
+                    Enqueue(() => SendRampageStun(Conn, stun));
                 return ProjectileHitResult.Hit;
             }
             // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
@@ -706,7 +703,7 @@ public static partial class Game
             if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
-            if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
+            if (critical) Enqueue(() => MaybeCreateProfaneGround(Conn, target.Walk.Position(at)));
             return ProjectileHitResult.Hit;
         }
 
@@ -718,7 +715,7 @@ public static partial class Game
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
-                Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
                     + $" grid={Conn.Layout.Id}_seed{Conn.Seed} blocked={ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y)?.ToString() ?? "unknown"}");
             if (value.Kind == ProjectileEventKind.End && p.Use.Payload is HostileProjectileOffense { OnEnd: { } onEnd }
@@ -777,7 +774,7 @@ public static partial class Game
                         { AnimatedObject = flightVisual };
                     visual.Created = true;
                     if (p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
-                        Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
+                        Console.WriteLine($"[gateway] {Conn.Remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return CreateProjectileObject(id, obj);
@@ -839,7 +836,7 @@ public static partial class Game
             {
                 // Every area event of every projectile skill comes here, under the instance's lock: trace only.
                 if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
-                    Console.WriteLine($"[gateway] {remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
+                    Console.WriteLine($"[gateway] {Conn.Remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
                         + $" offset={(value.Position - p.Position).Length:0.0} radius={value.Radius:0.#} use={p.UseId}");
                 if (p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
                     Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
@@ -860,7 +857,7 @@ public static partial class Game
                 AnimationWord = animationWord, AnimationValue = animationValue, AnimationId = animatedId
             };
             if (radius is not null && ServerTrace.Projectiles)
-                Console.WriteLine($"[gateway] {remote} projectile area object={id} position=({x}, {y})"
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile area object={id} position=({x}, {y})"
                     + $" radius={radius:0.###} art={ao} scale={scale:0.###}");
             var visual = new Visual(id, default);
             Conn.ProjectileObjects.Add(id);
@@ -967,7 +964,7 @@ public static partial class Game
                 {
                     Conn.Performance.Count("projectile move dropped");
                     if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
-                        Console.WriteLine($"[gateway] {remote} projectile glide dropped object={visual.Id} entity={p.Id}"
+                        Console.WriteLine($"[gateway] {Conn.Remote} projectile glide dropped object={visual.Id} entity={p.Id}"
                             + $" ended={visual.Ended} created={visual.Created} position={p.Position} remaining={p.Remaining}");
                     return null;
                 }
@@ -1005,7 +1002,7 @@ public static partial class Game
             float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
             byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
             if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
-                Console.WriteLine($"[gateway] {remote} projectile glide object={visual.Id} entity={p.Id}"
+                Console.WriteLine($"[gateway] {Conn.Remote} projectile glide object={visual.Id} entity={p.Id}"
                     + $" from={start} to={end} duration={duration:0.###}"
                     + $" speed={p.Speed:0.##} first={first}");
             return first ? [move]
@@ -1024,13 +1021,13 @@ public static partial class Game
         static bool Quiet(object? payload) => payload is ObjectProjectileOffense { Quiet: true };
     }
 
-    public static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static ProjectileSession ProjectilesFor(ClientState conn)
     {
         lock (conn.Monsters)
         {
             if (!CurrentGameWork) throw new OperationCanceledException("The Game generation retired");
             if (conn.ProjectileRuntime is { Active: true } current) return current;
-            var session = new ProjectileSession(remote, stream, ciphers, conn);
+            var session = new ProjectileSession(conn);
             if (!CurrentGameWork || !session.Active) { session.Invalidate(); throw new OperationCanceledException("The Game generation retired"); }
             conn.ProjectileRuntime = session; session.Start();
             // ProjectileWorldTime now reads the runtime's clock, not the connection's: the steps timed on it read again.

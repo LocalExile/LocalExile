@@ -134,8 +134,7 @@ public static partial class Game
     /// player tick (250 ms) like Rage and Onslaught, so a pack's kills coalesce into one update instead of one per corpse.
     /// The aura is its own buff (as a self aura's source buff is): its EPK draws the soul visuals; the counted buff is the
     /// icon the client shows.</summary>
-    public static byte[]? SoulEaterPresentation(ClientState conn, string remote, NetworkStream stream,
-        ConnectionCiphers ciphers) => SoulEaterRecords(conn, new WorldRecordBuilder(conn, null)) is { } batch
+    public static byte[]? SoulEaterPresentation(ClientState conn) => SoulEaterRecords(conn, new WorldRecordBuilder(conn, null)) is { } batch
             ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
 
     static OutputBatch? SoulEaterRecords(ClientState conn, WorldRecordBuilder bytes)
@@ -211,8 +210,8 @@ public static partial class Game
         }
     }
 
-    public static Task SendSoulEater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldBatch(conn, [], admission => SoulEaterRecords(conn, new(conn, admission)), transport: (remote, stream, ciphers));
+    public static Task SendSoulEater(ClientState conn) =>
+        SendWorldBatch(conn, [], admission => SoulEaterRecords(conn, new(conn, admission)));
 
     // The souls the client should see: none while the source is off or the player is dead, otherwise the decaying count.
     static int SoulEaterCount(ClientState conn, double now) =>

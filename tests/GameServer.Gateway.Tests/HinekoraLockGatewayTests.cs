@@ -191,10 +191,8 @@ public class HinekoraLockGatewayTests
         var clientCiphers = new ConnectionCiphers(new byte[64], isClient: true);
         try
         {
-            Task Send(byte[] packet) => global::Game.OnClientMessages("hinekora-test", writer.GetStream(), ciphers,
-                [((ushort)(packet[0] << 8 | packet[1]), packet)], [], conn).WaitAsync(TimeSpan.FromSeconds(5));
-            Task SendRaw(byte[] packet) => global::Game.OnClientMessages("hinekora-test", writer.GetStream(), ciphers,
-                [], packet, conn).WaitAsync(TimeSpan.FromSeconds(5));
+            Task Send(byte[] packet) => global::Game.OnClientMessages([((ushort)(packet[0] << 8 | packet[1]), packet)], [], conn).WaitAsync(TimeSpan.FromSeconds(5));
+            Task SendRaw(byte[] packet) => global::Game.OnClientMessages([], packet, conn).WaitAsync(TimeSpan.FromSeconds(5));
             async Task<Preview> ReadPreview()
             {
                 var header = new byte[14];

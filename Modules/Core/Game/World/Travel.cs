@@ -27,7 +27,7 @@ public static partial class Game
 
     // An area transition click. Plain: change area (0x2b4 now, the move itself once the client acknowledges with 0x2cd).
     // With Ctrl: list the destination's instances (0xae) for the client's instance chooser.
-    public static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task OnUseObject(ClientState conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         lock (conn.Monsters)
@@ -39,12 +39,12 @@ public static partial class Game
         }
         if (LyingOnBeach(conn))
         {
-            await WakeUpOnBeach(remote, stream, ciphers, conn, null, TutorialObjects.GetUpSequence, 0, requestedAt);
+            await WakeUpOnBeach(conn, null, TutorialObjects.GetUpSequence, 0, requestedAt);
             return;
         }
         if (InTown(conn) && (SkillsFor(conn).IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)) return;
         if (SkillsFor(conn).IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)
-            await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+            await EndGracePeriod(conn, action: true);
         // An encounter actor can acquire an NPC component's dialogue without changing its monster identity.
         if (use.SkillId == 0x266)
         {
@@ -52,7 +52,7 @@ public static partial class Game
             lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(use.TargetId);
             if (speaker is not null)
             {
-                await TalkToNpc(remote, stream, ciphers, conn, use, speaker, requestedAt);
+                await TalkToNpc(conn, use, speaker, requestedAt);
                 return;
             }
         }
@@ -60,8 +60,8 @@ public static partial class Game
         lock (conn.Monsters) target = conn.Monsters.GetValueOrDefault(use.TargetId);
         if (target is not null)
         {
-            if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(remote, stream, ciphers, conn, use, target, requestedAt);
-            else if (target.Hostile) await Attack(remote, stream, ciphers, conn, use, target, requestedAt);   // not the player's own minion
+            if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(conn, use, target, requestedAt);
+            else if (target.Hostile) await Attack(conn, use, target, requestedAt);   // not the player's own minion
             return;
         }
         // A self-cast skill (Righteous Fire) targets the player itself: echo it in place, then cast.
@@ -79,25 +79,25 @@ public static partial class Game
                     conn.Walk.Order(self.X, self.Y, at);
                 }, out var cooldownUse, requestedAt: requestedAt)) return;
             bool acknowledged = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
+            await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
                 $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true));
             if (!acknowledged) return;
-            await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
+            await CastGemSkill(conn, use.SkillId, self, self, PlayerId, sequence: use.Sequence,
                 actionToken: cooldownUse?.ActionToken, cooldownUse: cooldownUse);
             return;
         }
         if (conn.Instance.Ground.Get(use.TargetId) is { } ground)
         {
-            if (await AnimateGroundItem(remote, stream, ciphers, conn, ground, use, requestedAt)) return;
+            if (await AnimateGroundItem(conn, ground, use, requestedAt)) return;
             if (await GameEvents.AnyGroundItemUse(conn, use.TargetId, ground, use, requestedAt)) return;
-            await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt);
+            await PickUpGroundItem(conn, use.TargetId, ground, use, requestedAt);
             return;
         }
         if (use.SkillId == 0x266 && conn.Instance.Ground.WasTaken(use.TargetId))
         {
-            await Send(remote, stream, ciphers, [], $"remove stale ground label 0x{use.TargetId:x}", atGate: () =>
+            await Send(conn, [], $"remove stale ground label 0x{use.TargetId:x}", atGate: () =>
                 conn.Instance.Ground.WasTaken(use.TargetId) ? InstanceProtocol.RemoveObject(use.TargetId) : null);
             return;
         }
@@ -105,30 +105,30 @@ public static partial class Game
         if (await GameEvents.AnyObjectUse(conn, use, requestedAt)) return;
         if (use.TargetId == WaypointCatalog.ObjectId && conn.Layout.Waypoint is { } waypoint)
         {
-            await UseWaypoint(remote, stream, ciphers, conn, use, waypoint, requestedAt);
+            await UseWaypoint(conn, use, waypoint, requestedAt);
             return;
         }
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(use.TargetId);
         if (npc is not null)
         {
-            await TalkToNpc(remote, stream, ciphers, conn, use, npc, requestedAt);
+            await TalkToNpc(conn, use, npc, requestedAt);
             return;
         }
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {
-            await OpenStash(remote, stream, ciphers, conn, use, requestedAt);
+            await OpenStash(conn, use, requestedAt);
             return;
         }
         if (conn.GuildStashObject != 0 && use.TargetId == conn.GuildStashObject)
         {
-            await OpenGuildStash(remote, stream, ciphers, conn, use, requestedAt);
+            await OpenGuildStash(conn, use, requestedAt);
             return;
         }
         var (transitionId, transition) = conn.Layout.AreaTransitions.FirstOrDefault(e => e.Id == use.TargetId);
         if (transition is null)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0024 use object {use} (not an area transition)");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0024 use object {use} (not an area transition)");
             return;
         }
         transition = KitavaActTen.PortalFor(conn, transition);
@@ -136,19 +136,19 @@ public static partial class Game
         // A quest can close an exit: The Twilight Strand's way into Lioneye's Watch needs Hillock dead (a1q1).
         if (!TransitionShown(conn, transitionId, transition))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0024 area transition 0x{use.TargetId:x} to {AreaTransitionCatalog.IdOf(dest)}: closed " +
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0024 area transition 0x{use.TargetId:x} to {AreaTransitionCatalog.IdOf(dest)}: closed " +
                 $"(quest flag {TransitionFlag(conn, transition)})");
             return;
         }
         // The client walks to the area transition first; follow it and act once the player is there (a move meanwhile cancels).
         if (!TryBeginObjectWalk(conn, requestedAt, transition.GridX, transition.GridY, AreaTransitionObjectSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 area transition 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0024 area transition 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, (transition.GridX, transition.GridY), AreaTransitionObjectSize))
         {
-            Console.WriteLine($"[gateway] {remote} area transition 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
+            Console.WriteLine($"[gateway] {conn.Remote} area transition 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
             return;
         }
         // A gate within the area (a map's boss arena): next to its pair, in the same instance.
@@ -160,7 +160,7 @@ public static partial class Game
                 if (!PlayerActionCurrent(conn, action)) return;
                 conn.Walk.Teleport(tx, ty, ProjectileWorldTime(conn));
             }
-            await SendTransitionFade(remote, stream, ciphers, conn, (tx, ty), $"the gate 0x{use.TargetId:x}");
+            await SendTransitionFade(conn, (tx, ty), $"the gate 0x{use.TargetId:x}");
             if (await SendWorldRecord(conn, PlayerId, () => InstanceProtocol.Teleport(PlayerId, tx, ty),
                 $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), destination gate at ({pair.X}, {pair.Y})",
                 still: () => PlayerActionCurrent(conn, action)))
@@ -169,7 +169,7 @@ public static partial class Game
         }
         if (use.Ctrl)
         {
-            await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false,
+            await ShowInstances(conn, dest, atWaypoint: false,
                 arrivalEntrance: AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance));
             return;
         }
@@ -177,7 +177,7 @@ public static partial class Game
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
             AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false)
             { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance) };
-        await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
+        await ChangeArea(conn, transfer, use.ToString());
     }
 
     // karui_fortress_01/02: miniboss.arm has two bridges in one graph node. Its four telepad
@@ -224,10 +224,10 @@ public static partial class Game
 
     /// <summary>The screen's fade as the player goes through a way within the area (a gate, a trial's return portal):
     /// S→C 0xcb with its fade bit, then a wait for the screen to go black, so the teleport sent next lands while it is.</summary>
-    public static async Task SendTransitionFade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task SendTransitionFade(ClientState conn,
         (int X, int Y) to, string through)
     {
-        await Send(remote, stream, ciphers, [.. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionMoveSeconds),
+        await Send(conn, [.. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionMoveSeconds),
                 .. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionDarkenSeconds)],
             $"0x00cb fade through {through} to ({to.X}, {to.Y}), {TransitionMoveSeconds} s and {TransitionDarkenSeconds} s");
         double until = conn.Clock.Elapsed.TotalSeconds + 0.8 * TransitionDarkenSeconds;
@@ -253,7 +253,7 @@ public static partial class Game
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
-    public static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint,
+    public static async Task ShowInstances(ClientState conn, ushort dest, bool atWaypoint,
         int? arrivalEntrance = null)
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = dest });
@@ -261,34 +261,34 @@ public static partial class Game
         var entries = instances
             .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, 0, i.Players)).ToList();
         conn.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint, arrivalEntrance);
-        await Send(remote, stream, ciphers, InstanceTransfer.InstanceList(dest, entries),
+        await Send(conn, InstanceTransfer.InstanceList(dest, entries),
             $"0x00ae instance list for 0x{dest:x4}: {entries.Count} instance(s) [{string.Join(", ", instances.Select(i => $"{i.Id} ({i.SecondsLeft} s left): {string.Join("/", i.Players)}"))}]");
     }
 
     // A waypoint click (C→S 0x24 on the waypoint, Agents/docs/protocol/16-waypoints.md): walk there, activate it if it is
     // not yet, then open the World panel for travel (S→C 0x7b kind 0). The panel's pick arrives as C→S 0x4d.
-    public static async Task UseWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task UseWaypoint(ClientState conn,
         InstanceTransfer.UseSkillOnObject use, WaypointObject waypoint, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, waypoint.GridX, waypoint.GridY, WaypointObjectSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
-        Console.WriteLine($"[gateway] {remote} <= 0x0024 waypoint ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0024 waypoint ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
         if (!PlayerWalk.InWalkUpRange(stop, (waypoint.GridX, waypoint.GridY), WaypointObjectSize))
         {
-            Console.WriteLine($"[gateway] {remote} waypoint out of reach from ({stop.X}, {stop.Y})");
+            Console.WriteLine($"[gateway] {conn.Remote} waypoint out of reach from ({stop.X}, {stop.Y})");
             return;
         }
-        await ActivateWaypoint(remote, stream, ciphers, conn, "clicked");
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.WorldPanelUi, WaypointCatalog.ObjectId),
+        await ActivateWaypoint(conn, "clicked");
+        await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.WorldPanelUi, WaypointCatalog.ObjectId),
             "0x007b open the World panel for waypoint travel", still: () => PlayerActionCurrent(conn, action));
     }
 
     // Activates this area's waypoint for the character (saved, added to the saved ones) and tells the client: a new 0x4c with
     // the area's bit set plays the waypoint's activation. Towns activate on entry, other waypoints when the player comes near
     // or clicks them.
-    public static async Task ActivateWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task ActivateWaypoint(ClientState conn, string why)
     {
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { } entry) return;
         lock (conn.Monsters)
@@ -297,11 +297,11 @@ public static partial class Game
             lock (conn.Waypoints) if (!conn.Waypoints.Add(entry.Id)) return;
             CharacterSaves.AddWaypoints(CharacterName(conn), [entry.Id]);
         }
-        await SendWaypointList(remote, stream, ciphers, conn, $"waypoint of {entry.Name} ({entry.Id}) activated: {why}");
+        await SendWaypointList(conn, $"waypoint of {entry.Name} ({entry.Id}) activated: {why}");
     }
 
     // After the player is in: a town's waypoint activates on entry, then the character's waypoints (S→C 0x4c).
-    public static async Task SendWaypoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendWaypoints(ClientState conn)
     {
         if (WaypointCatalog.Areas.Entries.Count == 0) return;
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } town)
@@ -314,10 +314,10 @@ public static partial class Game
                 if (added) CharacterSaves.AddWaypoints(CharacterName(conn), [town.Id]);
             }
         }
-        await SendWaypointList(remote, stream, ciphers, conn, "the character's waypoints");
+        await SendWaypointList(conn, "the character's waypoints");
     }
 
-    public static async Task SendWaypointList(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendWaypointList(ClientState conn, string why)
     {
         var entries = WaypointCatalog.Areas.Entries;
         List<int> bits;
@@ -327,9 +327,9 @@ public static partial class Game
         // The pins need their areas' access quest flags first (the player object carried the ones known at creation).
         if (conn.PlayerSent)
         {
-            await Send(remote, stream, ciphers, [], "0x02bc player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
+            await Send(conn, [], "0x02bc player quest flags (waypoints, current)", atGate: () => QuestFlagPresentation(conn));
         }
-        await Send(remote, stream, ciphers, InstanceWaypoints.Waypoints(bits), $"0x004c waypoints: {bits.Count} activated ({why})");
+        await Send(conn, InstanceWaypoints.Waypoints(bits), $"0x004c waypoints: {bits.Count} activated ({why})");
     }
 
     // The player's quest flags as the client keeps them (QuestFlags rows, 16-waypoints.md §3): the flags the character's
@@ -370,29 +370,29 @@ public static partial class Game
 
     // C→S 0x4d: a waypoint picked on the World panel. An activated waypoint changes area (the player arrives next to its
     // waypoint); with Ctrl, the instance chooser first.
-    public static async Task TravelByWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceWaypoints.Travel travel)
+    public static async Task TravelByWaypoint(ClientState conn, InstanceWaypoints.Travel travel)
     {
         var entry = WaypointCatalog.Areas.Find(travel.AreaHash16);
         bool activated;
         lock (conn.Waypoints) activated = entry is not null && (conn.Waypoints.Contains(entry.Id) || entry.Id == WaypointCatalog.LabyrinthPlaza);
-        Console.WriteLine($"[gateway] {remote} <= 0x004d waypoint travel to 0x{travel.AreaHash16:x4} ({entry?.Name ?? "no waypoint"}), " +
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x004d waypoint travel to 0x{travel.AreaHash16:x4} ({entry?.Name ?? "no waypoint"}), " +
             $"u32 0x{travel.U32:x}{(travel.Ctrl ? ", Ctrl" : "")}{(activated ? "" : ": not activated, ignored")}");
         if (!activated) return;
-        if (travel.Ctrl) await ShowInstances(remote, stream, ciphers, conn, travel.AreaHash16, atWaypoint: true);
-        else await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(travel.AreaHash16, 0, false, AtWaypoint: true), $"waypoint to {entry!.Name}");
+        if (travel.Ctrl) await ShowInstances(conn, travel.AreaHash16, atWaypoint: true);
+        else await ChangeArea(conn, new PendingTransfer(travel.AreaHash16, 0, false, AtWaypoint: true), $"waypoint to {entry!.Name}");
     }
 
     // To the character's hideout (21-hideouts.md §3): "/hideout" (C→S 0x16 command 45) or the World panel's Hideout button
     // (C→S 0x17a). Its own instance (Auth re-enters the live one), arriving next to its waypoint.
-    public static async Task WarpToHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task WarpToHideout(ClientState conn, string why)
     {
         if (HomeHideout(conn) is not { } hideout)
         {
-            Console.WriteLine($"[gateway] {remote} {why}: no data/hideouts.json (run scripts/dev/extract-data.ps1)");
+            Console.WriteLine($"[gateway] {conn.Remote} {why}: no data/hideouts.json (run scripts/dev/extract-data.ps1)");
             return;
         }
-        if (conn.Layout.Hash == hideout.AreaHash16 && OwnHideout(conn)) { Console.WriteLine($"[gateway] {remote} {why}: already in the {hideout.Name}"); return; }
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
+        if (conn.Layout.Hash == hideout.AreaHash16 && OwnHideout(conn)) { Console.WriteLine($"[gateway] {conn.Remote} {why}: already in the {hideout.Name}"); return; }
+        await ChangeArea(conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
     public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
@@ -402,7 +402,7 @@ public static partial class Game
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
             ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, conn.Layout.Walkable), SavedHideoutPlacements(conn)) : null;
 
-    public static async Task SelectHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Row, bool Guild) selected)
+    public static async Task SelectHideout(ClientState conn, (int Row, bool Guild) selected)
     {
         if (selected.Guild || conn.PendingTransfer is not null) return;
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
@@ -410,15 +410,15 @@ public static partial class Game
         SelectAccountHideout(conn, hideout.AreaId);
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
-        await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerHideoutsUpdate(PlayerId, hideout.Hash16, 0),
+        await Send(conn, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
+        await SendWorldRecord(conn, PlayerId, InstanceEntities.PlayerHideoutsUpdate(PlayerId, hideout.Hash16, 0),
             $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(conn)} selected hideout row {hideout.Row}: {hideout.AreaId}");
-        await WarpToHideout(remote, stream, ciphers, conn, "Helena: Select Hideout");
+        await WarpToHideout(conn, "Helena: Select Hideout");
     }
 
     // 0x2b4 now; the move itself (0x27) once the client acknowledges with 0x2cd.
-    public static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
+    public static async Task ChangeArea(ClientState conn, PendingTransfer t, string why)
     {
         foreach (var check in GameEvents.TravelRefusal.For(conn))
             if (check(conn, t) is { } refusal)
@@ -436,24 +436,24 @@ public static partial class Game
         // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
         foreach (uint id in projectiles)
-            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove projectile 0x{id:x} (leaving area)",
+            await Game.SendWorldRemoval(conn, id, $"0x02bd remove projectile 0x{id:x} (leaving area)",
                 still: () => !conn.Closed);
-        await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
+        await Send(conn, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
         // If the client never acknowledges, move it anyway after a moment.
-        _ = Task.Delay(2000).ContinueWith(async _ => { if (conn.PendingTransfer is { } p) await Transfer(remote, stream, ciphers, conn, p); });
+        _ = Task.Delay(2000).ContinueWith(async _ => { if (conn.PendingTransfer is { } p) await Transfer(conn, p); });
     }
 
     // The capture tour's next step (CaptureTour), after an area load (0x7d) or when /tour starts: at the tour's current
     // stop, wait for scripts/walkmaps to write it, then go to a new instance of the next (area, seed). A tour saved before
     // a restart (data/tour-left.txt) resumes at the character's first area load.
-    public static async Task ContinueTour(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool starting = false)
+    public static async Task ContinueTour(ClientState conn, bool starting = false)
     {
         // Tours record with scripts/walkmaps: without it a saved tour (data/tour-left.txt) is left alone.
         if (!CurrentGameWork || !AreaLayouts.Recording) return;
         string character = CharacterName(conn);
         if (!starting && CaptureTour.Resume(character) is { } resumed)
         {
-            Console.WriteLine($"[gateway] {remote} {resumed}");
+            Console.WriteLine($"[gateway] {conn.Remote} {resumed}");
             await conn.Commands!.Reply(resumed);
             if (!CurrentGameWork) return;
             starting = true;
@@ -464,7 +464,7 @@ public static partial class Game
             CaptureTour.MarkArrived(character);
             bool ok = await CaptureTour.WaitForCapture(character, conn.Layout.Id, conn.Seed);
             if (!CurrentGameWork) return;
-            Console.WriteLine($"[gateway] {remote} tour: {conn.Layout.Id} seed {conn.Seed} {(ok ? "captured" : "NOT captured (120 s; is live.ps1 -Walkmaps running?)")}");
+            Console.WriteLine($"[gateway] {conn.Remote} tour: {conn.Layout.Id} seed {conn.Seed} {(ok ? "captured" : "NOT captured (120 s; is live.ps1 -Walkmaps running?)")}");
             TourRecords.Write(conn.Layout.Id, conn.Seed, ok ? "captured" : "not captured", layout: conn.Layout);
         }
         // An area the tour did not send the player to, unless the tour waits for the client to come back.
@@ -476,7 +476,7 @@ public static partial class Game
             if (!CurrentGameWork) return;
             return;
         }
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, true, AtSpawn: true) { Seed = seed }, $"tour: {area} seed {seed}");
+        await ChangeArea(conn, new PendingTransfer(hash, 0, true, AtSpawn: true) { Seed = seed }, $"tour: {area} seed {seed}");
         if (!CurrentGameWork) return;
         // A seed the client itself cannot generate ("Terrain generation failed" in Client/logs/Client.txt): the client
         // shows the exception and hangs. The stop goes to tour-failures.txt and the tour waits: nothing more is sent to
@@ -484,12 +484,12 @@ public static partial class Game
         for (var until = DateTime.UtcNow.AddMinutes(10); DateTime.UtcNow < until && CaptureTour.IsCurrent(character, area, seed); await AreaWait(PlayerUpdateRole.Tour, 2000))
             if (CaptureTour.Failed(character, area, seed) is { } failure)
             {
-                Console.WriteLine($"[gateway] {remote} tour: {area} seed {seed} failed in the client ({failure}); waiting: restart the client with live.ps1 and log in, the tour goes on");
+                Console.WriteLine($"[gateway] {conn.Remote} tour: {area} seed {seed} failed in the client ({failure}); waiting: restart the client with live.ps1 and log in, the tour goes on");
                 return;
             }
     }
     // Auth moves the player and issues the destination ticket; 0x27 sends the client there (it reconnects to this Gateway).
-    public static async Task Transfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task Transfer(ClientState conn,
         PendingTransfer t, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         lock (conn.Monsters)
@@ -501,7 +501,7 @@ public static partial class Game
         {
             t.Done?.Invoke(new() { Ok = false, Error = "connection replaced" });
             conn.ResumeAfterFailedTransfer();
-            Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
+            Console.WriteLine($"[gateway] {conn.Remote} transfer refused: saved life and mana belong to a newer connection");
             return;
         }
         var call = control ?? (request => InstanceControl.CallAsync(request));
@@ -513,13 +513,13 @@ public static partial class Game
         // The party member's instance may be gone or closed to this player: the default choice then.
         if (join != 0 && !r.Ok)
             r = await call(new ControlRequest { Op = "transfer", Ticket = conn.Ticket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed });
-        else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
+        else if (join != 0) Console.WriteLine($"[gateway] {conn.Remote} transfer: joins party instance {join}");
         t.Done?.Invoke(r);
         if (!r.Ok)
         {
             ResumeVitalsAfterFailedTransfer(conn);
             conn.ResumeAfterFailedTransfer();
-            Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
+            Console.WriteLine($"[gateway] {conn.Remote} transfer failed: {r.Error}");
             foreach (var resolved in GameEvents.TransferResolved.For(conn)) await resolved(conn, t, r);
             return;
         }
@@ -546,7 +546,7 @@ public static partial class Game
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;
-        await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),
+        await Send(conn, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),
             $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {r.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
     }
 }

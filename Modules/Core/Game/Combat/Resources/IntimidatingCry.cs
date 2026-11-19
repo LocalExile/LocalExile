@@ -224,14 +224,14 @@ public static partial class Game
         return [.. packets.SelectMany(p => p)];
     }
 
-    static async Task DrainCatCryLosses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task DrainCatCryLosses(ClientState conn)
     {
         CatCryLoss[] losses;
         lock (conn.Monsters) { var state = CryOf(conn); losses = [.. state.Pending]; state.Pending.Clear(); }
         foreach (var loss in losses)
         {
             bool accepted = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01ce Cat Stealth loss triggers Intimidating Cry",
+            await SendWorldRecord(conn, PlayerId, [], "0x01ce Cat Stealth loss triggers Intimidating Cry",
                 atGate: () =>
                 {
                     using (ProjectileMutation(conn))
@@ -243,10 +243,10 @@ public static partial class Game
                 });
             if (accepted)
             {
-                await SendSkillCost(remote, stream, ciphers, conn, loss.LifeCost, "triggered Intimidating Cry cost");
-                await SendChargeStats(remote, stream, ciphers, conn, "Intimidating Cry");
+                await SendSkillCost(conn, loss.LifeCost, "triggered Intimidating Cry cost");
+                await SendChargeStats(conn, "Intimidating Cry");
                 var at = conn.Walk.Position(AreaTime(conn));
-                await WarcryReleased(remote, stream, ciphers, conn, at, WarcryRadius, loss.Epoch);
+                await WarcryReleased(conn, at, WarcryRadius, loss.Epoch);
             }
         }
         lock (conn.Monsters)
@@ -254,12 +254,12 @@ public static partial class Game
             var state = CryOf(conn);
             if (losses.Length == 0 && state.Buff == 0 && state.Gifts.Count == 0 && state.Inbox.IsEmpty) return;
         }
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "Intimidating Cry buff",
+        await SendWorldRecord(conn, PlayerId, [], "Intimidating Cry buff",
             atGate: () =>
             {
                 lock (conn.Monsters)
                     return !CurrentGameWork || conn.Closed || conn.LeavingArea ? null : IntimidatingCryBuffRecordsLocked(conn);
             });
-        if (losses.Length > 0) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+        if (losses.Length > 0) await SendNativeCooldownRefresh(conn);
     }
 }

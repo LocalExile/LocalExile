@@ -143,8 +143,8 @@ public static partial class Game
     // Construct buffs, stats and Actor records together inside the send gate from the current owner state. A stat
     // presentation: without Fortification shown and with nothing changed since the last presentation (every gain moves
     // the revision) there is nothing to send, so the send gate and the Monsters lock are left alone.
-    public static Task SendFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        FortificationOf(conn) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
+    public static Task SendFortification(ClientState conn) =>
+        FortificationOf(conn) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(conn, [], null, atGate: () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "fortification"))
             {

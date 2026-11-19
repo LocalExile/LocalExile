@@ -97,7 +97,7 @@ public static partial class Game
                     if (hit.StageStarts)
                     {
                         var wire = conn.Wire;
-                        CommitBossStage(wire.Remote, wire.Stream, wire.Ciphers, conn, id, target, now);
+                        CommitBossStage(conn, id, target, now);
                         hit = hit with { StageStarts = false };
                     }
                     AilmentsOnHitLocked(conn, id, target, mitigated, false, critical, 100, player, null, now,

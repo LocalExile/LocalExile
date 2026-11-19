@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -117,8 +117,7 @@ static partial class Game
     /// (0x1415d17d0 → 0x1417b6030), which reads entries 1 and 2 of the buff's list without checking its length (a
     /// non-totem, first-form visual is all zeroes). Nothing else consumes them.
     /// </summary>
-    internal static async Task WinterOrbPresentStages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn)
+    internal static async Task WinterOrbPresentStages(ClientState conn)
     {
         byte[] packet;
         int stages;
@@ -137,7 +136,7 @@ static partial class Game
                 stacks: (ushort)runtime.Stages, list: WinterOrbStagesList);
             runtime.PresentedStages = runtime.Stages;
         }
-        await Send(remote, stream, ciphers, packet, $"winter orb {stages} stages");
+        await Send(conn, packet, $"winter orb {stages} stages");
     }
 
     /// <summary>
@@ -145,8 +144,7 @@ static partial class Game
     /// second channel keeps the runtime it finds and only refreshes it — no second sphere, and the stages it already
     /// built are kept instead of being dropped.
     /// </summary>
-    internal static async Task<uint> WinterOrbStart(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId,
+    internal static async Task<uint> WinterOrbStart(ClientState conn, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
     {
         WinterOrbRuntime runtime;
@@ -176,9 +174,9 @@ static partial class Game
             // A held stage has no countdown: the release resends the icon with the duration its stages leave.
             runtime.PresentedStages = -1;
             if (!created)
-                Console.WriteLine($"[gateway] {remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
+                Console.WriteLine($"[gateway] {conn.Remote} winter orb 0x{runtime.ObjectId:x} re-channelled at {runtime.Stages} stages");
         }
-        await WinterOrbPresentStages(remote, stream, ciphers, conn);
+        await WinterOrbPresentStages(conn);
         if (created)
         {
             // The loop outlives this channel and this call: it must not inherit the channel's output delegates.
@@ -265,7 +263,6 @@ static partial class Game
     /// </summary>
     static async Task RunWinterOrb(ClientState conn, WinterOrbRuntime runtime, long generation)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         bool Current()
         {
             lock (conn.Monsters)
@@ -305,7 +302,7 @@ static partial class Game
                 }
                 if (expire) break;
                 // The count follows the orb: each stage that decays re-sends the icon, as does the release's timer.
-                await WinterOrbPresentStages(remote, stream, ciphers, conn);
+                await WinterOrbPresentStages(conn);
                 if (wait > 0)
                 {
                     // A quarter of a second at most: a release, a retirement or an expiry is heard without waiting for a
@@ -325,9 +322,9 @@ static partial class Game
                     do runtime.NextFireAt += interval; while (runtime.NextFireAt <= now);
                     channelling = runtime.Channelling;
                     if (!channelling)
-                        Console.WriteLine($"[gateway] {remote} winter orb fires after the release at {runtime.Stages} stages");
+                        Console.WriteLine($"[gateway] {conn.Remote} winter orb fires after the release at {runtime.Stages} stages");
                 }
-                await WinterOrbVolley(remote, stream, ciphers, conn, runtime);
+                await WinterOrbVolley(conn, runtime);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -369,10 +366,10 @@ static partial class Game
             else
             {
                 if (remove)
-                    Console.WriteLine($"[gateway] {remote} winter orb 0x{id:x} expired");
+                    Console.WriteLine($"[gateway] {conn.Remote} winter orb 0x{id:x} expired");
                 // The icon leaves with the orb: the last stage going, death, an area change or a closed connection.
                 if (buff != 0 && !conn.Closed && !conn.LeavingArea)
-                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+                    await Send(conn, InstanceEntities.RemoveBuff(PlayerId, buff), null);
             }
         }
     }
@@ -395,17 +392,16 @@ static partial class Game
     }
 
     /// <summary>An impact's art at its landing cell, removed once FrostFuryExplode has played.</summary>
-    internal static async Task WinterOrbImpact(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) at)
+    internal static async Task WinterOrbImpact(ClientState conn, (int X, int Y) at)
     {
         uint id;
         lock (conn.Monsters) id = conn.TakeObjectId();
         try
         {
-            await Send(remote, stream, ciphers,
+            await Send(conn,
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                     new EffectObject(at.X, at.Y, WinterOrbImpactArt).Blob()), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await Send(conn, InstanceProtocol.EnterWakeZone(id), null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return; }
         _ = Task.Run(async () =>
@@ -413,7 +409,7 @@ static partial class Game
             try
             {
                 await Task.Delay(WinterOrbImpactMilliseconds);
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+                await Send(conn, InstanceProtocol.RemoveObject(id), null);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
         });
@@ -429,8 +425,7 @@ static partial class Game
     /// The hit lands when the projectile does, not when the button does, so it carries neither the channel's action nor
     /// its generation: the orb keeps firing after the release, when the player has no such action any more.
     /// </summary>
-    internal static async Task WinterOrbVolley(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WinterOrbRuntime runtime)
+    internal static async Task WinterOrbVolley(ClientState conn, WinterOrbRuntime runtime)
     {
         ushort skillId = runtime.SkillId;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
@@ -467,9 +462,9 @@ static partial class Game
             double offset = spacing * (i - (count - 1) / 2.0);
             var landing = ((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset));
             double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
-            uint projectile = await WinterOrbProjectile(remote, stream, ciphers, conn, from, landing, seconds);
+            uint projectile = await WinterOrbProjectile(conn, from, landing, seconds);
             if (projectile == 0) continue;
-            _ = LandWinterOrbProjectile(remote, stream, ciphers, conn, runtime, projectile, from, landing, seconds);
+            _ = LandWinterOrbProjectile(conn, runtime, projectile, from, landing, seconds);
         }
     }
 
@@ -508,17 +503,16 @@ static partial class Game
     /// <paramref name="seconds"/> (0x1ba carries a duration, not a speed). The projectile blob wakes the object, so it
     /// needs no 0x1a9 of its own.
     /// </summary>
-    static async Task<uint> WinterOrbProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) from, (int X, int Y) to, double seconds)
+    static async Task<uint> WinterOrbProjectile(ClientState conn, (int X, int Y) from, (int X, int Y) to, double seconds)
     {
         uint id;
         lock (conn.Monsters) id = conn.TakeObjectId();
         try
         {
-            await Send(remote, stream, ciphers,
+            await Send(conn,
                 CreateProjectileObject(id, new ProjectileObject(WinterOrbProjectileArt, from.X, from.Y)),
                 $"0x02bb winter orb projectile 0x{id:x} ({from.X},{from.Y})->({to.X},{to.Y}) {seconds:0.000}s");
-            await Send(remote, stream, ciphers,
+            await Send(conn,
                 ProjectileHeight.Terrain.MoveTo(id, to.X, to.Y, (float)seconds), null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return 0; }
@@ -529,8 +523,7 @@ static partial class Game
     /// The mortar lands: its object goes, FrostFuryExplode plays and the skill's area hit lands at that cell. Death, an
     /// area change and a closed connection drop a shot that is still in the air.
     /// </summary>
-    static async Task LandWinterOrbProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
+    static async Task LandWinterOrbProjectile(ClientState conn, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
         double seconds)
     {
         try
@@ -538,11 +531,11 @@ static partial class Game
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             lock (conn.Monsters)
                 if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(projectile), null);
-            await WinterOrbImpact(remote, stream, ciphers, conn, at);
+            await Send(conn, InstanceProtocol.RemoveObject(projectile), null);
+            await WinterOrbImpact(conn, at);
             var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == runtime.SkillId);
             if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-            await AreaSkillHit(remote, stream, ciphers, conn, runtime.SkillId, gem, from, at,
+            await AreaSkillHit(conn, runtime.SkillId, gem, from, at,
                 immediate: true, sequence: conn.ChannelSkillSequence);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }

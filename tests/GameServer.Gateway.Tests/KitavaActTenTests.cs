@@ -58,7 +58,7 @@ public sealed class KitavaActTenTests
         try
         {
             Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, observer.Wire.Ciphers)) shown.Add(bytes.ToArray()); };
-            await Game.SyncInstanceMonsters(observer.Wire.Remote, observer.Wire.Stream, observer.Wire.Ciphers, observer);
+            await Game.SyncInstanceMonsters(observer);
         }
         finally { Program.Outgoing = previousOutgoing; }
         foreach (var ally in allies)
@@ -114,7 +114,7 @@ public sealed class KitavaActTenTests
         Assert.True(c.Instance.World.MonsterOrigins[sin.Key].Object.HasDialogue);
         var speaker = c.Npcs[sin.Key]; await fight.Step(c, 399); Assert.Same(speaker, c.Npcs[sin.Key]);
         c.Walk.Teleport(c.Npcs[sin.Key].X, c.Npcs[sin.Key].Y, c.Clock.Elapsed.TotalSeconds);
-        await Game.OnUseObject("kitava-final", wire.Stream, wire.Ciphers, c, new(sin.Key, 0x266, 0, 0x408), c.Clock.Elapsed.TotalSeconds);
+        await Game.OnUseObject(c, new(sin.Key, 0x266, 0, 0x408), c.Clock.Elapsed.TotalSeconds);
         Assert.Equal(sin.Key, c.TalkingTo);
         Assert.Equal(1, sin.Value.States!.SharedStates[sin.Value.States.IndexOf("finished")]);
         Game.CommitQuestFlags(c, [KitavaActTen.Talked]); Assert.True(KitavaActTen.GateShown(c, exit));

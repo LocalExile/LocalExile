@@ -140,8 +140,7 @@ public static partial class Game
             { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 
-    public static async Task TickBeastCompanions(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now, object? rules)
+    public static async Task TickBeastCompanions(ClientState conn, double now, object? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
         if (!Current() || conn.Closed || conn.LeavingArea) return;
@@ -180,7 +179,7 @@ public static partial class Game
         {
             lock (conn.Monsters)
                 if (ReferenceEquals(conn.Beasts.Pending, summon)) conn.Beasts.Pending = null;
-            Console.WriteLine($"[gateway] {remote} {summon.Skill}: {summon.Variety} cannot be created");
+            Console.WriteLine($"[gateway] {conn.Remote} {summon.Skill}: {summon.Variety} cannot be created");
             return;
         }
 
@@ -196,7 +195,7 @@ public static partial class Game
             summon.SkillStats, native.Effects);
         var mods = GolemModifiers(conn, prepared, CharacterPlayerStats(conn), AreaTime(conn));
         mods = mods with { Mods = native.Mods };
-        uint spawned = await SpawnMonster(remote, stream, ciphers, conn, variety, summon.MinionLevel,
+        uint spawned = await SpawnMonster(conn, variety, summon.MinionLevel,
             MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods, extraStats: MinionStats,
             owned: (id, m) =>
             {
@@ -221,7 +220,7 @@ public static partial class Game
                     conn.Beasts.Pending = null;
         }
         if (spawned != 0 && Current())
-            Console.WriteLine($"[gateway] {remote} {summon.Skill} summoned {summon.MinionKind} " +
+            Console.WriteLine($"[gateway] {conn.Remote} {summon.Skill} summoned {summon.MinionKind} " +
                 $"0x{spawned:x} at level {summon.MinionLevel}");
     }
 

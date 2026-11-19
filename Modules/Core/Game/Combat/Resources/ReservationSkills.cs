@@ -144,7 +144,7 @@ public static partial class Game
         return SkillArea.Radius(basis > 0 ? basis : fallback, Get, spell: false);
     }
 
-    static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void ReservationDamageLocked(ClientState conn,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
         using var statScope = new PlayerStatScope(conn, fresh: true);
@@ -221,7 +221,7 @@ public static partial class Game
                 int damage = MonsterTakesMitigated(m, mitigated, spell, now);
                 if (ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
                 if (hit.StageStarts)
-                { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
+                { CommitBossStage(conn, id, m, now); hit = hit with { StageStarts = false }; }
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (aura.EffectId == "HeraldOfThunder" && Stats.Key("never_shock") is uint noShock) own[noShock] = 1;
@@ -268,7 +268,7 @@ public static partial class Game
             }
     }
 
-    public static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task ReservationSkillsTick(ClientState conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
         bool catChanged = false;
@@ -291,12 +291,12 @@ public static partial class Game
                 if (!conn.Auras.TryGetValue(proc.Skill, out var aura) || conn.PlayerLife == 0) continue;
                 if (aura.EffectId == "HeraldOfPurity") summons.Add(aura);
                 else if (aura.EffectId == "HeraldOfAsh") ReservationAshLocked(conn, aura, proc.At, proc.Target, now);
-                else ReservationDamageLocked(remote, stream, ciphers, conn, aura, proc.At, now, proc.Target);
+                else ReservationDamageLocked(conn, aura, proc.At, now, proc.Target);
             }
             if (ReservationAura(conn, "HeraldOfThunder") is { } thunder && now < state.ThunderUntil && now >= state.NextThunder)
             {
                 state.NextThunder = now + Math.Max(.05, ReservationStat(conn, thunder, "herald_of_thunder_bolt_base_frequency") / 1000.0);
-                ReservationDamageLocked(remote, stream, ciphers, conn, thunder, conn.Walk.Position(now), now);
+                ReservationDamageLocked(conn, thunder, conn.Walk.Position(now), now);
             }
             if (ReservationAura(conn, "TemporalRift") is not null && now >= state.NextEcho)
             {
@@ -310,15 +310,15 @@ public static partial class Game
             SpiderAspectTickLocked(conn, now);
             MadnessExplosionsLocked(conn, now);
         }
-        if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
-        await DrainTwisterGains(remote, stream, ciphers, conn);
-        await DrainCatCryLosses(remote, stream, ciphers, conn);
-        await PresentSiphoningCharges(remote, stream, ciphers, conn);
-        foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");
-        await ReservationFightersTick(remote, stream, ciphers, conn, now);
-        await TickStrongestDots(remote, stream, ciphers, conn, m => m.HeraldBurns,
+        if (catChanged) await SendOwnAuraChanges(conn);
+        await DrainTwisterGains(conn);
+        await DrainCatCryLosses(conn);
+        await PresentSiphoningCharges(conn);
+        foreach (var aura in summons) await SummonReservationFighter(conn, aura, "Purity");
+        await ReservationFightersTick(conn, now);
+        await TickStrongestDots(conn, m => m.HeraldBurns,
             (m, t) => MonsterDotTaken(m, DamageType.Fire, t), "burnt to death by Herald of Ash");
-        await PublishMinionOutcomes(remote, stream, ciphers, conn);
+        await PublishMinionOutcomes(conn);
     }
 
     static void ReservationArcticTrailLocked(ClientState conn, double now)

@@ -115,7 +115,7 @@ public static partial class Game
         }
     }
 
-    static async Task<bool> CastCurse(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> CastCurse(ClientState conn,
         ushort skill, (int X, int Y) aim, uint target, int recovery, Func<bool> current)
     {
         var gem = SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect)!;
@@ -148,7 +148,7 @@ public static partial class Game
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
-        await EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
+        await EnemyDebuffsTick(conn, AreaTime(conn));
         return true;
     }
 

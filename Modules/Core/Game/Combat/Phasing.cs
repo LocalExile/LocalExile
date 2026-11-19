@@ -53,7 +53,7 @@ public static partial class Game
     /// <summary>The Phasing Buff (BuffDefinitions "phasing_buff") and the virtual stat the client's pathfinder
     /// reads. The server's own blockers already follow <see cref="ClientState.IsPhasing"/>; without the stat the
     /// client walks around them and the estimates drift apart.</summary>
-    public static async Task SyncPhasing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncPhasing(ClientState conn)
     {
         byte[]? buffBytes = null;
         byte[]? statBytes = null;
@@ -95,8 +95,8 @@ public static partial class Game
                 statBytes = PhaseStat(false);
             }
         }
-        if (buffBytes is not null) await Send(remote, stream, ciphers, buffBytes, "phasing buff");
-        if (statBytes is not null) await Send(remote, stream, ciphers, statBytes, "phasing stat");
+        if (buffBytes is not null) await Send(conn, buffBytes, "phasing buff");
+        if (statBytes is not null) await Send(conn, statBytes, "phasing stat");
     }
 
     // The timed remainder is re-sent when a kill extends it; a timed buff that fell back to a flask-only source

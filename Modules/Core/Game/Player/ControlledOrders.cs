@@ -121,7 +121,7 @@ public static partial class Game
                 FinishControlledIntent(conn, intent, "rejected", "Flask slot must be 1..5.", now);
             else
             {
-                await UseFlask(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, (uint)(intent.Flask - 1));
+                await UseFlask(conn, (uint)(intent.Flask - 1));
                 FinishControlledIntent(conn, intent, "issued", "Flask use processed; ordinary charge/resource checks apply.", now);
             }
             return true;
@@ -138,8 +138,7 @@ public static partial class Game
             }
             var pickup = new LoginWriter().U16(InstanceTransfer.UseSkillOnObjectId).U32(intent.Target)
                 .U16(0x0266).U16(0xffff).U16(0x0408).ToArray();
-            await OnClientMessages(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers,
-                [(InstanceTransfer.UseSkillOnObjectId, pickup)], [], conn);
+            await OnClientMessages([(InstanceTransfer.UseSkillOnObjectId, pickup)], [], conn);
             FinishControlledIntent(conn, intent, "issued", "Ordinary ground pickup processed; inventory and ownership checks apply.", now);
             return true;
         }
@@ -213,7 +212,7 @@ public static partial class Game
             bytes = new LoginWriter().U16(pid).U32((uint)intent.X).U32((uint)intent.Y).U16(gem.Id).U16(0xffff).U16(1).ToArray();
         }
         HoldControlledFollowerAttack(conn, now, seconds, intent.Target);
-        await OnClientMessages(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, [(pid, bytes)], [], conn);
+        await OnClientMessages([(pid, bytes)], [], conn);
         FinishControlledIntent(conn, intent, "issued", "Native skill request processed; normal mana, cooldown and targeting rules apply.", now);
         return true;
     }

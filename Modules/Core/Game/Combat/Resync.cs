@@ -14,12 +14,12 @@ public static partial class Game
     const int WakeZoneRadius = 171, WakeZoneReturn = 163;
     const double WakeZoneSeconds = .5;
 
-    public static async Task KeepWakeZone(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task KeepWakeZone(ClientState conn)
     {
         double checkedAt = conn.Clock.Elapsed.TotalSeconds;
         if (checkedAt < conn.NextWakeZoneAt || !conn.PlayerSent) return;
         conn.NextWakeZoneAt = checkedAt + WakeZoneSeconds;
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -211,10 +211,10 @@ public static partial class Game
             : Math.Max(MovementResyncSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(conn));
 
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.
-    public static void ResyncAfter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double seconds, string why)
+    public static void ResyncAfter(ClientState conn, double seconds, string why)
     {
         conn.LandingUntil = Math.Max(conn.LandingUntil, conn.Clock.Elapsed.TotalSeconds + seconds);
-        SendAfter(seconds, () => SendResync(remote, stream, ciphers, conn, why));
+        SendAfter(seconds, () => SendResync(conn, why));
     }
 
     // Something to send later, on its own: the connection may be gone by then.
@@ -226,8 +226,8 @@ public static partial class Game
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });
 
-    public static Task SendResync(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why) =>
-        Send(remote, stream, ciphers, [], $"0x0128 resync ({why})", atGate: () =>
+    public static Task SendResync(ClientState conn, string why) =>
+        Send(conn, [], $"0x0128 resync ({why})", atGate: () =>
         {
             lock (conn.Monsters)
                 return conn.Closed || conn.LeavingArea || conn.LockstepClient || conn.Clock.Elapsed.TotalSeconds < conn.LandingUntil ? null

@@ -193,6 +193,6 @@ public static partial class Game
         }
     }
 
-    public static Task SendSpreadPoisonRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => SpreadPoisonRegenerationPresentation(conn));
+    public static Task SendSpreadPoisonRegeneration(ClientState conn) =>
+        Send(conn, [], null, atGate: () => SpreadPoisonRegenerationPresentation(conn));
 }

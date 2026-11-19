@@ -255,7 +255,7 @@ public static partial class Game
         }
     }
 
-    static async Task SendConditionalItemStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendConditionalItemStats(ClientState conn)
     {
         long revision;
         ConditionalItemPoolState state;
@@ -266,9 +266,9 @@ public static partial class Game
             revision = state.Revision;
             if (revision == state.Presented) return;
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
-        await SendPlayerMana(remote, stream, ciphers, conn);
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await SendCharacterStats(conn, PlayerStatChange.Sources);
+        await SendPlayerMana(conn);
+        await Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
                 return conn.Closed || conn.LeavingArea ? null

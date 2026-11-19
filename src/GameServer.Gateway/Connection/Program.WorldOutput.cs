@@ -8,8 +8,7 @@ public partial class Program
     // for a frame. The existing module lifetime check is retained, without introducing a new reload contract.
     public static async Task<bool> SendRecords(ClientState conn, IReadOnlyList<WorldObject> requires,
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, IReadOnlyList<WorldObject>? creates = null,
-        IWorldAdmissionRules? rules = null, bool quest = false,
-        (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers)? transport = null)
+        IWorldAdmissionRules? rules = null, bool quest = false)
     {
         var output = conn.WorldOutput;
         WorldObject[] dependencies = [.. requires], reservations = creates is null ? [] : [.. creates];
@@ -21,7 +20,7 @@ public partial class Program
             if (dependencies.Intersect(reservations).Any())
                 throw new ArgumentException("An output batch cannot wait on its own unadmitted birth.");
             if (!await output.AwaitBirths(dependencies)) return false;
-            var wire = transport ?? conn.Wire;
+            var wire = conn.Wire;
             var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
             if (quest) await conn.QuestGate.WaitAsync();
             try
@@ -82,9 +81,9 @@ public partial class Program
     // once. What the game does at a frame end is asked of the rules loaded then, so after a game module reload the new
     // rules take over at the next frame; the driver runs on an execution context of its own, since the caller's async-local
     // values (the game module's) would ride along for the area's life.
-    public static void StartWorldFrames(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn)
+    public static void StartWorldFrames(ClientState conn)
     {
+        var (remote, stream, ciphers) = conn.Wire;
         if (ExecutionContext.IsFlowSuppressed())
         {
             _ = Task.Run(() => conn.Frames.Join(remote, stream, ciphers, conn));

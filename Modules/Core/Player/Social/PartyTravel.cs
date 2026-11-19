@@ -63,8 +63,7 @@ static class PartyTravel
         }
         if (destination.Area == conn.Layout.Hash && destination.Instance == conn.InstanceNumber) return true;
         // Pin the selected member's instance: another party member may be in a different copy of the same area.
-        var (remote, stream, ciphers) = conn.Wire;
-        await ChangeArea(remote, stream, ciphers, conn, destination, $"party panel: travel to {name}");
+        await ChangeArea(conn, destination, $"party panel: travel to {name}");
         return true;
     }
 }

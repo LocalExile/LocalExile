@@ -43,17 +43,17 @@ public sealed class GroundDropSoundTests
             InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), freshObject.Blob(justDropped: true)));
         int Count(PartyFollowerTests.Wire w, string hex) => Program.HistoryFor(w.Ciphers).Lines()
             .Count(line => line.Contains(hex[..Math.Min(hex.Length, PacketHistory.KeptBytes * 2)], StringComparison.Ordinal));
-        await Game.SyncSharedGround("sound-observer", wire.Stream, wire.Ciphers, viewer);
+        await Game.SyncSharedGround(viewer);
         Assert.Equal(1, Count(wire, sound));
-        await Game.SyncSharedGround("sound-observer-repeat", wire.Stream, wire.Ciphers, viewer);
+        await Game.SyncSharedGround(viewer);
         Assert.Equal(1, Count(wire, sound));
-        await Game.SendGroundItems("sound-reentry", lateWire.Stream, lateWire.Ciphers, joining);
-        await Game.SendGroundItems("sound-reentry-replay", lateWire.Stream, lateWire.Ciphers, joining);
+        await Game.SendGroundItems(joining);
+        await Game.SendGroundItems(joining);
         Assert.Equal(0, Count(lateWire, sound));
         Assert.Equal(1, Count(lateWire, Convert.ToHexString(InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), freshObject.Blob()))));
         uint privateId = instance.Ground.Add(old, joining, shared: false);
-        await Game.SyncSharedGround("sound-private", wire.Stream, wire.Ciphers, viewer);
+        await Game.SyncSharedGround(viewer);
         Assert.DoesNotContain(privateId, viewer.SeenGround);
 
         // A tutorial gem: its first recipient gets one create and its wake, as world records of the new object. The
@@ -68,7 +68,7 @@ public sealed class GroundDropSoundTests
         try
         {
             Game.ValidateSavedProgress(gifted, null);
-            Game.PrepareCharacterForArea("tutorial-gem", gifted, 1);
+            Game.PrepareCharacterForArea(gifted, 1);
             foreach (bool support in new[] { false, true })
             {
                 var existingObserver = new object();
@@ -123,37 +123,37 @@ public sealed class GroundDropSoundTests
             var pile = Gold(119, 100, 87); uint id = instance.Ground.Add(pile, player); Queue(id);
             string create = Convert.ToHexString(InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), pile.Blob(justDropped: true)));
-            await Game.PickUpNearbyGold("gold-auto", wire.Stream, wire.Ciphers, player);
+            await Game.PickUpNearbyGold(player);
             Assert.Null(instance.Ground.Get(id)); Assert.Equal(before + 87, stash.Gold);
-            await Game.PublishMinionOutcomes("gold-late-create", wire.Stream, wire.Ciphers, player);
+            await Game.PublishMinionOutcomes(player);
             Assert.Equal(0, Count(create)); Assert.True(instance.Ground.WasTaken(id));
             Assert.False(instance.Ground.WasTaken(InstanceGround.FirstItemId - 1));
             Assert.False(instance.Ground.WasTaken(uint.MaxValue));
             // An already-visible stale label is removable without another gold credit.
             string remove = Convert.ToHexString(InstanceProtocol.RemoveObject(id)); int removals = Count(remove);
-            await Game.OnUseObject("gold-stale-click", wire.Stream, wire.Ciphers, player, new(id, 0x266, 0, 0x408), player.Clock.Elapsed.TotalSeconds);
+            await Game.OnUseObject(player, new(id, 0x266, 0, 0x408), player.Clock.Elapsed.TotalSeconds);
             Assert.Equal(removals + 1, Count(remove)); Assert.Equal(before + 87, stash.Gold);
             // Collect every pile, the full ushort stack included, at the boundary; preserve outside/private loot.
             uint edge = instance.Ground.Add(Gold(120, 100, 13), player);
             uint large = instance.Ground.Add(Gold(100, 120, ushort.MaxValue), player);
             uint outside = instance.Ground.Add(Gold(121, 100, 11), player);
             uint privateGold = instance.Ground.Add(Gold(110, 100, 19), other, shared: false);
-            await Game.PickUpNearbyGold("gold-all-piles", wire.Stream, wire.Ciphers, player);
+            await Game.PickUpNearbyGold(player);
             Assert.Null(instance.Ground.Get(edge)); Assert.Null(instance.Ground.Get(large));
             Assert.NotNull(instance.Ground.Get(outside)); Assert.NotNull(instance.Ground.Get(privateGold));
             Assert.Equal(before + 100 + ushort.MaxValue, stash.Gold);
             // Two observers/manual-auto contenders can only award a shared pile once.
             var shared = Gold(100, 100, 17); uint sharedId = instance.Ground.Add(shared);
-            await Task.WhenAll(Game.PickUpGold("gold-first", wire.Stream, wire.Ciphers, player, sharedId, shared, "picked up"),
-                Game.PickUpGold("gold-second", otherWire.Stream, otherWire.Ciphers, other, sharedId, shared, "picked up"));
+            await Task.WhenAll(Game.PickUpGold(player, sharedId, shared, "picked up"),
+                Game.PickUpGold(other, sharedId, shared, "picked up"));
             Assert.Equal((ulong)before + otherBefore + 117 + ushort.MaxValue, (ulong)stash.Gold + otherStash.Gold);
             // A queued item still present publishes create+wake; a stale snapshot cannot credit a restored stack.
             var old = Gold(130, 100, 87); uint replaced = instance.Ground.Add(old, player); Queue(replaced);
             var restored = Gold(130, 100, 23); instance.Ground.Restore(replaced, restored);
             before = stash.Gold;
-            await Game.PickUpGold("gold-old-snapshot", wire.Stream, wire.Ciphers, player, replaced, old, "picked up");
+            await Game.PickUpGold(player, replaced, old, "picked up");
             Assert.Equal(before, stash.Gold); Assert.Same(restored, instance.Ground.Get(replaced));
-            await Game.PublishMinionOutcomes("gold-restored-create", wire.Stream, wire.Ciphers, player);
+            await Game.PublishMinionOutcomes(player);
             Assert.Contains(replaced, player.SeenGround);
             string restoredCreate = Convert.ToHexString(InstanceEntities.CreateObject(replaced,
                 InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), restored.Blob()));
@@ -180,11 +180,11 @@ public sealed class GroundDropSoundTests
         uint stale = player.Instance.Ground.Add(item, player);
         Queue(stale); player.Instance.Ground.Take(stale);
         int before = Program.HistoryFor(wire.Ciphers).Lines().Count();
-        await Game.PublishMinionOutcomes("stale-lockstep-drop", wire.Stream, wire.Ciphers, player);
+        await Game.PublishMinionOutcomes(player);
         Assert.Empty(player.Minions.OutputQueue);
         Assert.Equal(before, Program.HistoryFor(wire.Ciphers).Lines().Count());
         uint live = player.Instance.Ground.Add(item, player); Queue(live);
-        var publishing = Game.PublishMinionOutcomes("live-lockstep-drop", wire.Stream, wire.Ciphers, player);
+        var publishing = Game.PublishMinionOutcomes(player);
         Assert.False(publishing.IsCompleted);
         await Program.EndWorldFrame(player, (.033, .066));
         await publishing;
@@ -202,7 +202,7 @@ public sealed class GroundDropSoundTests
         var player = runtime.Connection(new InstanceState(), wire, "projectile-ground");
         player.LockstepClient = true;
         await Program.BeginWorldFrames(player, .033);
-        var session = new Game.ProjectileSession("projectile-ground", wire.Stream, wire.Ciphers, player);
+        var session = new Game.ProjectileSession(player);
         var item = new WorldItemObject(120, 100, new Item(0x11223344, [], 0));
         int Creates(uint id) => Program.HistoryFor(wire.Ciphers).Lines()
             .Count(line => line.Contains($"02BB{id:X8}", StringComparison.Ordinal));
@@ -229,7 +229,7 @@ public sealed class GroundDropSoundTests
         await Frame();
         Assert.Equal(1, Creates(live));
         Assert.Contains(live, player.SeenGround);
-        await Game.SyncSharedGround("projectile-ground-sync", wire.Stream, wire.Ciphers, player);
+        await Game.SyncSharedGround(player);
         Assert.Equal(1, Creates(live));
 
         session.Invalidate();

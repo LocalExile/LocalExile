@@ -182,7 +182,7 @@ public static partial class Game
             && SkillsFor(conn).IsAttack(gem.Effect)) Put("virtual_vaal_skill_require_no_souls_per_use", 1);
     }
 
-    static async Task PublishVaalUse(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task PublishVaalUse(ClientState conn,
         VaalUseReservation paid)
     {
         var previous = Program.ProjectileOutputGuard.Value;
@@ -192,13 +192,13 @@ public static partial class Game
         try
         {
             if (!Current()) return;
-            await SendRage(remote, stream, ciphers, conn);
+            await SendRage(conn);
             if (!Current()) return;
-            await SendVaalSouls(remote, stream, ciphers, conn);
+            await SendVaalSouls(conn);
             if (!Current()) return;
-            await SendChargeStats(remote, stream, ciphers, conn, "accepted Vaal use");
+            await SendChargeStats(conn, "accepted Vaal use");
             if (!Current()) return;
-            await SendSkillCost(remote, stream, ciphers, conn, paid.Life, "Vaal use paid");
+            await SendSkillCost(conn, paid.Life, "Vaal use paid");
         }
         finally { Program.ProjectileOutputGuard.Value = previous; }
     }

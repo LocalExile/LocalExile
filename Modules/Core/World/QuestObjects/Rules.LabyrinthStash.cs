@@ -10,7 +10,7 @@ static partial class QuestobjectsRules
 
     // The account's stash where a Labyrinth room has one (the room before each of Izaro's arenas, the Ascendancy Chamber:
     // its Metadata/MiscellaneousObjects/Stash room object), as a town's.
-    static async Task PlaceLabyrinthStashes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task PlaceLabyrinthStashes(ClientState conn,
         List<AreaPopulation.RoomObject> all)
     {
         var placed = new Dictionary<uint, (int X, int Y)>();
@@ -19,9 +19,8 @@ static partial class QuestobjectsRules
             uint id = conn.TakeObjectId();
             byte[] create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath),
                 new StashObject(at.X, at.Y, at.Angle).Blob());
-            await global::Game.SendWorldCreate(conn, id, () => create, $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})", wake: true,
-                transport: (remote, stream, ciphers));
-            await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Angle);
+            await global::Game.SendWorldCreate(conn, id, () => create, $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})", wake: true);
+            await RegisterStationaryCollision(conn, id, StashObject.MetadataPath, at.X, at.Y, at.Angle);
             placed[id] = (at.X, at.Y);
             if (conn.StashObject == 0) (conn.StashObject, conn.StashAt) = (id, (at.X, at.Y));
         }

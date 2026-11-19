@@ -77,8 +77,7 @@ public static class Arakaali
                 && !p.Closed && !p.LeavingArea)).Distinct().ToArray();
             foreach (var p in observers.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)))
             {
-                var w = p.Wire;
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
+                await SendWorldRecord(p, id, [], null, atGate: () =>
                 {
                     lock (p.Monsters)
                         return !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea

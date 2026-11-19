@@ -136,8 +136,7 @@ public sealed partial class DeliriumModule
             double angle = run.Spawned * 2.399963229728653;
             int radius = 35 + run.Spawned % 40;
             var at = conn.Layout.Near((centre.X + (int)(Math.Cos(angle) * radius), centre.Y + (int)(Math.Sin(angle) * radius)));
-            var w = conn.Wire;
-            uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, rarity, at.X, at.Y,
+            uint id = await SpawnMonster(conn, variety, level, rarity, at.X, at.Y,
                 mods: rolledMods, extraMods: extra, unrisen: false, log: false,
                 ownedCurrent: () => context.Lifetime.IsActive && Current(conn) && run.Active,
                 owned: (spawnedId, monster) =>
@@ -174,7 +173,7 @@ public sealed partial class DeliriumModule
             Save(conn, run);
         }
         var wire = conn.Wire;
-        foreach (var item in output) await SendGroundItem(wire.Remote, wire.Stream, wire.Ciphers, conn, item.Id, item.Item, null, justDropped: true);
+        foreach (var item in output) await SendGroundItem(conn, item.Id, item.Item, null, justDropped: true);
         await PublishStarter(conn, run, recreate: true);
         await Broadcast(conn, $"Simulacrum wave {wave}/15 complete — {output.Count} rewards. " +
             (wave == 15 ? "All waves defeated. The Delirious Bloodline is now available." : "Collect your loot, then interact with the entity to start the next wave."));

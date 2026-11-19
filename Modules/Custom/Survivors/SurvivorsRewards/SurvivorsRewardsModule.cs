@@ -20,21 +20,18 @@ public sealed class SurvivorsRewardsModule : IModule
         });
         GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, (conn, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            return SurvivorsRewards.ChooseSurvivorsSkill(remote, stream, ciphers, conn,
+            return SurvivorsRewards.ChooseSurvivorsSkill(conn,
                 InstanceNpcs.ReadBuy(bytes.AsSpan()).ItemId);
         });
         GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, (conn, bytes) =>
         {
-            var (remote, stream, ciphers) = conn.Wire;
-            return SurvivorsRewards.ChooseSurvivorsSkill(remote, stream, ciphers, conn,
+            return SurvivorsRewards.ChooseSurvivorsSkill(conn,
                 InstanceNpcs.ReadCtrlBuy(bytes.AsSpan()).ItemId);
         });
         GameEvents.RewardClosing.Add(module.Manifest.Id, async conn =>
         {
             if (StateOf(conn) is not { Survivors: { } run, SurvivorsOffer: not null } || run.Offer.Count == 0) return false;
-            var (remote, stream, ciphers) = conn.Wire;
-            return await SurvivorsRewards.ApplySurvivorsChoice(remote, stream, ciphers, conn, run.Offer[0]);
+            return await SurvivorsRewards.ApplySurvivorsChoice(conn, run.Offer[0]);
         });
     }
 }

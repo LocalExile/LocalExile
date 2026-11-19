@@ -91,7 +91,7 @@ public static partial class Game
                         monster.Dead = true;
                         monster.LastHitBy = Conn;
                         CollectVaalSoulAtDeathLocked(Conn, monster);
-                        Enqueue(() => DotKilled(remote, stream, ciphers, Conn, id, monster));
+                        Enqueue(() => DotKilled(Conn, id, monster));
                     }
                 }
                 if (now < end) Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), Tick);

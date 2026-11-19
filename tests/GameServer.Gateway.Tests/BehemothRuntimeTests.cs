@@ -126,6 +126,6 @@ public sealed class BehemothRuntimeTests
         var packet = new LoginWriter().U16(id);
         if (ground) packet.U32(105).U32(100); else packet.U32(43);
         byte[] bytes = packet.U16(skill).U16(1).U16(flags).ToArray();
-        return Game.OnClientMessages("behemoth-admission", null!, ciphers, [(id, bytes)], [], conn);
+        return Game.OnClientMessages([(id, bytes)], [], conn);
     }
 }

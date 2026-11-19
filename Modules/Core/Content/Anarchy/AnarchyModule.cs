@@ -154,8 +154,7 @@ public sealed class AnarchyModule : IModule
         Stat("is_rogue_exile", 1);
         if (exceptional) Stat("rogue_exile_is_exceptional", 1);
         var mods = new MonsterModSet([], [], new MonsterModEffects(effects));
-        var (remote, stream, ciphers) = conn.Wire;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, exile, level, MonsterRarity.Unique, at.X, at.Y,
+        uint id = await SpawnMonster(conn, exile, level, MonsterRarity.Unique, at.X, at.Y,
             log: true, alone: true, extraMods: mods, extraStats: extraStats);
         if (id != 0) lock (placed) placed.Exiles.Add(new(id, exile.Id, exceptional, special));
         module.Log($"{conn.Layout.Id}: Rogue Exile {exile.Name} ({exile.Id}, {kind}{(giant ? ", gigantified" : "")}" +

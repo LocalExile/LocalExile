@@ -32,10 +32,10 @@ public class StashTabReloadTests : IDisposable
         try
         {
             // The panel shows tab 0, then tab 1, which unloads tab 0 (0xc1) and marks it not loaded in the tab list.
-            await Game.SendStashTab("stash-reload-test", wire.Stream, wire.Ciphers, conn, 0, InstanceStash.Personal);
+            await Game.SendStashTab(conn, 0, InstanceStash.Personal);
             wire.Expect(InstanceInventories.AddInventory(inventory, stash.Inventory(0).Slot, 0, stash.Inventory(0).Items));
             wire.Expect(InstanceStash.TabLoaded(0, inventory));
-            await Game.SendStashTab("stash-reload-test", wire.Stream, wire.Ciphers, conn, 1, InstanceStash.Personal);
+            await Game.SendStashTab(conn, 1, InstanceStash.Personal);
             wire.Expect(InstanceInventories.RemoveInventory(inventory));
             wire.Expect(InstanceInventories.AddInventory(stash.InventoryOf(1), stash.Inventory(1).Slot, 0, stash.Inventory(1).Items));
             wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
@@ -43,7 +43,7 @@ public class StashTabReloadTests : IDisposable
             Assert.DoesNotContain(0, conn.StashTabsSent);
 
             // The player goes back to tab 0, which the client shows from the page it kept, and splits the stack there.
-            await Game.SplitStack("stash-reload-test", wire.Stream, wire.Ciphers, conn, new InstanceItems.SplitStack(inventory, stack, 1, 3), "");
+            await Game.SplitStack(conn, new InstanceItems.SplitStack(inventory, stack, 1, 3), "");
             var left = stash.Inventory(0).Items.Single();
             var held = items.Items(PlayerInventories.Cursor).Single();
             Assert.Equal((1, 1), (left.Item.StackSize, held.Item.StackSize));
@@ -96,7 +96,7 @@ public class StashTabReloadTests : IDisposable
             // The initial window protects queued requests; a hidden Map page is a different family's control.
             foreach (ushort tab in new ushort[] { 0, 1, currencyTab, mapChild, parent })
             {
-                await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, tab, InstanceStash.Personal);
+                await Game.SendStashTab(conn, tab, InstanceStash.Personal);
                 ExpectLoaded(wire, stash, tab, register: true);
                 if (tab == parent)
                     foreach (int child in children) ExpectLoaded(wire, stash, child, register: true);
@@ -109,7 +109,7 @@ public class StashTabReloadTests : IDisposable
             conn.StashForcedUntil = double.NegativeInfinity;
             var otherTabs = conn.StashTabsSent.Where(t => t == 1 || t == mapChild).ToArray();
             Assert.Equal(2, otherTabs.Length);
-            await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, parent, InstanceStash.Personal);
+            await Game.SendStashTab(conn, parent, InstanceStash.Personal);
             foreach (int tab in otherTabs) wire.Expect(InstanceInventories.RemoveInventory(stash.InventoryOf(tab)));
             wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
             ExpectLoaded(wire, stash, parent, register: false);
@@ -131,7 +131,7 @@ public class StashTabReloadTests : IDisposable
 
             // Leaving the collection still unloads the whole old family, while retaining shop currency.
             var leaving = conn.StashTabsSent.Where(t => !payments.ContainsKey(t)).ToArray();
-            await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, 1, InstanceStash.Personal);
+            await Game.SendStashTab(conn, 1, InstanceStash.Personal);
             foreach (int tab in leaving) wire.Expect(InstanceInventories.RemoveInventory(stash.InventoryOf(tab)));
             wire.Expect(InstanceInventories.AddInventory(stash.InventoryOf(1), stash.Inventory(1).Slot, 0, stash.Inventory(1).Items));
             wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
@@ -147,7 +147,7 @@ public class StashTabReloadTests : IDisposable
             {
                 Assert.Equal(new[] { payment.Id }, paid.Tabs[tab].Removed);
                 Assert.Empty(paid.Tabs[tab].Changed);
-                await Game.SendTabChange("unique-reopen-test", wire.Stream, wire.Ciphers, conn, stash, tab,
+                await Game.SendTabChange(conn, stash, tab,
                     paid.Tabs[tab].Removed, paid.Tabs[tab].Changed, null);
                 wire.Expect(InstanceItems.InventoryChange(stash.InventoryOf(tab), 1, [payment.Id], []));
             }
@@ -178,7 +178,7 @@ public class StashTabReloadTests : IDisposable
                 { Account = account, Character = account, League = "Standard" };
             using var wire = new Wire();
             // Establish the known inventory by the actual child request, not by seeding StashTabsSent.
-            await Game.SendStashTab("unique-refresh-test", wire.Stream, wire.Ciphers, conn, (ushort)knownChild, InstanceStash.Personal);
+            await Game.SendStashTab(conn, (ushort)knownChild, InstanceStash.Personal);
             ExpectLoaded(wire, stash, knownChild, register: true);
             Assert.True(conn.StashTabsSent.SetEquals([knownChild]));
 
@@ -192,7 +192,7 @@ public class StashTabReloadTests : IDisposable
                 Assert.Equal(child == knownChild ? stash.InventoryOf(child) : 0u, before[child].Inventory);
             }
             Assert.All(before.Where(r => r.HiddenKey != 0 && r.Inventory != 0), r => Assert.Equal(knownChild, r.Index));
-            await Game.RefreshUniqueCollection("unique-refresh-test", wire.Stream, wire.Ciphers, conn, stash, parent);
+            await Game.RefreshUniqueCollection(conn, stash, parent);
             wire.Expect(InstanceStash.TabList(before));
             foreach (int child in children)
             {
@@ -209,7 +209,7 @@ public class StashTabReloadTests : IDisposable
                 Assert.True(before[child].Loaded);
                 Assert.Equal(stash.InventoryOf(child), before[child].Inventory);
             });
-            await Game.RefreshUniqueCollection("unique-refresh-test", wire.Stream, wire.Ciphers, conn, stash, parent);
+            await Game.RefreshUniqueCollection(conn, stash, parent);
             wire.Expect(InstanceStash.TabList(before));
             foreach (int child in children)
             {

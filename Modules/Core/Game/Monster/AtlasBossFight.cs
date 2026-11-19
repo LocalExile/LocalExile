@@ -64,10 +64,9 @@ abstract class AtlasBossFight
         lock (players) players.Add(conn);
         if (boss.Variety is not null)
         {
-            var (remote, stream, ciphers) = conn.Wire;
             // ShowBossLifeBar sends only a bar that is meant to show. Sirus's fight shows and hides his own (Sirus.cs).
             if (!AtlasBosses.IsSirus(boss.Variety)) lock (conn.Monsters) boss.BossBarShown = true;
-            await ShowBossLifeBar(remote, stream, ciphers, id, boss, conn);
+            await ShowBossLifeBar(id, boss, conn);
         }
     }
 
@@ -126,21 +125,20 @@ abstract class AtlasBossFight
             action = ++boss.ActionGeneration;
             busyUntil = Math.Max(busyUntil, now) + attack.Seconds + 0.2;
         }
-        var (remote, stream, ciphers) = conn.Wire;
-        _ = Run(remote, stream, ciphers, conn, action, attack, area, radius, effect);
+        _ = Run(conn, action, attack, area, radius, effect);
     }
 
-    async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    async Task Run(ClientState conn,
         int action, MonsterAttack attack, bool area, double radius, int effect)
     {
         try
         {
-            await MonsterSwing(remote, stream, ciphers, conn, id, boss, action, attack, area, radius);
+            await MonsterSwing(conn, id, boss, action, attack, area, radius);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
         catch (Exception ex)
         {
-            Console.WriteLine($"[gateway] {remote} {Name} 0x{id:x} skill {effect} failed: {ServerLog.Describe(ex)}");
+            Console.WriteLine($"[gateway] {conn.Remote} {Name} 0x{id:x} skill {effect} failed: {ServerLog.Describe(ex)}");
         }
     }
 
@@ -215,21 +213,20 @@ abstract class AtlasBossFight
     /// action did not carry: the contact of a swing goes through MonsterSwing).</summary>
     protected async Task Hit(ClientState conn, MonsterAttack attack, (int X, int Y) from)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         Game.MonsterHitOutcome? outcome = null;
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await Send(conn, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 ||
                     InGracePeriod(conn) || boss.Dead) return null;
                 double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-                outcome = CommitMonsterHitLocked(remote, conn, id, boss, attack, now, conn.Walk.Position(now), from, false,
+                outcome = CommitMonsterHitLocked(conn, id, boss, attack, now, conn.Walk.Position(now), from, false,
                     conn.NextActionSequence());
                 return outcome?.HitPacket;
             }
         });
-        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (outcome is not null) await PresentMonsterHit(conn, id, outcome);
     }
 
     /// <summary>The players the boss can see now (in the instance, awake, alive).</summary>
@@ -242,8 +239,7 @@ abstract class AtlasBossFight
         foreach (var conn in Watchers().Where(p => !monster || Awake(p)))
         {
             // Send encrypts in place: every recipient needs its own plaintext, including effect broadcasts.
-            var (remote, stream, ciphers) = conn.Wire;
-            await Send(remote, stream, ciphers, [.. bytes], null,
+            await Send(conn, [.. bytes], null,
                 still: () => !stopped && !conn.Closed && !conn.LeavingArea && (!monster || Awake(conn)));
         }
     }

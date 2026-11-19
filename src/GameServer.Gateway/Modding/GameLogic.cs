@@ -13,11 +13,11 @@ public interface IGameLogic
     void ResumePlayerUpdates(ClientState conn) { }
     /// <summary>A server frame of the connection ended (Program.RunWorldFrames); the next one starts at
     /// <paramref name="nextFrameStart"/>, on the connection's clock.</summary>
-    Task WorldFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart) => Task.CompletedTask;
+    Task WorldFrameEnded(ClientState conn, double nextFrameStart) => Task.CompletedTask;
     /// <summary>Prepare immutable item-value rules for this game generation, or null for the existing calculation.</summary>
     ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) => null;
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
-    Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt);
+    Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt);
     /// <summary>A connection is about to be prepared; it may fail after this, and <see cref="Left"/> still runs.</summary>
     void Admitting(ClientState conn);
     /// <summary>Before <see cref="Admitting"/>: whether the framework goes on with this connection. A rule that lets one
@@ -26,11 +26,11 @@ public interface IGameLogic
     /// <see cref="Left"/>, and its character was not prepared.</summary>
     Task<bool> AdmittingAsync(ClientState conn) => Task.FromResult(true);
     /// <summary>Loads the character into the connection, before the area is sent; the character's level.</summary>
-    int PrepareCharacter(string remote, ClientState conn, int level);
+    int PrepareCharacter(ClientState conn, int level);
     /// <summary>What the area's header says of the league (S→C 0x1d).</summary>
     IReadOnlyDictionary<uint, int>? AreaLeagueStats(ClientState conn);
     /// <summary>The area was sent; level is what the character is, ticketLevel what Auth said.</summary>
-    Task Entered(string remote, ClientState conn, int level, int ticketLevel);
+    Task Entered(ClientState conn, int level, int ticketLevel);
     /// <summary>The connection closes: stops what must not go on (Monsters lock held by the framework).</summary>
     void Closing(ClientState conn);
     /// <summary>The connection ended: saves what waits in memory. prepared: its character was loaded.</summary>

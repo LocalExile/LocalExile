@@ -10,7 +10,7 @@ using GameServer.Core.Protocol.Login;
 /// </summary>
 public static partial class Game
 {
-    static async Task PlaceMonsterMarker(string remote, ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
+    static async Task PlaceMonsterMarker(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
         MonsterDelayedStrike strike, (int X, int Y) aim)
     {
         if (a.Effect is not int effect) return;
@@ -33,13 +33,13 @@ public static partial class Game
             }
         });
         if (placed != 0)
-            Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) sets marker 0x{placed:x} at ({aim.X}, {aim.Y}), "
+            Console.WriteLine($"[gateway] {conn.Remote} monster 0x{id:x} ({m.Label}) sets marker 0x{placed:x} at ({aim.X}, {aim.Y}), "
                 + $"strikes in {strike.Seconds:0.00}s, radius {a.AreaRadius:0.#}; art {strike.MarkerArt ?? "none"}");
     }
 
     /// <summary>Each tick: markers whose owner is gone leave, due markers (with the others they call down) strike, and
     /// impact art whose time is up leaves.</summary>
-    static async Task MonsterMarkersTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task MonsterMarkersTick(ClientState conn)
     {
         var placed = conn.MonsterPlaced;
         if (placed.Markers.Count == 0 && placed.Impacts.Count == 0) return;
@@ -84,11 +84,11 @@ public static partial class Game
             }
         });
         if (struck.Count == 0) return;
-        Console.WriteLine($"[gateway] {remote} monster markers strike: " + string.Join(", ", struck.Select(s => $"0x{s.Id:x} of 0x{s.Owner:x}")));
+        Console.WriteLine($"[gateway] {conn.Remote} monster markers strike: " + string.Join(", ", struck.Select(s => $"0x{s.Id:x} of 0x{s.Owner:x}")));
         await Task.WhenAll(struck.Select(s =>
         {
             bool Owner() { lock (conn.Monsters) return ReferenceEquals(conn.Monsters.GetValueOrDefault(s.Owner), s.Monster); }
-            return MonsterDetachedAreaHit(remote, stream, ciphers, conn, s.Owner, s.Monster, s.Payload, s.At, s.Payload.AreaRadius,
+            return MonsterDetachedAreaHit(conn, s.Owner, s.Monster, s.Payload, s.At, s.Payload.AreaRadius,
                 conn.NextActionSequence(), Owner);
         }));
     }

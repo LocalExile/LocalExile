@@ -57,10 +57,10 @@ static class PartyExperienceChecks
                 uint[] before = players.Select(p => p.Experience).ToArray();
                 var victim = Victim(noRewards);
                 if (route == "melee")
-                    await Game.MonsterKilled("party-xp", wire.Stream, wire.Ciphers, host, victim.Id, victim.Monster);
+                    await Game.MonsterKilled(host, victim.Id, victim.Monster);
                 else if (route == "projectile")
                 {
-                    var session = new Game.ProjectileSession("party-xp", wire.Stream, wire.Ciphers, host);
+                    var session = new Game.ProjectileSession(host);
                     try { Game.CommitProjectileKill(session, victim.Id, victim.Monster, 0, new Random(4)); }
                     finally { session.Invalidate(); await session.OutputCompleted; }
                 }
@@ -73,11 +73,11 @@ static class PartyExperienceChecks
                     }
                 }
                 foreach (var member in players.Skip(1))
-                    await Game.ApplyKillShares("party-xp", wire.Stream, wire.Ciphers, member);
+                    await Game.ApplyKillShares(member);
                 for (int i = 0; i < players.Length; i++)
                     Assert.Equal(before[i] + (!noRewards && i < 3 ? expected : 0), players[i].Experience);
                 foreach (var member in players.Skip(1))
-                    await Game.ApplyKillShares("party-xp", wire.Stream, wire.Ciphers, member);
+                    await Game.ApplyKillShares(member);
                 for (int i = 0; i < players.Length; i++)
                     Assert.Equal(before[i] + (!noRewards && i < 3 ? expected : 0), players[i].Experience);
             }

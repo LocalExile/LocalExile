@@ -7,7 +7,7 @@ public static partial class Game
 {
     // The client's Flicker Strike action selects these MiscAnimated resources by skill_art_variation.
     // In is the departure effect and Out is the arrival effect (their sound events confirm the direction).
-    internal static async Task FlickerArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task FlickerArt(ClientState conn,
         uint gem, (int X, int Y) from, (int X, int Y) to)
     {
         int variation = SkillArtVariation(conn, gem);
@@ -25,7 +25,7 @@ public static partial class Game
             first = conn.TakeObjectId();
             second = conn.TakeObjectId();
         }
-        await Send(remote, stream, ciphers,
+        await Send(conn,
             [.. InstanceEntities.CreateObject(first, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(from.X, from.Y, departure).Blob()),
              .. InstanceProtocol.EnterWakeZone(first),
              .. InstanceEntities.CreateObject(second, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(to.X, to.Y, arrival).Blob()),
@@ -34,7 +34,7 @@ public static partial class Game
         SendAfter(2, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;
-            await Send(remote, stream, ciphers, [.. InstanceProtocol.RemoveObject(first), .. InstanceProtocol.RemoveObject(second)], null);
+            await Send(conn, [.. InstanceProtocol.RemoveObject(first), .. InstanceProtocol.RemoveObject(second)], null);
         });
     }
 
@@ -60,11 +60,11 @@ public static partial class Game
 
     // A Flicker Strike use refused for want of a monster in range (the client sent it for one it had not yet seen die):
     // nothing is paid, so the mana the client spent when it started the use is given back, as for an attack-move.
-    public static Task FlickerRefused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task FlickerRefused(ClientState conn,
         string skill)
     {
-        Console.WriteLine($"[gateway] {remote} {skill}: refused, no monster in range");
-        return SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} ({skill} refused, cost back)");
+        Console.WriteLine($"[gateway] {conn.Remote} {skill}: refused, no monster in range");
+        return SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana} ({skill} refused, cost back)");
     }
 
     // Flicker Strike's buff, BuffDefinitions 1344 flicker_strike_speed_boost ("You have increased Movement Speed",
@@ -80,7 +80,7 @@ public static partial class Game
 
     // After an accepted Flicker Strike use: the buff and the faster movement speed, and both gone when it runs out
     // (a later use's buff takes over).
-    public static async Task GrantFlickerSpeed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task GrantFlickerSpeed(ClientState conn,
         ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;
@@ -98,7 +98,7 @@ public static partial class Game
         // end below runs on that flow too: both build theirs fresh, or the panel kept the old speed (live 2026-11-09:
         // 123% after the buff had ended, until a charge change sent new stats).
         using var fresh = new PlayerStatScope(conn, fresh: true);
-        await Send(remote, stream, ciphers, [], $"0x01c1 Flicker Strike buff: +{percent}% movement speed for {seconds:0.##} s",
+        await Send(conn, [], $"0x01c1 Flicker Strike buff: +{percent}% movement speed for {seconds:0.##} s",
             atGate: () =>
             {
                 lock (conn.Monsters)
@@ -121,7 +121,7 @@ public static partial class Game
         SendAfter(seconds, async () =>
         {
             using var ended = new PlayerStatScope(conn, fresh: true);
-            await Send(remote, stream, ciphers, [], "0x01c2 Flicker Strike buff ends", atGate: () =>
+            await Send(conn, [], "0x01c2 Flicker Strike buff ends", atGate: () =>
             {
                 lock (conn.Monsters)
                 {

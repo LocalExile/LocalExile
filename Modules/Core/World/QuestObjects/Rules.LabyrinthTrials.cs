@@ -15,49 +15,49 @@ static partial class QuestobjectsRules
 
     // The plaza's device (Act3Objects.LabyrinthSelect): the Labyrinth's choice of difficulty (0x7b kind 0x10,
     // LabyrinthSelectWindow); the choice comes back as C→S 0x212 (ChooseLabyrinth).
-    internal static async Task UseLabyrinthSelect(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
+    internal static async Task UseLabyrinthSelect(ClientState conn) =>
+        await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
 
     // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): the Labyrinth's two ascendancy points (once per tier; Izaro
     // is not fought yet, so reaching the font is enough), then 0x7b kind 0x0a: the client opens its class selector for an
     // unascended character (its choice comes back as C→S 0x39, ChooseAscendancyClass), else the passive tree.
-    internal static async Task UseAscendancyFont(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task UseAscendancyFont(ClientState conn)
     {
         if (LabyrinthDay.DifficultyOf(conn.Layout.Id) is not int tier) return;
         try
         {
-            int earned = await AwardAscendancyPoints(remote, stream, ciphers, conn, [global::AscendancyRules.AwardKeys[tier - 1]]);
-            Console.WriteLine($"[gateway] {remote} the font: Labyrinth {tier}'s points, {earned} earned");
+            int earned = await AwardAscendancyPoints(conn, [global::AscendancyRules.AwardKeys[tier - 1]]);
+            Console.WriteLine($"[gateway] {conn.Remote} the font: Labyrinth {tier}'s points, {earned} earned");
         }
         catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
         {
-            Console.WriteLine($"[gateway] {remote} the font's points refused: {ex.Message}");
+            Console.WriteLine($"[gateway] {conn.Remote} the font's points refused: {ex.Message}");
         }
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.AscendancySelectUi), "0x007b open the ascendancy class selector");
+        await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.AscendancySelectUi), "0x007b open the ascendancy class selector");
     }
 
     // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town") and the Ascendancy Chamber's
     // (Act3Objects.ChamberPortal): to the character's last town, else Act 3's.
-    internal static async Task UsePlazaReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task UsePlazaReturnPortal(ClientState conn)
     {
         ushort town = conn.LastTown != 0 ? conn.LastTown : AreaTransitionCatalog.HashOf(Act3Areas.SarnEncampment) ?? 0;
-        if (town != 0) await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(town, 0, false), "the plaza's portal back to town");
+        if (town != 0) await ChangeArea(conn, new PendingTransfer(town, 0, false), "the plaza's portal back to town");
     }
 
     // The Sarn Encampment's Ascendancy plaque (Act3Objects.LabyrinthPlaque), once the player is at it: with the six Normal
     // trials done (the character's flag or the league's) the statue opens for good (Act3Objects.StatueOpened, which the
     // statue, the plaque and the way to the plaza follow); before, the trials done (the Trial Plaque window).
-    internal static async Task UseSarnPlaque(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task UseSarnPlaque(ClientState conn)
     {
         bool all = NormalTrialsDone(conn, out int done, out int count);
-        Console.WriteLine($"[gateway] {remote} Sarn plaque: {done} of {count} Normal trials done");
+        Console.WriteLine($"[gateway] {conn.Remote} Sarn plaque: {done} of {count} Normal trials done");
         if (all)
         {
             if (!conn.HasQuestFlag(Act3Objects.StatueOpened))
-                await SetQuestFlags(remote, stream, ciphers, conn, [Act3Objects.StatueOpened, Act3Objects.LabyrinthAccess]);
+                await SetQuestFlags(conn, [Act3Objects.StatueOpened, Act3Objects.LabyrinthAccess]);
             return;
         }
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (Sarn plaque)");
+        await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (Sarn plaque)");
     }
 
     // A Trial of Ascendancy's room objects where the room fit places them (LabyrinthTrials, Agents/docs/game/
@@ -68,7 +68,7 @@ static partial class QuestobjectsRules
     // The Labyrinth's own rooms (LabyrinthTrials.InLabyrinth) have the same traps, levers and doors, run the same way. The
     // objects are the Gateway's generated rooms' with their links (LabyrinthWiring), for a trial too when the Gateway
     // generates its area (else data/room-points.json's, unlinked; it keeps only the Labyrinth's rooms with points).
-    internal static async Task SpawnTrialObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnTrialObjects(ClientState conn)
     {
         var trial = LabyrinthTrials.For(conn.Layout.Id);
         bool labyrinth = LabyrinthTrials.InLabyrinth(conn.Layout.Id);
@@ -82,23 +82,23 @@ static partial class QuestobjectsRules
         var wiring = WireRoomObjects(conn, all, links);
         Wirings.AddOrUpdate(conn, wiring);
         SetSwapLevers(conn, all, links);
-        await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
+        await SpawnTrialTraps(conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Door or LabyrinthTrials.IntroDoor).Select(o => (o.X, o.Y))],
             [.. all.Where(o => LabyrinthTrials.Trigger(o.Type) is not null)], all, links);
-        await SpawnArrowTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsArrowTrap(o.Type))]);
-        await SpawnEdgeBlades(remote, stream, ciphers, conn, [.. all.Take(tilesFrom).Where(o => LabyrinthTrials.IsEdgeBlade(o.Type))]);
-        await SpawnTileTraps(remote, stream, ciphers, conn, [.. all.Skip(tilesFrom).Where(o => LabyrinthTrials.IsEdgeBlade(o.Type) || LabyrinthTrials.IsRoller(o.Type))]);
+        await SpawnArrowTraps(conn, [.. all.Where(o => LabyrinthTrials.IsArrowTrap(o.Type))]);
+        await SpawnEdgeBlades(conn, [.. all.Take(tilesFrom).Where(o => LabyrinthTrials.IsEdgeBlade(o.Type))]);
+        await SpawnTileTraps(conn, [.. all.Skip(tilesFrom).Where(o => LabyrinthTrials.IsEdgeBlade(o.Type) || LabyrinthTrials.IsRoller(o.Type))]);
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rail.Type),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rail.Type),
                 LabyrinthTrials.RailBlob(rail.X, rail.Y, rail.Angle, rail.Model)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
-            BarStaticHull(remote, conn, id, rail.Type, rail.Model, rail.X, rail.Y, rail.Angle, 1);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            BarStaticHull(conn, id, rail.Type, rail.Model, rail.X, rail.Y, rail.Angle, 1);
         }
-        await SpawnRoombas(remote, stream, ciphers, conn,
+        await SpawnRoombas(conn,
             [.. all.Where(o => o.Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba or LabyrinthTrials.Spinner || LabyrinthTrials.IsSawblade(o.Type))],
             [.. all.Where(o => o.Type is LabyrinthTrials.Rail or LabyrinthTrials.VisibleRail || LabyrinthTrials.IsRailSwitch(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Switch).Select(o => (o.X, o.Y))],
@@ -107,24 +107,24 @@ static partial class QuestobjectsRules
         // The Bronze Monograph at the trial's door and the Bronze Inscription before Izaro's arena: an NPCs.dat row on
         // StoryGlyphBase, read like any NPC (its NPCTalk "Read" row), with the room line's StoryGlyph.ao.
         var glyphs = all.Where(o => LabyrinthTrials.IsGlyph(o.Type)).ToList();
-        Console.WriteLine($"[gateway] {remote} {what}: {glyphs.Count} monograph(s) in its rooms");
+        Console.WriteLine($"[gateway] {conn.Remote} {what}: {glyphs.Count} monograph(s) in its rooms");
         foreach (var glyph in glyphs)
         {
             if (Npcs.Place(new NpcCatalog.Placement(glyph.Type, glyph.X, glyph.Y, glyph.Angle, glyph.Model)) is { Supported: true } npc)
-                await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
-            else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
+                await SpawnNpc(conn, npc, glyph.X, glyph.Y, glyph.Angle);
+            else Console.WriteLine($"[gateway] {conn.Remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
         // The rooms' stashes (the account's, as a town's: before Izaro's arenas and in the Ascendancy Chamber).
-        if (labyrinth) await PlaceLabyrinthStashes(remote, stream, ciphers, conn, all);
+        if (labyrinth) await PlaceLabyrinthStashes(conn, all);
         // Izaro's arena (Rules.Izaro.cs): his elevator, its doors and his trial.
-        if (labyrinth) await RunIzaroArena(remote, stream, ciphers, conn, all);
+        if (labyrinth) await RunIzaroArena(conn, all);
         // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
         if (!labyrinth) all = [.. all.Where(o => !LabyrinthTrials.IsStatueSpawner(o.Type))];
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
-        Console.WriteLine($"[gateway] {remote} {what}: {links.Count} room link(s), {Enumerable.Range(0, all.Count).Count(wiring.Graph.Wired)} wired object(s)");
+        Console.WriteLine($"[gateway] {conn.Remote} {what}: {links.Count} room link(s), {Enumerable.Range(0, all.Count).Count(wiring.Graph.Wired)} wired object(s)");
         if (objects.Count == 0)
         {
-            Console.WriteLine($"[gateway] {remote} {what}: no trial objects in {conn.Layout.Id} seed {conn.Seed} ({string.Join("; ", notes)})");
+            Console.WriteLine($"[gateway] {conn.Remote} {what}: no trial objects in {conn.Layout.Id} seed {conn.Seed} ({string.Join("; ", notes)})");
             return;
         }
         var plaque = objects.FirstOrDefault(o => o.Type == LabyrinthTrials.Plaque);
@@ -151,14 +151,14 @@ static partial class QuestobjectsRules
                 : LabyrinthTrials.IsStatueSpawner(o.Type) ? LabyrinthTrials.Open
                 : wiring.Graph.IsSpent(index) ? LabyrinthTrials.Spent
                 : open || wiring.Graph.IsDisabled(index) ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
                     LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state,
                         LabyrinthTrials.IsHotPlate(o.Type) || LabyrinthTrials.AtTileHeight(o.Type) ? o.Height : null)),
                 $"0x02bb trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             // The blob's Animated names the room line's .ao, else the client takes the .ot's own.
             if (LabyrinthTrials.SentStatic(o.Type))
-                BarStaticHull(remote, conn, id, o.Type, o.Model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? o.Model : null, o.X, o.Y, o.Angle, o.Scale);
+                BarStaticHull(conn, id, o.Type, o.Model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? o.Model : null, o.X, o.Y, o.Angle, o.Scale);
             if (o.Type == LabyrinthTrials.OpenDoor)
             {
                 if (open) BarCage(conn, id, o, true);
@@ -176,7 +176,7 @@ static partial class QuestobjectsRules
                 var (halfX, halfY) = LabyrinthTrials.DoorHull(o.Model);
                 cells = [.. LabyrinthTrials.HullCells(o.X, o.Y, o.Angle, halfX, halfY).Where(c => walk(c.X, c.Y))];
             }
-            Console.WriteLine($"[gateway] {remote} trial door 0x{id:x}: {cells.Count} walkable cell(s) closed on the server between " +
+            Console.WriteLine($"[gateway] {conn.Remote} trial door 0x{id:x}: {cells.Count} walkable cell(s) closed on the server between " +
                 $"({from.X}, {from.Y}) and {string.Join(", ", guarded)}" + (cells.Count == 0 ? "" : $", from {cells.Min()} to {cells.Max()}"));
             lock (conn.Monsters)
             {
@@ -192,16 +192,16 @@ static partial class QuestobjectsRules
         }
         if (statues.Count > 0)
         {
-            Console.WriteLine($"[gateway] {remote} {what}: {statues.Count} statue(s) waiting to wake");
-            _ = WakeStatues(remote, stream, ciphers, conn, statues);
+            Console.WriteLine($"[gateway] {conn.Remote} {what}: {statues.Count} statue(s) waiting to wake");
+            _ = WakeStatues(conn, statues);
         }
         if (plates.Count > 0)
         {
             // What burns: the hot plates and the half lines by the plates in the walls (server objects only, as those).
             List<AreaPopulation.RoomObject> burning = [.. all.Where(o => LabyrinthTrials.Burns(o.Type))];
-            Console.WriteLine($"[gateway] {remote} trial hot plates: {plates.Count} placed " +
+            Console.WriteLine($"[gateway] {conn.Remote} trial hot plates: {plates.Count} placed " +
                 $"({plates.Count(p => LabyrinthTrials.IsInertPlate(p.Value.Type))} in the walls), {burning.Count} burning areas");
-            _ = RunHotPlates(remote, stream, ciphers, conn, plates, burning);
+            _ = RunHotPlates(conn, plates, burning);
         }
     }
 
@@ -314,25 +314,25 @@ static partial class QuestobjectsRules
 
     // A wired lever, Switch_Once_Multi or crank used: it turns on and passes it on (LabyrinthWiring); a crank comes back up
     // after its seconds unless a counter spent it meanwhile. A used, disabled or spent one does nothing.
-    static async Task PullWired(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RoomWiring wiring, int index)
+    static async Task PullWired(ClientState conn, RoomWiring wiring, int index)
     {
         if (wiring.Graph.IsOn(index) || wiring.Graph.IsDisabled(index) || wiring.Graph.IsSpent(index)) return;
-        await ApplyWiring(remote, stream, ciphers, conn, wiring, wiring.Graph.Turn(index, true));
+        await ApplyWiring(conn, wiring, wiring.Graph.Turn(index, true));
         var o = wiring.All[index];
         if (LabyrinthWiring.CrankSeconds(o.Type) is not double seconds) return;
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             if (conn.Closed || !Wirings.TryGetValue(conn, out var now) || now != wiring) return;
-            try { await ApplyWiring(remote, stream, ciphers, conn, wiring, wiring.Graph.Turn(index, false)); }
+            try { await ApplyWiring(conn, wiring, wiring.Graph.Turn(index, false)); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-            { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} crank at ({o.X}, {o.Y}) not reset: {ServerLog.Describe(ex)}"); }
+            { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} crank at ({o.X}, {o.Y}) not reset: {ServerLog.Describe(ex)}"); }
         });
     }
 
     // The wiring's changes in this instance and on the client: a door opens (OpenTrialObject), anything else takes its
     // Transitionable state (on 2, off 1, a disabled lever 2, a spent crank 3).
-    static async Task ApplyWiring(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RoomWiring wiring,
+    static async Task ApplyWiring(ClientState conn, RoomWiring wiring,
         List<(int Index, LabyrinthWiring.Change Change)> changes)
     {
         foreach (var (index, change) in changes)
@@ -342,7 +342,7 @@ static partial class QuestobjectsRules
             lock (conn.Monsters) id = wiring.Ids.TryGetValue(index, out uint placed) && conn.TrialObjects.ContainsKey(placed) ? placed : null;
             if (change == LabyrinthWiring.Change.On && LabyrinthTrials.IsDoor(o.Type) && id is uint door)
             {
-                await OpenTrialObject(remote, stream, ciphers, conn, door, o);
+                await OpenTrialObject(conn, door, o);
                 continue;
             }
             if (change is LabyrinthWiring.Change.On or LabyrinthWiring.Change.Off)
@@ -354,7 +354,7 @@ static partial class QuestobjectsRules
                 LabyrinthWiring.Change.Spent => LabyrinthTrials.Spent,
                 _ => LabyrinthTrials.Open,
             };
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, at, InstanceEntities.TransitionableUpdate(at, LabyrinthTrials.TransitionableIndex(o.Type), state),
+            await global::Game.SendWorldRecord(conn, at, InstanceEntities.TransitionableUpdate(at, LabyrinthTrials.TransitionableIndex(o.Type), state),
                 $"0x02bc wired {o.Type.Split('/')[^1]} 0x{at:x} at ({o.X}, {o.Y}): {change}");
         }
     }
@@ -410,13 +410,13 @@ static partial class QuestobjectsRules
     // A lever by a swap piece pulled: when it is the one by the part the spinner runs, the piece turns to the other part
     // (the spinner goes over when it next comes by), this lever and its gears start and the other lever and its gears
     // stop. The pulled one does nothing.
-    static async Task TurnSwap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaPopulation.RoomObject lever,
+    static async Task TurnSwap(ClientState conn, AreaPopulation.RoomObject lever,
         uint swapId, AreaPopulation.RoomObject swap)
     {
         if (conn.Instance.Transitioned(lever.Type, lever.X, lever.Y)) return;
         bool other = !conn.Instance.Transitioned(swap.Type, swap.X, swap.Y);
         conn.Instance.SetTransitioned(swap.Type, swap.X, swap.Y, other);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, swapId, InstanceEntities.TransitionableUpdate(swapId, LabyrinthTrials.TransitionableIndex(swap.Type),
+        await global::Game.SendWorldRecord(conn, swapId, InstanceEntities.TransitionableUpdate(swapId, LabyrinthTrials.TransitionableIndex(swap.Type),
             LabyrinthTrials.SwapClientState(swap.Mirrored, other)), $"0x02bc swap piece 0x{swapId:x} at ({swap.X}, {swap.Y}) to its {(other ? "other" : "first")} arm");
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
         lock (conn.Monsters) placed = [.. conn.TrialObjects];
@@ -430,7 +430,7 @@ static partial class QuestobjectsRules
                 conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
                 if (placed.FirstOrDefault(p => p.Value == o) is not { Value: not null } at) continue;
                 uint id = at.Key;
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type),
+                await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type),
                     pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed), $"0x02bc swap {o.Type.Split('/')[^1]} 0x{id:x} {(pulled ? "on" : "off")}");
             }
         }
@@ -441,7 +441,7 @@ static partial class QuestobjectsRules
     // (LabyrinthTrials.Burns) while the lava lies (LavaSpillSeconds into the heating to LavaDrainSeconds into the cooling) burns
     // (LabyrinthTrials.LavaDamagePerSecond less their fire resistance, ClientState.TrapDegenPerSecond) with its
     // labyrinth_lava_aura buff.
-    static async Task RunHotPlates(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task RunHotPlates(ClientState conn,
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> plates, List<AreaPopulation.RoomObject> burning)
     {
         var degen = new TrapDegen();
@@ -455,7 +455,7 @@ static partial class QuestobjectsRules
                 if (now >= next)
                 {
                     foreach (var (id, plate) in plates)
-                        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open), null);
+                        await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open), null);
                     (spills, cools) = (next + LabyrinthTrials.LavaSpillSeconds, next + LabyrinthTrials.LavaHeatSeconds + LabyrinthTrials.LavaBurnSeconds);
                     drains = cools + LabyrinthTrials.LavaDrainSeconds;
                     next = cools + LabyrinthTrials.LavaCoolSeconds + LabyrinthTrials.LavaRestSeconds;
@@ -463,7 +463,7 @@ static partial class QuestobjectsRules
                 if (now >= cools)
                 {
                     foreach (var (id, plate) in plates)
-                        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed), null);
+                        await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed), null);
                     cools = double.PositiveInfinity;
                 }
                 (int X, int Y) here;
@@ -478,19 +478,19 @@ static partial class QuestobjectsRules
                         perSecond = GameServer.Core.World.DamageModel.Mitigate(conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare,
                             Resistance(conn, fire), MaxResistance(conn, fire));
                 }
-                await degen.Set(remote, stream, ciphers, conn, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate");
+                await degen.Set(conn, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate");
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial hot plates stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} trial hot plates stopped: {ServerLog.Describe(ex)}"); }
         finally { lock (conn.Monsters) conn.Degens[degen] = 0; }
     }
 
     // A trial object used: the player walks up to it, then the trial's door (or a plain door) opens, a lever opens the nearest locked door,
     // the plaque completes the trial (its flag) and opens the portal (every use), and the open portal returns to the trial's door.
     // False when the object is not a trial's.
-    internal static async Task<bool> UseTrialObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<bool> UseTrialObject(ClientState conn,
         InstanceTransfer.UseSkillOnObject use)
     {
         AreaPopulation.RoomObject? o;
@@ -502,29 +502,29 @@ static partial class QuestobjectsRules
         int size = LabyrinthTrials.Size(o.Type);
         var (here, stop, arrive) = conn.Walk.WalkUpTo(o.X, o.Y, size, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, o.X, o.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, o.X, o.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses trial object 0x{use.TargetId:x} {o.Type} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (conn.ActionCount != action || conn.Closed) return true;
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
-            Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
+            Console.WriteLine($"[gateway] {conn.Remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
         else if (IzaroStatues.IsStatue(o.Type))
-            await UseIzaroStatue(remote, stream, ciphers, conn, use.TargetId);
+            await UseIzaroStatue(conn, use.TargetId);
         else if ((o.Type is LabyrinthTrials.Lever or LabyrinthWiring.OnceMultiSwitch || LabyrinthWiring.IsCrank(o.Type))
                  && TryWiring(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
-            await PullWired(remote, stream, ciphers, conn, wiring, wired);
+            await PullWired(conn, wiring, wired);
         else switch (o.Type)
         {
             case IzaroFights.Gate:
-                await OpenIzaroGate(remote, stream, ciphers, conn, use.TargetId, o);
+                await OpenIzaroGate(conn, use.TargetId, o);
                 break;
             case LabyrinthTrials.IntroDoor or LabyrinthTrials.BarDoor:
-                await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
+                await OpenTrialObject(conn, use.TargetId, o);
                 break;
             case LabyrinthTrials.Lever:
-                if (!await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o)) break;
+                if (!await OpenTrialObject(conn, use.TargetId, o)) break;
                 if (NearestTrialObject(conn, LabyrinthTrials.Door, (o.X, o.Y), closed: true) is { } door)
-                    await OpenTrialObject(remote, stream, ciphers, conn, door.Id, door.Object);
+                    await OpenTrialObject(conn, door.Id, door.Object);
                 // The Crematorium's gears beside the lever start turning (Transitionable 2: start, then idle looped).
                 List<KeyValuePair<uint, AreaPopulation.RoomObject>> gears, pulls;
                 lock (conn.Monsters)
@@ -534,19 +534,19 @@ static partial class QuestobjectsRules
                 }
                 foreach (int i in LabyrinthTrials.TurnedGears([.. gears.Select(g => (g.Value.X, g.Value.Y))],
                              [.. pulls.Select(l => (l.Value.X, l.Value.Y))], pulls.FindIndex(l => l.Key == use.TargetId)))
-                    await OpenTrialObject(remote, stream, ciphers, conn, gears[i].Key, gears[i].Value);
+                    await OpenTrialObject(conn, gears[i].Key, gears[i].Value);
                 break;
             case LabyrinthTrials.Switch or LabyrinthTrials.MultiSwitch:
-                await ToggleTrialSwitch(remote, stream, ciphers, conn, use.TargetId, o);
+                await ToggleTrialSwitch(conn, use.TargetId, o);
                 break;
             // A smashable wall breaks at a hit or a click (a cast in reach too: BreakSmashableWalls); a hidden switch
             // turns, and its secret wall opens once both switches on that side of it have (no link names them: a switch
             // is its nearest wall's; live 2026-11-01, the original: two on each side, either pair opens it).
             case LabyrinthTrials.SmashableWall:
-                await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
+                await OpenTrialObject(conn, use.TargetId, o);
                 break;
             case LabyrinthTrials.HiddenSwitch:
-                if (!await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o)) break;
+                if (!await OpenTrialObject(conn, use.TargetId, o)) break;
                 if (NearestTrialObject(conn, LabyrinthTrials.HiddenWall, (o.X, o.Y), closed: true) is not { } wall) break;
                 List<AreaPopulation.RoomObject> switches, walls;
                 lock (conn.Monsters)
@@ -559,26 +559,26 @@ static partial class QuestobjectsRules
                 var w0 = wall.Object;
                 int Side(AreaPopulation.RoomObject s) => Math.Sign((s.Y - w0.Y) * Math.Cos(w0.Angle) - (s.X - w0.X) * Math.Sin(w0.Angle));
                 var own = switches.Where(s => walls.MinBy(w => Distance(s, w)) == w0 && Side(s) == Side(o)).ToList();
-                Console.WriteLine($"[gateway] {remote} hidden switch at ({o.X}, {o.Y}): {own.Count(s => conn.Instance.Transitioned(s.Type, s.X, s.Y))} of {own.Count} " +
+                Console.WriteLine($"[gateway] {conn.Remote} hidden switch at ({o.X}, {o.Y}): {own.Count(s => conn.Instance.Transitioned(s.Type, s.X, s.Y))} of {own.Count} " +
                     $"on its side pulled for the secret wall at ({w0.X}, {w0.Y})");
                 if (own.All(s => conn.Instance.Transitioned(s.Type, s.X, s.Y)))
-                    await OpenTrialObject(remote, stream, ciphers, conn, wall.Id, wall.Object);
+                    await OpenTrialObject(conn, wall.Id, wall.Object);
                 break;
             case LabyrinthTrials.Plaque when trial is not null:
-                if (await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o))
+                if (await OpenTrialObject(conn, use.TargetId, o))
                 {
                     // The character's own flag, and the league's: the trial counts for every character of the league.
-                    await SetQuestFlags(remote, stream, ciphers, conn, [trial.Flag]);
-                    await SetLeagueQuestFlags(remote, stream, ciphers, conn, [trial.LeagueFlag]);
+                    await SetQuestFlags(conn, [trial.Flag]);
+                    await SetLeagueQuestFlags(conn, [trial.LeagueFlag]);
                 }
                 List<KeyValuePair<uint, AreaPopulation.RoomObject>> portals;
                 lock (conn.Monsters) portals = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.Portal)];
                 foreach (var (id, portal) in portals)
                     if (conn.Instance.Transition(portal.Type, portal.X, portal.Y))
-                        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(portal.Type), LabyrinthTrials.Open),
+                        await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(portal.Type), LabyrinthTrials.Open),
                             $"0x02bc trial portal 0x{id:x} opens: trial {trial.Flag} plaque used");
                 // Every use shows the trials done (the window reads their flags itself).
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
+                await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
                 break;
             case LabyrinthTrials.Map:
             {
@@ -588,8 +588,8 @@ static partial class QuestobjectsRules
                 var shown = exit is { Entrance: int number } && Math.Abs(exit.GridX - o.X) + Math.Abs(exit.GridY - o.Y) <= MapStatueReach
                     ? LabyrinthDay.Reveal(CharacterName(conn), conn.Layout.Id, conn.Seed, number) : null;
                 if (shown is not null)
-                    await Send(remote, stream, ciphers, shown.Progress, $"0x01cb labyrinth progress: the map shows entrance{exit!.Entrance}'s room (row {shown.Row})");
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi, (uint)(shown?.Row ?? 0)),
+                    await Send(conn, shown.Progress, $"0x01cb labyrinth progress: the map shows entrance{exit!.Entrance}'s room (row {shown.Row})");
+                await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi, (uint)(shown?.Row ?? 0)),
                     $"0x007b open the Labyrinth map{(shown is null ? "" : $", the way to row {shown.Row} in green")}");
                 break;
             }
@@ -602,32 +602,32 @@ static partial class QuestobjectsRules
                     Interlocked.Increment(ref conn.ActionCount);
                     conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
                 }
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
-                await global::Game.SendTransitionFade(remote, stream, ciphers, conn, to, "the trial's return portal");
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y),
+                await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+                await global::Game.SendTransitionFade(conn, to, "the trial's return portal");
+                await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y),
                     $"0x01b7 trial portal: back to the trial's door at ({to.X}, {to.Y})");
                 return true;
         }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
         return true;
     }
 
     // Transitions a trial object once in this instance: its Transitionable steps to the open state (the client plays the
     // .ot's on_transition), a door also unblocks (0x1c6) and leaves the server's walk estimate. False when already open.
-    static async Task<bool> OpenTrialObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    static async Task<bool> OpenTrialObject(ClientState conn, uint id,
         AreaPopulation.RoomObject o)
     {
         if (!conn.Instance.Transition(o.Type, o.X, o.Y)) return false;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), LabyrinthTrials.Open),
+        await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), LabyrinthTrials.Open),
             $"0x02bc trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}) opens");
         if (!LabyrinthTrials.IsDoor(o.Type)) return true;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 trial door 0x{id:x} unblocked");
+        await global::Game.SendWorldRecord(conn, id, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 trial door 0x{id:x} unblocked");
         lock (conn.Monsters)
         {
             conn.DoorBarriers.Remove(id);
             conn.UpdateBarrier();
         }
-        if (LabyrinthTrials.GoesWhenOpened(o.Type, o.Model)) _ = RemoveOpenedDoor(remote, stream, ciphers, conn, id);
+        if (LabyrinthTrials.GoesWhenOpened(o.Type, o.Model)) _ = RemoveOpenedDoor(conn, id);
         return true;
     }
 
@@ -636,7 +636,7 @@ static partial class QuestobjectsRules
     // (0x1b2 at speed 0), turned as the statue, out of the AI. It wakes as the player comes within
     // LabyrinthTrials.StatueWakeCells or hits it: its Emerge (the .act's wake clip: stepping down), busy until it has
     // played. The instance keeps the statue spent once its monster stands (the monster is kept with the others).
-    static async Task WakeStatues(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task WakeStatues(ClientState conn,
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> statues)
     {
         byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
@@ -646,20 +646,20 @@ static partial class QuestobjectsRules
             foreach (var (id, statue) in statues)
             {
                 if (!conn.Instance.Transition(statue.Type, statue.X, statue.Y)) continue;
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.BlockageUpdate(id, false), null);
+                await global::Game.SendWorldRecord(conn, id, InstanceEntities.BlockageUpdate(id, false), null);
                 if (Monsters.Find(LabyrinthTrials.StatueOf(statue.Type)) is not { Supported: true } monster)
                 {
-                    Console.WriteLine($"[gateway] {remote} statue at ({statue.X}, {statue.Y}): {LabyrinthTrials.StatueOf(statue.Type)} cannot be created");
+                    Console.WriteLine($"[gateway] {conn.Remote} statue at ({statue.X}, {statue.Y}): {LabyrinthTrials.StatueOf(statue.Type)} cannot be created");
                     continue;
                 }
-                uint mob = await SpawnMonster(remote, stream, ciphers, conn, monster, level, MonsterRarity.Normal, statue.X, statue.Y, log: false);
+                uint mob = await SpawnMonster(conn, monster, level, MonsterRarity.Normal, statue.X, statue.Y, log: false);
                 lock (conn.Monsters)
                     if (conn.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro) = (double.PositiveInfinity, false);
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, mob, InstanceProtocol.Orientation(mob, statue.Angle), null);
-                if (Emerges.ClipIndex(monster) is uint clip) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, mob, InstanceProtocol.AnimationUpdate(mob, 0, clip, 0), null);
+                await global::Game.SendWorldRecord(conn, mob, InstanceProtocol.Orientation(mob, statue.Angle), null);
+                if (Emerges.ClipIndex(monster) is uint clip) await global::Game.SendWorldRecord(conn, mob, InstanceProtocol.AnimationUpdate(mob, 0, clip, 0), null);
                 waiting.Add((mob, statue, monster));
             }
-            Console.WriteLine($"[gateway] {remote} statues: {waiting.Count} monster(s) waiting on their pedestals");
+            Console.WriteLine($"[gateway] {conn.Remote} statues: {waiting.Count} monster(s) waiting on their pedestals");
             while (!conn.Closed && waiting.Count > 0)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
@@ -681,14 +681,14 @@ static partial class QuestobjectsRules
                     lock (conn.Monsters)
                         if (conn.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
                     if (Emerges.SkillId is ushort emerge)
-                        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, conn.MonsterOrderFlags),
+                        await Send(conn, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, conn.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
                 }
                 await Task.Delay(200);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} statues stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} statues stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // The smashable walls within reach of a cast the player makes break (LabyrinthTrials.SmashReach: the cast stands for its
@@ -700,21 +700,20 @@ static partial class QuestobjectsRules
             walls = [.. conn.TrialObjects.Where(t => t.Value.Type == LabyrinthTrials.SmashableWall
                 && (long)(t.Value.X - from.X) * (t.Value.X - from.X) + (long)(t.Value.Y - from.Y) * (t.Value.Y - from.Y) <= LabyrinthTrials.SmashReach * LabyrinthTrials.SmashReach)];
         if (walls.Count == 0) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        try { foreach (var (id, wall) in walls) await OpenTrialObject(remote, stream, ciphers, conn, id, wall); }
+        try { foreach (var (id, wall) in walls) await OpenTrialObject(conn, id, wall); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} smashable wall not broken: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} smashable wall not broken: {ServerLog.Describe(ex)}"); }
     }
 
     // An opened Locked Door's opening lifts the bars out of the way, so once it has played the door goes (0x2bd), and a
     // later entry does not create an opened one. (Its cells once stayed closed after 0x1c6, live 2026-10-31, while its
     // Positioned had a static position: LabyrinthTrials.Blob.)
-    static async Task RemoveOpenedDoor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id)
+    static async Task RemoveOpenedDoor(ClientState conn, uint id)
     {
         await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
         if (conn.Closed) return;
         lock (conn.Monsters) conn.TrialObjects.Remove(id);
-        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd opened trial door 0x{id:x} removed");
+        await global::Game.SendWorldRemoval(conn, id, $"0x02bd opened trial door 0x{id:x} removed");
     }
 
     // How long a Locked Door's opening plays before it goes (our own number: the animation's length is not read).
@@ -725,7 +724,7 @@ static partial class QuestobjectsRules
     // lane's (LabyrinthTrials.SwitchedSaws); pulled back, the cage opens and they run on. The Crypt trial's levers
     // (Switch, Switch_Multi) move the rail switches nearest them (LabyrinthTrials.SwitchedRails) the same way: its
     // spinners read them as they come (SpinnerTrack). This instance keeps where it all stands.
-    static async Task ToggleTrialSwitch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    static async Task ToggleTrialSwitch(ClientState conn, uint id,
         AreaPopulation.RoomObject o)
     {
         // With the room links, what the lever drives is theirs (its next, transitionN and pause links); without, the nearest.
@@ -737,7 +736,7 @@ static partial class QuestobjectsRules
             if (wiring.All.FirstOrDefault(s => s.Type == LabyrinthTrials.RailSwitchSwapped && SwapLevers(wiring.All, s, wiring.Links).Any(l => l.Lever == o)) is { } swap
                 && railSwitches.FirstOrDefault(r => r.Value == swap) is { Value: not null } placedSwap)
             {
-                await TurnSwap(remote, stream, ciphers, conn, o, placedSwap.Key, placedSwap.Value);
+                await TurnSwap(conn, o, placedSwap.Key, placedSwap.Value);
                 return;
             }
         }
@@ -745,13 +744,13 @@ static partial class QuestobjectsRules
             && railSwitches.MinBy(r => (long)(r.Value.X - o.X) * (r.Value.X - o.X) + (long)(r.Value.Y - o.Y) * (r.Value.Y - o.Y)) is var nearest
             && nearest.Value.Type == LabyrinthTrials.RailSwitchSwapped)
         {
-            await TurnSwap(remote, stream, ciphers, conn, o, nearest.Key, nearest.Value);
+            await TurnSwap(conn, o, nearest.Key, nearest.Value);
             return;
         }
         bool pulled = !conn.Instance.Transitioned(o.Type, o.X, o.Y);
         conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
         byte state = pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), state),
+        await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), state),
             $"0x02bc trial switch 0x{id:x} at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}");
         // Its cages (Door_Open) go the other way, each as it stands (several levers may share one: the Labyrinth's Prison
         // bottleneck_01); its Locked Doors (Door_Closed, a Switch_Multi's transitionN) open for good.
@@ -761,7 +760,7 @@ static partial class QuestobjectsRules
         if (wiring is not null && linked.Where(t => t.Object.Type == LabyrinthTrials.Gears).ToList() is { Count: > 0 } gears)
         {
             if (pulled)
-                foreach (var (gearId, gear) in gears) await OpenTrialObject(remote, stream, ciphers, conn, gearId, gear);
+                foreach (var (gearId, gear) in gears) await OpenTrialObject(conn, gearId, gear);
             linked = [.. linked, .. Placed(conn, wiring, gears.SelectMany(g => LinkedFrom(wiring, g.Object, n => n == "next")))];
         }
         var cages = wiring is not null
@@ -771,14 +770,14 @@ static partial class QuestobjectsRules
         {
             bool shut = wiring is null ? pulled : !conn.Instance.Transitioned(cage.Object.Type, cage.Object.X, cage.Object.Y);
             conn.Instance.SetTransitioned(cage.Object.Type, cage.Object.X, cage.Object.Y, shut);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, cage.Id, InstanceEntities.TransitionableUpdate(cage.Id, LabyrinthTrials.TransitionableIndex(cage.Object.Type),
+            await global::Game.SendWorldRecord(conn, cage.Id, InstanceEntities.TransitionableUpdate(cage.Id, LabyrinthTrials.TransitionableIndex(cage.Object.Type),
                     shut ? LabyrinthTrials.Open : LabyrinthTrials.Closed),
                 $"0x02bc trial cage 0x{cage.Id:x} at ({cage.Object.X}, {cage.Object.Y}) {(shut ? "shuts" : "opens")}");
             BarCage(conn, cage.Id, cage.Object, shut);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, cage.Id, InstanceEntities.BlockageUpdate(cage.Id, shut), null);
+            await global::Game.SendWorldRecord(conn, cage.Id, InstanceEntities.BlockageUpdate(cage.Id, shut), null);
         }
         foreach (var (doorId, door) in linked.Where(t => t.Object.Type == LabyrinthTrials.Door))
-            await OpenTrialObject(remote, stream, ciphers, conn, doorId, door);
+            await OpenTrialObject(conn, doorId, door);
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> rails, levers;
         lock (conn.Monsters)
         {
@@ -793,14 +792,14 @@ static partial class QuestobjectsRules
         foreach (var (railId, rail) in moved)
         {
             conn.Instance.SetTransitioned(rail.Type, rail.X, rail.Y, pulled);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, railId, InstanceEntities.TransitionableUpdate(railId, LabyrinthTrials.TransitionableIndex(rail.Type), state),
+            await global::Game.SendWorldRecord(conn, railId, InstanceEntities.TransitionableUpdate(railId, LabyrinthTrials.TransitionableIndex(rail.Type), state),
                 $"0x02bc trial rail switch 0x{railId:x} at ({rail.X}, {rail.Y}) to state {state}");
         }
         if (TrapRuns.TryGetValue(conn, out var linkedRuns) && wiring is not null && wiring.Links.Any(l => l.Name == "pause"))
         {
             var paused = PausedSaws(conn, wiring);
             foreach (var r in linkedRuns.Where(r => LabyrinthTrials.IsSawblade(r.Roomba.Type))) r.Halted = paused.Contains(wiring.All.IndexOf(r.Roomba));
-            Console.WriteLine($"[gateway] {remote} trial switch at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}: sawblades stopped now " +
+            Console.WriteLine($"[gateway] {conn.Remote} trial switch at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}: sawblades stopped now " +
                 string.Join(", ", paused.Select(i => $"({wiring.All[i].X}, {wiring.All[i].Y})")));
         }
         // Without the room links, the sawblades nearest the lever stop (the links say otherwise where a room has them).
@@ -813,7 +812,7 @@ static partial class QuestobjectsRules
             var stopped = LabyrinthTrials.SwitchedSaws([.. saws.Select(r => (r.Roomba.X, r.Roomba.Y))], switches, switches.IndexOf((o.X, o.Y)), entrance)
                 .Select(i => saws[i]).ToList();
             foreach (var r in stopped) r.Halted = pulled;
-            Console.WriteLine($"[gateway] {remote} trial switch at ({o.X}, {o.Y}): sawblades {string.Join(", ", stopped.Select(r => $"({r.Roomba.X}, {r.Roomba.Y})"))} " +
+            Console.WriteLine($"[gateway] {conn.Remote} trial switch at ({o.X}, {o.Y}): sawblades {string.Join(", ", stopped.Select(r => $"({r.Roomba.X}, {r.Roomba.Y})"))} " +
                 (pulled ? "stop" : "run on"));
         }
     }
@@ -825,7 +824,7 @@ static partial class QuestobjectsRules
     // the angle and scale the blob sends, which has no mirroring, and the ring under the player's 2), or a walk went
     // through it on the server and round it on the client, and the player jumped about. model: the one the blob names,
     // null for the .ot's own.
-    static void BarStaticHull(string remote, ClientState conn, uint id, string type, string? model, int x, int y, float angle, float scale)
+    static void BarStaticHull(ClientState conn, uint id, string type, string? model, int x, int y, float angle, float scale)
     {
         if (QuestObjectTypes.Find(type) is not { Static: true } info || (model ?? info.AnimatedModel) is not { } stamped
             || conn.Layout.Walkable is not { } walkable
@@ -835,7 +834,7 @@ static partial class QuestobjectsRules
             conn.DoorBarriers[id] = hull.Where(c => walkable(c.X, c.Y)).ToHashSet();
             conn.UpdateBarrier();
         }
-        Console.WriteLine($"[gateway] {remote} trial object 0x{id:x} {type}: {stamped}'s Hull closes {hull.Count} cell(s) on the server, " +
+        Console.WriteLine($"[gateway] {conn.Remote} trial object 0x{id:x} {type}: {stamped}'s Hull closes {hull.Count} cell(s) on the server, " +
             $"from {hull.Min()} to {hull.Max()}");
     }
 
@@ -857,7 +856,7 @@ static partial class QuestobjectsRules
     // is in the area (RunSpikeTraps). Their chains and triggers are the room links' (LabyrinthTrials.LinkedSpikes); without
     // links (room-points.json's objects) the traps a room's Trigger_* line takes fire on its timer
     // (LabyrinthTrials.TriggeredSpikes), the others as the trials' chains (LabyrinthTrials.SpikeChains).
-    static async Task SpawnTrialTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SpawnTrialTraps(ClientState conn,
         List<AreaPopulation.RoomObject> traps, List<(int X, int Y)> levers, List<(int X, int Y)> doors, List<AreaPopulation.RoomObject> triggers,
         List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
@@ -887,9 +886,9 @@ static partial class QuestobjectsRules
         for (int i = 0; i < traps.Count; i++)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(traps[i].Type),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(traps[i].Type),
                 LabyrinthTrials.SpikeTrapBlob(traps[i].X, traps[i].Y)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add(triggered[i].Trigger is int t and >= 0
                 ? new(id, traps[i], firstTriggered + t, triggered[i].Order, false) { Trigger = LabyrinthTrials.Trigger(triggers[t].Type) }
                 : new(id, traps[i], chains[i].Chain, chains[i].Order, chains[i].Checker));
@@ -897,14 +896,14 @@ static partial class QuestobjectsRules
         foreach (var trap in pressure)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
                 LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, trap.Type)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add(new(id, trap, -1, 0, false));
         }
-        Console.WriteLine($"[gateway] {remote} trial spike traps: {placed.Count} placed in {placed.Select(p => p.Chain).Distinct().Count()} chain(s), " +
+        Console.WriteLine($"[gateway] {conn.Remote} trial spike traps: {placed.Count} placed in {placed.Select(p => p.Chain).Distinct().Count()} chain(s), " +
             $"{placed.Count(p => p.Trigger is not null)} on {triggers.Count} trigger(s), {pressure.Count} a step fires");
-        _ = RunSpikeTraps(remote, stream, ciphers, conn, placed);
+        _ = RunSpikeTraps(conn, placed);
     }
 
     sealed record SpikeTrap(uint Id, AreaPopulation.RoomObject Trap, int Chain, int Order, bool Checker)
@@ -936,7 +935,7 @@ static partial class QuestobjectsRules
     // (the ones that do are another trap). A stretched Emerge animation (0x1d1) plays the spikes; while they are up
     // (LabyrinthTrials.SpikeHitWindow) a player in the square is hit once (SpikeTrapHit); the square is a wall until they
     // are down (LabyrinthTrials.SpikeWallWindow).
-    static async Task RunSpikeTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task RunSpikeTraps(ClientState conn,
         List<SpikeTrap> traps)
     {
         const int Wave = 0, Block = 1, Unblock = 2, Fired = 3;
@@ -953,7 +952,7 @@ static partial class QuestobjectsRules
             lock (conn.Monsters) player = conn.Walk.Position(at);
             // Logged only near the player (about two tiles), to line a hit up with the spikes the client shows.
             string? log = !t.Near(player) ? null : $"trial spike trap 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y}) fires (chain {t.Chain} #{t.Order}), player at ({player.X}, {player.Y})";
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, InstanceProtocol.ActorAnimation(t.Id, (float)LabyrinthTrials.SpikeAnimationSeconds, LabyrinthTrials.EmergeAnimation),
+            await global::Game.SendWorldRecord(conn, t.Id, InstanceProtocol.ActorAnimation(t.Id, (float)LabyrinthTrials.SpikeAnimationSeconds, LabyrinthTrials.EmergeAnimation),
                 log is null ? null : "0x01d1 " + log);
             var (from, to) = LabyrinthTrials.SpikeWallWindow;
             due.Enqueue((t, Block), at + from);
@@ -978,8 +977,8 @@ static partial class QuestobjectsRules
                             due.Enqueue((t, Wave), at + (t.Trigger?.Period ?? LabyrinthTrials.SpikeWaveSeconds(chain.Max(c => c.Order) + 1, step)));
                             break;
                         case Fired: await Fire(t, at); break;
-                        case Block: await BlockSpikeTrap(remote, stream, ciphers, conn, t, true); break;
-                        case Unblock: await BlockSpikeTrap(remote, stream, ciphers, conn, t, false); break;
+                        case Block: await BlockSpikeTrap(conn, t, true); break;
+                        case Unblock: await BlockSpikeTrap(conn, t, false); break;
                     }
                 }
                 (int X, int Y) here;
@@ -992,28 +991,28 @@ static partial class QuestobjectsRules
                     if (!t.Armed || t.Stepped || now < t.Fired + LabyrinthTrials.SpikeAnimationSeconds) continue;
                     (t.Armed, t.Stepped) = (false, true);
                     due.Enqueue((t, Fired), now + LabyrinthTrials.PressureSpikeDelaySeconds);
-                    _ = PressureClick(remote, stream, ciphers, conn, t.Trap);
-                    Console.WriteLine($"[gateway] {remote} pressure spike trap 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y}) stepped on: fires in {LabyrinthTrials.PressureSpikeDelaySeconds} s");
+                    _ = PressureClick(conn, t.Trap);
+                    Console.WriteLine($"[gateway] {conn.Remote} pressure spike trap 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y}) stepped on: fires in {LabyrinthTrials.PressureSpikeDelaySeconds} s");
                 }
                 foreach (var t in traps)
                 {
                     if (!t.HasHit && t.Up(now) && t.Holds(here))
                     {
                         t.HasHit = true;
-                        await SpikeTrapHit(remote, stream, ciphers, conn, t);
+                        await SpikeTrapHit(conn, t);
                     }
-                    if (t.Up(now)) await SpikeTrapHitMonsters(remote, stream, ciphers, conn, t, now);
+                    if (t.Up(now)) await SpikeTrapHitMonsters(conn, t, now);
                 }
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial spike traps stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} trial spike traps stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // The Labyrinth's abyss edge blades: each swings on its timer (LabyrinthTrials.EdgeBladeTimer) with its Emerge clip
     // (0x1d1) and, at the clip's impact, hits a player in its strip once (LabyrinthTrials.EdgeBladeDamage), who bleeds.
-    static async Task SpawnEdgeBlades(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SpawnEdgeBlades(ClientState conn,
         List<AreaPopulation.RoomObject> blades)
     {
         if (blades.Count == 0) return;
@@ -1021,16 +1020,16 @@ static partial class QuestobjectsRules
         foreach (var blade in blades)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(blade.Type),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(blade.Type),
                 LabyrinthTrials.EdgeBladeBlob(blade.X, blade.Y, blade.Angle)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add((id, blade, [.. LabyrinthTrials.HullCells(blade.X, blade.Y, blade.Angle, LabyrinthTrials.EdgeBladeHalfAcross, LabyrinthTrials.EdgeBladeHalfAlong)]));
         }
-        Console.WriteLine($"[gateway] {remote} abyss edge blades: {placed.Count} placed");
-        _ = RunEdgeBlades(remote, stream, ciphers, conn, placed);
+        Console.WriteLine($"[gateway] {conn.Remote} abyss edge blades: {placed.Count} placed");
+        _ = RunEdgeBlades(conn, placed);
     }
 
-    static async Task RunEdgeBlades(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task RunEdgeBlades(ClientState conn,
         List<(uint Id, AreaPopulation.RoomObject Blade, HashSet<(int X, int Y)> Strip)> blades)
     {
         double start = conn.Clock.Elapsed.TotalSeconds + 1;
@@ -1048,7 +1047,7 @@ static partial class QuestobjectsRules
                     {
                         next[i] = Math.Max(next[i] + LabyrinthTrials.EdgeBladeTimer(blade.Type).Period, now);
                         impact[i] = now + LabyrinthTrials.EdgeBladeImpactSeconds;
-                        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActorAnimation(id, (float)LabyrinthTrials.EdgeBladeClipSeconds, LabyrinthTrials.EmergeAnimation), null);
+                        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.ActorAnimation(id, (float)LabyrinthTrials.EdgeBladeClipSeconds, LabyrinthTrials.EmergeAnimation), null);
                     }
                     if (now < impact[i]) continue;
                     impact[i] = double.PositiveInfinity;
@@ -1061,14 +1060,14 @@ static partial class QuestobjectsRules
                             || TrapHitLocked(conn, dealt, now) is not uint left) continue;
                         (damage, life) = (dealt, left);
                     }
-                    if (await PresentTrapHit(remote, stream, ciphers, conn, id, $"abyss edge blade 0x{id:x} at ({blade.X}, {blade.Y})", damage, life))
-                        await SpikeBleed(remote, stream, ciphers, conn, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
+                    if (await PresentTrapHit(conn, id, $"abyss edge blade 0x{id:x} at ({blade.X}, {blade.Y})", damage, life))
+                        await SpikeBleed(conn, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
                 }
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} abyss edge blades stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} abyss edge blades stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // The Labyrinth's tiles' traps (LabyrinthTrials.TileTrapRestSeconds hidden between two goes, each its own while
@@ -1078,7 +1077,7 @@ static partial class QuestobjectsRules
     // whoever is in or by its strip while down, as a roomba (ClientState.TrapDegenPerSecond, the roomba's buff and its
     // blood). The rising spikes (LabyrinthTrials.RisingSpikes) and the blades hit a player in the strip once a strike, from
     // the strike to the next (the last's until they are gone), with bleed, each throwing them a little back.
-    static async Task SpawnTileTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SpawnTileTraps(ClientState conn,
         List<AreaPopulation.RoomObject> traps)
     {
         if (traps.Count == 0) return;
@@ -1087,18 +1086,18 @@ static partial class QuestobjectsRules
         {
             uint id = conn.TakeObjectId();
             bool blade = LabyrinthTrials.IsEdgeBlade(trap.Type);
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type), blade
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type), blade
                 ? LabyrinthTrials.EdgeBladeBlob(trap.X, trap.Y, trap.Angle)
                 : LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, angle: trap.Angle, height: trap.Height)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             var (across, along) = blade ? (LabyrinthTrials.EdgeBladeHalfAcross, LabyrinthTrials.EdgeBladeHalfAlong) : LabyrinthTrials.RollerHalf(trap.Type);
             var (wallAcross, wallAlong) = blade ? (across, along) : LabyrinthTrials.RollerWallHalf(trap.Type);
             placed.Add(new TileTrap(id, trap, across, [.. LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, across, along)],
                 [.. LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, wallAcross, wallAlong)]));
         }
-        Console.WriteLine($"[gateway] {remote} tile traps: {placed.Count(p => LabyrinthTrials.IsRoller(p.Trap.Type))} doorway roller(s), " +
+        Console.WriteLine($"[gateway] {conn.Remote} tile traps: {placed.Count(p => LabyrinthTrials.IsRoller(p.Trap.Type))} doorway roller(s), " +
             $"{placed.Count(p => !LabyrinthTrials.IsRoller(p.Trap.Type))} abyss edge blade(s)");
-        _ = RunTileTraps(remote, stream, ciphers, conn, placed);
+        _ = RunTileTraps(conn, placed);
     }
 
     // Its strip (where it hits) and its wall (the cells it closes while out: the same, but _02's narrower).
@@ -1110,7 +1109,7 @@ static partial class QuestobjectsRules
         public int Struck = -1, Played = -1;
     }
 
-    static async Task RunTileTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<TileTrap> traps)
+    static async Task RunTileTraps(ClientState conn, List<TileTrap> traps)
     {
         var degen = new TrapDegen();
         double first = conn.Clock.Elapsed.TotalSeconds + 1;
@@ -1137,10 +1136,10 @@ static partial class QuestobjectsRules
                         {
                             t.Played = phase;
                             uint clip = phase switch { 0 => LabyrinthTrials.RollerDownClip, 1 => LabyrinthTrials.RollerBottomClip, 2 => LabyrinthTrials.RollerUpClip, _ => LabyrinthTrials.RollerTopClip };
-                            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, InstanceProtocol.AnimationUpdate(t.Id, 0, clip, 1), null);
+                            await global::Game.SendWorldRecord(conn, t.Id, InstanceProtocol.AnimationUpdate(t.Id, 0, clip, 1), null);
                         }
                         bool down = at >= LabyrinthTrials.RollerLandsSeconds && at < hold + LabyrinthTrials.RollerLiftsSeconds;
-                        await BlockTileTrap(remote, stream, ciphers, conn, t, down, throwOut: true);
+                        await BlockTileTrap(conn, t, down, throwOut: true);
                         if (down && NearStrip(t, here)) cut = true;
                         if (phase == 3) (t.Start, t.Played) = (now + LabyrinthTrials.TileTrapRestSeconds, -1);
                         continue;
@@ -1156,7 +1155,7 @@ static partial class QuestobjectsRules
                         if (t.Played < 0)
                         {
                             t.Played = 0;
-                            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, InstanceProtocol.ActorAnimation(t.Id, (float)LabyrinthTrials.EdgeBladeClipSeconds, LabyrinthTrials.EmergeAnimation), null);
+                            await global::Game.SendWorldRecord(conn, t.Id, InstanceProtocol.ActorAnimation(t.Id, (float)LabyrinthTrials.EdgeBladeClipSeconds, LabyrinthTrials.EmergeAnimation), null);
                         }
                     }
                     else
@@ -1169,7 +1168,7 @@ static partial class QuestobjectsRules
                         {
                             t.Played = phase;
                             uint clip = phase switch { 0 => LabyrinthTrials.SpikesUpClip, 1 => LabyrinthTrials.SpikesOutClip, 2 => LabyrinthTrials.SpikesDownClip, _ => LabyrinthTrials.SpikesRestClip };
-                            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, InstanceProtocol.AnimationUpdate(t.Id, 0, clip, 1), null);
+                            await global::Game.SendWorldRecord(conn, t.Id, InstanceProtocol.AnimationUpdate(t.Id, 0, clip, 1), null);
                         }
                     }
                     // A strike first: a player in the strip is hit, the last strike throwing them back out.
@@ -1177,9 +1176,9 @@ static partial class QuestobjectsRules
                     if (strike > t.Struck && t.Strip.Contains(here))
                     {
                         t.Struck = strike;
-                        await TileTrapHit(remote, stream, ciphers, conn, t, blade, now);
+                        await TileTrapHit(conn, t, blade, now);
                     }
-                    await BlockTileTrap(remote, stream, ciphers, conn, t, at >= strikes[0] && at < open, throwOut: false);
+                    await BlockTileTrap(conn, t, at >= strikes[0] && at < open, throwOut: false);
                     if (at >= done) (t.Start, t.Played, t.Struck) = (now + LabyrinthTrials.TileTrapRestSeconds, -1, -1);
                 }
                 double perSecond = 0;
@@ -1188,12 +1187,12 @@ static partial class QuestobjectsRules
                     var (lifeShare, shieldShare) = LabyrinthTrials.RoombaDamagePerSecond;
                     lock (conn.Monsters) perSecond = conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
                 }
-                await degen.Set(remote, stream, ciphers, conn, perSecond, LabyrinthTrials.RoombaBuffRow(LabyrinthTrials.Roomba), "under a doorway roller");
+                await degen.Set(conn, perSecond, LabyrinthTrials.RoombaBuffRow(LabyrinthTrials.Roomba), "under a doorway roller");
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} tile traps stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} tile traps stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // Whether the player is in a dropping roller's strip or within two cells of it.
@@ -1209,14 +1208,14 @@ static partial class QuestobjectsRules
     // as it closes is thrown back out first (throwOut: the dropping roller), or keeps the cells under them open, as a spike
     // trap's square does (the collision escape would throw them off).
     // Called every tick: the cells left open under a player close once they are out of the strip.
-    static async Task BlockTileTrap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, TileTrap t, bool blocked,
+    static async Task BlockTileTrap(ClientState conn, TileTrap t, bool blocked,
         bool throwOut)
     {
         bool changed = t.Blocked != blocked;
         t.Blocked = blocked;
         bool inside;
         lock (conn.Monsters) inside = t.Wall.Contains(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
-        if (changed && blocked && inside && throwOut) await Knockback(remote, stream, ciphers, conn, t, outOfStrip: true);
+        if (changed && blocked && inside && throwOut) await Knockback(conn, t, outOfStrip: true);
         lock (conn.Monsters)
         {
             inside = t.Wall.Contains(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
@@ -1229,12 +1228,12 @@ static partial class QuestobjectsRules
                 conn.UpdateBarrier();
             }
         }
-        if (changed) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, InstanceEntities.BlockageUpdate(t.Id, blocked), null);
+        if (changed) await global::Game.SendWorldRecord(conn, t.Id, InstanceEntities.BlockageUpdate(t.Id, blocked), null);
     }
 
     // A rising roller's or a blade's strike on the player in its strip: a spike's hit (a blade's its own), with the bleed,
     // and thrown a little back.
-    static async Task TileTrapHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, TileTrap t, bool blade, double now)
+    static async Task TileTrapHit(ClientState conn, TileTrap t, bool blade, double now)
     {
         uint life;
         int damage;
@@ -1245,17 +1244,17 @@ static partial class QuestobjectsRules
                 || TrapHitLocked(conn, dealt, now) is not uint left) return;
             (damage, life) = (dealt, left);
         }
-        await Knockback(remote, stream, ciphers, conn, t, outOfStrip: false);
-        if (!await PresentTrapHit(remote, stream, ciphers, conn, t.Id, $"{(blade ? "abyss edge blade" : "doorway spikes")} 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y})", damage, life))
+        await Knockback(conn, t, outOfStrip: false);
+        if (!await PresentTrapHit(conn, t.Id, $"{(blade ? "abyss edge blade" : "doorway spikes")} 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y})", damage, life))
             return;
-        if (blade) await SpikeBleed(remote, stream, ciphers, conn, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
-        else await SpikeBleed(remote, stream, ciphers, conn, damage, LabyrinthTrials.SpikeBleedPerSecond, LabyrinthTrials.SpikeBleedSeconds);
+        if (blade) await SpikeBleed(conn, damage, LabyrinthTrials.EdgeBladeBleedPerSecond, LabyrinthTrials.EdgeBladeBleedSeconds);
+        else await SpikeBleed(conn, damage, LabyrinthTrials.SpikeBleedPerSecond, LabyrinthTrials.SpikeBleedSeconds);
     }
 
     // Throws the player across a tile trap's strip, back the way they stand from its middle: a hit's
     // LabyrinthTrials.KnockbackCells, or (outOfStrip) out of it, LabyrinthTrials.ThrowOutCells beyond; onto a walkable cell,
     // the other way if not; nowhere to go, they stay.
-    static async Task Knockback(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, TileTrap t, bool outOfStrip)
+    static async Task Knockback(ClientState conn, TileTrap t, bool outOfStrip)
     {
         (int X, int Y) to;
         lock (conn.Monsters)
@@ -1275,25 +1274,25 @@ static partial class QuestobjectsRules
             Interlocked.Increment(ref conn.ActionCount);
             conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
         }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"0x01b7 thrown back from tile trap 0x{t.Id:x} to ({to.X}, {to.Y})");
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"0x01b7 thrown back from tile trap 0x{t.Id:x} to ({to.X}, {to.Y})");
     }
 
     // A pressure spike trap's click: spiketrap_trigger.ao, whose default clip plays the Trigger sound, as an effect object
     // on the trap for as long as it plays.
-    static async Task PressureClick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaPopulation.RoomObject trap)
+    static async Task PressureClick(ClientState conn, AreaPopulation.RoomObject trap)
     {
         uint id = conn.TakeObjectId();
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(trap.X, trap.Y, LabyrinthTrials.PressureSpikeClick).Blob()), null);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
         await Task.Delay(TimeSpan.FromSeconds(LabyrinthTrials.PressureSpikeDelaySeconds));
-        if (!conn.Closed) await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+        if (!conn.Closed) await global::Game.SendWorldRemoval(conn, id, null);
     }
 
     // Risen spikes are impassable (wiki: "Spike traps are impassable and block movement while they are out"): the trap's
     // TriggerableBlockage (0x1c6) for the client, and its square's walkable cells on the server's walk estimate.
-    static async Task BlockSpikeTrap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpikeTrap t,
+    static async Task BlockSpikeTrap(ClientState conn, SpikeTrap t,
         bool blocked)
     {
         // The client stamps the square under a player on it too: its walker stops at its next step (0x141e35a50) and its
@@ -1309,7 +1308,7 @@ static partial class QuestobjectsRules
         if (!conn.LockstepClient)
         {
             lock (conn.Monsters) Apply();
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, update, null);
+            await global::Game.SendWorldRecord(conn, t.Id, update, null);
             return;
         }
         // A lockstep client applies the 0x1c6 at the start of the frame it goes out in, and its walkers take that frame's
@@ -1318,7 +1317,7 @@ static partial class QuestobjectsRules
         // (LockstepAttackAtGate): changed at once, the frames already sent and not yet stepped were replayed against walls
         // the client did not have yet (or lacked ones it still had), the estimate stopped a cell or two off the client's
         // walk, and the next order put the player there (a shake while walking over the spikes).
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, [], null, atGate: () =>
+        await global::Game.SendWorldRecord(conn, t.Id, [], null, atGate: () =>
         {
             using (global::Game.ProjectileMutation(conn, phase: "send"))
             {
@@ -1334,7 +1333,7 @@ static partial class QuestobjectsRules
 
     // A player in a spike trap's square while its spikes are up takes the trap's share of life and energy shield
     // (LabyrinthTrials.SpikeDamage) as physical damage, energy shield first, and may die of it.
-    static async Task SpikeTrapHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpikeTrap spike)
+    static async Task SpikeTrapHit(ClientState conn, SpikeTrap spike)
     {
         var (id, trap) = (spike.Id, spike.Trap);
         uint life;
@@ -1349,14 +1348,14 @@ static partial class QuestobjectsRules
             // The risen spikes hold the player until they are down (BuffDefinitions trap_pinned, "Spike Pinned").
             if (left > 0) global::Game.PinPlayer(conn, spike.Fired + LabyrinthTrials.SpikeWallWindow.To);
         }
-        if (await PresentTrapHit(remote, stream, ciphers, conn, id, $"trial spike trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
-            await SpikeBleed(remote, stream, ciphers, conn, damage);
+        if (await PresentTrapHit(conn, id, $"trial spike trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
+            await SpikeBleed(conn, damage);
     }
 
     // The monsters in a spike trap's square while its spikes are up: each is hit once for the trap's share of its life
     // (LabyrinthTrials.SpikeDamageToMonster) and held there until the spikes are down, as the player is. Not the player's
     // own minions, nor a monster not yet in the world.
-    static async Task SpikeTrapHitMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpikeTrap spike, double now)
+    static async Task SpikeTrapHitMonsters(ClientState conn, SpikeTrap spike, double now)
     {
         List<(uint Id, SpawnedMonster M, int Damage)> hits = [];
         lock (conn.Monsters)
@@ -1370,8 +1369,8 @@ static partial class QuestobjectsRules
             }
         // The hit always bleeds, as the player's does (LabyrinthTrials.SpikeBleedPerSecond of the hit a second).
         foreach (var (id, m, damage) in hits)
-            if (await global::Game.HitMonster(remote, stream, ciphers, conn, id, m, damage, $"trial spike trap 0x{spike.Id:x} at ({spike.Trap.X}, {spike.Trap.Y})"))
-                await global::Game.BleedMonsterFor(remote, stream, ciphers, conn, id, m, damage * LabyrinthTrials.SpikeBleedPerSecond,
+            if (await global::Game.HitMonster(conn, id, m, damage, $"trial spike trap 0x{spike.Id:x} at ({spike.Trap.X}, {spike.Trap.Y})"))
+                await global::Game.BleedMonsterFor(conn, id, m, damage * LabyrinthTrials.SpikeBleedPerSecond,
                     LabyrinthTrials.SpikeBleedSeconds);
     }
 
@@ -1390,20 +1389,20 @@ static partial class QuestobjectsRules
 
     // A trap's hit as the client shows it: the hit from the trap (0x1af), the pools and, when it killed, the death screen.
     // True while the player lives.
-    static async Task<bool> PresentTrapHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    static async Task<bool> PresentTrapHit(ClientState conn, uint id,
         string trap, int damage, uint life)
     {
         var taken = GameServer.Core.World.DamagePacket.Empty.Add(GameServer.Core.World.DamageType.Physical, new(damage, damage));
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionHit(id, 0xffff, PlayerId, flags: MonsterHitFlags(false, false),
+        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.ActionHit(id, 0xffff, PlayerId, flags: MonsterHitFlags(false, false),
             kind: 0x03, code: HitCode(taken)), null);
-        await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+        await SendPlayerEnergyShield(conn);
         if (life == 0)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
+        await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player hit by {trap} for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
-        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana after {trap}");
-        if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
+        await SendPlayerMana(conn, $"0x01b1 player mana after {trap}");
+        if (life == 0) await PlayerDied(conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
         return life > 0;
     }
 
@@ -1418,7 +1417,7 @@ static partial class QuestobjectsRules
 
     // A trial hit contributes to the shared incoming ailment owner. The recovery writer advances it;
     // the owner therefore survives failed transfers without a detached pre-transfer ticker reviving.
-    static Task SpikeBleed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit,
+    static Task SpikeBleed(ClientState conn, int hit,
         double share = LabyrinthTrials.SpikeBleedPerSecond, double seconds = LabyrinthTrials.SpikeBleedSeconds)
     {
         if (!CannotBleed(conn))
@@ -1429,7 +1428,7 @@ static partial class QuestobjectsRules
 
     // A trial's dart traps (LabyrinthTrials.ArrowTrap, the Imperial Gardens' 14 turrets): created at rest, then all fire
     // together every LabyrinthTrials.ArrowVolleySeconds for as long as the player is in the area.
-    static async Task SpawnArrowTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SpawnArrowTraps(ClientState conn,
         List<AreaPopulation.RoomObject> traps)
     {
         if (traps.Count == 0) return;
@@ -1437,18 +1436,18 @@ static partial class QuestobjectsRules
         foreach (var trap in traps)
         {
             uint id = conn.TakeObjectId();
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
                 LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model, trap.Type)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add((id, trap));
             // Its Hull, as the client stamps it: a wall to the darts, and to the player's walk estimate (its .ot is static,
             // and the blob names the room line's model).
             lock (conn.Monsters)
                 conn.ProjectileWalls.UnionWith(LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapProjectileHalf, LabyrinthTrials.ArrowTrapProjectileHalf));
-            BarStaticHull(remote, conn, id, trap.Type, trap.Model, trap.X, trap.Y, trap.Angle, 1);
+            BarStaticHull(conn, id, trap.Type, trap.Model, trap.X, trap.Y, trap.Angle, 1);
         }
-        Console.WriteLine($"[gateway] {remote} trial dart traps: {placed.Count} placed");
-        _ = RunArrowTraps(remote, stream, ciphers, conn, placed);
+        Console.WriteLine($"[gateway] {conn.Remote} trial dart traps: {placed.Count} placed");
+        _ = RunArrowTraps(conn, placed);
     }
 
     // Each turret's volley (LabyrinthTrials.Volley) on its own timer: it plays its cast (0x1d1) and releases its darts
@@ -1456,14 +1455,14 @@ static partial class QuestobjectsRules
     // them, stops them at walls and turrets and hands a contact to ArrowHit. A player stepping on a pressure plate presses
     // it (Transitionable 2) and fires the wall darts its room's plates fire (LabyrinthTrials.TriggeredArrowTrap), one dart
     // ahead each; the plate comes up as its kind does (LabyrinthTrials.PlateDownSeconds).
-    static async Task RunArrowTraps(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task RunArrowTraps(ClientState conn,
         List<(uint Id, AreaPopulation.RoomObject Trap)> traps)
     {
         var skills = SkillsFor(conn);
         double speed = ProjectileSpeed.CellsPerSecond(skills.Projectile(LabyrinthTrials.ArrowProjectile)?.Speed ?? 0, _ => 0, _ => 0);
         if (speed <= 0)
         {
-            Console.WriteLine($"[gateway] {remote} trial dart traps: no {LabyrinthTrials.ArrowProjectile} in Projectiles.dat, they stay still");
+            Console.WriteLine($"[gateway] {conn.Remote} trial dart traps: no {LabyrinthTrials.ArrowProjectile} in Projectiles.dat, they stay still");
             return;
         }
         // The dart's rig: spine_shoot in flight, spine_shatter where it stops (data/projectile-clips.json), from the
@@ -1472,8 +1471,8 @@ static partial class QuestobjectsRules
             with { LaunchHeight = LabyrinthTrials.ArrowLaunchHeight };
         async Task Fire(uint id, AreaPopulation.RoomObject trap, IEnumerable<(double Turn, double At)> shots)
         {
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActorAnimation(id, 1, LabyrinthTrials.CastAnimation), null);
-            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.ActorAnimation(id, 1, LabyrinthTrials.CastAnimation), null);
+            var session = ProjectilesFor(conn);
             session.Advance();
             foreach (var (turn, at) in shots)
             {
@@ -1527,7 +1526,7 @@ static partial class QuestobjectsRules
                         if (down && (hold is double h ? now >= at + h : !on))
                         {
                             down = false;
-                            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed),
+                            await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed),
                                 $"0x02bc pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) comes up");
                         }
                         bool again = plate.Type.EndsWith("Multi_4", StringComparison.Ordinal);
@@ -1538,7 +1537,7 @@ static partial class QuestobjectsRules
                             var fired = TryWiring(conn, out var wiring) && LinkedDarts(wiring, plate) is { Count: > 0 } linked
                                 ? triggered.Where(t => linked.Contains(wiring.All.IndexOf(t.Trap))).ToList()
                                 : triggered.Where(t => RoomOf(t.Trap.X, t.Trap.Y) == room).ToList();
-                            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open),
+                            await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open),
                                 $"0x02bc pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) pressed: {fired.Count} wall dart(s) fire");
                             foreach (var (dart, trap) in fired) await Fire(dart, trap, [(0, 0)]);
                         }
@@ -1549,7 +1548,7 @@ static partial class QuestobjectsRules
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial dart traps stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} trial dart traps stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // The darts a pressure plate fires by the room links: its next (a ResetMulti_4 plate's transitionN), and on along each
@@ -1577,18 +1576,18 @@ static partial class QuestobjectsRules
         int poison = LabyrinthTrials.ArrowPoisonBase(conn.PlayerMaxLife) ?? 0;
         session.Enqueue(async () =>
         {
-            if (await PresentTrapHit(session.remote, session.stream, session.ciphers, conn, id,
+            if (await PresentTrapHit(conn, id,
                     $"trial dart trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
             {
-                await ArrowPoison(session.remote, session.stream, session.ciphers, conn, poison);
-                await ArrowSlow(session.remote, session.stream, session.ciphers, conn);
+                await ArrowPoison(conn, poison);
+                await ArrowSlow(conn);
             }
         });
         return ProjectileHitResult.Hit;
     }
 
     // A dart contributes one independently expiring stack to the shared incoming ailment owner.
-    static Task ArrowPoison(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
+    static Task ArrowPoison(ClientState conn, int hit)
     {
         if (hit <= 0) return Task.CompletedTask;
         var stats = CharacterPlayerStats(conn);
@@ -1620,7 +1619,7 @@ static partial class QuestobjectsRules
 
     // A dart's slow (LabyrinthTrials.ArrowSlowPercent for ArrowSlowSeconds from the latest hit, not stacking): it starts
     // with the first hit, a later one moves its end, and it ends then or at a death.
-    static async Task ArrowSlow(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task ArrowSlow(ClientState conn)
     {
         var slow = DartSlows.GetValue(conn, _ => new());
         lock (conn.Monsters)
@@ -1629,7 +1628,7 @@ static partial class QuestobjectsRules
             if (slow.Active) return;   // the running watch keeps it on to the new end
             (slow.Active, slow.Buff) = (true, conn.NextBuff++);
         }
-        await DartSlowChanged(remote, stream, ciphers, conn, slow);
+        await DartSlowChanged(conn, slow);
         _ = Task.Run(async () =>
         {
             while (!conn.Closed)
@@ -1641,7 +1640,7 @@ static partial class QuestobjectsRules
                     if (left <= 0) slow.Active = false;   // a hit after this starts a slow of its own
                 }
                 if (left > 0) { await Task.Delay(TimeSpan.FromSeconds(left)); continue; }
-                await DartSlowChanged(remote, stream, ciphers, conn, slow);
+                await DartSlowChanged(conn, slow);
                 return;
             }
         });
@@ -1649,7 +1648,7 @@ static partial class QuestobjectsRules
 
     // The slow came or went: the pools again (WithDartSlow), the walk estimate's speed, the client's stats (its own walk
     // and the panel read movement_velocity_+%) and the invisible labyrinth_arrow_slow buff.
-    static async Task DartSlowChanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, DartSlow slow)
+    static async Task DartSlowChanged(ClientState conn, DartSlow slow)
     {
         bool on;
         lock (conn.Monsters)
@@ -1659,10 +1658,10 @@ static partial class QuestobjectsRules
             conn.ApplyMovementSpeed();
         }
         if (LabyrinthTrials.ArrowSlowBuffRow is ushort row)
-            await Send(remote, stream, ciphers, on
+            await Send(conn, on
                 ? InstanceEntities.AddBuff(PlayerId, slow.Buff, row, u68: BitConverter.SingleToUInt32Bits((float)LabyrinthTrials.ArrowSlowSeconds))
                 : InstanceEntities.RemoveBuff(PlayerId, slow.Buff), null);
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn),
+        await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn),
             $"0x01b3 player stats (trial dart slow {(on ? "starts" : "ends")}: movement {conn.Pools.MovementVelocityPct:+0;-0}%)");
     }
 
@@ -1672,7 +1671,7 @@ static partial class QuestobjectsRules
     // pulled lever (Switch) stops in this instance starts stopped (LabyrinthTrials.SwitchedSaws: the levers and the
     // trial's door). With the room links, the rails join as they link (next, previous, teleport), and a roomba with a
     // reset rail goes its links' way from there (LabyrinthTrials.LinkedPath).
-    static async Task SpawnRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task SpawnRoombas(ClientState conn,
         List<AreaPopulation.RoomObject> roombas, List<AreaPopulation.RoomObject> rails, List<(int X, int Y)> switches, (int X, int Y) entrance,
         List<(int X, int Y)>? scratches, List<AreaPopulation.RoomObject> all, List<PlacedLink> links)
     {
@@ -1718,21 +1717,21 @@ static partial class QuestobjectsRules
             var r = roombas[i];
             uint id = conn.TakeObjectId();
             bool stopped = halted.Contains(i), spinner = r.Type == LabyrinthTrials.Spinner;
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type), spinner
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type), spinner
                 ? LabyrinthTrials.SpinnerBlob(r.X, r.Y, r.Angle, r.Model)
                 : LabyrinthTrials.RoombaBlob(r.Type, r.X, r.Y, r.Angle, r.Model, stopped ? LabyrinthTrials.Open : LabyrinthTrials.Closed)), null);
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             if (spinner && track?.Start((r.X, r.Y), r.Angle, Lifted) is { } run)
                 runs.Add(new RoombaRun(id, r, track, run, Lifted));
             else if (!spinner && paths[i] is { } path)
                 runs.Add(new RoombaRun(id, r, LabyrinthTrials.IsSawblade(r.Type) ? path.TowardNearerEnd((r.X, r.Y)) : path) { Halted = stopped, Stopped = stopped });
-            else Console.WriteLine($"[gateway] {remote} trial roomba 0x{id:x} {r.Type} at ({r.X}, {r.Y}): no rail under it, it stays");
+            else Console.WriteLine($"[gateway] {conn.Remote} trial roomba 0x{id:x} {r.Type} at ({r.X}, {r.Y}): no rail under it, it stays");
         }
-        Console.WriteLine($"[gateway] {remote} trial roombas, sawblades and spinners: {roombas.Count} placed, " +
+        Console.WriteLine($"[gateway] {conn.Remote} trial roombas, sawblades and spinners: {roombas.Count} placed, " +
             string.Join(", ", runs.Select(r => $"0x{r.Id:x} " + (r.Path is { } p ? $"{(p.Ring ? "round" : "to and fro")} {p.Rails.Count} rails" : $"on the track from {r.To}")
                 + (r.Stopped ? " (stopped)" : ""))));
         TrapRuns.AddOrUpdate(conn, runs);
-        _ = RunRoombas(remote, stream, ciphers, conn, runs);
+        _ = RunRoombas(conn, runs);
     }
 
     // A connection's roombas and sawblades on their rails, for its levers to stop and start.
@@ -1805,7 +1804,7 @@ static partial class QuestobjectsRules
     // for as long as they stay (ClientState.TrapDegenPerSecond). A sawblade a lever stops winds its spin down
     // (Transitionable 2) where it is; started again, it is created anew there, spinning (its .ot plays nothing on the way
     // back to state 1), and goes on to the rail it was heading for.
-    static async Task RunRoombas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<RoombaRun> runs)
+    static async Task RunRoombas(ClientState conn, List<RoombaRun> runs)
     {
         var degen = new TrapDegen();
         try
@@ -1822,18 +1821,18 @@ static partial class QuestobjectsRules
                         if (r.Halted)
                         {
                             (r.From, r.Stopped) = (at, true);
-                            await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(r.Id, LabyrinthTrials.RoombaTransitionableIndex, LabyrinthTrials.Open),
+                            await Send(conn, [.. InstanceEntities.TransitionableUpdate(r.Id, LabyrinthTrials.RoombaTransitionableIndex, LabyrinthTrials.Open),
                                 .. InstanceProtocol.MoveTo(r.Id, cell.X, cell.Y, 0.05f, InstanceProtocol.FollowTerrain)],
                                 $"0x02bc trial sawblade 0x{r.Id:x} stops at ({cell.X}, {cell.Y})");
                             continue;
                         }
                         uint previous = r.Id;
                         lock (conn.Monsters) r.Id = conn.TakeObjectId();
-                        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, previous, null);
-                        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, r.Id, InstanceEntities.CreateObject(r.Id, InstanceEntities.ObjectTypeHash(r.Roomba.Type),
+                        await global::Game.SendWorldRemoval(conn, previous, null);
+                        await global::Game.SendWorldCreate(conn, r.Id, InstanceEntities.CreateObject(r.Id, InstanceEntities.ObjectTypeHash(r.Roomba.Type),
                             LabyrinthTrials.RoombaBlob(r.Roomba.Type, cell.X, cell.Y, r.Roomba.Angle, r.Roomba.Model)),
                             $"0x02bb trial sawblade 0x{r.Id:x} (was 0x{previous:x}) runs on from ({cell.X}, {cell.Y})");
-                        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, r.Id, InstanceProtocol.EnterWakeZone(r.Id), null);
+                        await global::Game.SendWorldRecord(conn, r.Id, InstanceProtocol.EnterWakeZone(r.Id), null);
                         (r.From, r.Stopped, r.LegEnd) = (at, false, double.NegativeInfinity);
                     }
                     if (r.Stopped || now < r.LegEnd + LabyrinthTrials.RoombaPauseSeconds(r.Roomba.Type)) continue;
@@ -1842,7 +1841,7 @@ static partial class QuestobjectsRules
                     if (r.Path is { } jumping && jumping.Jumps.Contains((((int)r.From.X, (int)r.From.Y), ((int)r.To.X, (int)r.To.Y))))
                     {
                         (r.From, r.LegStart, r.LegEnd) = (r.To, now, now);
-                        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, r.Id, InstanceProtocol.Teleport(r.Id, (int)r.To.X, (int)r.To.Y),
+                        await global::Game.SendWorldRecord(conn, r.Id, InstanceProtocol.Teleport(r.Id, (int)r.To.X, (int)r.To.Y),
                             $"0x01b7 trial roomba 0x{r.Id:x} jumps to ({r.To.X}, {r.To.Y})");
                         continue;
                     }
@@ -1853,7 +1852,7 @@ static partial class QuestobjectsRules
                     // A roomba turns to where it goes (rotate_to_movement_direction); a sawblade keeps its room line's
                     // angle, along its track, and only goes back at an end (live 2026-11-01, the original), as a
                     // spinner does.
-                    await Send(remote, stream, ciphers, !LabyrinthTrials.TurnsToMovement(r.Roomba.Type) ? move
+                    await Send(conn, !LabyrinthTrials.TurnsToMovement(r.Roomba.Type) ? move
                         : [.. InstanceProtocol.Orientation(r.Id, (float)Math.Atan2(dx, -dy)), .. move], null);
                 }
                 // In a roomba: its degeneration on the player and its buff, whose visual plays the roomba's cut on them.
@@ -1867,12 +1866,12 @@ static partial class QuestobjectsRules
                     var (lifeShare, shieldShare) = LabyrinthTrials.TrapDegenShares(inside.Roomba.Type);
                     lock (conn.Monsters) perSecond = conn.PlayerMaxLife * lifeShare + conn.EnergyShield.Maximum * shieldShare;
                 }
-                await degen.Set(remote, stream, ciphers, conn, perSecond, inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type), "in a trial roomba");
+                await degen.Set(conn, perSecond, inside is null ? null : LabyrinthTrials.RoombaBuffRow(inside.Roomba.Type), "in a trial roomba");
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
         finally { lock (conn.Monsters) conn.Degens[degen] = 0; }
     }
 
@@ -1887,7 +1886,7 @@ static partial class QuestobjectsRules
 
         // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
         // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
-        public async Task Set(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double perSecond, ushort? row,
+        public async Task Set(ClientState conn, double perSecond, ushort? row,
             string where)
         {
             bool was, degen;
@@ -1904,27 +1903,27 @@ static partial class QuestobjectsRules
             }
             if (shown is { } old && old.Row != row)
             {
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old.Instance), null);
+                await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old.Instance), null);
                 shown = null;
             }
             if (row is ushort buffRow && shown is null)
             {
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
+                await global::Game.SendWorldRecord(conn, PlayerId, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
                 shown = (instance, buffRow);
             }
             if (degen && !was && CharacterPlayerStatsCore(conn, out double lifeRegen) is not null)
-                Console.WriteLine($"[gateway] {remote} {where}: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
+                Console.WriteLine($"[gateway] {conn.Remote} {where}: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
                     $"energy shield {conn.EnergyShield.Maximum}), life regeneration {lifeRegen:0.#}/s, life {conn.PlayerLife}, " +
                     $"energy shield {conn.EnergyShield.Current}");
-            if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
+            if (degen != was) await SendCharacterStats(conn, PlayerStatChange.Panel);
         }
     }
 
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on
     // after the player walks away): S→C 0x84 with its only NPCTalk row's index (0, "Read") opens the talk on that row.
-    internal static Task ReadTrialMonograph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    internal static Task ReadTrialMonograph(ClientState conn, uint id,
         SpawnedNpc npc) =>
-        Send(remote, stream, ciphers, InstanceNpcs.Talk(id, LabyrinthTrials.GlyphTalk), $"0x0084 read trial monograph 0x{id:x} {npc.Npc.Id}");
+        Send(conn, InstanceNpcs.Talk(id, LabyrinthTrials.GlyphTalk), $"0x0084 read trial monograph 0x{id:x} {npc.Npc.Id}");
 
     // The trial object of this type nearest to a cell, closed or not in this instance.
     static (uint Id, AreaPopulation.RoomObject Object)? NearestTrialObject(ClientState conn, string type, (int X, int Y) at, bool closed)

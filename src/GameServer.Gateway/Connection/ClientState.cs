@@ -752,6 +752,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public string? ModuleWindow;
     /// <summary>What sends to this client, for what is reached only with the connection (the built-in mods).</summary>
     public (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers) Wire;
+    /// <summary>The client's address, for logs.</summary>
+    public string Remote => Wire.Remote;
     public double GemExperienceCarry;
     public bool BossRecoveryHandled;
     public bool HardcoreDeathRecorded;

@@ -247,25 +247,25 @@ public static partial class Game
     }
 
     // Sends a hit's ignited or bleeding buff packets (IgniteOnHitLocked, BleedOnHitLocked) after the lock.
-    static async Task SendDotBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, List<byte[]>? packets,
+    static async Task SendDotBuff(ClientState conn, List<byte[]>? packets,
         string log)
     {
         if (packets is null) return;
         for (int i = 0; i < packets.Count; i++)
-            await Send(remote, stream, ciphers, packets[i], i < packets.Count - 1 ? null : "0x01c1 " + log);
+            await Send(conn, packets[i], i < packets.Count - 1 ? null : "0x01c1 " + log);
     }
 
     // One tick of the ignited monsters (the area's monster damage over time): the strongest ignite's fire damage through the monster's
     // resistance and damage taken (MonsterDotTaken), the buff off when the last ignite ends, and kills, as Righteous
     // Fire's burn (BurnAround) commits them. They burn on while the player is dead (the kill then gives no experience,
     // MonsterKilled).
-    public static Task BurnIgnited(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TickStrongestDots(remote, stream, ciphers, conn, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
+    public static Task BurnIgnited(ClientState conn) =>
+        TickStrongestDots(conn, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
             "burnt to death by ignite");
 
     // One tick of a strongest-only set (ignites, bleeds: <paramref name="of"/>), <paramref name="factor"/> the monster's
     // mitigation of it, <paramref name="aggravated"/> the strongest aggravated bleed's extra share (MonsterIgnites.Advance).
-    static async Task TickStrongestDots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task TickStrongestDots(ClientState conn,
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
         Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
@@ -299,12 +299,12 @@ public static partial class Game
                     if (set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
                 }
                 hits.Add((id, m, m.Life, damage));
-                if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
+                if (stageStarts) CommitBossStage(conn, id, m, now);
             }
         }
         foreach (var (id, buff) in ended)
         {
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
+            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
             // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
             ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
@@ -312,16 +312,16 @@ public static partial class Game
         {
             if (life == 0)
             {
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
                 if (m.Poisons.Buff is ushort pbuff)
                 {
-                    await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);
+                    await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);
                     m.Poisons.Buff = null;
                 }
             }
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
-            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
+            if (life == 0) await DotKilled(conn, id, m);
         }
     }
 }

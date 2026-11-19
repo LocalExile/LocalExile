@@ -79,7 +79,7 @@ public static partial class Game
     // player), and at the contact point (half the attack time) the hit lands (MinionHitLocked): 0x1af from the minion, then
     // the target's hit and death as for the player's hits. Its kills give the player their experience, items and quest
     // progress, but are not his for his on-kill effects.
-    static void StartMinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static void StartMinionSwing(ClientState conn,
         PlayerMinions.Attack attack)
     {
         var updates = AreaUpdateContext.Value;
@@ -91,13 +91,13 @@ public static partial class Game
         _ = Continue();
         async Task Continue()
         {
-            try { await MinionSwing(remote, stream, ciphers, conn, attack); }
+            try { await MinionSwing(conn, attack); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
             finally { lock (conn.Monsters) updates.MinionAttacks.Remove(attack); }
         }
     }
 
-    public static async Task MinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task MinionSwing(ClientState conn,
         PlayerMinions.Attack attack)
     {
         uint id = attack.Id;
@@ -113,7 +113,7 @@ public static partial class Game
         lock (conn.Monsters) if (!Current()) return;
         var a = m.Attack!;
         if (!attack.Started)
-            await Send(remote, stream, ciphers, [],
+            await Send(conn, [],
                 $"0x01ab minion 0x{id:x} ({m.Label}) attacks monster 0x{target.Id:x}, attack time {a.Seconds:0.00} s", atGate: () =>
                 {
                     lock (conn.Monsters)
@@ -150,14 +150,14 @@ public static partial class Game
                     (at, to) = (m.Walk.Position(now), target.Monster.Walk.Position(now));
                     if (a.Projectile is { } projectile)
                     {
-                        ReleaseMinionProjectile(remote, stream, ciphers, conn, attack, projectile, now);
+                        ReleaseMinionProjectile(conn, attack, projectile, now);
                         return;
                     }
                     conn.Minions.Attacks.Remove(id);
                     landed = MinionHitLocked(conn, id, m, target, now, Random.Shared);
                     if (landed is { Hit.StageStarts: true } staged)
                     {
-                        CommitBossStage(remote, stream, ciphers, conn, target.Id, target.Monster, now);
+                        CommitBossStage(conn, target.Id, target.Monster, now);
                         landed = staged with { Hit = staged.Hit with { StageStarts = false } };
                     }
                     if (landed is { } accepted)
@@ -174,10 +174,10 @@ public static partial class Game
         }
         if (landed is not { } hit)
         {
-            Console.WriteLine($"[gateway] {remote} minion 0x{id:x} ({m.Label}) missed monster 0x{target.Id:x}");
+            Console.WriteLine($"[gateway] {conn.Remote} minion 0x{id:x} ({m.Label}) missed monster 0x{target.Id:x}");
             return;
         }
-        await PublishMinionOutcomesFor(remote, stream, ciphers, conn, rules);
+        await PublishMinionOutcomesFor(conn, rules);
         }
         finally
         {

@@ -130,8 +130,8 @@ public static partial class Game
         }
     }
 
-    public static Task SendPhysicalAegis(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => PhysicalAegisPresentationRecords(conn));
+    public static Task SendPhysicalAegis(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () => PhysicalAegisPresentationRecords(conn));
 
     public static byte[]? PhysicalAegisPresentation(ClientState conn) =>
         PhysicalAegisPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;

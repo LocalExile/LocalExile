@@ -37,19 +37,19 @@ public sealed class PartyFollowerTests
         string hide = Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
         string zero = Convert.ToHexString(InstanceProtocol.LifeUpdate(id, 0));
         int Count(Wire wire, string hex) => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(hex, StringComparison.Ordinal));
-        await Game.SyncInstanceMonsters("observer", firstWire.Stream, firstWire.Ciphers, first);
+        await Game.SyncInstanceMonsters(first);
         Assert.Equal(1, Count(firstWire, hide));
         Assert.Equal(1, Count(firstWire, zero));
-        await Game.SyncInstanceMonsters("observer", firstWire.Stream, firstWire.Ciphers, first);
+        await Game.SyncInstanceMonsters(first);
         Assert.Equal(1, Count(firstWire, hide));
-        await Game.SyncInstanceMonsters("sleeping", sleepingWire.Stream, sleepingWire.Ciphers, sleeping);
+        await Game.SyncInstanceMonsters(sleeping);
         Assert.Equal(0, Count(sleepingWire, hide));
         sleeping.AsleepMonsters.Remove(id);
-        await Game.SyncInstanceMonsters("awake", sleepingWire.Stream, sleepingWire.Ciphers, sleeping);
+        await Game.SyncInstanceMonsters(sleeping);
         Assert.Equal(1, Count(sleepingWire, hide));
         Assert.Equal(0u, sleeping.MonsterViews[id].Life);
         monster.Dead = false; monster.Life = 500;
-        await Game.SyncInstanceMonsters("revived", firstWire.Stream, firstWire.Ciphers, first);
+        await Game.SyncInstanceMonsters(first);
         Assert.Equal(1, Count(firstWire, Convert.ToHexString(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]))));
     }
 

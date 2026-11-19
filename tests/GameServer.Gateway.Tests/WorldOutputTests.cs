@@ -65,7 +65,7 @@ public class WorldOutputTests : IDisposable
             var highB = Record(1, 0x80000000, 0xffff);
             var global = Record(1, 0xfffffffe, 1);
             foreach (var record in new[] { highB, global, low, firstA, highA, firstB })
-                await Game.SendWorldRecord("world-order", writer.GetStream(), ciphers, conn, 1, record, null);
+                await Game.SendWorldRecord(conn, 1, record, null);
             Assert.Empty(Program.HistoryFor(ciphers).Lines());
             await Program.EndWorldFrame(conn, (.033, .066));
             await Read(firstA, firstB, low, highA, highB, global, InstanceProtocol.FrameEnd());
@@ -98,21 +98,21 @@ public class WorldOutputTests : IDisposable
 
             // Predictive keeps the declared records in producer order, without waiting for a frame.
             conn.LockstepClient = false;
-            await Game.SendWorldRecords("world-order", writer.GetStream(), ciphers, conn, 1, () => [highB, firstA]);
+            await Game.SendWorldRecords(conn, 1, () => [highB, firstA]);
             await Read(highB, firstA);
 
             // Death updates the existing player incarnation; it must never reserve a duplicate player birth.
             conn.LockstepClient = true;
             var player = conn.WorldOutput.ExistingObject(Program.PlayerId);
             conn.PlayerLife = 0;
-            await Game.SendPlayerDeathPresentation("world-order", writer.GetStream(), ciphers, conn, "death", conn.IncomingHitEpoch);
+            await Game.SendPlayerDeathPresentation(conn, "death", conn.IncomingHitEpoch);
             await Read(InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
             await Program.EndWorldFrame(conn, (.132, .165));
             await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
                 InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]), InstanceProtocol.FrameEnd());
             Assert.Same(player, conn.WorldOutput.PublishedObject(Program.PlayerId));
             conn.LockstepClient = false;
-            await Game.SendPlayerDeathPresentation("world-order", writer.GetStream(), ciphers, conn, "predictive death", conn.IncomingHitEpoch);
+            await Game.SendPlayerDeathPresentation(conn, "predictive death", conn.IncomingHitEpoch);
             await Read(InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife),
                 InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn)));
@@ -142,7 +142,7 @@ public class WorldOutputTests : IDisposable
         {
             Assert.True(await Game.SendWorldCreate(conn, 20,
                 () => InstanceEntities.CreateObject(20, 0x1234, [0, 0]), wake: true));
-            await Game.SendWorldRecord("quest", null!, null!, conn, 20, bytes, null);
+            await Game.SendWorldRecord(conn, 20, bytes, null);
         });
         batch = new([.. batch.Records.Select(r => r.AsSharedView())]);
         Assert.Empty(output.Admit(batch, admission, framed: true));

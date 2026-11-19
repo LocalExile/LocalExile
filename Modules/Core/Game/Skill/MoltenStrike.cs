@@ -128,7 +128,7 @@ public static partial class Game
         return fallback;
     }
 
-    public static Task ScheduleMoltenStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleMoltenStrike(ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
@@ -173,15 +173,14 @@ public static partial class Game
         }
         var jobs = new List<Task>();
         for (int repeat = 0; repeat <= meleeRepeats; repeat++)
-            jobs.Add(ExecuteMoltenStrikeSwing(remote, stream, ciphers, conn, skillId, gem, from, to,
+            jobs.Add(ExecuteMoltenStrikeSwing(conn, skillId, gem, from, to,
                 recoveryGeneration, targetId, sequence, actionToken, cooldownUse, roll, acceptedAt,
                 repeat, meleeRepeats, attackSeconds, repeat * repeatInterval, ruthless,
                 fifthAttack, repeat == 0 ? armFifthBuff : (ushort)0));
         return Task.WhenAll(jobs);
     }
 
-    public static async Task ExecuteMoltenStrikeSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    public static async Task ExecuteMoltenStrikeSwing(ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId, ushort sequence,
         int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll criticalRoll, double? swingAt,
         int repeat, int totalRepeats, double attackSeconds, double repeatDelay, double ruthless,
@@ -221,7 +220,7 @@ public static partial class Game
             if (repeat > 0) return true;
             if (cannotCancel) return false;
             if (conn.Clock.Elapsed.TotalSeconds >= earliestAt && PlayerStateAllowsAction(conn)) return false;
-            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
+            Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
                 + $"{conn.ActionCount} before its hit (action {action}), no hit lands");
             return true;
         }
@@ -234,10 +233,10 @@ public static partial class Game
             (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, startStats, from, to,
                 sequence, targetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null && repeat == 0)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, memoryBuff,
+            await SendWorldRecord(conn, PlayerId, memoryBuff,
                 $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
         if (armFifthBuff != 0)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            await SendWorldRecord(conn, PlayerId,
                 InstanceEntities.AddBuff(PlayerId, armFifthBuff, MoltenStrikeFifthAttackBuffRow, PlayerId, skillId,
                     activeSkill: SkillsFor(conn).ActionHash(gem.Effect) is ushort hash ? (skillId, hash) : null,
                     stacks: 1),
@@ -313,7 +312,7 @@ public static partial class Game
             totalTargets = targets.Count;
             if (targets.Count == 0 && !vaalBehaviour)
             {
-                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: melee swing whiffed at ({to.X}, {to.Y}), no projectiles emitted (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee swing whiffed at ({to.X}, {to.Y}), no projectiles emitted (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                 return;
             }
 
@@ -347,12 +346,12 @@ public static partial class Game
                 int hitChance = AttackHitChanceAt(conn, id, m, now, accuracy, player);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, conn.AttackAccuracyRandom))
                 {
-                    Console.WriteLine($"[gateway] {remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
+                    Console.WriteLine($"[gateway] {conn.Remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
                     continue;
                 }
                 if (MonsterBlocks(m, Random.Shared, spell: false, now, skillStats))
                 {
-                    Console.WriteLine($"[gateway] {remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
+                    Console.WriteLine($"[gateway] {conn.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
                 }
                 var gambler = GamblerFor(player);
@@ -392,7 +391,7 @@ public static partial class Game
                 CrueltyOnHitLocked(conn, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
-                ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
+                ReleaseCriticalTrigger(conn, ProjectilesFor(conn), criticalTrigger, critical, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
@@ -412,7 +411,7 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(id, m, critical, now));
                 if (hit.StageStarts)
                 {
-                    CommitBossStage(remote, stream, ciphers, conn, id, m, now);
+                    CommitBossStage(conn, id, m, now);
                     hit = hit with { StageStarts = false };
                 }
                 // As AreaSkillHit's: the stun carries the hit's Fortification damage, so "Melee Hits which Stun have X%
@@ -434,7 +433,7 @@ public static partial class Game
                 hitOrigins.Add(MoltenStrikeGeometry.SwingOrigin(playerAt, to, weapon.Range));
             if (hitOrigins.Count > 0)
             {
-                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                var session = ProjectilesFor(conn);
                 emitted = EmitMoltenStrikeBallsLocked(conn, session, skillId, gem, playerAt, to, criticalRoll,
                     sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, Random.Shared, fifthAttack);
             }
@@ -442,20 +441,20 @@ public static partial class Game
 
         foreach (var r in results)
         {
-            if (r.Critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
-            if (r.Critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, r.Monster.Walk.Position(ProjectileWorldTime(conn)));
-            await NotifyMonsterHit(remote, stream, ciphers, conn, r.Id, r.Monster, r.Hit, r.Damage,
+            if (r.Critical) _ = GainFlaskChargesOnCrit(conn);
+            if (r.Critical) await MaybeCreateProfaneGround(conn, r.Monster.Walk.Position(ProjectileWorldTime(conn)));
+            await NotifyMonsterHit(conn, r.Id, r.Monster, r.Hit, r.Damage,
                 $"{gem.Name}{(r.Critical ? " (critical)" : "")}{(r.Resistance is null ? "" : $", {r.Resistance}")}",
                 melee: true, sequence: sequence, deaths: deaths, stun: r.Stun);
-            await SendDotBuff(remote, stream, ciphers, r.Ignited, r.IgniteLog);
-            await SendDotBuff(remote, stream, ciphers, r.Bled, r.BleedLog);
+            await SendDotBuff(conn, r.Ignited, r.IgniteLog);
+            await SendDotBuff(conn, r.Bled, r.BleedLog);
             ChargesOnHit(conn, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id);
         }
         if (reflected.Count > 0 && player is not null)
             using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
-        foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
+        foreach (var (deadId, dead) in deaths) await MonsterKilled(conn, deadId, dead);
         string contactNote = contactClip is null ? "the attack1 fallback" : contactClip;
-        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: melee hit {hitTargets}/{totalTargets} monster(s), "
+        Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee hit {hitTargets}/{totalTargets} monster(s), "
             + $"launched {emitted} molten projectile(s), contact {contactFraction:0.###} of the attack ({contactNote}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
     }
 
@@ -474,7 +473,7 @@ public static partial class Game
         }
         catch (InvalidOperationException ex)
         {
-            Console.WriteLine($"[gateway] {session.remote} {gem.Name} projectile release skipped: {ex.Message}");
+            Console.WriteLine($"[gateway] {session.Conn.Remote} {gem.Name} projectile release skipped: {ex.Message}");
             return 0;
         }
         var own = SupportedSkill(conn, skillId).Stats;

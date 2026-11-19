@@ -87,7 +87,7 @@ public class DamageTakenTriggerTests
             using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
             using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
             using var reader = listener.AcceptTcpClient();
-            var session = new Game.ProjectileSession("awakened-coc", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            var session = new Game.ProjectileSession(conn);
             try
             {
                 var source = Game.CaptureCriticalTriggerSource(conn, attack.Id);

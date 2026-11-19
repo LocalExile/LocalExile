@@ -4,10 +4,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster monster, double at)
+    public static void CommitBossStage(ClientState conn, uint id, SpawnedMonster monster, double at)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         CommitProjectileBossStage(session, id, monster, Math.Max(session.Runtime.Now, ProjectileRuntime.Time(at)));
     }
 
@@ -73,7 +72,7 @@ public static partial class Game
             if (step.CountsChanged)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
-                session.Enqueue(() => SendChargeStats(session.remote, session.stream, session.ciphers, conn, "projectile hit"));
+                session.Enqueue(() => SendChargeStats(conn, "projectile hit"));
             }
         }
     }
@@ -114,7 +113,7 @@ public static partial class Game
             destroyCorpse = playerKill && TakeUnhingedHitKillLocked(conn, monster);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, monster);
         }
-        StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
+        StopCorpseBlocking(conn, id, monster);
         session.World(PlayerId, () => VaalSoulPresentation(conn), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var position = monster.Walk.Position(now);
@@ -124,7 +123,7 @@ public static partial class Game
         bool devoured;
         lock (conn.Monsters) devoured = ConsumeDevouredCorpseLocked(conn, id, monster, now);
         if (devoured)
-            session.Enqueue(() => SendWorldRemoval(session.remote, session.stream, session.ciphers, conn, id,
+            session.Enqueue(() => SendWorldRemoval(conn, id,
                 $"0x02bd corpse 0x{id:x} ({monster.Label}) devoured by the supported skill"));
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
@@ -136,15 +135,15 @@ public static partial class Game
             // The kill's bookkeeping goes behind the presentation queued with it (EnqueueLater): queued in line, it ended
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
-            if (OnslaughtOnKill(conn)) session.EnqueueLater(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
+            if (OnslaughtOnKill(conn)) session.EnqueueLater(() => SendKillOnslaught(conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
             GainPhasingOnKill(conn);
-            session.EnqueueLater(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
+            session.EnqueueLater(async () => await ExplodeOnKill(conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
-            session.EnqueueLater(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
+            session.EnqueueLater(() => PublishQuestFlags(conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.EnqueueLater(send);
@@ -155,7 +154,7 @@ public static partial class Game
                 conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
         var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
         foreach (var packet in gemPackets) session.Packet(packet);
-        if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
+        if (leveled) session.Enqueue(() => SendSkills(conn));
         if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - conn.Experience));
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
@@ -168,9 +167,9 @@ public static partial class Game
                 conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
-                session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, PlayerStatChange.Build));
+                session.Enqueue(() => SendCharacterStats(conn, PlayerStatChange.Build));
                 session.World(PlayerId, PlayerLifeUpdate(conn));
-                session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
+                session.Enqueue(() => SendPlayerMana(conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
                 // Account-level persistence is a projection of the committed XP ledger.
                 session.Enqueue(async () => { await SynchronizeAccountLevel(conn); });
@@ -180,7 +179,7 @@ public static partial class Game
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
         // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
         // Game.MonsterKilled (MonsterRemaining.cs).
-        session.EnqueueLater(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
+        session.EnqueueLater(() => SendRemainingMonsters(conn));
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
         // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
         // output task runs after it, behind the hits queued with it (EnqueueLater).
@@ -189,8 +188,7 @@ public static partial class Game
             CommitProjectileLoot(session, monster, position);
             return Task.CompletedTask;
         });
-        session.Enqueue(() => PublishUnhingedCorpseDestruction(session.remote, session.stream, session.ciphers,
-            conn, id, monster, destroyCorpse));
+        session.Enqueue(() => PublishUnhingedCorpseDestruction(conn, id, monster, destroyCorpse));
     }
 
     static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position)

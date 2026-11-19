@@ -30,26 +30,24 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
         foreach (var s in scene)
         {
             lock (c.Monsters) if (c.SceneViews.Contains(s.Id)) continue;
-            var w = c.Wire;
             if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id,
-                InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()), "[Yugul] native statue", wake: true, transport: w))
+                InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()), "[Yugul] native statue", wake: true))
                 lock (c.Monsters) c.SceneViews.Add(s.Id);
         }
     }
     async Task All(uint id, byte[] bytes, string label)
     {
         foreach (var p in Present.ToArray())
-        { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [.. bytes], label); }
+        { await SendWorldRecord(p, id, [.. bytes], label); }
     }
     async Task<uint> Spawn(ClientState c, string type, (int X, int Y) at, IReadOnlyList<GrantedSkill>? skills = null)
     {
-        var w = c.Wire;
-        uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, c, Monsters.Find(type)!, boss.Level,
+        uint id = await SpawnMonster(c, Monsters.Find(type)!, boss.Level,
             MonsterRarity.Normal, at.X, at.Y, unrisen: false, scripted: true, ownedSkills: skills,
             ownedMaximumLife: 1, owned: (id, m) => { m.SummonerId = bossId; m.NoRewards = true; m.EntranceGrace = true; owned.Add(id); },
             ownedCurrent: () => Current);
         foreach (var p in Present.Where(p => !ReferenceEquals(p, c)).ToArray())
-            await SyncInstanceMonsters(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p);
+            await SyncInstanceMonsters(p);
         return id;
     }
     async Task Initialize(ClientState c)
@@ -119,7 +117,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
             var aim = target.Walk.Position(now);
             foreach (var p in Present.ToArray())
             {
-                var w = p.Wire; var session = ProjectilesFor(w.Remote, w.Stream, w.Ciphers, p); flights.Add(session); session.Advance();
+                var session = ProjectilesFor(p); flights.Add(session); session.Advance();
                 for (int i = 0; i < 6; i++)
                 {
                     double release = now + interval * (i + .066 / .166);
@@ -188,7 +186,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
         }
     }
     static Task AllBuff(ClientState p, byte[] bytes)
-    { var w = p.Wire; return SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, bytes, "[Yugul] Fearful"); }
+    { return SendWorldRecord(p, PlayerId, bytes, "[Yugul] Fearful"); }
     internal async Task Clear()
     {
         RetireShots();
@@ -199,7 +197,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
             {
                 bool shown;
                 lock (p.Monsters) { shown = p.MonsterViews.Remove(id) | p.SceneViews.Remove(id); p.AsleepMonsters.Remove(id); }
-                if (shown && !p.Closed && !p.LeavingArea) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, "[Yugul] arena actor leaves"); }
+                if (shown && !p.Closed && !p.LeavingArea) { await SendWorldRemoval(p, id, "[Yugul] arena actor leaves"); }
             }
         }
         lock (owner.Monsters) foreach (uint id in owned) { owner.Monsters.Remove(id); owner.Instance.World.MonsterOrigins.TryRemove(id, out _); }
@@ -218,13 +216,12 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
         RetireShots();
         foreach (var p in Present.ToArray())
         {
-            var w = p.Wire;
             if (exposure.TryGetValue(p, out var e) && e.Fear != 0)
-            { _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.RemoveBuff(PlayerId, e.Fear), null); e.Fear = 0; }
+            { _ = Send(p, InstanceEntities.RemoveBuff(PlayerId, e.Fear), null); e.Fear = 0; }
             foreach (uint id in owned.Concat(scene.Select(s => s.Id)).ToArray())
             {
                 lock (p.Monsters) { p.MonsterViews.Remove(id); p.SceneViews.Remove(id); p.AsleepMonsters.Remove(id); }
-                _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(id), null);
+                _ = Send(p, InstanceProtocol.RemoveObject(id), null);
             }
         }
         lock (owner.Monsters) foreach (uint id in owned)

@@ -114,8 +114,8 @@ public static partial class Game
         state.Retired.Clear();
     }
 
-    public static Task SendAvatarOfFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => AvatarOfFirePresentation(conn));
+    public static Task SendAvatarOfFire(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () => AvatarOfFirePresentation(conn));
 
     public static byte[][]? AvatarOfFirePresentation(ClientState conn)
     {

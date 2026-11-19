@@ -59,7 +59,7 @@ public static partial class Game
                 if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(conn, gem, now);
                 else StartOfferingLocked(conn, id, gem, effect, aim, 0, now);
             }
-            await PublishMinionOutcomes(session.remote, session.stream, session.ciphers, conn);
+            await PublishMinionOutcomes(conn);
         }
         else if (CurseCatalog.All.TryGetValue(SkillsFor(conn).EffectId(gem.Effect) ?? "", out var curse))
         {
@@ -75,10 +75,10 @@ public static partial class Game
                     if (curse.Mark ? objectId == target.Key : Dist(monster.Walk.Position(now), aim) <= radius)
                         ApplyCurseLocked(conn, monster, id, now, false, gem, player);
             }
-            await EnemyDebuffsTick(session.remote, session.stream, session.ciphers, conn, AreaTime(conn));
+            await EnemyDebuffsTick(conn, AreaTime(conn));
         }
         else if (TriggerAreaSpell(conn, gem))
-            await AreaSkillHit(session.remote, session.stream, session.ciphers, conn, id, skill,
+            await AreaSkillHit(conn, id, skill,
                 conn.Walk.Position(AreaTime(conn)), aim, immediate: true, triggeredCurrent: current);
     }
 }

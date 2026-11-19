@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Called only inside SpendFlask's accepted charge transaction, under Monsters and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
-    static void AcceptRecoveryFlaskLocked(string remote, ClientState conn, uint slot, InventoryItem flask,
+    static void AcceptRecoveryFlaskLocked(ClientState conn, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
         IReadOnlyDictionary<string, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
@@ -13,7 +13,7 @@ public static partial class Game
         if (use.LifePerUse > 0) state.Enqueue(new(FlaskEnchantments.Trigger.LifeFlask, flask.Id, (byte)slot));
         state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,
             PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used (native use sound)"));
-        Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {recovery.Life:0.#} life, {recovery.Mana:0.#} mana over {recovery.Seconds:0.##} s, " +
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): {recovery.Life:0.#} life, {recovery.Mana:0.#} mana over {recovery.Seconds:0.##} s, " +
             $"instantly {recovery.InstantLife:0.#} life, {recovery.InstantMana:0.#} mana{(recovery.ManaAtEnd > 0 ? $", {recovery.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(recovery.RemovesLife + recovery.RemovesMana > 0 ? $", removes {recovery.RemovesLife:0.#} life, {recovery.RemovesMana:0.#} mana" : "")}" +
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
@@ -36,7 +36,7 @@ public static partial class Game
             conn.RecoveryFlaskStats.Start(effects, during);
             RecomputePoolsAndSpeed(conn);
             state.StatRevision++;   // PublishFlaskChanges sends the character's stats
-            Console.WriteLine($"[gateway] {remote} flask {slot} ({type.Name}) during effect: " +
+            Console.WriteLine($"[gateway] {conn.Remote} flask {slot} ({type.Name}) during effect: " +
                 string.Join(", ", during.Select(s => $"{s.Stat} {s.Value}")));
         }
         // IsRecovery rows carry one u32 recovery-per-minute value, duration as f32 seconds (+0x68),

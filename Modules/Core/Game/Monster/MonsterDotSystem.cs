@@ -16,14 +16,14 @@ public static partial class Game
             if (!pass.IsCompleted || !CurrentGameWork || frames.View is not { } view || view.Closed || view.LeavingArea
                 || view.Paused || !view.PlayerSent || view.PlayerUpdatesState is not PlayerUpdatesState updates
                 || !PlayerUpdatesCurrent(view, updates)) return;
-            var (remote, stream, ciphers) = view.Wire;
+            var conn = view;
             pass = AsPlayer(view, updates, async () =>
             {
-                await BurnIgnited(remote, stream, ciphers, view);
-                await BleedMonsters(remote, stream, ciphers, view);
-                await TickPoisons(remote, stream, ciphers, view);
-                await TickContagions(remote, stream, ciphers, view);
-                await TickEssenceDrains(remote, stream, ciphers, view);
+                await BurnIgnited(view);
+                await BleedMonsters(view);
+                await TickPoisons(view);
+                await TickContagions(view);
+                await TickEssenceDrains(view);
             });
         }, source: source);
     }

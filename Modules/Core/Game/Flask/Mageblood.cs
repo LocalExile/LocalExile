@@ -114,11 +114,11 @@ public static partial class Game
 
     /// <summary>After the flask bar changed while Mageblood is worn: apply the new permanent flask stats now (the pools, the
     /// walk speed and the client's stats), instead of waiting for an equipment change or a relogin.</summary>
-    public static async Task RefreshMagebloodFlasks(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RefreshMagebloodFlasks(ClientState conn)
     {
         if (MagebloodBelt(conn) is null) return;
         lock (conn.Monsters) RecomputePoolsAndSpeed(conn);
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+        await SendPlayerStatSnapshot(conn,
             () => PlayerStatsOffFrames(conn),
             "0x01b3 player stats (Mageblood flasks)");
     }

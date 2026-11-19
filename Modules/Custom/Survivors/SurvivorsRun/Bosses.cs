@@ -43,20 +43,19 @@ static partial class SurvivorsRunRules
     };
 
     /// <summary>Spawns the stage's gate boss where the player can see it, with its own servants and controller.</summary>
-    internal static async Task<SurvivorsBossFight?> SpawnSurvivorsGateBoss(string remote, NetworkStream stream,
-        ConnectionCiphers ciphers, ClientState conn, SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde,
+    internal static async Task<SurvivorsBossFight?> SpawnSurvivorsGateBoss(ClientState conn, SurvivorsRoster roster, SurvivorsRun run, int stage, HashSet<uint> horde,
         CancellationToken token)
     {
         if (SurvivorsSpawnCell(conn, 24) is not { } cell)
         {
-            Console.WriteLine($"[gateway] {remote} survivors: no cell for the gate boss of stage {stage + 1}");
+            Console.WriteLine($"[gateway] {conn.Remote} survivors: no cell for the gate boss of stage {stage + 1}");
             return null;
         }
         var kit = SurvivorsBossFor(stage);
         var variety = Monsters.Find(kit.Model) is { Supported: true } found ? found
             : roster.Bosses.FirstOrDefault() ?? roster.Varieties.LastOrDefault();
         if (variety is null) return null;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, MonsterRarity.Unique,
+        uint id = await SpawnMonster(conn, variety, roster.Level, MonsterRarity.Unique,
             cell.X, cell.Y, name: kit.Name, mods: SurvivorsGateBossMods(roster, variety, run, stage, kit), scripted: true);
         horde.Add(id);
         // A scripted boss skips the AI pass that would show its bar; show it as an aggroed boss at once.
@@ -68,13 +67,13 @@ static partial class SurvivorsRunRules
             {
                 spawned.Aggro = true;
                 spawned.BossBarShown = true;
-                await ShowBossLifeBar(remote, stream, ciphers, id, spawned, conn);
+                await ShowBossLifeBar(id, spawned, conn);
             }
         }
         string area = SurvivorsAreaName(conn.Layout.Id);
         await conn.Commands!.Reply($"--- Gate {stage + 1} ---\n{kit.Name} rises in {area}. Its servants answer the call.");
-        Console.WriteLine($"[gateway] {remote} survivors gate boss {kit.Name} ({variety.Id}) 0x{id:x} at {cell} in {area}");
-        var fight = new SurvivorsBossFight(remote, stream, ciphers, conn, run, roster, stage, kit, id, token);
+        Console.WriteLine($"[gateway] {conn.Remote} survivors gate boss {kit.Name} ({variety.Id}) 0x{id:x} at {cell} in {area}");
+        var fight = new SurvivorsBossFight(conn, run, roster, stage, kit, id, token);
         _ = fight.RunAsync();
         return fight;
     }
@@ -103,8 +102,7 @@ static partial class SurvivorsRunRules
     /// One gate fight: the controller owns the boss's actions (the ordinary AI skips a scripted monster), cycles its
     /// moves, summons servants and enrages it below half life. The player's own skills still cast from the run loop.
     /// </summary>
-    internal sealed class SurvivorsBossFight(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run, SurvivorsRoster roster, int stage, SurvivorsBossKit kit, uint bossId,
+    internal sealed class SurvivorsBossFight(ClientState conn, SurvivorsRun run, SurvivorsRoster roster, int stage, SurvivorsBossKit kit, uint bossId,
         CancellationToken token)
     {
         double _nextMove, _nextSummon;
@@ -121,7 +119,7 @@ static partial class SurvivorsRunRules
                 double start = conn.Clock.Elapsed.TotalSeconds;
                 _nextMove = start + 4;
                 _nextSummon = start + 6;
-                Console.WriteLine($"[gateway] {remote} survivors gate fight {kit.Name} begins (0x{bossId:x})");
+                Console.WriteLine($"[gateway] {conn.Remote} survivors gate fight {kit.Name} begins (0x{bossId:x})");
                 while (!token.IsCancellationRequested && !conn.Closed && !conn.LeavingArea
                     && conn.PendingTransfer is null && ReferenceEquals(StateOf(conn).Survivors, run))
                 {
@@ -151,33 +149,33 @@ static partial class SurvivorsRunRules
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                Console.WriteLine($"[gateway] {remote} survivors gate boss {kit.Name} stopped: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[gateway] {conn.Remote} survivors gate boss {kit.Name} stopped: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
         async Task Use(SurvivorsBossMove move, SpawnedMonster boss)
         {
-            Console.WriteLine($"[gateway] {remote} survivors gate boss {kit.Name} uses {move}");
+            Console.WriteLine($"[gateway] {conn.Remote} survivors gate boss {kit.Name} uses {move}");
             switch (move)
             {
                 case SurvivorsBossMove.Slam:
                     if (Attack(boss, 1.0, seconds: 1.7, range: 9 + stage, spell: true) is { } slam)
-                        await MonsterSwing(remote, stream, ciphers, conn, bossId, boss, NextAction(boss), slam);
+                        await MonsterSwing(conn, bossId, boss, NextAction(boss), slam);
                     break;
                 case SurvivorsBossMove.Burst:
                     if (Attack(boss, 0.9, seconds: 1.9, range: 30, spell: true) is { } burst)
-                        await MonsterAreaContact(remote, stream, ciphers, conn, bossId, boss, burst,
+                        await MonsterAreaContact(conn, bossId, boss, burst,
                             NextAction(boss), 6 + stage * 0.4);
                     break;
                 case SurvivorsBossMove.Fan:
                     if (Projectile(boss, count: 5, spread: Math.PI / 3) is { } fan
                         && Attack(boss, 0.45, seconds: 1.5, range: 30, spell: true, projectile: fan) is { } fanAttack)
-                        await MonsterSwing(remote, stream, ciphers, conn, bossId, boss, NextAction(boss), fanAttack);
+                        await MonsterSwing(conn, bossId, boss, NextAction(boss), fanAttack);
                     break;
                 case SurvivorsBossMove.Ring:
                     if (Projectile(boss, count: 12, spread: Math.Tau) is { } ring
                         && Attack(boss, 0.35, seconds: 1.7, range: 30, spell: true, projectile: ring) is { } ringAttack)
-                        await MonsterSwing(remote, stream, ciphers, conn, bossId, boss, NextAction(boss), ringAttack);
+                        await MonsterSwing(conn, bossId, boss, NextAction(boss), ringAttack);
                     break;
                 case SurvivorsBossMove.Blink:
                     await Blink(boss);
@@ -250,7 +248,7 @@ static partial class SurvivorsRunRules
                 if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
                 if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
                 lock (conn.Monsters) boss.Walk.Teleport(x, y, now);
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, bossId, InstanceProtocol.Teleport(bossId, x, y),
+                await global::Game.SendWorldRecord(conn, bossId, InstanceProtocol.Teleport(bossId, x, y),
                     $"0x0054 survivors boss {kit.Name} blinks to ({x}, {y})");
                 return;
             }
@@ -269,7 +267,7 @@ static partial class SurvivorsRunRules
             {
                 var variety = roster.Varieties[Random.Shared.Next(roster.Varieties.Count)];
                 if (Near(bx, by) is not { } cell) continue;
-                await SpawnMonster(remote, stream, ciphers, conn, variety, roster.Level, MonsterRarity.Normal,
+                await SpawnMonster(conn, variety, roster.Level, MonsterRarity.Normal,
                     cell.X, cell.Y, log: false, extraMods: SurvivorsMonsterMods(run),
                     owned: (_, servant) => { servant.SummonerId = bossId; servant.NoRewards = true; });
                 spawned++;
@@ -294,7 +292,7 @@ static partial class SurvivorsRunRules
         {
             _enraged = true;
             await conn.Commands!.Reply($"{kit.Name} is enraged!");
-            Console.WriteLine($"[gateway] {remote} survivors gate boss {kit.Name} enrages at half life");
+            Console.WriteLine($"[gateway] {conn.Remote} survivors gate boss {kit.Name} enrages at half life");
         }
 
         double Cooldown(SurvivorsBossMove move) =>

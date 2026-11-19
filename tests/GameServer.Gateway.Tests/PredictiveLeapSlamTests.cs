@@ -63,7 +63,7 @@ public sealed class PredictiveLeapSlamTests
             Task canceled;
             try
             {
-                canceled = Program.Send(owner.Wire.Remote, owner.Wire.Stream, ciphers, [], null, still: () => current,
+                canceled = Program.Send(owner, [], null, still: () => current,
                     atGate: () => { prepared = true; return Game.LeapSlamAcknowledgement(ciphers, []); });
                 current = false;
             }
@@ -78,7 +78,7 @@ public sealed class PredictiveLeapSlamTests
                 byte[] full = [.. InstanceProtocol.ActionStarted(Program.PlayerId, 1041, 651, 1032, 760,
                     0x010c, 0x1038, 0x0409, targetObjectId: target), .. InstanceProtocol.ActionEnded(Program.PlayerId)];
                 var unchanged = (byte[])full.Clone();
-                await Program.Send(owner.Wire.Remote, owner.Wire.Stream, ciphers, [], null,
+                await Program.Send(owner, [], null,
                     atGate: () => Game.LeapSlamAcknowledgement(ciphers, full));
                 var ack = new byte[12];
                 reader.GetStream().ReadExactly(ack);

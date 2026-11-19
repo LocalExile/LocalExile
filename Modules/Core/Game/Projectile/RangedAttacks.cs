@@ -17,13 +17,12 @@ public static partial class Game
 
     // A pause can win the send gate after an action was accepted. Keep its echo pending rather than releasing an
     // unconfirmed arrow after resume; a later action, death or transfer still cancels it with its original token.
-    public static async Task<bool> SendOrdinaryRangedAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, byte[][] bytes, string? log, int action, int epoch)
+    public static async Task<bool> SendOrdinaryRangedAction(ClientState conn, byte[][] bytes, string? log, int action, int epoch)
     {
         bool sent = false;
         while (!sent && OrdinaryRangedReleaseCurrent(conn, action, epoch))
         {
-            await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => bytes, log, still: () =>
+            await SendWorldRecords(conn, PlayerId, () => bytes, log, still: () =>
             {
                 lock (conn.Monsters) return sent = OrdinaryRangedReleaseCurrent(conn, action, epoch) && !conn.Paused;
             });
@@ -34,12 +33,11 @@ public static partial class Game
 
     // The runtime schedules the release first, anchored to the accepted input rather than to the send gate; the echo
     // follows. The release guard rechecks the action token, so a cancelled or replaced action creates no projectile.
-    public static async Task ConfirmAndLaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, byte[][] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
+    public static async Task ConfirmAndLaunchOrdinaryRanged(ClientState conn, byte[][] actionBytes, string actionLog, (int X, int Y) aim, double attackSeconds, int action, int epoch,
         string projectileId, ushort sequence, SkillCriticalRoll criticalRoll)
     {
-        await LaunchOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
-        await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, epoch);
+        await LaunchOrdinaryRanged(conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll);
+        await SendOrdinaryRangedAction(conn, actionBytes, actionLog, action, epoch);
     }
 
     // A bow or wand releases at the contact of the clip the class ACT's stance pool gives this use: a wand's is the one
@@ -75,9 +73,9 @@ public static partial class Game
     // at the weapon's contact and resolved there (Projectiles/Program.ProjectileRanged.cs). The use's critical roll was
     // captured at acceptance and travels with the shot. The contact counts from swingAt when the swing began before now
     // (a lockstep walk-up's goal frame), else from now.
-    public static Task LaunchOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task LaunchOrdinaryRanged(ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
         SkillCriticalRoll criticalRoll, double? swingAt = null) =>
-        ScheduleOrdinaryRanged(remote, stream, ciphers, conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll,
+        ScheduleOrdinaryRanged(conn, aim, attackSeconds, action, epoch, projectileId, sequence, criticalRoll,
             swingAt);
 }

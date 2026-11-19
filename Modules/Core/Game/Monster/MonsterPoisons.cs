@@ -94,7 +94,7 @@ public static partial class Game
         return true;
     }
 
-    public static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task TickPoisons(ClientState conn)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();
@@ -121,7 +121,7 @@ public static partial class Game
                         m.Poisons.ClearAtDeath(now, poisonDeath: true);
                     }
                     hits.Add((id, m, m.Life, damage));
-                    if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
+                    if (stageStarts) CommitBossStage(conn, id, m, now);
                 }
                 if (m.Dead || m.Life == 0 || !m.Poisons.Poisoned)
                 {
@@ -143,20 +143,20 @@ public static partial class Game
         }
         foreach (var (id, buff) in ended)
         {
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
+            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
             // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
             ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
         foreach (var (id, buff, stacks, remaining) in updated)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, PoisonBuffRow, PlayerId, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue),
+            await SendWorldRecord(conn, id, InstanceEntities.AddBuff(id, buff, PoisonBuffRow, PlayerId, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue),
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)), visual: AilmentArtVisual(conn, "poison")), null);
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+                await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+            await SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of poison" : null);
-            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
+            if (life == 0) await DotKilled(conn, id, m);
         }
     }
 }

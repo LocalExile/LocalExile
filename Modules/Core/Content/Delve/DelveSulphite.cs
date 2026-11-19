@@ -188,7 +188,7 @@ public sealed partial class DelveModule
             var p = PlayerOf(recipient);
             await p.Send(InstanceDelve.SulphiteChanged(before, after), $"Sulphite mined: {before} -> {after} (deposit {deposit.Index + 1})");
             var wire = recipient.Wire;
-            await SetQuestFlags(wire.Remote, wire.Stream, wire.Ciphers, recipient, ["NikoHaveMinedSulphite"]);
+            await SetQuestFlags(recipient, ["NikoHaveMinedSulphite"]);
         }
         await global::Game.SendWorldRecord(PlayerOf(conn), deposit.Id, InstanceEntities.StateMachineUpdate(deposit.Id, 5, MapSulphite.States(true, MapSulphite.Fumes(encounter.Mods))), "Mine sulphite deposit");
         await MoveNiko(module, PlayerOf(conn), encounter, deposit);
@@ -200,13 +200,12 @@ public sealed partial class DelveModule
     {
         // Authored mine inhabitants, not ordinary packs from the surrounding map.
         string[] varieties = ["Metadata/Monsters/Spiders/DelveSpiderPacks", "Metadata/Monsters/Spiders/DelveSpiderPacksMedium"];
-        var (remote, stream, ciphers) = conn.Wire;
         for (int i = 0; i < 8 && !conn.Closed && !conn.LeavingArea; i++)
             if (Monsters.Find(varieties[(i + deposit.Index) % varieties.Length]) is { Supported: true } variety)
             {
                 double angle = i * Math.Tau / 8;
                 var at = conn.Layout.Near((deposit.X + (int)(22 * Math.Cos(angle)), deposit.Y + (int)(22 * Math.Sin(angle))));
-                await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)encounter.Map.Area.Level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, at.X, at.Y);
+                await SpawnMonster(conn, variety, (byte)encounter.Map.Area.Level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, at.X, at.Y);
             }
     }
 }

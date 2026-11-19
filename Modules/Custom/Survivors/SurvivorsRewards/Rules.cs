@@ -35,24 +35,22 @@ static partial class SurvivorsRewards
             .Select(c => new SurvivorsBlessingItem(c.Path, c.Name, c.Blessing))];
     }
 
-    internal static async Task<bool> SurvivorsEquip(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, Item item)
+    internal static async Task<bool> SurvivorsEquip(ClientState conn, Item item)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return false;
         try
         {
-            return await SurvivorsEquipCore(remote, stream, ciphers, conn, item, ownership);
+            return await SurvivorsEquipCore(conn, item, ownership);
         }
         catch (Exception ex) when (ex is not IOException and not ObjectDisposedException)
         {
             // A broken equip must not leave the run paused with the choice already spent.
-            Console.WriteLine($"[gateway] {remote} survivors equip failed for {item.TypeHash:x8}: {ex}");
+            Console.WriteLine($"[gateway] {conn.Remote} survivors equip failed for {item.TypeHash:x8}: {ex}");
             return false;
         }
     }
 
-    internal static async Task<bool> SurvivorsEquipCore(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, Item item, SurvivorsOwnership ownership)
+    internal static async Task<bool> SurvivorsEquipCore(ClientState conn, Item item, SurvivorsOwnership ownership)
     {
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return false;
         var items = ItemsOf(conn);
@@ -65,7 +63,7 @@ static partial class SurvivorsRewards
             InventoryItem inBag = null!;
             if (!ownership.Commit(() => inBag = items.Put(PlayerInventories.MainInventory,
                 new InventoryItem(items.NewItemId(), cell.X, cell.Y, item)))) return false;
-            await Send(remote, stream, ciphers,
+            await Send(conn,
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
                     items.NextRevision(PlayerInventories.MainInventory), [], [inBag]),
                 $"0x00bf survivors unique {type.Name} into the inventory", still: () => ownership.Current);
@@ -77,16 +75,16 @@ static partial class SurvivorsRewards
             placed = items.Add(equipped, 0, 0, item);
             StateOf(conn).SurvivorsItemIds.Add(placed.Id);
         })) return false;
-        await Send(remote, stream, ciphers,
+        await Send(conn,
             InstanceItems.InventoryChange(PlayerInventories.InventoryId(equipped), items.NextRevision(equipped), [], [placed]),
             $"0x00bf survivors unique {type.Name} equipped in row {equipped}", still: () => ownership.Current);
         if (!ownership.Current) return false;
-        if (PlayerInventories.ShowsOnModel(equipped)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (PlayerInventories.ShowsOnModel(equipped)) await SendEquipment(conn, items);
         if (!ownership.Current) return false;
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
+        await SendCharacterStats(conn, PlayerStatChange.Build);
         if (!ownership.Current) return false;
         // The item's mods reach the stats, and the client, in the next Stats phase (the verifier checks them there).
-        Console.WriteLine($"[gateway] {remote} survivors unique {type.Name} equipped");
+        Console.WriteLine($"[gateway] {conn.Remote} survivors unique {type.Name} equipped");
         return true;
     }
 
@@ -96,7 +94,7 @@ static partial class SurvivorsRewards
     /// mods resolve to at least one global or local stat. A name in "No stat found" is a unique whose mechanic is not
     /// a plain stat (or a conditional one) and needs its own implementation.
     /// </summary>
-    internal static async Task SurvivorsUniqueReport(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsUniqueReport(ClientState conn)
     {
         var uniques = UniquesFor(conn).All;
         var catalog = ItemsFor(conn);
@@ -127,7 +125,7 @@ static partial class SurvivorsRewards
             $"{missingRows} with a missing Mods.dat row.");
         if (missing.Count > 0) await conn.Commands!.Reply($"Missing Mods.dat rows: {string.Join(", ", missing)}");
         if (empty.Count > 0) await conn.Commands!.Reply($"No stat found: {string.Join(", ", empty)}");
-        Console.WriteLine($"[gateway] {remote} survivors uniques: {uniques.Count} definitions, {creatable} create, " +
+        Console.WriteLine($"[gateway] {conn.Remote} survivors uniques: {uniques.Count} definitions, {creatable} create, " +
             $"{equipment} equipment, {withStats} with stats, {missingRows} missing rows, {unsupported} unsupported");
     }
 
@@ -135,7 +133,7 @@ static partial class SurvivorsRewards
     /// A run starts with one life flask: the emptied character would otherwise have no recovery at all against the
     /// horde. It is created with its full charges and refills from kills like any flask; the next run's reset clears it.
     /// </summary>
-    internal static async Task SurvivorsGiveFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsGiveFlask(ClientState conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         if (ItemsFor(conn).Find("Metadata/Items/Flasks/FlaskLife1") is not { } baseType) return;
@@ -143,7 +141,7 @@ static partial class SurvivorsRewards
         if (items.Items(PlayerInventories.Flask).Count > 0) return;
         InventoryItem placed = null!;
         if (!ownership.Commit(() => placed = items.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(baseType)))) return;
-        await Send(remote, stream, ciphers,
+        await Send(conn,
             InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
                 items.NextRevision(PlayerInventories.Flask), [], [placed]),
             "0x00bf survivors life flask", still: () => ownership.Current);
@@ -153,7 +151,7 @@ static partial class SurvivorsRewards
     /// unique picked in one run is still worn in the next. Only the flask is replaced with a fresh full one (and the
     /// cursor cleared). Every kept item's requirement is waived again, because the emptied character's own level and
     /// attributes never met a unique's.</summary>
-    internal static async Task SurvivorsResetInventory(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsResetInventory(ClientState conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         var items = ItemsOf(conn);
@@ -163,7 +161,7 @@ static partial class SurvivorsRewards
             var ids = items.Items(row).Select(i => i.Id).ToList();
             if (ids.Count == 0) continue;
             if (!ownership.Commit(() => { foreach (uint id in ids) items.Remove(row, id); })) return;
-            await Send(remote, stream, ciphers,
+            await Send(conn,
                 InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), ids, []),
                 $"0x00bf survivors reset row {row}: {ids.Count} item(s) removed", still: () => ownership.Current);
         }
@@ -178,13 +176,13 @@ static partial class SurvivorsRewards
 
     /// <summary>Removes every item on the ground of the area for this run: the client forgets the object and the
     /// instance's store drops it, so loot neither shows nor comes back on the next connection.</summary>
-    internal static async Task SurvivorsClearGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SurvivorsClearGround(ClientState conn)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return;
         foreach (var (id, _) in conn.Instance.Ground.All())
         {
             if (!ownership.Commit(() => conn.Instance.Ground.Take(id))) return;
-            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id,
+            await global::Game.SendWorldRemoval(conn, id,
                 $"0x02bd survivors hide world item 0x{id:x}", still: () => ownership.Current);
         }
     }
@@ -215,8 +213,7 @@ static partial class SurvivorsRewards
         return pool;
     }
 
-    internal static async Task SurvivorsOfferIfDue(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
+    internal static async Task SurvivorsOfferIfDue(ClientState conn, SurvivorsRun run, IReadOnlyList<SurvivorsSkill> catalog)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership || !ReferenceEquals(ownership.Run, run)) return;
         // A run that was stopped or replaced while this call was in flight must not deal an offer into the next run's
@@ -298,17 +295,17 @@ static partial class SurvivorsRewards
         })) return;
         // Freeze the client's world too: the clock stops the server, but the client keeps walking every monster to its
         // last ordered cell until 0x1d3 pauses the world (the Escape menu's own pause does the same).
-        await Send(remote, stream, ciphers, InstancePause.State(true),
+        await Send(conn, InstancePause.State(true),
             "0x01d3 paused for the survivors window", still: () => ownership.Current);
         if (!ownership.Current) return;
         // 0xc0 registers the reward inventory with its contents: 0xbf for an id the client does not know is fatal
         // ("Got an inventory set change for an inventory that isn't in the set").
-        await Send(remote, stream, ciphers,
+        await Send(conn,
             InstanceInventories.AddInventory(SurvivorsOfferInventory, NpcShops.Tab, NpcShops.Manager, listed),
             $"0x00c0 survivors level {run.Level}: {listed.Count} choice(s) offered", still: () => ownership.Current);
         if (!ownership.Current) return;
         StateOf(conn).SurvivorsOfferInventoryRegistered = true;
-        await Send(remote, stream, ciphers, InstanceNpcs.OpenQuestReward(SurvivorsOfferInventory, 0),
+        await Send(conn, InstanceNpcs.OpenQuestReward(SurvivorsOfferInventory, 0),
             "0x0087 survivors level-up window", still: () => ownership.Current);
         if (!ownership.Current) return;
         // The window only shows gem icons; the chat line names the skill each upgrade is for and the supports a skill
@@ -318,22 +315,20 @@ static partial class SurvivorsRewards
     }
 
     /// <summary>A click in the level-up window (C→S 0x88/0x8a). False when the id is not one of its choices.</summary>
-    internal static async Task<bool> ChooseSurvivorsSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint itemId)
+    internal static async Task<bool> ChooseSurvivorsSkill(ClientState conn, uint itemId)
     {
         if (StateOf(conn).SurvivorsOffer is not { } shown) return false;
         if (!shown.TryGetValue(itemId, out var choice))
         {
-            Console.WriteLine($"[gateway] {remote} survivors offer click 0x{itemId:x8} is not one of " +
+            Console.WriteLine($"[gateway] {conn.Remote} survivors offer click 0x{itemId:x8} is not one of " +
                 $"{string.Join(", ", shown.Keys.Select(k => $"0x{k:x8}"))}");
             return false;
         }
-        return await ApplySurvivorsChoice(remote, stream, ciphers, conn, choice);
+        return await ApplySurvivorsChoice(conn, choice);
     }
 
     /// <summary>Applies one choice (the window's click or `/survivors pick`), closes the window and deals the next one.</summary>
-    internal static async Task<bool> ApplySurvivorsChoice(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, SurvivorsChoice choice)
+    internal static async Task<bool> ApplySurvivorsChoice(ClientState conn, SurvivorsChoice choice)
     {
         if (StateOf(conn).Ownership is not { Current: true } ownership) return false;
         var run = ownership.Run;
@@ -363,7 +358,7 @@ static partial class SurvivorsRewards
         // 0xbf before the offer inventory's 0xc0 is fatal on the client: skip the clear when this connection never
         // registered that inventory (a pick that raced the area change or the window's first packets).
         if (StateOf(conn).SurvivorsOfferInventoryRegistered)
-            await Send(remote, stream, ciphers,
+            await Send(conn,
                 InstanceItems.InventoryChange(SurvivorsOfferInventory, ++StateOf(conn).SurvivorsOfferRevision, offered, [], NpcShops.Manager),
                 $"0x00bf survivors offer cleared after choosing {name}", still: () => ownership.Current);
         StateOf(conn).SurvivorsOfferInventoryRegistered = false;
@@ -371,12 +366,12 @@ static partial class SurvivorsRewards
         var catalog = SurvivorsCatalogFor(conn);
         string target = chosen.Target >= 0 && chosen.Target < catalog.Count ? catalog[chosen.Target].Name : "the skill";
         // A unique item goes straight onto the character: the run's gear choice.
-        bool equipped = unique is not null && await SurvivorsEquip(remote, stream, ciphers, conn, unique);
+        bool equipped = unique is not null && await SurvivorsEquip(conn, unique);
         if (!ownership.Current) return false;
         if (chosen.Kind == SurvivorsChoiceKind.Heal)
         {
             if (!ownership.Commit(() => conn.PlayerLife = LifeCap(conn))) return false;
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
+            await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
                 "survivors healthstone restores life", still: () => ownership.Current);
         }
         if (!ownership.Current) return false;
@@ -390,13 +385,13 @@ static partial class SurvivorsRewards
         });
         if (!ownership.Current) return false;
         // A new skill or rank changes the Actor's skills and the bar: the client draws the new gem and its cooldown.
-        await SendSkills(remote, stream, ciphers, conn);
+        await SendSkills(conn);
         if (!ownership.Current) return false;
-        await SurvivorsPublishHeralds(remote, stream, ciphers, conn, run, catalog);
+        await SurvivorsPublishHeralds(conn, run, catalog);
         if (!ownership.Current) return false;
-        await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 survivors offer closed", still: () => ownership.Current);
+        await Send(conn, InstanceNpcs.Talk(0), "0x0084 survivors offer closed", still: () => ownership.Current);
         if (!ownership.Current) return false;
-        await SurvivorsOfferIfDue(remote, stream, ciphers, conn, run, catalog);
+        await SurvivorsOfferIfDue(conn, run, catalog);
         // Nothing left to choose: the run resumes where it paused, and the client's world with it.
         bool resumed = false;
         ownership.Commit(() =>
@@ -412,7 +407,7 @@ static partial class SurvivorsRewards
             }
         });
         if (resumed)
-            await Send(remote, stream, ciphers, InstancePause.State(false),
+            await Send(conn, InstancePause.State(false),
                 "0x01d3 resumed after the survivors window", still: () => ownership.Current);
         return true;
     }

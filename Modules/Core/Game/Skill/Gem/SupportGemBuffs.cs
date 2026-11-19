@@ -256,8 +256,7 @@ public static partial class Game
     }
 
     /// <summary>The Arcane Surge, Cruelty and Inspiration buff instances and their stat refresh: a stat presentation.</summary>
-    public static async Task SendSupportGemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn)
+    public static async Task SendSupportGemBuffs(ClientState conn)
     {
         List<byte[]> packets;
         bool stats;
@@ -269,7 +268,7 @@ public static partial class Game
             stats = conn.SupportGems.PendingStats;
             conn.SupportGems.PendingStats = false;
         }
-        foreach (var packet in packets) await Send(remote, stream, ciphers, packet, null);
-        if (stats) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
+        foreach (var packet in packets) await Send(conn, packet, null);
+        if (stats) await SendCharacterStats(conn, PlayerStatChange.Sources);
     }
 }

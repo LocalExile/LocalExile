@@ -40,7 +40,7 @@ public sealed class CombatCacheTests
             conn.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
         conn.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
         conn.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
-        var session = new Game.ProjectileSession("order", null!, new(new byte[64], false), conn);
+        var session = new Game.ProjectileSession(conn);
         Assert.Equal([Program.PlayerId, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
         conn.PlayerLife = 0;
         Assert.Equal([0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
@@ -56,7 +56,7 @@ public sealed class CombatCacheTests
             conn.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
         conn.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
         conn.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
-        var session = new Game.ProjectileSession("records", null!, new(new byte[64], false), conn);
+        var session = new Game.ProjectileSession(conn);
 
         var first = session.Actors(0, 0);
         var second = session.Actors(0, 0);

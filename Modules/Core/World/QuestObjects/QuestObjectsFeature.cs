@@ -9,7 +9,7 @@ static class QuestObjectsFeature
     // The rooms' server objects a quest manages (Quests.RoomObjectRemovedBy), where the room fit places them, while the
     // character lacks the flag that takes them away: The Twilight Strand's force wall (Tutorial_Blocker_3) blocks the way to
     // the gate until Hillock is dead (12-quests.md §6). Ids from QuestRoomObjectFirstId.
-    internal static async Task SpawnQuestRoomObjects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnQuestRoomObjects(ClientState conn)
     {
         var notes = new List<string>();
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes)
@@ -25,16 +25,16 @@ static class QuestObjectsFeature
         {
             if (ClientHasQuestFlag(conn, flag!)) continue;
             var blocker = new BlockerObject(o.X, o.Y, o.Angle, o.Scale);
-            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
+            await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
                 $"0x02bb create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}");
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id), null);
             // The server's own wall: the walkable cells across the way (QuestBarriers).
             var guarded = conn.Layout.AreaTransitions.Where(t => TransitionFlag(conn, t.Transition) == flag)
                 .Select(t => conn.Layout.Near((t.Transition.GridX, t.Transition.GridY))).ToList();
             var cells = conn.Layout.Walkable is { } walkable
                 ? QuestBarriers.Cells(walkable, conn.Layout.GridW, conn.Layout.GridH, (o.X, o.Y), o.Angle, from, guarded)
                 : [];
-            Console.WriteLine($"[gateway] {remote} room object 0x{id:x}: {cells.Count} walkable cell(s) closed on the server between ({from.X}, {from.Y}) " +
+            Console.WriteLine($"[gateway] {conn.Remote} room object 0x{id:x}: {cells.Count} walkable cell(s) closed on the server between ({from.X}, {from.Y}) " +
                 $"and {string.Join(", ", guarded)}" + (cells.Count == 0 ? "" : $", from {cells.Min()} to {cells.Max()}"));
             lock (conn.Monsters)
             {
@@ -45,83 +45,83 @@ static class QuestObjectsFeature
         }
     }
 
-    internal static async Task SpawnOpeningTutorial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnOpeningTutorial(ClientState conn)
     {
         if (conn.Layout.Id != TutorialObjects.Strand || CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, []);
         var exile = objects.FirstOrDefault(o => o.Type == TutorialObjects.Exile);
         conn.TutorialZombiePlacement = objects.FirstOrDefault(o => o.Type == TutorialObjects.Spawner);
         if (exile is not null && Npcs.Find(TutorialObjects.Exile) is { Supported: true } npc)
-            await SpawnNpc(remote, stream, ciphers, conn, npc with { TransitionState = (byte)(tutorial.Talked ? 2 : 1) }, exile.X, exile.Y, exile.Angle);
+            await SpawnNpc(conn, npc with { TransitionState = (byte)(tutorial.Talked ? 2 : 1) }, exile.X, exile.Y, exile.Angle);
         if (conn.TutorialZombiePlacement is { } spawn)
         {
             if (tutorial.ZombieKilled)
-                await DropTutorialGem(remote, stream, ciphers, conn, false, spawn.X, spawn.Y);
+                await DropTutorialGem(conn, false, spawn.X, spawn.Y);
             else if (tutorial.Talked)
-                await SpawnTutorialZombie(remote, stream, ciphers, conn);
+                await SpawnTutorialZombie(conn);
             else
             {
                 conn.TutorialSceneId = conn.TakeObjectId();
-                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceEntities.CreateObject(conn.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
+                await global::Game.SendWorldCreate(conn, conn.TutorialSceneId, InstanceEntities.CreateObject(conn.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
                     TutorialObjects.SceneBlob(spawn.X,spawn.Y,spawn.Angle)), "0x02bb opening bite zombie scene");
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceProtocol.EnterWakeZone(conn.TutorialSceneId), null);
-                await Send(remote, stream, ciphers, TutorialObjects.BiteAnimation(conn.TutorialSceneId,0), "0x01b2 opening zombie paused at bite start");
+                await global::Game.SendWorldRecord(conn, conn.TutorialSceneId, InstanceProtocol.EnterWakeZone(conn.TutorialSceneId), null);
+                await Send(conn, TutorialObjects.BiteAnimation(conn.TutorialSceneId,0), "0x01b2 opening zombie paused at bite start");
             }
         }
         // The recorder writes tile placements while the client generates the area. Wait briefly for this optional capture.
-        _ = TrySpawnTutorialChest(remote, stream, ciphers, conn);
+        _ = TrySpawnTutorialChest(conn);
     }
 
     // a1q4 "Breaking Some Eggs" (GlyphQuest, 12-quests.md §2–4): The Mud Flats' three Rhoa Nests, the Glyph Wall and the
     // waterfall where the recorder captured them, and the client's invisible blockers on the server's walk estimate until
     // PlacedGlyphs. The recorder writes the capture while the client generates the area: wait briefly for it.
-    internal static async Task SpawnGlyphQuest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static async Task SpawnGlyphQuest(ClientState conn)
     {
         if (conn.Layout.Id != GlyphQuest.Area) return;
         // Usually captured on an earlier visit: created at once, with the area. Else wait for the recorder in the background.
-        if (LoadGlyphLayout(remote, conn) is { } now) { await CreateGlyphObjects(remote, stream, ciphers, conn, now); return; }
+        if (LoadGlyphLayout(conn) is { } now) { await CreateGlyphObjects(conn, now); return; }
         _ = Task.Run(async () =>
         {
             for (int retry = 0; retry < 20 && !conn.Closed; retry++)
             {
                 await Task.Delay(1000);
-                if (LoadGlyphLayout(remote, conn) is { } later) { await CreateGlyphObjects(remote, stream, ciphers, conn, later); return; }
+                if (LoadGlyphLayout(conn) is { } later) { await CreateGlyphObjects(conn, later); return; }
             }
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} a1q4: no captured Rhoa Nests or Glyph Wall for {conn.Layout.Id} seed {conn.Seed}; capture with -Walkmaps");
+            if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} a1q4: no captured Rhoa Nests or Glyph Wall for {conn.Layout.Id} seed {conn.Seed}; capture with -Walkmaps");
         });
     }
 
-    internal static async Task OpenTutorialChest(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
+    internal static async Task OpenTutorialChest(ClientState conn,InstanceTransfer.UseSkillOnObject use,TutorialObjects.Placement chest,double requestedAt)
     {
         if (!LeagueFor(conn).Rules.TutorialGifts) return;
         if(CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return;
         if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, TutorialObjects.ChestInteractionSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId,here.X,here.Y,chest.X,chest.Y,use.SkillId,use.Sequence,use.Flags,targetObjectId:use.TargetId),null,still:()=>PlayerActionCurrent(conn,action));
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId,here.X,here.Y,chest.X,chest.Y,use.SkillId,use.Sequence,use.Flags,targetObjectId:use.TargetId),null,still:()=>PlayerActionCurrent(conn,action));
         if(arrive>now) await Task.Delay(TimeSpan.FromSeconds(arrive-now));
         if(!PlayerActionCurrent(conn,action) || conn.Closed) return;
         if(GameServer.Core.World.PlayerWalk.InWalkUpRange(stop,(chest.X,chest.Y),TutorialObjects.ChestInteractionSize))
-            await OpenTutorialChestCore(remote,stream,ciphers,conn,use.TargetId,chest);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId),null);
+            await OpenTutorialChestCore(conn,use.TargetId,chest);
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId),null);
     }
 
     // The support gem chest opens (walked up to, or a warcry with open_nearby_chests_on_warcry): saved first, once.
-    internal static async Task<bool> OpenTutorialChestCore(string remote,NetworkStream stream,ConnectionCiphers ciphers,ClientState conn,uint id,TutorialObjects.Placement chest)
+    internal static async Task<bool> OpenTutorialChestCore(ClientState conn,uint id,TutorialObjects.Placement chest)
     {
         if(!LeagueFor(conn).Rules.TutorialGifts || CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { ChestOpened:false }) return false;
         // The walk-up and a warcry can both get here at once: only the first opens it.
         if(Interlocked.Exchange(ref conn.TutorialChestOpening,1)==1) return false;
         CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { ChestOpened=true });
-        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id,null);
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02bb opened support gem chest");
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),null);
-        await DropTutorialGem(remote,stream,ciphers,conn,true,chest.X,chest.Y);
+        await global::Game.SendWorldRemoval(conn, id,null);
+        await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02bb opened support gem chest");
+        await global::Game.SendWorldRecord(conn, id, InstanceProtocol.EnterWakeZone(id),null);
+        await DropTutorialGem(conn,true,chest.X,chest.Y);
         return true;
     }
 
     // C→S 0x24 on a Rhoa Nest: walk up, open it (once per instance) and drop its glyph, unless the character has it already.
-    internal static async Task OpenRhoaNest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, GlyphQuest.Nest nest)
+    internal static async Task OpenRhoaNest(ClientState conn, InstanceTransfer.UseSkillOnObject use, GlyphQuest.Nest nest)
     {
         var at = nest.At;
         if (conn.Instance.ChestOpened(at.X, at.Y)) return;
@@ -129,17 +129,17 @@ static class QuestObjectsFeature
         double now = conn.Clock.Elapsed.TotalSeconds;
         var (here, stop, arrive) = conn.Walk.WalkUpTo(at.X, at.Y, GlyphQuest.NestSize, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player opens Rhoa Nest 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (conn.ActionCount != action || conn.Closed) return;
         if (GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (at.X, at.Y), GlyphQuest.NestSize))
-            await OpenRhoaNestCore(remote, stream, ciphers, conn, use.TargetId, nest);
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+            await OpenRhoaNestCore(conn, use.TargetId, nest);
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
     }
 
     // A Rhoa Nest opens (walked up to, or a warcry with open_nearby_chests_on_warcry): once per instance.
-    internal static async Task<bool> OpenRhoaNestCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static async Task<bool> OpenRhoaNestCore(ClientState conn,
         uint id, GlyphQuest.Nest nest)
     {
         var at = nest.At;
@@ -151,51 +151,51 @@ static class QuestObjectsFeature
         lock (conn.GlyphNests) { conn.GlyphNests.Remove(id); conn.GlyphNests[opened] = nest; }
         conn.RemoveBlocker(id);
         conn.SetBlocker(opened, at.X, at.Y, GlyphQuest.NestSize);
-        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, opened, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
+        await global::Game.SendWorldRemoval(conn, id, null);
+        await global::Game.SendWorldCreate(conn, opened, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
             $"0x02bb opened Rhoa Nest 0x{opened:x} (was 0x{id:x})");
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, opened, InstanceProtocol.EnterWakeZone(opened), null);
-        await DropGlyph(remote, stream, ciphers, conn, nest);
+        await global::Game.SendWorldRecord(conn, opened, InstanceProtocol.EnterWakeZone(opened), null);
+        await DropGlyph(conn, nest);
         return true;
     }
 
     // C→S 0x24 on the Glyph Wall: walk up; seeing it sets SeenGlyphWall; with all three glyphs it takes them and sets
     // PlacedGlyphs (SetQuestFlags then opens the passage).
-    internal static async Task UseGlyphWall(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use)
+    internal static async Task UseGlyphWall(ClientState conn, InstanceTransfer.UseSkillOnObject use)
     {
         if (conn.Glyphs?.Wall is not { } wall) return;
         int action = Interlocked.Increment(ref conn.ActionCount);
         double now = conn.Clock.Elapsed.TotalSeconds;
         var (here, stop, arrive) = conn.Walk.WalkUpTo(wall.X, wall.Y, GlyphQuest.WallSize, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, wall.X, wall.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, wall.X, wall.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses the Glyph Wall from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (conn.ActionCount != action || conn.Closed) return;
         if (GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (wall.X, wall.Y), GlyphQuest.WallSize))
         {
-            await SetQuestFlags(remote, stream, ciphers, conn, [GlyphQuest.SeenGlyphWall]);
+            await SetQuestFlags(conn, [GlyphQuest.SeenGlyphWall]);
             if (!ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs))
-                await PlaceGlyphs(remote, stream, ciphers, conn);
+                await PlaceGlyphs(conn);
         }
-        else Console.WriteLine($"[gateway] {remote} Glyph Wall out of reach from ({stop.X}, {stop.Y})");
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+        else Console.WriteLine($"[gateway] {conn.Remote} Glyph Wall out of reach from ({stop.X}, {stop.Y})");
+        await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
     }
 
 
-    internal static async Task TalkToWoundedExile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,uint id,SpawnedNpc npc)
+    internal static async Task TalkToWoundedExile(ClientState conn,uint id,SpawnedNpc npc)
     {
         if (CharacterSaves.Load(CharacterName(conn))?.Tutorial is not { } tutorial) return;
         if (tutorial.Talked || conn.TutorialSceneRunning)
         {
             TutorialObjects.SkipDialogue(conn);
-            await Send(remote,stream,ciphers,InstanceNpcs.Talk(0),"0x0084 dying exile: opening scene already started");
+            await Send(conn,InstanceNpcs.Talk(0),"0x0084 dying exile: opening scene already started");
             return;
         }
         bool armed = ItemsOf(conn).Items(PlayerInventories.Weapon1).Count > 0;
         var dialogue = TutorialObjects.Dialogue(armed, tutorial.WeaponPromptHeard);
         conn.InNpcTalk = true;
-        await Send(remote,stream,ciphers,InstanceNpcs.Talk(id,dialogue.Option),"0x0084 dying exile: class weapon check");
+        await Send(conn,InstanceNpcs.Talk(id,dialogue.Option),"0x0084 dying exile: class weapon check");
         if (dialogue.BiteAt is not double biteAt)
         {
             CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { WeaponPromptHeard=true });
@@ -204,8 +204,8 @@ static class QuestObjectsFeature
         conn.TutorialSceneRunning = true;
         var skipped = conn.TutorialDialogueSkipped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { Talked=true });
-        await SetQuestFlags(remote,stream,ciphers,conn,["TalkedToWoundedExile"]);
-        _ = RunOpeningScene(remote,stream,ciphers,conn,id,npc,biteAt,skipped.Task);
+        await SetQuestFlags(conn,["TalkedToWoundedExile"]);
+        _ = RunOpeningScene(conn,id,npc,biteAt,skipped.Task);
     }
 
 }

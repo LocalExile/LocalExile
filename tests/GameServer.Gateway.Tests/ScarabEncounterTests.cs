@@ -263,8 +263,7 @@ public sealed class ScarabEncounterTests
             Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
             var guardPlan = terrorGuards[0];
             var guardVariety = Game.Monsters.Find(guardPlan.Variety.ToString())!;
-            uint bossId = await Game.SpawnMonster(terrors.Conn.Wire.Remote, terrors.Conn.Wire.Stream, terrors.Conn.Wire.Ciphers,
-                terrors.Conn, guardVariety, 70, guardPlan.Rarity, guardPlan.X, guardPlan.Y, unrisen: false);
+            uint bossId = await Game.SpawnMonster(terrors.Conn, guardVariety, 70, guardPlan.Rarity, guardPlan.X, guardPlan.Y, unrisen: false);
             var boss = terrors.Conn.Monsters[bossId];
             Assert.Equal(40, boss.Mods.Effects["maximum_life_+%"]);
             Assert.Equal(30, boss.Mods.Effects["damage_+%"]);

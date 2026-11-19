@@ -125,11 +125,11 @@ public static class VaalOversoul
             if (!players.Contains(conn)) players.Add(conn);
             if (boss.Dead || !Awake(conn) || !bound.Add(conn)) return;
             var wire = conn.Wire;
-            await Send(wire.Remote, wire.Stream, wire.Ciphers, InstanceEntities.PlayerSkillsChange(id, SkillsFor(conn, boss.Variety!, boss.Level)!,
+            await Send(conn, InstanceEntities.PlayerSkillsChange(id, SkillsFor(conn, boss.Variety!, boss.Level)!,
                 boss.Attack is { } attack && !Effects.Any(e => Skill(e) == attack.SkillId) ? [attack.SkillId] : []), "[Vaal Oversoul] native skill list");
             if (!rising) await Send(wire.Remote, wire.Stream, wire.Ciphers,
                 InstanceEntities.TransitionableUpdate(id, TransitionIndex(), 2), "[Vaal Oversoul] targetable actor");
-            if (!burrowing) await Send(wire.Remote, wire.Stream, wire.Ciphers, ModelScale(), "[Vaal Oversoul] model scale");
+            if (!burrowing) await Send(conn, ModelScale(), "[Vaal Oversoul] model scale");
         }
         public async Task Step(ClientState runner, double now)
         {
@@ -162,9 +162,8 @@ public static class VaalOversoul
                     foreach (var p in players.Where(p => !p.Closed && !p.LeavingArea))
                     {
                         ClearExposure(p);
-                        var w = p.Wire;
-                        await UpdateQuestObjectStates(w.Remote, w.Stream, w.Ciphers, p, [Defeated]);
-                        await UpdateShownTransitions(w.Remote, w.Stream, w.Ciphers, p, "Vaal Oversoul defeated in this instance");
+                        await UpdateQuestObjectStates(p, [Defeated]);
+                        await UpdateShownTransitions(p, "Vaal Oversoul defeated in this instance");
                     }
                     Console.WriteLine("[gateway] Vaal Oversoul: defeated; arena exit opened");
                 }
@@ -209,7 +208,7 @@ public static class VaalOversoul
             if (!boss.BossBarShown)
             {
                 boss.BossBarShown = true; var w = target.Wire;
-                await ShowBossLifeBar(w.Remote, w.Stream, w.Ciphers, id, boss, target);
+                await ShowBossLifeBar(id, boss, target);
             }
             if (pending != 0) { int effect = pending; pending = 0; if (effect == Laser) laserLeft = 2; await Cast(target, effect, now); return; }
             if (laserLeft > 0) { laserLeft--; await Cast(target, Laser, now); return; }
@@ -236,8 +235,7 @@ public static class VaalOversoul
         {
             int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + seconds; }
-            var w = c.Wire;
-            await SendMonsterAction(w.Remote, w.Stream, w.Ciphers, c, id, boss, generation, () =>
+            await SendMonsterAction(c, id, boss, generation, () =>
             { var p = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds); return [.. InstanceProtocol.ActionStarted(id, p.X, p.Y, p.X, p.Y, skill, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)]; },
                 $"[Vaal Oversoul] basic 0x{skill:x4}, stance {stance}");
         }
@@ -247,8 +245,7 @@ public static class VaalOversoul
             var pos = boss.Walk.Position(now); var aim = overrideAim ?? c.Walk.Position(now);
             int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.BusyUntil = now + attack.Seconds + .2; boss.SwingGeneration = null; }
-            var w = c.Wire;
-            await SendMonsterAction(w.Remote, w.Stream, w.Ciphers, c, id, boss, generation, () =>
+            await SendMonsterAction(c, id, boss, generation, () =>
                 [.. InstanceProtocol.ActionStarted(id, pos.X, pos.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)],
                 $"[Vaal Oversoul] {Game.SkillsFor(c).EffectId(effect)}, stance {stance}");
             if (effect != Travel) await All(ModelScale(), true);
@@ -315,8 +312,7 @@ public static class VaalOversoul
                     if (living >= 8) continue;
                     string kind = ev.Index % 2 == 0 ? "Metadata/Monsters/incaminion/ShadowBossMinion" : "Metadata/Monsters/Skeletons/SkeletonMeleeKnightElementalSummoned";
                     if (Monsters.Find(kind) is not { Supported: true } v) continue;
-                    var w = c.Wire;
-                    await SpawnMonster(w.Remote, w.Stream, w.Ciphers, c, v, boss.Level, MonsterRarity.Normal, ev.Aim.X, ev.Aim.Y,
+                    await SpawnMonster(c, v, boss.Level, MonsterRarity.Normal, ev.Aim.X, ev.Aim.Y,
                         owned: (_, m) => m.SummonerId = id);
                 }
                 else if (ev.Kind == -Ice)
@@ -351,9 +347,9 @@ public static class VaalOversoul
         }
         async Task Hit(ClientState p, MonsterAttack attack, (int X, int Y) from, (int X, int Y) to, double radius, bool line = false)
         {
-            var w = p.Wire; Game.MonsterHitOutcome? outcome = null;
+            Game.MonsterHitOutcome? outcome = null;
             bool Contains((int X, int Y) at) => line ? LineDistance(at, from, to) <= radius : Distance(at, to) <= radius;
-            await Send(w.Remote, w.Stream, w.Ciphers, [], null, atGate: () =>
+            await Send(p, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -365,11 +361,11 @@ public static class VaalOversoul
                     foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
                         if (!minion.Monster.Dead && Contains(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
                     if (p.PlayerLife == 0 || !Contains(p.Walk.Position(now))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, id, boss, attack, now, p.Walk.Position(now), from, false, p.NextActionSequence());
+                    outcome = CommitMonsterHitLocked(p, id, boss, attack, now, p.Walk.Position(now), from, false, p.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, id, outcome);
         }
         async Task Ground(double now)
         {
@@ -415,7 +411,7 @@ public static class VaalOversoul
         async Task All(byte[] message, bool monster = false)
         {
             foreach (var p in players.Where(p => !p.Closed && !p.LeavingArea && (!monster || Awake(p))).ToArray())
-            { var w = p.Wire; await Send(w.Remote, w.Stream, w.Ciphers, [.. message], null, still: () => !stopped && !p.Closed && !p.LeavingArea && (!monster || Awake(p))); }
+            { await Send(p, [.. message], null, still: () => !stopped && !p.Closed && !p.LeavingArea && (!monster || Awake(p))); }
         }
         byte TransitionIndex() => (byte)boss.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable");
         // The travel action squashes x/y to zero underground; restoring only its clip leaves an invisible actor.
@@ -432,7 +428,7 @@ public static class VaalOversoul
             foreach (var p in players) ClearExposure(p);
             foreach (var fx in effects)
                 foreach (var p in players.Where(p => !p.Closed && !p.LeavingArea))
-                { var w = p.Wire; _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(fx.Id), null); }
+                { _ = Send(p, InstanceProtocol.RemoveObject(fx.Id), null); }
         }
         static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X-b.X,2)+Math.Pow(a.Y-b.Y,2));
         static double LineDistance((int X, int Y) p, (int X, int Y) a, (int X, int Y) b)

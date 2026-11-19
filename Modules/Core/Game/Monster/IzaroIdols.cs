@@ -36,7 +36,7 @@ static class IzaroIdols
     }
 
     /// <summary>Its fill and cast, until <paramref name="up"/> says it is no longer up.</summary>
-    internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster idol,
+    internal static async Task Run(ClientState conn, uint id, SpawnedMonster idol,
         int element, double fillSeconds, Func<bool> up)
     {
         if (idol.Attack is not { } plain) return;
@@ -63,8 +63,8 @@ static class IzaroIdols
                     idol.Life = life = Math.Min(idol.Life, 1u);
                     at = idol.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 }
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), null);
-                if (!await SendMonsterAction(remote, stream, ciphers, conn, id, idol, action, () =>
+                await Send(conn, InstanceProtocol.LifeUpdate(id, life), null);
+                if (!await SendMonsterAction(conn, id, idol, action, () =>
                     InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, ChannelSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags),
                     $"0x01ab idol 0x{id:x} fills")) return;
                 // Its life fills; hits take it down meanwhile.
@@ -79,7 +79,7 @@ static class IzaroIdols
                         idol.Life = life = (uint)Math.Min(idol.MaxLife, idol.Life + Math.Ceiling(idol.MaxLife * TickSeconds / fillSeconds));
                         full = life >= idol.MaxLife;
                     }
-                    await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), null);
+                    await Send(conn, InstanceProtocol.LifeUpdate(id, life), null);
                     if (full) break;
                 }
                 // Full: it casts its circles (its act's SpellAreaOfEffect: Deactivate_cast and the gold nova) and its life goes to 1.
@@ -89,14 +89,14 @@ static class IzaroIdols
                     idol.Life = 1;
                     spots = Spots(conn);
                 }
-                await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation),
+                await Send(conn, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation),
                     .. InstanceProtocol.LifeUpdate(id, 1)], $"idol 0x{id:x} casts {spots.Count} circles");
-                _ = Circles(remote, stream, ciphers, conn, id, idol, burst, element, spots);
+                _ = Circles(conn, id, idol, burst, element, spots);
                 await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.SitSeconds));
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} idol 0x{id:x} stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} idol 0x{id:x} stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // Where its circles go: one on the player, the rest at walkable cells round the player within the placement radius,
@@ -120,7 +120,7 @@ static class IzaroIdols
 
     // The circles show for their fuse, each with its beacon's orb in the middle (beacon.ot: rig.ao, its start then its
     // loop; at the end its end clip), then burst: the player inside one takes its hit (one hit, however many).
-    static async Task Circles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster idol,
+    static async Task Circles(ClientState conn, uint id, SpawnedMonster idol,
         MonsterAttack burst, int element, List<(int X, int Y)> spots)
     {
         var layout = conn.Layout;
@@ -141,10 +141,10 @@ static class IzaroIdols
                         .. InstanceEntities.CreateObject(orb, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                         new EffectObject(s.X, s.Y, IzaroChronos.OrbArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(orb)]);
                 }
-            await Send(remote, stream, ciphers, [.. show], null);
+            await Send(conn, [.. show], null);
             await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.OrbStartSeconds));
             if (Gone()) return;
-            await Send(remote, stream, ciphers, [.. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbLoopClip, 1))], null);
+            await Send(conn, [.. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbLoopClip, 1))], null);
             await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.FuseSeconds - IzaroChronos.OrbStartSeconds));
             if (Gone()) return;
             var bursts = new List<uint>();
@@ -158,9 +158,9 @@ static class IzaroIdols
                     burstBytes.AddRange([.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                         new EffectObject(s.X, s.Y, IzaroChronos.BurstArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect)]);
                 }
-            await Send(remote, stream, ciphers, [.. burstBytes], null);
+            await Send(conn, [.. burstBytes], null);
             MonsterHitOutcome? outcome = null;
-            await Send(remote, stream, ciphers, [], $"idol 0x{id:x}'s circles burst", atGate: () =>
+            await Send(conn, [], $"idol 0x{id:x}'s circles burst", atGate: () =>
             {
                 lock (conn.Monsters)
                 {
@@ -169,15 +169,15 @@ static class IzaroIdols
                     var here = conn.Walk.Position(now);
                     var nearest = spots.MinBy(s => Distance(s, here));
                     if (Distance(nearest, here) > IzaroChronos.CircleRadius) return null;
-                    outcome = CommitMonsterHitLocked(remote, conn, id, idol, burst, now, here, nearest, checkRange: false, sequence: conn.NextActionSequence());
+                    outcome = CommitMonsterHitLocked(conn, id, idol, burst, now, here, nearest, checkRange: false, sequence: conn.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+            if (outcome is not null) await PresentMonsterHit(conn, id, outcome);
             await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.ExplodeSeconds));
-            if (!Gone()) await Send(remote, stream, ciphers, [.. bursts.Concat(orbs).SelectMany(InstanceProtocol.RemoveObject)], null);
+            if (!Gone()) await Send(conn, [.. bursts.Concat(orbs).SelectMany(InstanceProtocol.RemoveObject)], null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} idol 0x{id:x}'s circles stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} idol 0x{id:x}'s circles stopped: {ServerLog.Describe(ex)}"); }
     }
 }

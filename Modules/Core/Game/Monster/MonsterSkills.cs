@@ -183,9 +183,8 @@ public static partial class MonsterSkills
                 taken.Add((id, corpse.Label, corpse.Walk.Position(now)));
             }
         }
-        var (remote, stream, ciphers) = conn.Wire;
         foreach (var (id, label, _) in taken)
-            await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd corpse 0x{id:x} ({label}) consumed by a monster's skill");
+            await SendWorldRemoval(conn, id, $"0x02bd corpse 0x{id:x} ({label}) consumed by a monster's skill");
         return [.. taken.Select(t => t.At)];
     }
 
@@ -193,17 +192,16 @@ public static partial class MonsterSkills
     /// it when it lands.</summary>
     static async Task HitFrom(ClientState conn, uint id, SpawnedMonster m, int action, ushort seq, MonsterAttack a, (int X, int Y) from, double reach)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         MonsterHitOutcome? outcome = null;
         var hit = a with { Range = reach, Use = null };
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        if (!await SendMonsterAction(conn, id, m, action, () =>
         {
             if (InGracePeriod(conn) || m.Dead) return null;
             double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
-            outcome = CommitMonsterHitLocked(remote, conn, id, m, hit, now, conn.Walk.Position(now), from, checkRange: true, sequence: seq);
+            outcome = CommitMonsterHitLocked(conn, id, m, hit, now, conn.Walk.Position(now), from, checkRange: true, sequence: seq);
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} hit on the player from ({from.X}, {from.Y})")) return;
-        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (outcome is not null) await PresentMonsterHit(conn, id, outcome);
     }
 
     /// <summary>The auras a monster's skills keep up: their stats together and the BuffDefinitions rows that draw them.</summary>
@@ -292,12 +290,11 @@ public static partial class MonsterSkills
     /// <summary>Sends the aura looks of a monster just created.</summary>
     public static async Task ShowAuras(ClientState conn, uint id, IReadOnlyList<ushort> rows, bool log)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         foreach (ushort row in rows)
         {
             ushort buff;
             lock (conn.Monsters) buff = conn.NextBuff++;
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, row, id, auraSource: true),
+            await SendWorldRecord(conn, id, InstanceEntities.AddBuff(id, buff, row, id, auraSource: true),
                 !log ? null : $"0x01c1 monster 0x{id:x} aura (BuffDefinitions row {row})");
         }
     }
@@ -305,26 +302,26 @@ public static partial class MonsterSkills
     // ---- Playing a kit skill ------------------------------------------------------------------------------------------
 
     /// <summary>Plays a kit skill that is no plain hit: the action, then at its contact what it does.</summary>
-    public static async Task Play(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task Play(ClientState conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         // The skill goes on its cooldown here too: its order may come from a walk-up the kit's choice did not consume.
         lock (conn.Monsters) BossKits.Consume(m, a, conn.Clock.Elapsed.TotalSeconds);
         if (use.OnCorpse)
         {
-            await OnCorpse(remote, stream, ciphers, conn, id, m, action, a, use);
+            await OnCorpse(conn, id, m, action, a, use);
             return;
         }
         int chargePct = use.Shape == MonsterSkillShape.Travel ? use.Stats.GetValueOrDefault(ChargeStat) : 0;
         if (chargePct > 0)
         {
-            await Charge(remote, stream, ciphers, conn, id, m, action, a, chargePct);
+            await Charge(conn, id, m, action, a, chargePct);
             return;
         }
         double startedAt = 0, seconds = a.Seconds;
         ushort seq = conn.NextActionSequence();
         (int X, int Y) from = default, target = default;
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        if (!await SendMonsterAction(conn, id, m, action, () =>
         {
             if (MonsterSwingOrderLocked(conn, m, a, action, false, seconds, AreaTime(conn), seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
@@ -356,7 +353,7 @@ public static partial class MonsterSkills
         {
             case MonsterSkillShape.Travel:
                 if (!a.Damage.IsZero)
-                    await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a with { Range = LandingRadius, Use = null });
+                    await MonsterContact(conn, id, m, action, seq, a with { Range = LandingRadius, Use = null });
                 break;
             case MonsterSkillShape.Self:
                 await BuffSelf(conn, id, m, use);
@@ -370,14 +367,14 @@ public static partial class MonsterSkills
     /// <summary>A corpse skill: the action aimed at the corpse (its object as the target), then at its contact the corpse
     /// taken. Bodyswap carries the monster onto it and explodes around it; a spell hits from each corpse it took, an
     /// explosion at once, an orb or a geyser's projectile when it has flown to the player, a geyser once per burst.</summary>
-    static async Task OnCorpse(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    static async Task OnCorpse(ClientState conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         double startedAt = 0, seconds = a.Seconds;
         ushort seq = conn.NextActionSequence();
         uint corpseId = 0;
         (int X, int Y) corpseAt = default;
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        if (!await SendMonsterAction(conn, id, m, action, () =>
         {
             if (CorpseFor(conn, m, a, AreaTime(conn)) is not { } corpse) return null;
             if (MonsterSwingOrderLocked(conn, m, a, action, false, seconds, AreaTime(conn), seq) is not { } order) return null;
@@ -429,7 +426,7 @@ public static partial class MonsterSkills
     /// reads movement_velocity_+% from its Stats), so its length is the distance over that speed, not the attack time.
     /// The skill's movement bonus goes to the client as the monster's movement_velocity_+% (0xf5) while it runs, the
     /// server's walk charges at the same speed (PlayerWalk.Charge), and the hit lands where and when the walk arrives.</summary>
-    static async Task Charge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    static async Task Charge(ClientState conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, int bonusPct)
     {
         int ownPct = m.Mods.Effects.MovementPct;
@@ -439,12 +436,12 @@ public static partial class MonsterSkills
             walkSpeed = m.Walk.Speed;
             chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
         }
-        await SendWorldRecord(remote, stream, ciphers, conn, id,
+        await SendWorldRecord(conn, id,
             InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct + bonusPct)]), null);
         double startedAt = 0, arrives = 0;
         ushort seq = conn.NextActionSequence();
         (int X, int Y) from = default, target = default;
-        bool sent = await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        bool sent = await SendMonsterAction(conn, id, m, action, () =>
         {
             if (MonsterSwingOrderLocked(conn, m, a, action, false, a.Seconds, AreaTime(conn), seq) is not { } order) return null;
             (startedAt, seq) = (order.StartedAt, order.Sequence);
@@ -484,9 +481,9 @@ public static partial class MonsterSkills
         }
         lock (conn.Monsters) { m.Walk.SetSpeed(walkSpeed, conn.Clock.Elapsed.TotalSeconds); m.Walk.ChargesThrough = false; }
         if (!conn.Closed && !m.Dead)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct)]), null);
+            await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct)]), null);
         if (arrived && !a.Damage.IsZero)
-            await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
+            await MonsterContact(conn, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
     }
 
     /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell; else the
@@ -508,7 +505,6 @@ public static partial class MonsterSkills
 
     static async Task BuffSelf(ClientState conn, uint id, SpawnedMonster m, MonsterSkillUse use)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         var buffs = MonsterBuffs.GetValue(m, _ => new());
         ushort buff;
         double until;
@@ -520,14 +516,13 @@ public static partial class MonsterSkills
             m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
         }
         if (use.BuffRow > 0)
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, use.BuffRow, id,
+            await SendWorldRecord(conn, id, InstanceEntities.AddBuff(id, buff, use.BuffRow, id,
                 u68: BitConverter.SingleToUInt32Bits((float)use.Seconds)), $"0x01c1 monster 0x{id:x} buffs itself (row {use.BuffRow}, {use.Seconds:0.#} s)");
         _ = EndBuff(conn, id, m, use, buffs, buff, conn.Layout);
     }
 
     static async Task EndBuff(ClientState conn, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         await Task.Delay(TimeSpan.FromSeconds(use.Seconds));
         lock (conn.Monsters)
         {
@@ -535,7 +530,7 @@ public static partial class MonsterSkills
             m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
         }
         if (use.BuffRow > 0 && !conn.Closed && !m.Dead && ReferenceEquals(area, conn.Layout))
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
+            await SendWorldRecord(conn, id, InstanceEntities.RemoveBuff(id, buff), null);
     }
 
     static Dictionary<string, int> Sum(IEnumerable<IReadOnlyDictionary<string, int>> all)

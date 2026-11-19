@@ -25,15 +25,15 @@ public static partial class Game
         }
     }
 
-    public static Task SendGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task SendGroundItem(ClientState conn,
         uint id, WorldItemObject item, string? log, bool justDropped = false) =>
         SendWorldCreate(conn, id, () => GroundItemPresentation(conn, id, justDropped, item, includeWake: false),
-            log, wake: true, transport: (remote, stream, ciphers));
+            log, wake: true);
 
-    public static Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SyncGround(remote, stream, ciphers, conn, entering: false);
+    public static Task SyncSharedGround(ClientState conn) =>
+        SyncGround(conn, entering: false);
 
-    static async Task SyncGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool entering)
+    static async Task SyncGround(ClientState conn, bool entering)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         var ground = conn.Instance.Ground;
@@ -70,6 +70,6 @@ public static partial class Game
                 packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
             }
             return packets.Build();
-        }, transport: (remote, stream, ciphers));
+        });
     }
 }

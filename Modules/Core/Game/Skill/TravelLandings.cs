@@ -5,11 +5,10 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static async Task<bool> CommitTravelLanding(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, (int X, int Y) landing, Func<bool> current)
+    static async Task<bool> CommitTravelLanding(ClientState conn, (int X, int Y) landing, Func<bool> current)
     {
         bool committed = false;
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "travel skill landing", atGate: () =>
+        await SendWorldRecord(conn, PlayerId, [], "travel skill landing", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -31,11 +30,11 @@ public static partial class Game
         internal (int X, int Y) LastWarpDestination;
     }
 
-    static bool ScheduleLightningWarp(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static bool ScheduleLightningWarp(ClientState conn,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         Func<bool> current, SkillCriticalRoll? critical)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         var source = SupportedSkill(conn, gem.Id);
         int Own(string name) => GolemStat(source.Stats, name);
         if (CastMs(conn, gem.Effect, gem.Id) is not int cast) return false;
@@ -73,10 +72,10 @@ public static partial class Game
                             || !conn.Layout.WalkableFor(landing.X, landing.Y, 0) || conn.Barrier.Contains(landing)) return;
                         var sacrifice = new SacrificeUse(conn, gem.Id, gem.Effect, gem.Gem);
                         var departure = conn.Walk.Position(ProjectileWorldTime(conn));
-                        Task Hit((int X, int Y) at) => AreaSkillHit(remote, stream, ciphers, conn, gem.Id, gem, at, at,
+                        Task Hit((int X, int Y) at) => AreaSkillHit(conn, gem.Id, gem, at, at,
                             immediate: true, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Active);
                         await Hit(departure);
-                        if (await CommitTravelLanding(remote, stream, ciphers, conn, landing, Active))
+                        if (await CommitTravelLanding(conn, landing, Active))
                             await Hit(landing);
                     });
                 });

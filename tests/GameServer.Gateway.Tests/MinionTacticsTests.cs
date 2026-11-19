@@ -27,7 +27,7 @@ public sealed class MinionTacticsTests
         Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, item.Id, i => i with { Links = links });
     }
     static Task<uint> Skeleton(MinionUtilityTests.Fixture f) =>
-        Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, Source(f, "SummonSkeletons"),
+        Game.SummonFighter(f.Conn, Source(f, "SummonSkeletons"),
             Game.SummonData.Find("SummonSkeletons")!, (100, 100));
     static bool Hit(MinionUtilityTests.Fixture f, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
@@ -35,7 +35,7 @@ public sealed class MinionTacticsTests
         var a = fighter.Abilities.First() with { Attack = new(0x4000, 1, 20,
             DamagePacket.Of(DamageType.Physical, 100, 100)) { Spell = true }, Crit = 0 };
         fighter.Abilities = [a];
-        return (bool)Invoke("GolemHitLocked", "test", f.Stream, f.Ciphers, f.Conn, fighter, a, id, target, now)!;
+        return (bool)Invoke("GolemHitLocked", f.Conn, fighter, a, id, target, now)!;
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public sealed class MinionTacticsTests
             before = prey.Life; Assert.True(Hit(f, fighter, 901, prey, clock.Time));
             Assert.Equal(112u, before - prey.Life);
             fighter.Own[focusKey] = focus;
-            Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, fighter, clock.Time);
+            Game.GolemStepLocked(f.Conn, fighter, clock.Time);
             Assert.Equal(901u, fighter.Target);
             Assert.Contains(f.Conn.Minions.OutputQueue, p => p.Log == "Signal Prey" && p.TargetId == 901);
             ushort old = f.Conn.Summons.SignalledPrey!.Buff;
@@ -102,7 +102,7 @@ public sealed class MinionTacticsTests
             f.Equip(("Summon Skeletons", 20), ("Feeding Frenzy Support", 20), ("Summon Holy Relic", 20)); Link(f, 2, 1);
             var fighter = f.Conn.Summons.Fighters[await Skeleton(f)];
             ushort relicSource = Source(f, "SummonHolyRelic");
-            uint relicId = await Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, relicSource,
+            uint relicId = await Game.SummonFighter(f.Conn, relicSource,
                 Game.SummonData.Find("SummonHolyRelic")!, (100, 100));
             var relic = f.Conn.Summons.Fighters[relicId];
             var target = Enemy(f, 900, 105);

@@ -12,15 +12,15 @@ public sealed class HolyFlameTotemTests
         using var f=new MinionUtilityTests.Fixture();
         ushort source=f.Equip(("Holy Flame Totem",20)).Single();
         var gem=Game.GemSkillEffects(f.Conn).Single();
-        Assert.True(Game.ProjectilePathAvailable("test",f.Conn,source,gem.Effect));
+        Assert.True(Game.ProjectilePathAvailable(f.Conn,source,gem.Effect));
         Assert.NotNull(Game.TotemVariety(f.Conn,gem.Effect));
         Assert.False(Game.SpellTotemEffect(f.Conn,gem.Effect));
         f.Conn.Walk.Teleport(20,20,0);
-        await Game.CreateTotem("test",f.Stream,f.Ciphers,f.Conn,source,gem.Effect,gem.Level,
+        await Game.CreateTotem(f.Conn,source,gem.Effect,gem.Level,
             Game.TotemVariety(f.Conn,gem.Effect)!,(50,50));
         var totem=Assert.Single(f.Conn.Totems.All);
         Assert.True(Game.SpellTotemCurrent(f.Conn,totem));
-        var session=Game.ProjectilesFor("test",f.Stream,f.Ciphers,f.Conn);
+        var session=Game.ProjectilesFor(f.Conn);
         try
         {
             var use=Game.CaptureGemProjectile(f.Conn,session,source,gem,(70,50),new(0),totem:totem);
@@ -45,7 +45,7 @@ public sealed class HolyFlameTotemTests
             Assert.False(shot.ClientPredicted);Assert.NotNull(shot.Presentation);
             f.Conn.Monsters[900]=new("target",new(70,50,0),0,0,100000){Hostile=true};
             var bytes=new List<byte>();uint mana=f.Conn.PlayerMana;
-            Game.TickSpellTotemsLocked("test",f.Stream,f.Ciphers,f.Conn,bytes);
+            Game.TickSpellTotemsLocked(f.Conn,bytes);
             session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast+1));
             Assert.True(f.Conn.Monsters[900].Life<100000);Assert.Equal(mana,f.Conn.PlayerMana);
         }

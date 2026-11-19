@@ -75,7 +75,7 @@ internal static class ControlledPlayerBuildChecks
                     var conn = new ClientState(new(1, "controlled-build-test", 1000, 1000, 100, 100, null, []), 1, 1)
                     { Character = name, CharacterId = record.Id, League = "Standard", ClassRow = row,
                         Pools = CharacterStats.For(Program.Skills.ClassFor(row), level) };
-                    Assert.Equal(level, Game.PrepareCharacterForArea("test", conn, level));
+                    Assert.Equal(level, Game.PrepareCharacterForArea(conn, level));
                     Game.CharacterStatSources(conn);
                     Assert.Empty(CharacterEquipmentState.Inactive[name]);
                     var gems = Game.GemSkillEffects(conn).ToArray();

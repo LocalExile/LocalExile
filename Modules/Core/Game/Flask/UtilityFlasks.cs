@@ -8,7 +8,7 @@ public static partial class Game
     // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
     // Reusing this flask replaces its timer; another flask of the same kind keeps its own, strongest effect applies.
-    public static async Task<bool> UseUtilityFlaskCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot,
+    public static async Task<bool> UseUtilityFlaskCore(ClientState conn, uint slot,
         InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility, FlaskAutomationStep? signal = null)
     {
         var owner = CombatLifetime;
@@ -22,7 +22,7 @@ public static partial class Game
         // server backstop).
         if (MagebloodBlocksFlaskUse(conn, flask.Item))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): refused, Mageblood's magic utility flasks cannot be used");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, Mageblood's magic utility flasks cannot be used");
             return false;
         }
         // The character's flask stats (passives and gear: increased flask effect, duration and charges used) and the
@@ -41,14 +41,14 @@ public static partial class Game
         if (UtilityFlasks.Refusal(conn.PlayerLife == 0, conn.UtilityFlaskEffects.Of(flask.Id), flask.Item, charges,
                 AreaTime(conn)) is { } refused)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
         var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, Get, playerLevel);
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
-        if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentUse, _ =>
+        if (await SpendFlask(conn, flask, charges, slot, CurrentUse, _ =>
         {
             var state = Automation(conn);
             if (signal is { } step) state.Accepted(step, flask.Id);
@@ -62,7 +62,7 @@ public static partial class Game
             ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
-            Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
+            Console.WriteLine($"[gateway] {conn.Remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
                 string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {conn.Walk.Speed:0.##} cells/s");
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
@@ -75,8 +75,8 @@ public static partial class Game
             state.StatRevision++;
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
         }) is null) return false;
-        await PublishFlaskChanges(remote, stream, ciphers, conn);
-        if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) await EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
+        await PublishFlaskChanges(conn);
+        if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) await EnemyDebuffsTick(conn, AreaTime(conn));
         return true;
     }
 
@@ -171,7 +171,7 @@ public static partial class Game
         state.Packets.AddRange(UtilityFlasks.EndPackets(effect, PlayerId)
             .Select(p => new FlaskOutput(p, $"0x01c2 player buff: {effect.Name} (flask {effect.Slot}) effect ends ({why})", WorldId: PlayerId)));
 
-    public static async Task PublishFlaskChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task PublishFlaskChanges(ClientState conn)
     {
         var state = Automation(conn);
         lock (conn.Monsters)
@@ -217,15 +217,15 @@ public static partial class Game
                 }
                 uint? worldId = output.WorldId ?? (output.Pool != FlaskOutputPool.None || output.UtilityStart is not null ? PlayerId : null);
                 if (output.CreatesObject)
-                    await SendWorldCreate(conn, worldId!.Value, () => Project()?.Single(), output.Log, transport: (remote, stream, ciphers));
+                    await SendWorldCreate(conn, worldId!.Value, () => Project()?.Single(), output.Log);
                 else if (output.RemovesObject)
-                    await SendWorldRemoval(remote, stream, ciphers, conn, worldId!.Value, output.Log, atGate: () => Project()?.Single());
+                    await SendWorldRemoval(conn, worldId!.Value, output.Log, atGate: () => Project()?.Single());
                 else if (worldId is uint id)
-                    await SendWorldRecords(remote, stream, ciphers, conn, id, Project, output.Log);
-                else await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
+                    await SendWorldRecords(conn, id, Project, output.Log);
+                else await Send(conn, [], output.Log, atGate: () =>
                     Project() is { } records ? [.. records.SelectMany(p => p)] : null);
                 if (sent && output.Pool == FlaskOutputPool.Mana && CurrentGameWork)
-                    await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+                    await SendPlayerEnergyShield(conn);
             }
         }
         finally { state.PublishGate.Release(); }
@@ -235,7 +235,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || state.StatRevision == state.PresentedStatRevision) return;
             revision = state.StatRevision;
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Flasks);
+        await SendCharacterStats(conn, PlayerStatChange.Flasks);
         lock (conn.Monsters)
             if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
     }

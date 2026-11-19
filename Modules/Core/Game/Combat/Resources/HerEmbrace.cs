@@ -134,8 +134,8 @@ public static partial class Game
         foreach (ushort buff in state.Retired) conn.RetiredResourceBuffs.Add((PlayerId, buff));
         state.Retired.Clear();
     }
-    public static Task SendHerEmbrace(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => HerEmbracePresentation(conn));
+    public static Task SendHerEmbrace(ClientState conn) =>
+        SendWorldRecords(conn, PlayerId, () => HerEmbracePresentation(conn));
     public static byte[][]? HerEmbracePresentation(ClientState conn)
     {
         lock (conn.Monsters)

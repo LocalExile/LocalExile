@@ -10,7 +10,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // The instance's quest NPCs, from the town's placements or where the area's rooms place them (entering the area).
-    public static List<QuestNpc> QuestNpcCandidates(string remote, ClientState conn, QuestObjectTypes.AreaPlacements placed)
+    public static List<QuestNpc> QuestNpcCandidates(ClientState conn, QuestObjectTypes.AreaPlacements placed)
     {
         string area = conn.Layout.Id;
         var found = new List<QuestNpc>();
@@ -29,12 +29,12 @@ public static partial class Game
             var at = placed.Of(where);
             if (at.Count == 0)
             {
-                if (QuestsOf(conn).Npcs(area).Any(r => r.NpcType == type)) Console.WriteLine($"[gateway] {remote} {type}: no room places {(where == type ? "it" : where)}");
+                if (QuestsOf(conn).Npcs(area).Any(r => r.NpcType == type)) Console.WriteLine($"[gateway] {conn.Remote} {type}: no room places {(where == type ? "it" : where)}");
                 continue;
             }
             if (Npcs.Find(type) is not { Supported: true } npc || npc.Id != type)
             {
-                Console.WriteLine($"[gateway] {remote} {type}: unknown or unsupported NPC");
+                Console.WriteLine($"[gateway] {conn.Remote} {type}: unknown or unsupported NPC");
                 continue;
             }
             foreach (var o in at.DistinctBy(o => (o.X, o.Y)))
@@ -67,7 +67,7 @@ public static partial class Game
 
     // The quest NPCs as the flags have them: created when they stand there now, removed when they no longer do, moved to
     // their last Transitionable state when a flag transitions them.
-    public static async Task UpdateQuestNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task UpdateQuestNpcs(ClientState conn, string why)
     {
         List<QuestNpc> candidates;
         lock (conn.QuestNpcs) candidates = [.. conn.QuestNpcs];
@@ -85,8 +85,8 @@ public static partial class Game
                 var npc = !transitionable ? c.Npc
                     : transitioned ? c.Npc with { TransitionState = NpcTransitionStates(c.Npc) }
                     : c.RoomState ? c.Npc with { TransitionState = 1 } : c.Npc;
-                c.Id = await SpawnNpc(remote, stream, ciphers, conn, npc, c.X, c.Y, c.Angle);
-                Console.WriteLine($"[gateway] {remote} quest npc {c.Npc.Name} ({c.Npc.Id}) appears at ({c.X}, {c.Y}): {why}");
+                c.Id = await SpawnNpc(conn, npc, c.X, c.Y, c.Angle);
+                Console.WriteLine($"[gateway] {conn.Remote} quest npc {c.Npc.Name} ({c.Npc.Id}) appears at ({c.X}, {c.Y}): {why}");
             }
             else if (!want && c.Id != 0)
             {
@@ -95,7 +95,7 @@ public static partial class Game
                 lock (conn.Npcs) conn.Npcs.Remove(id);
                 conn.RemoveBlocker(id);
                 if (conn.TalkingTo == id) { conn.TalkingTo = 0; conn.InNpcTalk = false; }
-                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
+                await Game.SendWorldRemoval(conn, id, $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
             }
             else if (want && transitioned && transitionable)
             {
@@ -106,7 +106,7 @@ public static partial class Game
                 {
                     spawned.State = last;
                     int component = c.Npc.Components!.ToList().IndexOf("Transitionable");
-                    await SendWorldRecord(remote, stream, ciphers, conn, c.Id, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
+                    await SendWorldRecord(conn, c.Id, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
                         $"0x02bc quest npc 0x{c.Id:x} {c.Npc.Name} transitions to state {last}: {why}");
                 }
             }
@@ -114,27 +114,27 @@ public static partial class Game
     }
 
     // A monster died: the NPCs that appear where it fell (Quests.AppearsRule: Sin beside each god).
-    public static async Task QuestNpcsAppear(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task QuestNpcsAppear(ClientState conn,
         MonsterCatalog.Variety variety, (int X, int Y) at)
     {
         var instance = conn.Instance;
         instance.RememberPosition(NpcAppearanceKey(variety.Id), at);
-        await Show(conn, remote, stream, ciphers);
+        await Show(conn);
         foreach (var peer in instance.Presence.PlayersExcept(conn.PeerId))
             if (peer.Owner is { Closed: false, LeavingArea: false, PlayerSent: true } other
                 && ReferenceEquals(other.Instance, instance))
-                other.KillShares.Enqueue((address, output, keys) =>
+                other.KillShares.Enqueue(_ =>
                     !other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, instance)
-                        ? Show(other, address, output, keys) : Task.CompletedTask);
+                        ? Show(other) : Task.CompletedTask);
 
-        async Task Show(ClientState viewer, string address, NetworkStream output, ConnectionCiphers keys)
+        async Task Show(ClientState viewer)
         {
             string area = viewer.Layout.Id;
             foreach (var rule in QuestsOf(viewer).AppearOnKill(area, variety.Id))
             {
                 if (Npcs.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType)
                 {
-                    Console.WriteLine($"[gateway] {address} {rule.NpcType}: unknown or unsupported NPC");
+                    Console.WriteLine($"[gateway] {viewer.Remote} {rule.NpcType}: unknown or unsupported NPC");
                     continue;
                 }
                 lock (viewer.QuestNpcs)
@@ -144,7 +144,7 @@ public static partial class Game
                     viewer.QuestNpcs.Add(AppearingNpc(area, rule, npc, x, y));
                 }
             }
-            await UpdateQuestNpcs(address, output, keys, viewer, $"{variety.Name} died");
+            await UpdateQuestNpcs(viewer, $"{variety.Name} died");
         }
     }
 }

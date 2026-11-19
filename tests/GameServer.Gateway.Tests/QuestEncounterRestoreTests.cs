@@ -53,8 +53,8 @@ public class QuestEncounterRestoreTests
         var boss = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine"));
         for (int i = 0; i < 2; i++)
         {
-            await Game.QuestNpcsAppear("host", hostWire.Stream, hostWire.Ciphers, host, boss, (100, 100));
-            await Game.ApplyKillShares("peer", peerWire.Stream, peerWire.Ciphers, peer);
+            await Game.QuestNpcsAppear(host, boss, (100, 100));
+            await Game.ApplyKillShares(peer);
         }
         Assert.Empty(host.Npcs);
         Assert.Equal("Metadata/NPC/Act5/SinInnocence", Assert.Single(peer.Npcs).Value.Npc.Id);

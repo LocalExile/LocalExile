@@ -131,7 +131,7 @@ public static partial class Game
                 counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
                 LinkedTriggersOf(conn).ReadyAt[gem.Effect] = counter.ReadyAt;
                 release();
-                if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(session.remote, session.stream, session.ciphers, conn, lifeCost, "CWDT cost"));
+                if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(conn, lifeCost, "CWDT cost"));
             }
         }
     }

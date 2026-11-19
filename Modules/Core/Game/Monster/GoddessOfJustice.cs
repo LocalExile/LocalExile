@@ -62,7 +62,7 @@ static class GoddessOfJustice
     static readonly RuleTable<SpawnedMonster, Casting> Casts = new();
 
     /// <summary>Her place kept on Izaro's and her volleys while <paramref name="fighting"/> holds.</summary>
-    internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess,
+    internal static async Task Run(ClientState conn, uint id, SpawnedMonster goddess,
         SpawnedMonster izaro, Func<bool> fighting)
     {
         var cast = Casts.GetValue(goddess, _ => new());
@@ -90,11 +90,11 @@ static class GoddessOfJustice
                         cast.Until = now + IzaroGoddess.VolleySeconds;
                     }
                 }
-                if (volley) await Volley(remote, stream, ciphers, conn, id, goddess, fighting);
+                if (volley) await Volley(conn, id, goddess, fighting);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} the Goddess of Justice stopped: {ServerLog.Describe(ex)}"); }
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {conn.Remote} the Goddess of Justice stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // Waits until she is free (Izaro fights, and a volley or a beam has played out), then holds her for `seconds`. False
@@ -116,13 +116,13 @@ static class GoddessOfJustice
 
     /// <summary>Her beam to a gargoyle (AwakenGargoyle at it), for <paramref name="seconds"/>; nothing else meanwhile. False
     /// when she is gone.</summary>
-    internal static async Task<bool> Awaken(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    internal static async Task<bool> Awaken(ClientState conn, uint id,
         SpawnedMonster goddess, uint gargoyle, (int X, int Y) at, double seconds)
     {
         if (!await Hold(conn, goddess, seconds)) return false;
         int action;
         lock (conn.Monsters) action = ++goddess.ActionGeneration;
-        return await SendMonsterAction(remote, stream, ciphers, conn, id, goddess, action, () =>
+        return await SendMonsterAction(conn, id, goddess, action, () =>
         {
             var from = goddess.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             return [.. InstanceProtocol.ActionEnded(id),
@@ -131,21 +131,21 @@ static class GoddessOfJustice
     }
 
     /// <summary>Her beam stops (its time is up, the gargoyle died, or the trial ended).</summary>
-    internal static async Task EndAwaken(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess)
+    internal static async Task EndAwaken(ClientState conn, uint id, SpawnedMonster goddess)
     {
         lock (conn.Monsters) Casts.GetValue(goddess, _ => new()).Until = conn.Clock.Elapsed.TotalSeconds;
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), null);
+        await Send(conn, InstanceProtocol.ActionEnded(id), null);
     }
 
     // Her volley: the Spirit Mortar's action at the player's cell, which the client plays and fires (SkillsFor). The server
     // lands the same mortars there, unseen, one at each of the volly clip's contacts, for their hits.
-    static async Task Volley(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess, Func<bool> fighting)
+    static async Task Volley(ClientState conn, uint id, SpawnedMonster goddess, Func<bool> fighting)
     {
         int action;
         lock (conn.Monsters) action = ++goddess.ActionGeneration;
         double started = 0;
         (int X, int Y) aim = default;
-        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, goddess, action, () =>
+        if (!await SendMonsterAction(conn, id, goddess, action, () =>
         {
             started = conn.Clock.Elapsed.TotalSeconds;
             var from = goddess.Walk.Position(started);
@@ -154,7 +154,7 @@ static class GoddessOfJustice
                 .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, MortarSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags)];
         }, $"0x01ab the Goddess of Justice 0x{id:x} lobs her Spirit Mortars")) return;
         var mortar = MortarAttack(conn, goddess);
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         double cast = Game.SkillsFor(conn).CastTimeMs(IzaroGoddess.MortarEffect) / 1000.0;
         for (int i = 0; i < IzaroGoddess.MortarCount; i++)
@@ -179,15 +179,15 @@ static class GoddessOfJustice
 
     /// <summary>Her Guardians' mortars, one to each spot, as she casts (her channel clip). They hit nothing; the seconds each
     /// flies, after which its circle opens.</summary>
-    internal static async Task<double[]> ThrowGuardians(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    internal static async Task<double[]> ThrowGuardians(ClientState conn, uint id,
         SpawnedMonster goddess, IReadOnlyList<(int X, int Y)> spots)
     {
         // Not during a volley or a beam.
         if (!await Hold(conn, goddess, 0.5)) return new double[spots.Count];
         double now = conn.Clock.Elapsed.TotalSeconds;
-        await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 0.5f, IzaroGoddess.SummonAnimation)],
+        await Send(conn, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 0.5f, IzaroGoddess.SummonAnimation)],
             $"0x01d1 the Goddess of Justice 0x{id:x} calls her Guardians");
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         var seconds = new double[spots.Count];
         var label = $"the Goddess of Justice's guardian mortar 0x{id:x}";

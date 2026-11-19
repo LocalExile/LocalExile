@@ -125,8 +125,7 @@ public static partial class Game
             conn.ApplyMovementSpeed();
             if (conn.Wire.Stream is not null && conn.Wire.Ciphers is not null)
             {
-                var (remote, stream, ciphers) = conn.Wire;
-                _ = SendPlayerAilmentBuffs(remote, stream, ciphers, before, conn.ElementalAilments.Snapshot(now));
+                _ = SendPlayerAilmentBuffs(conn, before, conn.ElementalAilments.Snapshot(now));
             }
         }
     }
@@ -282,7 +281,6 @@ public static partial class Game
     static async Task RunRampage(ClientState conn, RampageWorld runtime,
         GameServer.Modding.IModuleLifetime owner, GameServer.Modding.IModuleLifetime? source, long generation)
     {
-        var (remote, stream, ciphers) = conn.Wire;
         bool Current()
         {
             lock (conn.Monsters) return CurrentGameRules && !conn.Closed && !conn.LeavingArea && !conn.RageRetired
@@ -297,9 +295,9 @@ public static partial class Game
         {
             while (Current())
             {
-                await AdvanceRampageEffects(remote, stream, ciphers, conn);
+                await AdvanceRampageEffects(conn);
                 if (RampagePresentationPending(conn))
-                    await Send(remote, stream, ciphers, [], null, atGate: () =>
+                    await Send(conn, [], null, atGate: () =>
                         Current() ? RampagePresentation(conn) : null);
                 lock (conn.Monsters)
                     if (!runtime.Enabled && runtime.PendingRemoval.Count == 0 && runtime.PendingBuffRemoval.Count == 0
@@ -312,7 +310,7 @@ public static partial class Game
         catch (Exception e)
         {
             if (!Current()) return;
-            Console.WriteLine($"[gateway] {remote} {conn.OwnedCombatWorker.Key} execution failed: {e}");
+            Console.WriteLine($"[gateway] {conn.Remote} {conn.OwnedCombatWorker.Key} execution failed: {e}");
             lock (conn.Monsters) { conn.Closed = true; runtime.Disable(); }
         }
         finally

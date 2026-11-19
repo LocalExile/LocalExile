@@ -137,7 +137,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
             }
         }
     }
-    internal async Task Tick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    internal async Task Tick(ClientState conn, double now)
     {
         if (!Enabled(conn)) { Close(conn); return; }
         State state;
@@ -165,7 +165,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
         {
             if (state.Actors.ContainsKey(member.Id)) continue;
             var at = NextToPlayer(conn);
-            await SpawnMonster(remote, stream, ciphers, conn, member.Source.Monster, (byte)conn.Pools.Level,
+            await SpawnMonster(conn, member.Source.Monster, (byte)conn.Pools.Level,
                 MonsterRarity.Normal, at.X, at.Y, friendly: true,
                 ownedMaximumLife: 1,
                 extraStats: HarbingerActor.Stats(member.Source, Stats.Key), ownedSkills: HarbingerActor.Skills(member.Source, SkillsFor(conn)),
@@ -180,7 +180,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
                     state.Actors[member.Id] = id;
                 });
         }
-        await Send(remote, stream, ciphers, [], "companion state", atGate: () =>
+        await Send(conn, [], "companion state", atGate: () =>
         {
             lock (conn.Monsters)
             {

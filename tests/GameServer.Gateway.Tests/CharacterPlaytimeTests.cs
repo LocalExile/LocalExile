@@ -62,7 +62,7 @@ public sealed class CharacterPlaytimeTests : IDisposable
             Assert.Equal("You have played for 1 day, 2 hours, 3 minutes and 4 seconds.", Assert.Single(replies));
             Assert.False(await GameEvents.AnyPacket(conn, InstanceItems.CommandId, [0, 0x16, 9, 0, 0]));
             var commands = conn.Commands;
-            foreach (var build in GameEvents.CommandsBuilding.For(conn)) commands = build(commands, "test", null!, null!, conn);
+            foreach (var build in GameEvents.CommandsBuilding.For(conn)) commands = build(commands, conn);
             conn.Commands = commands;
             Assert.True(await commands.RunAsync("/played"));
             Assert.Equal(2, replies.Count);

@@ -53,11 +53,11 @@ public static partial class Game
                 AtlasSlots(conn, preset));
     }
 
-    public static async Task SendAtlasSlots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task SendAtlasSlots(ClientState conn,
         string label)
     {
         foreach (var (log, message) in AtlasPresetMessages(conn, label))
-            await Send(remote, stream, ciphers, message, log);
+            await Send(conn, message, log);
     }
 
     /// <summary>The allocated Atlas passives' stats of the active preset, by stat name: what the tree adds to a map's.</summary>

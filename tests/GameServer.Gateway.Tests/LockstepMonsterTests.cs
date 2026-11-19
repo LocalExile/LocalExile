@@ -677,12 +677,12 @@ public class LockstepMonsterTests : IDisposable
         Saves.Open(saves);
         try
         {
-            await Game.StartLockstepActions("near", null!, null!, conn, 1.0);
+            await Game.StartLockstepActions(conn, 1.0);
             Assert.Single(conn.LockstepTrail);   // the pass ran past the latency gate
             // Projectile time can be ahead of the current client frame. A pickup's 100 ms hold must still
             // finish on that frame clock before a pending Move is spent, or its path is lost on completion.
             conn.Clock.Reset();
-            var session = new Game.ProjectileSession("pickup-frame", null!, null!, conn);
+            var session = new Game.ProjectileSession(conn);
             conn.ProjectileRuntimeState = session;
             try
             {
@@ -690,7 +690,7 @@ public class LockstepMonsterTests : IDisposable
                 conn.LockstepBusyUntil = 1.1;
                 conn.LockstepFrame = (1.099, 1.132);
                 conn.LockstepHold.Press((160, 100), 0x2909, 0);
-                await Game.StartLockstepActions("pickup-frame", null!, null!, conn, 1.099);
+                await Game.StartLockstepActions(conn, 1.099);
                 Assert.Equal(spent, (conn.LockstepSequence, conn.ActionCount));
                 Assert.Equal((140, 100), conn.Walk.Destination);
                 Assert.Equal(ProjectileRuntime.Time(1.105), session.Runtime.Now);
@@ -739,7 +739,7 @@ public class LockstepMonsterTests : IDisposable
             {
                 conn.Wire = ("mortar-goal", writer.GetStream(), ciphers);
                 var nativeVariety = new MonsterCatalog().Find("Metadata/Monsters/SandSpitters/SandSpitter")!;
-                uint id = await Game.SpawnMonster("mortar-goal", writer.GetStream(), ciphers, conn, nativeVariety,
+                uint id = await Game.SpawnMonster(conn, nativeVariety,
                     70, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 140, 100,
                     log: false, mods: MonsterModSet.None, unrisen: false);
                 // Creates belong to the frame tail (0x14218a650), after established objects have ticked.
@@ -821,7 +821,7 @@ public class LockstepMonsterTests : IDisposable
         aimed.Walk.Teleport(880, 548, 0);
         var source = new SpawnedMonster("Spitter", new(894, 554, 20), 60, 2, 15);
         var attack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty) { Projectile = spitter };
-        var session = new Game.ProjectileSession("ordered-aim", null!, null!, aimed);
+        var session = new Game.ProjectileSession(aimed);
         try
         {
             var first = Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0, orderedAim: (880, 548));
@@ -883,7 +883,7 @@ public class LockstepMonsterTests : IDisposable
                 var skills = new SkillCatalog();
                 var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;
                 var attack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty) { Projectile = spitter, Spell = true };
-                var session = new Game.ProjectileSession("shot-sequence", null!, null!, conn);
+                var session = new Game.ProjectileSession(conn);
                 try
                 {
                     var use = Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0, sequence: 0x8071);

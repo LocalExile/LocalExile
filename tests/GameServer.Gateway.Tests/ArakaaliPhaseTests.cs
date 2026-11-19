@@ -17,7 +17,7 @@ public sealed class ArakaaliPhaseTests
             { LockstepClient = false, Character = "YugulGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
                 Pools = new(60, 10000, 200, 1, 0), Wire = ("yugul-ground", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1908, 1639, 0);
-        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, Game.Monsters.Find(Yugul.Boss)!,
+        uint id = await Game.SpawnMonster(c, Game.Monsters.Find(Yugul.Boss)!,
             58, MonsterRarity.Unique, 1920, 1646, unrisen: false);
         var boss = c.Monsters[id]; boss.Aggro = true;
         var observer = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
@@ -52,7 +52,7 @@ public sealed class ArakaaliPhaseTests
         var orbs = c.Monsters.Values.Where(m => m.Variety?.Id.EndsWith("SilverOrb") == true).ToArray();
         Assert.Equal(2, orbs.Length);
         Assert.All(orbs, m => { Assert.True(m.Scripted); Assert.True(m.Invulnerable); Assert.True(m.NoRewards); });
-        var flights = new Game.ProjectileSession(c.Wire.Remote, wire.Stream, wire.Ciphers, c);
+        var flights = new Game.ProjectileSession(c);
         Assert.DoesNotContain(flights.Actors(0, 0), actor => c.Monsters.TryGetValue(actor.Key.Id, out var m) && ArenaHazards.Untargetable(c, m));
         foreach (var orb in orbs) orb.Walk.Teleport(1908, 1639, 101);
         await hazards.Step(c, 101.3);
@@ -90,7 +90,7 @@ public sealed class ArakaaliPhaseTests
             { LockstepClient = false, Character = "CelestialGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
                 Pools = new(60, 10000, 200, 1, 0), Wire = ("celestial-ground", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
-        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
+        uint id = await Game.SpawnMonster(c,
             Game.Monsters.Find(SolarisLunaris.Moon + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
         var caster = c.Monsters[id]; bool active = true;
         var hazards = new CelestialHazards(id, caster, c, () => active); await hazards.Bind(c);
@@ -116,7 +116,7 @@ public sealed class ArakaaliPhaseTests
             CelestialHazards.CascadePoint((0, 0), 0, 14, 50, -12, 15));
         hazards.Stop();
         c.Walk.Teleport(1000, 1000, 200); c.PlayerLife = 10000;
-        uint sunId = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
+        uint sunId = await Game.SpawnMonster(c,
             Game.Monsters.Find(SolarisLunaris.Sun + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
         var solar = new CelestialHazards(sunId, c.Monsters[sunId], c, () => true); await solar.Bind(c);
         await solar.Step(c, 200); await solar.Step(c, 201); await solar.Step(c, 201.93);
@@ -141,7 +141,7 @@ public sealed class ArakaaliPhaseTests
                 Wire = ("arakaali-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c;
         var v = Game.Monsters.Find(Arakaali.Boss)!;
-        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v, 55,
+        uint id = await Game.SpawnMonster(c, v, 55,
             MonsterRarity.Unique, 1000, 1000);
         var boss = c.Monsters[id];
         var sleeping = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
@@ -205,7 +205,7 @@ public sealed class ArakaaliPhaseTests
         {
             Program.Outgoing = (cipher, bytes) =>
             { if (ReferenceEquals(cipher, sleepingWire.Ciphers)) shown.Add(bytes.ToArray()); };
-            await Game.KeepWakeZone(sleeping.Wire.Remote, sleeping.Wire.Stream, sleeping.Wire.Ciphers, sleeping);
+            await Game.KeepWakeZone(sleeping);
             Assert.Equal(1, sleeping.MonsterViews[id].ActorStance);
             var at = boss.Walk.Position(sleeping.Clock.Elapsed.TotalSeconds);
             var wake = InstanceProtocol.EnterWakeZone(id);
@@ -217,7 +217,7 @@ public sealed class ArakaaliPhaseTests
             Assert.True(publication.AsSpan().IndexOf(placed) < publication.AsSpan().IndexOf(stance));
             shown.Clear();
             sleeping.AsleepMonsters.Add(id); sleeping.NextWakeZoneAt = 0;
-            await Game.KeepWakeZone(sleeping.Wire.Remote, sleeping.Wire.Stream, sleeping.Wire.Ciphers, sleeping);
+            await Game.KeepWakeZone(sleeping);
             Assert.DoesNotContain(shown, bytes => bytes.AsSpan().IndexOf(stance.AsSpan(0, 6)) >= 0);
         }
         finally { Program.Outgoing = previousOutgoing; }
@@ -226,16 +226,16 @@ public sealed class ArakaaliPhaseTests
         Assert.True(Arakaali.Allowed(boss, Assert.Single(boss.Kit, e => e.Attack.SkillId == after.SkillId).Effect));
         Assert.Single(Game.PlanMonsterAi(c, new(), 117).Swings);
         fight.Stop();
-        uint restored = await Game.RestoreMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v,
+        uint restored = await Game.RestoreMonster(c, v,
             new(v.Row, 55, MonsterRarity.Unique, true, 1000, 1000, boss.Life));
         var recovered = c.Monsters[restored];
         Assert.Equal(1, recovered.LifePhases!.Completed);
         Assert.Equal(1, c.Instance.World.MonsterOrigins[restored].Object.ActorStance);
         Assert.Equal(1, c.MonsterViews[restored].ActorStance);
         unbound.MonsterViews.Clear();
-        await Game.SyncInstanceMonsters(unbound.Wire.Remote, unbound.Wire.Stream, unbound.Wire.Ciphers, unbound);
+        await Game.SyncInstanceMonsters(unbound);
         Assert.Equal(1, unbound.MonsterViews[id].ActorStance);
-        await Game.SyncInstanceMonsters(unbound.Wire.Remote, unbound.Wire.Stream, unbound.Wire.Ciphers, unbound);
+        await Game.SyncInstanceMonsters(unbound);
         Assert.Equal(1, unbound.MonsterViews[id].ActorStance);
         lock (c.Monsters) Assert.Null(Arakaali.StanceUpdateLocked(unbound, id, 118));
         Assert.Equal(0u, recovered.LifePhases.Damage(recovered.Life, recovered.MaxLife, int.MaxValue));
@@ -260,7 +260,7 @@ public sealed class ArakaaliPhaseTests
                 Wire = ("mirror-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1940, 1620, 0);
         var v = Game.Monsters.Find(Yugul.Boss)!;
-        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v, 58,
+        uint id = await Game.SpawnMonster(c, v, 58,
             MonsterRarity.Unique, 1940, 1620, unrisen: false);
         var boss = c.Monsters[id]; var phase = Assert.IsType<LifePhaseGate>(boss.LifePhases);
         Assert.Contains(c.Instance.World.MonsterOrigins[id].Object.Skills!, s => s.Id == Yugul.HideSkill);
@@ -273,7 +273,7 @@ public sealed class ArakaaliPhaseTests
         Assert.Equal(10, images.Length);
         Assert.True(boss.WorldHidden); Assert.DoesNotContain(id, c.MonsterViews.Keys);
         Assert.False(LivingCollision.Blocks(boss)); Assert.False(LivingCollision.StepsWithBodies(boss));
-        var projectiles = new Game.ProjectileSession(c.Wire.Remote, wire.Stream, wire.Ciphers, c);
+        var projectiles = new Game.ProjectileSession(c);
         Assert.DoesNotContain(projectiles.Actors(0, 0), actor => actor.Key.Id == id);
         Assert.Contains(projectiles.Actors(0, 0), actor => c.Monsters.TryGetValue(actor.Key.Id, out var m) && images.Contains(m));
         Assert.All(images, m => { Assert.True(m.NoRewards); Assert.Equal(id, m.SummonerId); Assert.NotEmpty(m.Kit); });
@@ -305,8 +305,7 @@ public sealed class ArakaaliPhaseTests
             { LockstepClient = false, Character = "SisterHandoffRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
                 Wire = ("sister-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
-        async Task<uint> Spawn(string type, int x) => await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers,
-            c, Game.Monsters.Find(type)!, 60, MonsterRarity.Unique, x, 1000, unrisen: false);
+        async Task<uint> Spawn(string type, int x) => await Game.SpawnMonster(c, Game.Monsters.Find(type)!, 60, MonsterRarity.Unique, x, 1000, unrisen: false);
         uint sid = await Spawn(SolarisLunaris.Sun, 1000), mid = await Spawn(SolarisLunaris.Moon, 1010);
         var sun = c.Monsters[sid]; var moon = c.Monsters[mid];
         Assert.True(sun.Invulnerable); Assert.True(moon.Invulnerable);

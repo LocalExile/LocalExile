@@ -64,7 +64,7 @@ public static class Yugul
         {
             if (!c.MonsterViews.ContainsKey(id) || c.AsleepMonsters.Contains(id)) return;
             var at = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds); var w = c.Wire;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, id,
+            await SendWorldRecord(c, id,
                 InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, HideSkill,
                     c.NextActionSequence(), 0x0800, id), "[Yugul] dive for mirror interval");
         }
@@ -78,7 +78,7 @@ public static class Yugul
             }
             int component = boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
             foreach (var p in Present.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)).ToArray())
-            { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id,
+            { await SendWorldRecord(p, id,
                 InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), "[Yugul] mirror state"); }
         }
         public async Task Step(ClientState c, double now)
@@ -120,7 +120,7 @@ public static class Yugul
             if (points.Count == 0) return;
             bool hidden;
             lock (c.Monsters) { hidden = boss.WorldHidden; boss.WorldHidden = true; }
-            if (!hidden) foreach (var p in Present.ToArray()) await SyncInstanceMonsters(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p);
+            if (!hidden) foreach (var p in Present.ToArray()) await SyncInstanceMonsters(p);
             int round = phase.Completed;
             lock (c.Monsters)
                 foreach (var m in c.Monsters.Values.Where(m => m.Variety?.Id == Image))
@@ -129,9 +129,8 @@ public static class Yugul
             {
                 if (c.Instance.HasState(Spawned(round, slot))) continue;
                 var point = points[slot % points.Count]; var at = c.Layout.Near((point.X, point.Y));
-                var w = c.Wire;
                 int admittedSlot = slot;
-                uint image = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, c, Monsters.Find(Image)!, boss.Level,
+                uint image = await SpawnMonster(c, Monsters.Find(Image)!, boss.Level,
                     MonsterRarity.Normal, at.X, at.Y, owned: (_, m) =>
                     {
                         m.SummonerId = id; m.NoRewards = true; m.Aggro = true;
@@ -146,9 +145,9 @@ public static class Yugul
             lock (c.Monsters) boss.WorldHidden = false;
             foreach (var p in Present.ToArray())
             {
-                await SyncInstanceMonsters(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p);
+                await SyncInstanceMonsters(p);
                 var at = boss.Walk.Position(now); var w = p.Wire;
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id,
+                await SendWorldRecord(p, id,
                     InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, 0x0101,
                         p.NextActionSequence(), 0x0800, id), "[Yugul] emerges after mirrors");
             }

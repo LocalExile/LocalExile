@@ -51,7 +51,7 @@ public static partial class Game
     /// <summary>Lays a ground of the kind at a cell for a time (seconds), reaching <paramref name="radius"/> cells,
     /// keeping its buff with <paramref name="stats"/> on the player standing in it. A kind without art (Art "") sends no
     /// object: the skill's own action draws that ground.</summary>
-    public static async Task PlaceHostileGround(string remote, ClientState conn, uint owner, GroundKind kind,
+    public static async Task PlaceHostileGround(ClientState conn, uint owner, GroundKind kind,
         IReadOnlyDictionary<string, int> stats, (int X, int Y) at, double radius, double seconds)
     {
         if (radius <= 0 || seconds <= 0) return;
@@ -76,7 +76,7 @@ public static partial class Game
             }
         });
         if (placed != 0)
-            Console.WriteLine($"[gateway] {remote} monster 0x{owner:x} leaves {kind.Type} ground 0x{placed:x} (GroundEffects row {kind.ArtRow}) at "
+            Console.WriteLine($"[gateway] {conn.Remote} monster 0x{owner:x} leaves {kind.Type} ground 0x{placed:x} (GroundEffects row {kind.ArtRow}) at "
                 + $"({at.X}, {at.Y}), radius {radius:0.#}, {seconds:0.#} s: " + string.Join(", ", stats.Select(s => $"{s.Key} {s.Value}")));
     }
 

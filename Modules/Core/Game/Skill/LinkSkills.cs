@@ -16,13 +16,13 @@ public static partial class Game
 
     // A link gem's cast (CastGemSkill): the link starts at the end of its cast time, as a spell's effect lands, unless the
     // cast was interrupted (another action, death).
-    static async Task<bool> CastLink(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    static async Task<bool> CastLink(ClientState conn,
         ushort skillId, int effect, uint targetId, Func<bool> current)
     {
         if (CastMs(conn, effect, skillId) is not int ms) return false;
         await Task.Delay(ms);
         await WhilePaused(conn);
-        return current() && await StartLink(remote, stream, ciphers, conn, skillId, targetId);
+        return current() && await StartLink(conn, skillId, targetId);
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public static partial class Game
     /// (Deep Connections' +5 included) with the skill duration modifiers and <c>link_skill_duration_+%</c>, and costs the
     /// skill's <c>mana_cost_per_minute</c> while it lasts. False when nothing qualifies.
     /// </summary>
-    public static async Task<bool> StartLink(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<bool> StartLink(ClientState conn,
         ushort skillId, uint targetId)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return false;
@@ -52,7 +52,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
             if (LinkTargetLocked(conn, targetId, Player, now) is not uint target)
             {
-                Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player("link_skill_range_+%"))} cells)");
+                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {effectId}: no link target (an allied player, or a damageable minion with link_skills_can_target_minions, within {LinkSkills.Range(Player("link_skill_range_+%"))} cells)");
                 return false;
             }
             if (conn.Links.Count == 0) conn.Links.PaidAt = now; // the cost runs from the first link
@@ -69,8 +69,8 @@ public static partial class Game
             bytes.AddRange(InstanceEntities.AddBuff(target, link.TargetBuff, rows.Target, PlayerId, skillId, u68: duration));
             LinksChangedLocked(conn);
         }
-        await Send(remote, stream, ciphers, [.. bytes], $"0x01c1 {effectId} links 0x{link.Target:x} for {seconds:0.##} s at level {gem.Level}, {link.ManaPerMinute / 60.0:0.#} mana per second");
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
+        await Send(conn, [.. bytes], $"0x01c1 {effectId} links 0x{link.Target:x} for {seconds:0.##} s at level {gem.Level}, {link.ManaPerMinute / 60.0:0.#} mana per second");
+        await SendCharacterStats(conn, PlayerStatChange.Sources);
         return true;
     }
 
@@ -117,7 +117,7 @@ public static partial class Game
     /// break. Then a link ends with its duration, or after 4 s with its target out of range. Field Medicine's flask buffs on
     /// the targets end with their duration.
     /// </summary>
-    public static async Task LinkSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task LinkSkillsTick(ClientState conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -183,10 +183,10 @@ public static partial class Game
             }
             if (ended.Count > 0) LinksChangedLocked(conn);
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], $"0x01c2 links end: {string.Join("; ", ended)}");
-        if (died) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, a linked target died)");
-        else if (paid) await SendPlayerMana(remote, stream, ciphers, conn, null);
-        if (ended.Count > 0) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
+        if (bytes.Count > 0) await Send(conn, [.. bytes], $"0x01c2 links end: {string.Join("; ", ended)}");
+        if (died) await PlayerDied(conn, $"0x0055 death screen ({conn.League ?? "?"} league, a linked target died)");
+        else if (paid) await SendPlayerMana(conn, null);
+        if (ended.Count > 0) await SendCharacterStats(conn, PlayerStatChange.Sources);
     }
 
     // Field Medicine (flasks_apply_to_your_linked_targets): a non-unique utility flask the player uses puts its effect on

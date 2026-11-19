@@ -11,14 +11,13 @@ namespace GameServer.Gateway.Tests;
 // these fixtures verify source mutation and send-gate contracts, not acceptance of that optional mod.
 static class ConditionalSourceTestDrivers
 {
-    internal static ChatCommands Register(ChatCommands commands, string remote, NetworkStream stream,
-        ConnectionCiphers ciphers, ClientState conn)
+    internal static ChatCommands Register(ChatCommands commands, ClientState conn)
     {
         return commands
         .Add("god", "fixture god state", async args =>
         {
             bool on = args[0] == "on";
-            await SetGod(remote, stream, ciphers, conn, on);
+            await SetGod(conn, on);
             await commands.Reply(on ? "God mode on." : "God mode off.");
         })
         .Add("gem_xp", "/gem_xp <amount|near> (dev: set the experience of every gem in the inventory and the sockets; near = one below the next level's threshold)", async args =>
@@ -76,7 +75,7 @@ static class ConditionalSourceTestDrivers
             }
             if (noGem is not null) { await conn.Commands!.Reply(noGem); return; }
             foreach (var (packet, label) in outputs)
-                await Send(remote, stream, ciphers, packet, label);
+                await Send(conn, packet, label);
         });
     }
     internal sealed record DevEnemyHit(int Damage, string Mitigation, uint Life, uint Mana, uint ManaBefore,
@@ -193,7 +192,7 @@ static class ConditionalSourceTestDrivers
             Mods = mods,
         };
     }
-    internal static async Task SetGod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool on)
+    internal static async Task SetGod(ClientState conn, bool on)
     {
         lock (conn.Monsters)
         {
@@ -206,12 +205,12 @@ static class ConditionalSourceTestDrivers
             TrimLeechLocked(conn);
             RecomputePoolsAndSpeed(conn);
         }
-        Console.WriteLine($"[gateway] {remote} god mode {(on ? "on" : "off")}: life {conn.Pools.Life}, mana {conn.Pools.Mana}, {ReservedMana(conn)} reserved");
-        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.God);
-        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
-        await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
+        Console.WriteLine($"[gateway] {conn.Remote} god mode {(on ? "on" : "off")}: life {conn.Pools.Life}, mana {conn.Pools.Mana}, {ReservedMana(conn)} reserved");
+        await SendCharacterStats(conn, PlayerStatChange.God);
+        await Send(conn, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
+        await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana}");
         // UI built on entering caches the attributes (see SendPlayer): send them once more.
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
+        await SendPlayerStatSnapshot(conn,
             () => InstanceEntities.StatsUpdate(PlayerId, [.. CharacterPlayerStats(conn).Select(p => (p.Key, p.Value))]), "0x01b3 player attributes");
     }
 }

@@ -73,19 +73,17 @@ public static partial class Game
         finally { QuestKillCommitOutput = null; }
     }
 
-    static OutputBatch CommitQuestKillOperation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, PlayerMinions.Output receipt, WorldAdmission admission)
+    static OutputBatch CommitQuestKillOperation(ClientState conn, PlayerMinions.Output receipt, WorldAdmission admission)
     {
         if (receipt.Target?.Variety is not { } variety) return OutputBatch.Empty;
-        return CaptureQuestWorldOutput(conn, admission, () => QuestKillEffects(remote, stream, ciphers, conn,
+        return CaptureQuestWorldOutput(conn, admission, () => QuestKillEffects(conn,
             receipt.Target, variety, receipt.At!.Value, dropsCommitted: true));
     }
 
     // The outer admission owns the gate and all accepted birth reservations. Nested typed sends cannot await it
     // again or wait for a future frame. Pure post-birth presentation is represented explicitly in the returned batch.
     public static Task<bool> SendWorldBatch(ClientState conn, IReadOnlyList<WorldObject> requires,
-        Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, bool quest = false,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null,
+        Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, bool quest = false, 
         IReadOnlyList<WorldObject>? creates = null)
     {
         if (PresentVerifyTag.Value is { } presentTag)
@@ -115,7 +113,7 @@ public static partial class Game
         {
             if (!conn.LockstepClient) return PredictiveBatch();
             return Program.SendRecords(conn, requires, atGate, still,
-                creates: creates, rules: Program.GameLogicOrNull as IWorldAdmissionRules, quest: quest, transport: transport);
+                creates: creates, rules: Program.GameLogicOrNull as IWorldAdmissionRules, quest: quest);
         }
         if (!ReferenceEquals(capture.Connection, conn)) throw new ArgumentException("A quest capture belongs to one connection.");
         foreach (var target in requires) conn.WorldOutput.CheckOwner(target);
@@ -128,7 +126,7 @@ public static partial class Game
 
         async Task<bool> PredictiveBatch()
         {
-            var wire = transport ?? conn.Wire;
+            var wire = conn.Wire;
             bool projected = false;
             await Program.Send(wire.Remote, wire.Stream, wire.Ciphers, [], null, still, atGate: () =>
             {
@@ -150,17 +148,17 @@ public static partial class Game
     // under the mutation lock and retain bytes. None of these awaits can yield to a retired Game callback.
     static T Logged<T>(T value, Action log) { log(); return value; }
 
-    static Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes,
+    static Task Send(ClientState conn, byte[] bytes,
         string? log, Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         if (PresentVerifyTag.Value is not null)
         {
-            if (atGate is null && bytes.Length > 0) Console.WriteLine($"[present-verify] {remote} {PresentVerifyTag.Value} sent unmarked: {log}");
-            atGate = Tagged(atGate, remote, log);
+            if (atGate is null && bytes.Length > 0) Console.WriteLine($"[present-verify] {conn.Remote} {PresentVerifyTag.Value} sent unmarked: {log}");
+            atGate = Tagged(atGate, conn.Remote, log);
         }
         if (QuestKillCommitOutput is not { } output)
-            return Program.Send(remote, stream, ciphers, bytes, log, still, atGate, sync);
-        if (!ReferenceEquals(output.Connection.Wire.Ciphers, ciphers))
+            return Program.Send(conn, bytes, log, still, atGate, sync);
+        if (!ReferenceEquals(output.Connection.Wire.Ciphers, conn.Wire.Ciphers))
             throw new ArgumentException("A quest capture belongs to one cipher stream.");
         if (still is not null && !still()) return Task.CompletedTask;
         if (atGate is not null)

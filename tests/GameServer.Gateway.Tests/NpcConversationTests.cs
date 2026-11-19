@@ -116,7 +116,7 @@ public sealed class NpcConversationTests
             var conn = wire.Conn;
             var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             lock (conn.Npcs) conn.Npcs[0x300] = new SpawnedNpc(npc ?? kirac, x, y);
-            await Game.OnUseObject("npc-shortcut-test", wire.Stream, wire.Ciphers, conn,
+            await Game.OnUseObject(conn,
                 new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, flags), conn.Clock.Elapsed.TotalSeconds);
             Assert.Equal(0x300u, conn.TalkingTo);
             return wire.Sent(InstanceNpcs.Talk(0x300).Length);

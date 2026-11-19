@@ -68,7 +68,7 @@ public static partial class Game
         double flightCells = projectile.Lobbed ? landing : (aim - origin).Length;
         var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightCells / speed);
         if (release?.Point is { } launch) presentation = (presentation ?? new ProjectilePresentation()) with { LaunchHeight = launch.HeightSteps };
-        Console.WriteLine($"[gateway] {session.remote} monster 0x{id:x} ({m.Label}) releases {projectile.Metadata} from {origin}"
+        Console.WriteLine($"[gateway] {session.Conn.Remote} monster 0x{id:x} ({m.Label}) releases {projectile.Metadata} from {origin}"
             + $" ({ahead:0.0} cells toward the aim, {(release?.Point is { } up ? up.HeightSteps.ToString() : "default")} steps up"
             + $"{(release is null ? "" : $", clip {release.Clip} at {release.Fraction:0.000} of the attack{(release.FacesAway ? ", facing away" : "")}")})"
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
@@ -76,7 +76,7 @@ public static partial class Game
             { ProjectileTargets = nativeTargets,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
                     { Presentation = presentation, Sequence = sequence,
-                        OnEnd = a.Ground is null ? null : at => LeaveSkillGround(session.remote, conn, id, a, at) } };
+                        OnEnd = a.Ground is null ? null : at => LeaveSkillGround(conn, id, a, at) } };
     }
 
     /// <summary>The flight the server simulates for a monster's shot. A lobbed shot's range is its landing distance; a
@@ -154,22 +154,22 @@ public static partial class Game
     /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now
     /// from <paramref name="origin"/> toward the player while <paramref name="still"/> holds; its flight then lands the
     /// monster's hit as any of its shots does.</summary>
-    public static void LaunchDetachedMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static void LaunchDetachedMonsterProjectile(ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, (int X, int Y) origin,
         Func<bool> still, ushort sequence)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         int action = m.ActionGeneration;
         session.Schedule(session.Runtime.Now, () => still() && conn.PlayerLife > 0 && !InGracePeriod(conn),
             () => MonsterProjectileUse(session, id, m, a, projectile, action, sequence: sequence, releasedFrom: origin));
     }
 
-    public static void LaunchMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static void LaunchMonsterProjectile(ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)
     {
-        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        var session = ProjectilesFor(conn);
         session.Advance();
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
             () => MonsterActionCurrent(conn, id, m, action) && !InGracePeriod(conn),
@@ -186,14 +186,14 @@ public static partial class Game
         {
             bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier * shot.MinionDamageFactor) },
                 Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: contact.IsArea || shot.Attack.Projectile?.Lobbed == true);
-            session.Enqueue(() => PublishMinionOutcomes(session.remote, session.stream, session.ciphers, conn));
+            session.Enqueue(() => PublishMinionOutcomes(conn));
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }
         if (contact.Target.Id != PlayerId || conn.PlayerLife == 0 || InGracePeriod(conn)) return ProjectileHitResult.Miss;
         var outcome = CommitHostilePlayerHitLocked(session, contact, shot);
         if (outcome is null) return ProjectileHitResult.Miss;
         session.World(shot.MonsterId, outcome.HitPacket, $"0x01af monster 0x{shot.MonsterId:x} projectile hit on the player ({shot.Label})");
-        session.Enqueue(() => PresentMonsterHit(session.remote, session.stream, session.ciphers, conn, shot.MonsterId, outcome));
+        session.Enqueue(() => PresentMonsterHit(conn, shot.MonsterId, outcome));
         return outcome.Blocked ? ProjectileHitResult.Blocked : ProjectileHitResult.Hit;
     }
 
@@ -207,7 +207,7 @@ public static partial class Game
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
         var here = conn.Walk.Position(now);
         var from = ((int)Math.Round(contact.Position.X), (int)Math.Round(contact.Position.Y));
-        return CommitMonsterHitLocked(session.remote, conn, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) }, now, here, from,
+        return CommitMonsterHitLocked(conn, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) }, now, here, from,
             checkRange: false, sequence: shot.Sequence);
     }
 }

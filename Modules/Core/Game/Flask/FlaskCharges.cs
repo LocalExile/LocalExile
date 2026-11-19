@@ -9,7 +9,7 @@ public static partial class Game
     // every-3-seconds gains and the flask uses run on their own tasks, and the client must see their revisions in order,
     // each with the flask's latest charges. `change` makes the change and returns what to send (removed ids and the changed
     // items), or null for nothing.
-    public static async Task ChangeFlaskBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task ChangeFlaskBar(ClientState conn,
         Func<PlayerInventories, (uint[] Removed, List<InventoryItem> Changed)?> change, Func<List<InventoryItem>, string> log,
         bool retainOutput = false)
     {
@@ -41,8 +41,8 @@ public static partial class Game
                     return;
                 }
             }
-            if (retainOutput) await PublishFlaskChanges(remote, stream, ciphers, conn);
-            else await Send(remote, stream, ciphers, packet, message);
+            if (retainOutput) await PublishFlaskChanges(conn);
+            else await Send(conn, packet, message);
         }
         finally
         {
@@ -52,11 +52,11 @@ public static partial class Game
 
     // A use's charges taken from the flask (still in its cell, with enough charges: checked again under the gate, as a
     // gain or another use may have run meanwhile) and sent (S→C 0xbf): the spent flask, or null when there were too few.
-    public static async Task<InventoryItem?> SpendFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<InventoryItem?> SpendFlask(ClientState conn,
         InventoryItem flask, Flasks.Flask charges, uint slot, Func<bool>? still = null, Action<InventoryItem>? accepted = null)
     {
         InventoryItem? spent = null;
-        await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
+        await ChangeFlaskBar(conn, items =>
         {
             if (still is not null && !still()) return null;
             bool enough = false;
@@ -78,7 +78,7 @@ public static partial class Game
             }
             return ([done.Id], [done]);
         }, changed => $"0x00bf flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
-        if (spent is not null && accepted is null) await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+        if (spent is not null && accepted is null) await EndGracePeriod(conn, action: true);
         return spent;
     }
 
@@ -86,7 +86,7 @@ public static partial class Game
     // times its gain multiplier (the character's increased flask charges gained, the flask's increased charge recovery),
     // whole charges now and the rest kept, up to its maximum with its mods; the changed flasks in one S→C 0xbf, saved with
     // the next save. The character's stats are only worked out when some flask that is not full gains.
-    public static async Task GainFlaskCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task GainFlaskCharges(ClientState conn,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> chargesFor, string why)
     {
         var gaining = new List<(InventoryItem Flask, IReadOnlyDictionary<string, int> Local, Flasks.Flask Charges, double Gain)>();
@@ -101,7 +101,7 @@ public static partial class Game
         if (gaining.Count == 0) return;
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
+        await ChangeFlaskBar(conn, items =>
         {
             List<InventoryItem> changed = [];
             foreach (var (flask, local, charges, gain) in gaining)
@@ -134,15 +134,15 @@ public static partial class Game
 
     // A kill: 1 / 3.5 / 6 / 11 charges to every flask by the monster's rarity (FlaskCharges.KillCharges), or with
     // Game_FLASK_CHARGES=full every flask full.
-    public static Task GainKillCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterRarity rarity, string why) =>
-        FlaskCharges.FullShortcut ? GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, why)
-            : GainFlaskCharges(remote, stream, ciphers, conn, (_, _) => FlaskCharges.KillCharges(rarity, ItemsFor(conn).Mods), why);
+    public static Task GainKillCharges(ClientState conn, MonsterRarity rarity, string why) =>
+        FlaskCharges.FullShortcut ? GainFlaskCharges(conn, int.MaxValue, why)
+            : GainFlaskCharges(conn, (_, _) => FlaskCharges.KillCharges(rarity, ItemsFor(conn).Mods), why);
 
     // A critical strike the player dealt (a hit that landed): each flask with "#% chance to gain a Flask Charge when you deal
     // a Critical Strike" (local_recharge_on_crit_%) rolls for one charge, and the character's chance and sure charges
     // (FlaskCharges.CritSources) go to the first flask that is not full. One cooldown for all of them
     // (FlaskCharges.CritCooldown), looked at before anything else.
-    public static async Task GainFlaskChargesOnCrit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task GainFlaskChargesOnCrit(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.FlaskChargeCarry.CritReady(now)) return;
@@ -154,23 +154,23 @@ public static partial class Game
         lock (conn.Monsters) precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, now, Random.Shared.Next);
         if (gains.Count > 0)
-            await GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => gains.GetValueOrDefault(f.Id), "critical strike");
+            await GainFlaskCharges(conn, (f, _) => gains.GetValueOrDefault(f.Id), "critical strike");
     }
 
     // An accepted enemy hit, including a blocked hit: "Gain # Charges when you are Hit by an Enemy" (local_flask_gain_X_charges_when_hit).
-    public static Task GainFlaskChargesWhenHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        GainFlaskCharges(remote, stream, ciphers, conn, (_, local) => local.GetValueOrDefault("local_flask_gain_X_charges_when_hit"), "hit");
+    public static Task GainFlaskChargesWhenHit(ClientState conn) =>
+        GainFlaskCharges(conn, (_, local) => local.GetValueOrDefault("local_flask_gain_X_charges_when_hit"), "hit");
 
     // "Flasks gain # charges every 3 seconds" (FlaskCharges.PerThreeSeconds: every flask, utility, life, life on low life,
     // mana), every 3 s of the area's frames (a pause holds them) while the player's updates run.
     static void StartFlaskChargeRegen(ClientState conn, PlayerUpdatesState updates) =>
-        EveryAsPlayer(conn, 3000, () => PlayerUpdatesCurrent(conn, updates), (remote, stream, ciphers, conn) =>
+        EveryAsPlayer(conn, 3000, () => PlayerUpdatesCurrent(conn, updates), conn =>
         {
             if (conn.PlayerLife == 0) return Task.CompletedTask;
             var character = CharacterPlayerStats(conn);
             int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
             bool lowLife = FlaskRecovery.LowLife(conn.PlayerLife, conn.PlayerMaxLife);
-            return GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t ? 0
+            return GainFlaskCharges(conn, (f, _) => ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t ? 0
                 : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(conn).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(conn).FlaskOf(t)?.ManaPerUse > 0,
                     utility: ItemsFor(conn).UtilityFlaskOf(t) is not null, lowLife),
                 "every 3 seconds");
@@ -178,11 +178,11 @@ public static partial class Game
 
     // Cinderswallow Urn: the ignited corpses consumed since the last time (NoteCorpseConsumedLocked marks it), as a stat
     // presentation.
-    static async Task SendConsumedCorpseCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static async Task SendConsumedCorpseCharges(ClientState conn)
     {
         if (Interlocked.Exchange(ref conn.IgnitedCorpsesConsumed, 0) is not (int corpses and > 0)) return;
-        Console.WriteLine($"[gateway] {remote} {corpses} ignited corpse(s) consumed: flask charges");
-        await GainFlaskCharges(remote, stream, ciphers, conn,
+        Console.WriteLine($"[gateway] {conn.Remote} {corpses} ignited corpse(s) consumed: flask charges");
+        await GainFlaskCharges(conn,
             (_, local) => corpses * local.GetValueOrDefault("local_flask_gain_X_charges_on_consuming_ignited_corpse"),
             "consumed ignited corpse");
     }

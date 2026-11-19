@@ -249,7 +249,7 @@ public static class GameEvents
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>
     public static IDisposable Command(string owner, string name, string usage, Func<ClientState, string[], Task> run, params string[] arguments) =>
-        CommandsBuilding.Add(owner, (commands, _, _, _, conn) => commands.TryAdd(name, usage, async args =>
+        CommandsBuilding.Add(owner, (commands, conn) => commands.TryAdd(name, usage, async args =>
         {
             if (!await GameEventOwners.Guard(owner, $"/{name}", () => run(conn, args)))
                 await commands.Reply($"/{name} failed ({owner}); the error is in the Gateway's log. Usage: {usage}");
@@ -372,7 +372,7 @@ public static class GameEvents
     // ---- The game's own hand-overs ---------------------------------------------------------------------------------------
 
     // Optional gameplay shares the existing minion schedule and current connection writer.
-    public static readonly GameEvent<Func<string, NetworkStream, ConnectionCiphers, ClientState, double, Task>> CompanionTick = new();
+    public static readonly GameEvent<Func<ClientState, double, Task>> CompanionTick = new();
     public static readonly GameEvent<Func<ClientState, string, bool>> GrantedSkillExecutable = new();
     public static readonly GameEvent<Action<ClientState>> TransientClosing = new();
     public static readonly GameEvent<Action<ClientState, bool>> PauseChanged = new();
@@ -423,7 +423,7 @@ public static class GameEvents
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<ClientState, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
     /// <summary>A connection's chat commands are made: a module adds to them.</summary>
-    public static readonly GameEvent<Func<ChatCommands, string, NetworkStream, ConnectionCiphers, ClientState, ChatCommands>> CommandsBuilding = new();
+    public static readonly GameEvent<Func<ChatCommands, ClientState, ChatCommands>> CommandsBuilding = new();
     /// <summary>The campaign driver's /state is made (Agents/docs/dev/campaign-automation.md): a module adds the fields of
     /// what it runs (the Pantheon's "pantheon").</summary>
     public static readonly GameEvent<Action<ClientState, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
@@ -456,10 +456,10 @@ public static class GameEvents
         return false;
     }
 
-    public static ChatCommands RunCommandsBuilding(ClientState conn, ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers)
+    public static ChatCommands RunCommandsBuilding(ClientState conn, ChatCommands commands)
     {
         // With no connection, for the list tools read: every module's commands.
-        foreach (var run in conn is null ? CommandsBuilding.All : CommandsBuilding.For(conn)) commands = run(commands, remote, stream, ciphers, conn!);
+        foreach (var run in conn is null ? CommandsBuilding.All : CommandsBuilding.For(conn)) commands = run(commands, conn!);
         return commands;
     }
 

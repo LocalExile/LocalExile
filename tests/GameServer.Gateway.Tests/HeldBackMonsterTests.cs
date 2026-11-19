@@ -40,7 +40,7 @@ public sealed class HeldBackMonsterTests
             new MonsterObject(110, 290, 1000, variety.ComponentsOrBase, variety.AnimatedObject), (ushort)variety.Row, 1, MonsterRarity.Normal);
         int Remaining(ClientState conn) { lock (conn.Monsters) return Game.LivingMonstersLocked(conn); }
         Task Sync(ClientState conn, PartyFollowerTests.Wire wire) =>
-            Game.SyncInstanceMonsters("held-back", wire.Stream, wire.Ciphers, conn);
+            Game.SyncInstanceMonsters(conn);
         // The created monsters by where they stand: a held-back one is created at a clear cell by its planned one.
         uint[] At(IEnumerable<SavedMonster> held) => [.. world.Monsters.Where(m => m.Key != standing && held.Any(h =>
             Math.Abs(m.Value.Walk.Position(0).X - h.X) <= 3 && Math.Abs(m.Value.Walk.Position(0).Y - h.Y) <= 3)).Select(m => m.Key)];

@@ -1580,7 +1580,7 @@ public static partial class Game
     }
 
     // Earns the Labyrinth tiers' ascendancy points (two each, once: AscendancyRules.AwardKeys), saved, and sends the tree.
-    public static async Task<int> AwardAscendancyPoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<int> AwardAscendancyPoints(ClientState conn,
         IEnumerable<string> awards)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
@@ -1598,7 +1598,7 @@ public static partial class Game
             AscendancyPolicies.SelectionChanged(conn);
             conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
         }
-        await SendPassives(remote, stream, ciphers, conn);
+        await SendPassives(conn);
         return next.EarnedPoints;
     }
 
@@ -1665,7 +1665,7 @@ public static partial class Game
 
     /// <summary>Offers a Descendancy row to the client (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) and records
     /// it as the only row C→S 0x3a may accept in this area.</summary>
-    public static async Task OpenDescendancySelector(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    public static async Task OpenDescendancySelector(ClientState conn, byte row)
     {
         var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row)
             ?? throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
@@ -1675,45 +1675,45 @@ public static partial class Game
             conn.OfferedDescendancyRow = row;
             conn.OfferedDescendancyArea = conn.Layout.Hash;
         }
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.DescendancySelectUi, row),
+        await Send(conn, InstanceWaypoints.OpenUi(InstanceWaypoints.DescendancySelectUi, row),
             $"0x007b kind 0x4c row {row} ({definition.Name})");
     }
 
     // C→S 0x3a: the Descendancy class selector (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) accepted a
     // Descendancy.dat row. The second ascendancy layer: selects it, saves, and reloads so the client builds its tree.
-    internal static async Task ChooseDescendancy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    internal static async Task ChooseDescendancy(ClientState conn, byte row)
     {
-        Console.WriteLine($"[gateway] {remote} <= 0x003a descendancy row {row} chosen");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x003a descendancy row {row} chosen");
         if (!CanSelectDescendancy(conn, row, out string? reason))
         {
-            Console.WriteLine($"[gateway] {remote} 0x003a descendancy row {row} refused: {reason}");
+            Console.WriteLine($"[gateway] {conn.Remote} 0x003a descendancy row {row} refused: {reason}");
             return;
         }
         try { SelectDescendancy(conn, row); }
         catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
         {
-            Console.WriteLine($"[gateway] {remote} descendancy row {row} refused: {ex.Message}");
+            Console.WriteLine($"[gateway] {conn.Remote} descendancy row {row} refused: {ex.Message}");
             return;
         }
         conn.OfferedDescendancyRow = 0;
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
+        await ChangeArea(conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
     }
 
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
     // Ascendancy.dat row. Only in a Labyrinth's last room, for an unascended character; the area reloads with the new class.
-    public static async Task ChooseAscendancyClass(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    public static async Task ChooseAscendancyClass(ClientState conn, byte row)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
         var chosen = Ascendancies.Choices(baseClass).FirstOrDefault(d => d.Identity.Family == AscendancyFamily.Normal && d.TableRow == row);
-        Console.WriteLine($"[gateway] {remote} <= 0x0039 ascendancy row {row} chosen: {chosen?.Name ?? "not one of this class's"}");
+        Console.WriteLine($"[gateway] {conn.Remote} <= 0x0039 ascendancy row {row} chosen: {chosen?.Name ?? "not one of this class's"}");
         if (chosen is null || !LabyrinthDay.IsChamber(conn.Layout.Id) || conn.MainAscendancy.Selection is not null) return;
         try { SelectMainAscendancy(conn, chosen); }
         catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
         {
-            Console.WriteLine($"[gateway] {remote} {chosen.Name} refused: {ex.Message}");
+            Console.WriteLine($"[gateway] {conn.Remote} {chosen.Name} refused: {ex.Message}");
             return;
         }
-        await ChangeArea(remote, stream, ciphers, conn, AscendancyReload(conn), $"ascendancy {chosen.Name} chosen at the font");
+        await ChangeArea(conn, AscendancyReload(conn), $"ascendancy {chosen.Name} chosen at the font");
     }
 
     public static PendingTransfer AscendancyReload(ClientState conn)
@@ -1724,7 +1724,7 @@ public static partial class Game
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the
     // tree's start) and the allocated nodes.
-    public static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendPassives(ClientState conn)
     {
         if (QuestKillCommitOutput is { } output)
         {
@@ -1732,7 +1732,7 @@ public static partial class Game
             return;
         }
         // A queued publication must not restore a tree captured before a later allocation/refund or level change.
-        await Send(remote, stream, ciphers, [], "0x0033 current passive skill tree",
+        await Send(conn, [], "0x0033 current passive skill tree",
             atGate: () => PassivesMessage(conn).Bytes);
     }
 
@@ -1743,7 +1743,7 @@ public static partial class Game
     /// tree socket, a medium one in a large tree socket or in a large jewel's socket, and so on), and their ids are the
     /// client's layout indices (202, 206 live), never a PassiveSkillGraphId.
     /// </summary>
-    public static async Task ChangeClusterPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task ChangeClusterPassive(ClientState conn,
         ushort node, bool allocate)
     {
         bool socketed = false;
@@ -1763,18 +1763,18 @@ public static partial class Game
         }
         if (!socketed || node > MaxClusterNodeId)
         {
-            Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: " +
+            Console.WriteLine($"[gateway] {conn.Remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: " +
                 $"{(socketed ? "not a cluster node id" : "no large cluster jewel socketed")}");
-            await SendPassives(remote, stream, ciphers, conn);
+            await SendPassives(conn);
             return;
         }
-        Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocated" : "refunded")}" +
+        Console.WriteLine($"[gateway] {conn.Remote} cluster jewel node {node} {(allocate ? "allocated" : "refunded")}" +
             $"{(changed ? "" : " (no change)")}, {conn.ClusterPassives.Count} cluster node(s)");
-        await SendPassives(remote, stream, ciphers, conn);
+        await SendPassives(conn);
         if (!changed) return;
         // A cluster's passives give their stats only when the whole cluster is allocated (ClusterJewelStats), so the
         // node that completes it must refresh the character's stats as well as the tree.
-        await SendPassiveJewelStats(remote, stream, ciphers, conn);
+        await SendPassiveJewelStats(conn);
     }
 
     /// <summary>The largest cluster jewel node id the client sends with the expansion flag: its own layout index, well
@@ -1839,7 +1839,7 @@ public static partial class Game
     // points and complete ordinary/ascendancy connectivity, then saved, applied to the stats and sent back (0x33).
     // A gold respec (goldRespec) refunds only allocated nodes and charges their cost (PassiveTree.GoldRespecCost); a
     // refund-point refund (refundPoints) spends one saved point per node. /reset_passives sets neither.
-    public static async Task<string?> ChangePassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<string?> ChangePassives(ClientState conn,
         IReadOnlyList<ushort> nodes, bool allocate, string why, ushort? masteryEffect = null, bool goldRespec = false,
         bool refundPoints = false)
     {
@@ -2004,7 +2004,7 @@ public static partial class Game
             effectsNow = new(conn.MasteryEffects);
             refundsNow = conn.RefundPoints;
         }
-        Console.WriteLine($"[gateway] {remote} passives {(allocate ? "allocate" : "refund")} [{string.Join(", ", nodes.Select(n => $"{n} {PassivesFor(conn).Find(n)?.Name}"))}]" +
+        Console.WriteLine($"[gateway] {conn.Remote} passives {(allocate ? "allocate" : "refund")} [{string.Join(", ", nodes.Select(n => $"{n} {PassivesFor(conn).Find(n)?.Name}"))}]" +
             (effectLabel is null ? "" : $" mastery {effectLabel}") + $" ({why}): " +
             (error ?? $"{now.Count} allocated, life {conn.Pools.Life}, mana {conn.Pools.Mana}" +
                 (goldRespec ? $", {cost} gold paid, {gold} left" : "") +
@@ -2013,28 +2013,27 @@ public static partial class Game
         {
             if (goldRespec)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (respec, {cost} paid)");
+                await Send(conn, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (respec, {cost} paid)");
             }
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
-            await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
+            await SendCharacterStats(conn, PlayerStatChange.Build);
+            await Send(conn, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
+            await global::Game.SendWorldRecord(conn, PlayerId, PlayerLifeUpdate(conn),
                 $"0x01b1 player life {conn.PlayerLife} (passives)");
-            await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
+            await SendPlayerMana(conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }
         // Sent either way: on a refusal it puts the client's tree back to the server's.
-        await SendPassives(remote, stream, ciphers, conn);
+        await SendPassives(conn);
         return error;
     }
 
     // Experience from a kill: added (up to the last level), sent as the Player component's experience (0x2bc; the client
     // derives the level and plays the level up from it), saved, and at a new level the level's stats, life and passive
     // points from current experience and the account's level (Auth set_level, for the character list).
-    public static async Task GainExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint gain, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
+    public static async Task GainExperience(ClientState conn, uint gain, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         if (RecordExperienceGain(conn, gain) is { } change)
-            await CompleteExperienceGain(remote, stream, ciphers, conn, change, why, control);
+            await CompleteExperienceGain(conn, change, why, control);
     }
 
     // A kill's experience goes to the gems too: every one socketed in an equipped item, in either weapon set, gains 10% of the
@@ -2046,11 +2045,11 @@ public static partial class Game
     // item's own component has no skill gems. Sent as the socket's equipment row 0x00bf item change, the same item id removed
     // and added again (the replace idiom: an addition of a known id alone is dropped as a duplicate, so the client would keep
     // the stale gem), so the client's gem XP bar and tooltip follow; the next save keeps it.
-    public static async Task GainGemExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint gain)
+    public static async Task GainGemExperience(ClientState conn, uint gain)
     {
         var (packets, leveled) = CommitGemExperience(conn, gain);
-        foreach (var packet in packets) await Send(remote, stream, ciphers, packet, "gem experience");
-        if (leveled) await SendSkills(remote, stream, ciphers, conn);
+        foreach (var packet in packets) await Send(conn, packet, "gem experience");
+        if (leveled) await SendSkills(conn);
     }
 
     public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain,

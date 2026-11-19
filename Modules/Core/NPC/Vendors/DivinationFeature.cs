@@ -85,7 +85,7 @@ static class DivinationFeature
         if (!conn.Npcs.TryGetValue(id, out var npc)
             || !Game.Npcs.TalksOf(npc.Npc).Any(t => t.Category == "TradeDivinationCards")) return;
         if (conn.Sale is not null)
-            await VendorsFeature.CloseSale(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, accepted: false);
+            await VendorsFeature.CloseSale(conn, accepted: false);
         if (conn.Closed || conn.LeavingArea || !conn.Npcs.TryGetValue(id, out var current)
             || !ReferenceEquals(npc, current)) return;
         conn.TalkingTo = id;
@@ -98,7 +98,7 @@ static class DivinationFeature
     }
 
     static Task Send(ClientState conn, byte[] packet, string label) =>
-        Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, packet, label);
+        Program.Send(conn, packet, label);
 
     sealed class Cleanup(Action run) : IDisposable { public void Dispose() => run(); }
 

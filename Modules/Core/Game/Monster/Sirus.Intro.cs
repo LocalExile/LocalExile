@@ -35,7 +35,7 @@ static partial class Sirus
                     }
             var point = c.Layout.Level?.RoomObjects.FirstOrDefault(p => p.Type == type);
             if (point is null || Monsters.Find(type) is not { Supported: true } v) return 0;
-            uint key = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, 84, MonsterRarity.Normal,
+            uint key = await SpawnMonster(c, v, 84, MonsterRarity.Normal,
                 point.X, point.Y, friendly: true, rotation: point.Rotation, scripted: true,
                 owned: (_, m) => { m.NoRewards = true; m.EntranceGrace = true; });
             lock (c.Monsters)
@@ -88,7 +88,7 @@ static partial class Sirus
             await Remove(introSirus);
             foreach (var p in Present)
             {
-                var w = p.Wire; await UpdateShownTransitions(w.Remote, w.Stream, w.Ciphers, p, "Sirus fled to Oriath");
+                await UpdateShownTransitions(p, "Sirus fled to Oriath");
             }
             Console.WriteLine("[Sirus] six laboratory portals ready");
         }

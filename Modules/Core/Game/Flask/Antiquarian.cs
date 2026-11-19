@@ -104,8 +104,8 @@ public static partial class Game
         }
     }
 
-    public static Task SendAntiquarian(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => AntiquarianPresentation(conn));
+    public static Task SendAntiquarian(ClientState conn) =>
+        Send(conn, [], null, atGate: () => AntiquarianPresentation(conn));
 
     public sealed record AntiquarianTransfer(string Character, DateTime At, AntiquarianCombatState.Carried Buffs,
         bool Broken, double WardSeconds, TimedLifeRecovery.Carried Cry);

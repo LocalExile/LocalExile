@@ -29,16 +29,14 @@ static partial class Sirus
     {
         ushort[] buffs = ClearExposure(c);
         if (buffs.Length == 0 || c.Closed || c.LeavingArea) return;
-        var w = c.Wire;
         foreach (ushort buff in buffs.Where(b => b != 0))
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+            await SendWorldRecord(c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null);
         await RefreshPlayerStats(c);
     }
     static async Task RefreshPlayerStats(ClientState c)
     {
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
-        var w = c.Wire;
-        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsOffFrames(c), null);
+        await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
     internal static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
     {
@@ -205,7 +203,7 @@ static partial class Sirus
             {
                 var at = p.Layout.Near((mazeCentre.X + 3, mazeCentre.Y + 3));
                 lock (p.Monsters) p.Walk.Teleport(at.X, at.Y, now);
-                var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceProtocol.Teleport(PlayerId, at.X, at.Y), "[Sirus] meteor maze");
+                await SendWorldRecord(p, PlayerId, InstanceProtocol.Teleport(PlayerId, at.X, at.Y), "[Sirus] meteor maze");
             }
             for (int ring = 0; ring < rings; ring++)
             {
@@ -358,10 +356,9 @@ static partial class Sirus
                         if (e.NextBeam > now) continue;
                         int duration = Stat(c, 10973, body!.Level, "base_secondary_skill_effect_duration");
                         e.BeamStacks = e.BeamUntil > now ? Math.Min(8, e.BeamStacks + 1) : 1; e.BeamUntil = now + duration / 1000d; e.NextBeam = now + .5;
-                        var w = p.Wire;
-                        if (e.BeamBuff != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.BeamBuff), null);
+                        if (e.BeamBuff != 0) await SendWorldRecord(p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.BeamBuff), null);
                         e.BeamBuff = p.NextBuff++;
-                        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.AddBuff(PlayerId, e.BeamBuff, 1525, id,
+                        await SendWorldRecord(p, PlayerId, InstanceEntities.AddBuff(PlayerId, e.BeamBuff, 1525, id,
                             values: [0, 0], u68: BitConverter.SingleToUInt32Bits(duration / 1000f), stacks: (ushort)e.BeamStacks), null);
                         await RefreshPlayerStats(p);
                     }
@@ -369,7 +366,7 @@ static partial class Sirus
             }
             foreach (var p in Present.ToArray())
                 if (Exposures.TryGetValue(p, out var e) && e.BeamStacks > 0 && now >= e.BeamUntil)
-                { e.BeamStacks = 0; if (e.BeamBuff != 0) { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.BeamBuff), null); e.BeamBuff = 0; } await RefreshPlayerStats(p); }
+                { e.BeamStacks = 0; if (e.BeamBuff != 0) { await SendWorldRecord(p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.BeamBuff), null); e.BeamBuff = 0; } await RefreshPlayerStats(p); }
             if (now - lastGround < .25) return;
             double seconds = Math.Clamp(now - lastGround, 0, 1); lastGround = now;
             foreach (var p in Present.ToArray()) await GroundDamage(p, now, seconds);
@@ -378,10 +375,10 @@ static partial class Sirus
         {
             uint actor = hit.ApparitionHit ? apparition : id;
             if (body is null || !p.Monsters.TryGetValue(actor, out var caster)) return;
-            var w = p.Wire; MonsterHitOutcome? outcome = null;
+            MonsterHitOutcome? outcome = null;
             var attack = Attack(p, caster.Variety!, caster.Level, hit.Effect);
             bool Inside((int X, int Y) at) => hit.Beam ? KitavaActTen.LineDistance(at, hit.From, hit.To) <= hit.Radius : Distance(at, hit.To) <= hit.Radius;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, actor, [], null, atGate: () =>
+            await SendWorldRecord(p, actor, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -393,11 +390,11 @@ static partial class Sirus
                         if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now)) && struck.Add((hit.Group, p, g.Id)))
                             GolemTakeHitLocked(p, g, actor, caster, ma, now, area: true);
                     if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now)) || !struck.Add((hit.Group, p, PlayerId))) return null;
-                    outcome = CommitMonsterHitLocked(w.Remote, p, actor, caster, attack, now, p.Walk.Position(now), hit.To, false, p.NextActionSequence());
+                    outcome = CommitMonsterHitLocked(p, actor, caster, attack, now, p.Walk.Position(now), hit.To, false, p.NextActionSequence());
                     return outcome?.HitPacket;
                 }
             });
-            if (outcome is not null) await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, actor, outcome);
+            if (outcome is not null) await PresentMonsterHit(p, actor, outcome);
         }
         async Task<uint> Fx(ClientState c, (int X, int Y) at, string model, double until, uint? clip = null, float rotation = 0, bool blocking = false, bool temporary = true)
         {

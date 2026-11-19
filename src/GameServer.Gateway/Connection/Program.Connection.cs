@@ -143,13 +143,13 @@ public partial class Program
                     return;
                 }
                 Logic.Admitting(conn);
-                conn.Commands = Commands(remote, stream, ciphers, conn);
+                conn.Commands = Commands(conn);
                 HotReload.Register(conn);
                 InGame[conn] = 0;
                 WindowsTimerResolution.Acquire();
                 conn.ArriveAtWaypoint = WaypointArrivals.TryRemove(ticket, out _) || HideoutCatalog.ByArea(layout.Hash) is not null;
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
-                int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
+                int level = Logic.PrepareCharacter(conn, resolved.Level);
                 prepared = true;
                 var moduleHeader = GameEvents.RunAreaHeader(conn);
                 areaLevel = moduleHeader?.Level ?? areaLevel;
@@ -164,7 +164,7 @@ public partial class Program
                     AchievementSets: moduleHeader?.AchievementSets);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
-                await Logic.Entered(remote, conn, level, resolved.Level);
+                await Logic.Entered(conn, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
                 if (resolved.Character is { Length: > 0 } runner)
                 {
@@ -364,7 +364,7 @@ public partial class Program
                 handling = batch;
                 conn.Work.Handling = string.Join(", ", batch.Messages.Select(m => $"0x{m.Id:x4}"));
                 long start = Stopwatch.GetTimestamp();
-                try { await Logic.OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt); }
+                try { await Logic.OnClientMessages(batch.Messages, batch.Unknown, conn, batch.ReadAt); }
                 finally { inbox.Handled(); conn.Work.Handling = null; }
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
@@ -425,6 +425,11 @@ public partial class Program
     // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
     public const double SyncPublishMilliseconds = 100;
 
+    /// <summary>Sends to the player's client (<see cref="Send(string, NetworkStream, ConnectionCiphers, byte[], string?, Func{bool}?, Func{byte[]?}?, string?)"/>).</summary>
+    public static Task Send(ClientState conn, byte[] bytes, string? log,
+        Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null) =>
+        Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, bytes, log, still, atGate, sync);
+
     public static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
@@ -484,6 +489,9 @@ public partial class Program
     }
 
     // Called under SendGate. Diagnostics and the shared-object observer see actual transmission, not queueing.
+    public static Task WritePacket(ClientState conn, byte[] bytes, string? log, WorldOutput.Packet? record = null) =>
+        WritePacket(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, bytes, log, record);
+
     public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         byte[] bytes, string? log, WorldOutput.Packet? record = null)
     {
@@ -523,6 +531,9 @@ public partial class Program
     /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
+    public static Task<bool> SendBatched(ClientState conn, Func<Task<bool>> body) =>
+        SendBatched(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, body);
+
     public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
     {
         if (CurrentSendBatch.Value is not null) return await body();

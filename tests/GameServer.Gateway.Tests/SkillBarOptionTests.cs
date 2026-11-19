@@ -33,7 +33,7 @@ public class SkillBarOptionTests
             Task refresh;
             try
             {
-                refresh = Game.SendSkillBar("bar", wire.Stream, wire.Ciphers, conn);
+                refresh = Game.SendSkillBar(conn);
                 Assert.False(refresh.IsCompleted);
                 SkillBarLayout.Bind(character, 2, "");
             }

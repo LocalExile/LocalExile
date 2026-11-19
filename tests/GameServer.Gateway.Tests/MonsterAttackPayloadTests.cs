@@ -23,18 +23,18 @@ public class MonsterAttackPayloadTests
             Assert.Contains(variety.Weapons, w => w.Slot == 0);
             var bow = Assert.Single(variety.Weapons, w => w.Slot == 1);
             Assert.Equal((ushort)(path.StartsWith("Skeletons/", StringComparison.Ordinal) ? 26894 : 42952), bow.VisualIdentity);
-            uint id = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
+            uint id = await Game.SpawnMonster(f.Conn, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false);
             var origin = f.Conn.Instance.World.MonsterOrigins[id];
             Assert.Contains("Inventories", variety.ComponentsOrBase);
             Assert.Equal(variety.Weapons, origin.Object.Equipped);
             Assert.NotEmpty(origin.Object.Blob());
 
-            uint empty = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
+            uint empty = await Game.SpawnMonster(f.Conn, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false, ownedLooks: []);
             Assert.Empty(f.Conn.Instance.World.MonsterOrigins[empty].Object.Equipped!);
             var custom = new[] { bow with { SkinVisual = (ushort)(bow.VisualIdentity == 26894 ? 42952 : 26894) } };
-            uint overridden = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
+            uint overridden = await Game.SpawnMonster(f.Conn, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false, ownedLooks: custom);
             Assert.Equal(custom, f.Conn.Instance.World.MonsterOrigins[overridden].Object.Equipped);
         }

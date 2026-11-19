@@ -132,13 +132,12 @@ public static class ShrineManager
     static async Task Present(ClientState conn, ShrineInstance shrine)
     {
         if (!Of(conn).Presented.Add(shrine.ObjectId)) return;
-        var (remote, stream, ciphers) = conn.Wire;
         var obj = new ShrineObject(shrine.At.X, shrine.At.Y, shrine.Rotation, Model: shrine.Model,
             Row: shrine.State == ShrineState.Used ? NoShrineRow : shrine.Definition.Row, Lesser: shrine.Definition.Lesser);
-        await SendWorldCreate(remote, stream, ciphers, conn, shrine.ObjectId,
+        await SendWorldCreate(conn, shrine.ObjectId,
             InstanceEntities.CreateObject(shrine.ObjectId, InstanceEntities.ObjectTypeHash(shrine.Definition.Lesser ? ShrinePlacement.LesserType : ShrinePlacement.Type), obj.Blob()),
             $"create shrine {shrine.Definition.Id} at {shrine.At}");
-        await SendWorldRecord(remote, stream, ciphers, conn, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
+        await SendWorldRecord(conn, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
     }
 
     public static async Task SpawnLesser(ClientState conn, (int X, int Y) at, double seconds, string type)
@@ -221,13 +220,12 @@ public static class ShrineManager
         finally { state.Area.Gate.Release(); }
         if (shrine is null) return false;
         if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
-        var (remote, stream, ciphers) = conn.Wire;
         int action = Interlocked.Increment(ref conn.ActionCount);
         double now = conn.Clock.Elapsed.TotalSeconds;
         int objectSize = shrine.Definition.Lesser ? 2 : ShrinePlacement.ObjectSize;
         var (here, stop, arrive) = conn.Walk.WalkUpTo(shrine.At.X, shrine.At.Y, objectSize, now);
         if (!use.Started)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            await SendWorldRecord(conn, PlayerId,
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, shrine.At.X, shrine.At.Y, use.SkillId,
                     use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
                 still: () => PlayerActionCurrent(conn, action));
@@ -262,7 +260,7 @@ public static class ShrineManager
             }
         }
         finally { state.Area.Gate.Release(); }
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
+        await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
             still: () => PlayerActionCurrent(conn, action));
         return true;
     }
@@ -272,8 +270,7 @@ public static class ShrineManager
     /// id is kept, so the client replaces the one it has (the opened-chest pattern).</summary>
     static async Task Spent(ClientState conn, ShrineInstance shrine)
     {
-        var (remote, stream, ciphers) = conn.Wire;
-        await SendWorldRemoval(remote, stream, ciphers, conn, shrine.ObjectId, null);
+        await SendWorldRemoval(conn, shrine.ObjectId, null);
         if (shrine.Definition.Lesser)
         {
             Of(conn).Presented.Remove(shrine.ObjectId);
@@ -282,11 +279,11 @@ public static class ShrineManager
             conn.Instance?.ContentState.TryRemove(ClaimKey(shrine), out _);
             return;
         }
-        await SendWorldCreate(remote, stream, ciphers, conn, shrine.ObjectId,
+        await SendWorldCreate(conn, shrine.ObjectId,
             InstanceEntities.CreateObject(shrine.ObjectId, InstanceEntities.ObjectTypeHash(ShrinePlacement.Type),
                 new ShrineObject(shrine.At.X, shrine.At.Y, shrine.Rotation, Model: shrine.Model, Row: NoShrineRow).Blob()),
             $"0x02bb shrine 0x{shrine.ObjectId:x} {shrine.Definition.Id} used (no row, no icon, not interactable)");
-        await SendWorldRecord(remote, stream, ciphers, conn, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
+        await SendWorldRecord(conn, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
     }
 
     /// <summary>Whether this shrine's buff grants a stat the client only reads from the skill panel, so the panel has to
@@ -304,7 +301,6 @@ public static class ShrineManager
     static async Task Grant(ClientState conn, ShrineInstance shrine, ShrineContext ctx)
     {
         var state = Of(conn);
-        var (remote, stream, ciphers) = conn.Wire;
         var definition = shrine.Definition;
         var playerStats = CharacterPlayerStats(conn);
         int Stat(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
@@ -337,8 +333,8 @@ public static class ShrineManager
                 string.Join(", ", shrine.Stats.Select(s => $"0x{s.Key:x}={s.Value}")));
         }
         if (replaced is not null)
-            await Send(remote, stream, ciphers, replaced, $"0x01c2 shrine buff {definition.BuffRow} replaced by a new shrine");
-        await Send(remote, stream, ciphers, [], $"0x01c1 shrine {definition.Id} buff {definition.BuffRow} for {shrine.Duration} s",
+            await Send(conn, replaced, $"0x01c2 shrine buff {definition.BuffRow} replaced by a new shrine");
+        await Send(conn, [], $"0x01c1 shrine {definition.Id} buff {definition.BuffRow} for {shrine.Duration} s",
             atGate: () =>
             {
                 lock (conn.Monsters)
@@ -356,7 +352,7 @@ public static class ShrineManager
         // character stats the client re-reads, so the panel is rebuilt for the shrines that grant one and no others:
         // a full rebuild re-sends every gem's skill and the skill bar, which the client cannot take mid-fight.
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-        if (TouchesSkillPanel(shrine)) await SendSkills(remote, stream, ciphers, conn);
+        if (TouchesSkillPanel(shrine)) await SendSkills(conn);
         foreach (var effect in shrine.After) await effect.OnBuffApplied(ctx, shrine);
     }
 
@@ -366,7 +362,7 @@ public static class ShrineManager
     static async Task EndBuff(ClientState conn, ushort row, ActiveBuff buff)
     {
         bool removed = false;
-        await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, [], $"0x01c2 shrine buff {row} ends", atGate: () =>
+        await Send(conn, [], $"0x01c2 shrine buff {row} ends", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -382,7 +378,7 @@ public static class ShrineManager
             }
         });
         if (!removed || conn.Closed || conn.LeavingArea) return;
-        if (TouchesSkillPanel(buff.Shrine)) await SendSkills(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        if (TouchesSkillPanel(buff.Shrine)) await SendSkills(conn);
         var ctx = new ShrineContext(conn, conn.Clock.Elapsed.TotalSeconds);
         foreach (var effect in buff.Shrine.After) await effect.OnExpired(ctx, buff.Shrine);
     }
@@ -487,13 +483,12 @@ public static class ShrineManager
                     ApplyPlayerAilmentsLocked(conn, DamagePacket.Of(type, amount, amount), DamagePacket.Of(type, hit.Damage, hit.Damage),
                         false, hit.Blocked, conn.Clock.Elapsed.TotalSeconds, stats);
             }
-            var (remote, stream, ciphers) = conn.Wire;
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            await SendWorldRecord(conn, PlayerId,
                 InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "shrine spell hit");
-            await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            await SendPlayerEnergyShield(conn);
             if (hit.Mana != hit.ManaBefore)
-                await SendPlayerMana(remote, stream, ciphers, conn, "shrine spell mana");
-            if (conn.PlayerLife == 0) await PlayerDied(remote, stream, ciphers, conn, "death from shrine spell");
+                await SendPlayerMana(conn, "shrine spell mana");
+            if (conn.PlayerLife == 0) await PlayerDied(conn, "death from shrine spell");
         }
     }
 

@@ -499,8 +499,8 @@ public static partial class Game
         }
     }
 
-    public static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        bool replay = false) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+    public static Task SendOwnAuraChanges(ClientState conn,
+        bool replay = false) => SendWorldRecords(conn, PlayerId, () =>
         {
             lock (conn.Monsters)
                 return conn.Closed || conn.LeavingArea || conn.RageRetired
