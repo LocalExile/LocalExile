@@ -108,12 +108,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
-  box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage and Decay; other skills/scaling remain partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
-  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
 
 - Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with wave summoning and permyriad life loss
   on wave kills, King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
