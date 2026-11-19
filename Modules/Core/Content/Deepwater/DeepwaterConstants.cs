@@ -47,8 +47,10 @@ internal static class DeepwaterConstants
 
     /// <summary>Seconds outside the light before the player drowns (the wiki; the buff's own 5.0 s).</summary>
     public const double DrowningSeconds = 5;
-    /// <summary>The Drowning slow at its end (BuffTemplates 752: deepwater_drowning_action_speed_+%_maximum_value −50).</summary>
-    public const int DrowningMaximumSlow = 50;
+    /// <summary>The Drowning slow at its end. G: BuffTemplates 752 (deepwater_drowning_action_speed_+%_maximum_value) still
+    /// says −50 in 3.29.3, but the wiki says 3.29.0 hotfix 3 cut the slow by 33 %; a server-side hotfix leaves the client's
+    /// data as it was, so 50 × 2/3.</summary>
+    public const int DrowningMaximumSlow = 33;
     public const string ActionSpeedReduction = "action_speed_-%";
 
     /// <summary>QuestFlags 3550: the player who holds the lanterns (the client's placement gate <c>0x1416835e0</c>).</summary>
