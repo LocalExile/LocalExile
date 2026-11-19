@@ -132,22 +132,6 @@ public static partial class Game
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedFortification.TryRemove(old, out _);
     }
 
-    public static async Task RunFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
-    {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
-        RestoreFortification(conn);
-        while (PlayerUpdatesCurrent(conn, updates))
-        {
-            await updates.Schedule.Wait(PlayerUpdateRole.Fortification, 32, updates.Stop.Token);
-            if (!PlayerUpdatesCurrent(conn, updates)) break;
-            try
-            {
-                await SendFortification(remote, stream, ciphers, conn);
-            }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { break; }
-        }
-    }
-
     public static void RestoreFortification(ClientState conn)
     {
         lock (conn.Monsters)
@@ -156,8 +140,8 @@ public static partial class Game
                 FortificationOf(conn).Restore(entry.State, conn.Clock.Elapsed.TotalSeconds);
     }
 
-    // Construct buffs, stats and Actor records together inside the send gate from the current owner state.
-    // Polled every 32 ms: without Fortification shown and with nothing changed since the last presentation (every gain moves
+    // Construct buffs, stats and Actor records together inside the send gate from the current owner state. A stat
+    // presentation: without Fortification shown and with nothing changed since the last presentation (every gain moves
     // the revision) there is nothing to send, so the send gate and the Monsters lock are left alone.
     public static Task SendFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         FortificationOf(conn) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>

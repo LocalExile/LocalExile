@@ -14,7 +14,7 @@ static partial class Game
     /// (RunFlaskChargeRegen). Only ignites still present at consumption count. Under the Monsters lock.</summary>
     internal static void NoteCorpseConsumedLocked(ClientState conn, SpawnedMonster corpse)
     {
-        if (corpse.Ignites.IgnitedAt(ProjectileWorldTime(conn))) Interlocked.Increment(ref conn.IgnitedCorpsesConsumed);
+        if (corpse.Ignites.IgnitedAt(ProjectileWorldTime(conn))) { Interlocked.Increment(ref conn.IgnitedCorpsesConsumed); PresentStats(conn); }
     }
 
     /// <summary>The killing blow's corpse consumption: true when the corpse was consumed (the caller removes the corpse

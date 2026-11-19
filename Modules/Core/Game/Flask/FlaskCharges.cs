@@ -162,45 +162,29 @@ public static partial class Game
         GainFlaskCharges(remote, stream, ciphers, conn, (_, local) => local.GetValueOrDefault("local_flask_gain_X_charges_when_hit"), "hit");
 
     // "Flasks gain # charges every 3 seconds" (FlaskCharges.PerThreeSeconds: every flask, utility, life, life on low life,
-    // mana), every 3 s of game time (a pause holds it) while the connection is open.
-    public static async Task RunFlaskChargeRegen(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    // mana), every 3 s of the area's frames (a pause holds them) while the player's updates run.
+    static void StartFlaskChargeRegen(ClientState conn, PlayerUpdatesState updates) =>
+        EveryAsPlayer(conn, 3000, () => PlayerUpdatesCurrent(conn, updates), (remote, stream, ciphers, conn) =>
+        {
+            if (conn.PlayerLife == 0) return Task.CompletedTask;
+            var character = CharacterPlayerStats(conn);
+            int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+            bool lowLife = FlaskRecovery.LowLife(conn.PlayerLife, conn.PlayerMaxLife);
+            return GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t ? 0
+                : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(conn).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(conn).FlaskOf(t)?.ManaPerUse > 0,
+                    utility: ItemsFor(conn).UtilityFlaskOf(t) is not null, lowLife),
+                "every 3 seconds");
+        });
+
+    // Cinderswallow Urn: the ignited corpses consumed since the last time (NoteCorpseConsumedLocked marks it), as a stat
+    // presentation.
+    static async Task SendConsumedCorpseCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
-        double next = updates.Schedule.Now(conn) + 3;
-        try
-        {
-            while (PlayerUpdatesCurrent(conn, updates))
-            {
-                await updates.Schedule.Wait(PlayerUpdateRole.FlaskCharges, 250, updates.Stop.Token);
-                if (!PlayerUpdatesCurrent(conn, updates)) break;
-                if (conn.LeavingArea) { next = updates.Schedule.Now(conn) + 3; continue; }
-                await DrainFlaskTriggers(remote, stream, ciphers, conn);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                // Cinderswallow Urn: the ignited corpses consumed since the last step (NoteCorpseConsumedLocked).
-                if (Interlocked.Exchange(ref conn.IgnitedCorpsesConsumed, 0) is int corpses and > 0)
-                {
-                    Console.WriteLine($"[gateway] {remote} {corpses} ignited corpse(s) consumed: flask charges");
-                    await GainFlaskCharges(remote, stream, ciphers, conn,
-                        (_, local) => corpses * local.GetValueOrDefault("local_flask_gain_X_charges_on_consuming_ignited_corpse"),
-                        "consumed ignited corpse");
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                }
-                if (updates.Schedule.Now(conn) < next || conn.PlayerLife == 0) continue;
-                next += 3;
-                var character = CharacterPlayerStats(conn);
-                int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-                bool lowLife = FlaskRecovery.LowLife(conn.PlayerLife, conn.PlayerMaxLife);
-                await GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t ? 0
-                    : FlaskCharges.PerThreeSeconds(Get, life: ItemsFor(conn).FlaskOf(t)?.LifePerUse > 0, mana: ItemsFor(conn).FlaskOf(t)?.ManaPerUse > 0,
-                        utility: ItemsFor(conn).UtilityFlaskOf(t) is not null, lowLife),
-                    "every 3 seconds");
-            }
-        }
-        catch (OperationCanceledException) when (updates.Stop.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} flask charges every 3 s: {ServerLog.Describe(ex)}");
-        }
+        if (Interlocked.Exchange(ref conn.IgnitedCorpsesConsumed, 0) is not (int corpses and > 0)) return;
+        Console.WriteLine($"[gateway] {remote} {corpses} ignited corpse(s) consumed: flask charges");
+        await GainFlaskCharges(remote, stream, ciphers, conn,
+            (_, local) => corpses * local.GetValueOrDefault("local_flask_gain_X_charges_on_consuming_ignited_corpse"),
+            "consumed ignited corpse");
     }
 
     // A flask put on the flask bar in a hostile area has no charges (FlaskCharges.WhenEquipped).

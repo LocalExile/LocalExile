@@ -13,7 +13,8 @@ public static partial class Game
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
         SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
-        SendAttackerSlows, SendExpandedInventory, SendQuestItems,
+        SendAttackerSlows, SendExpandedInventory, SendQuestItems, SendRage, SendFortification, DrainFlaskTriggers,
+        SendConsumedCorpseCharges,
     ];
 
     // After the others, outside their batch: Spirit Chieftain's minion follows its published state.

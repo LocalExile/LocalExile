@@ -211,18 +211,4 @@ public static partial class Game
         }
         return Send(remote, stream, ciphers, [], null, atGate: () => RagePresentation(conn, prepared));
     }
-
-    public static async Task RunRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
-    {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
-        try
-        {
-            while (PlayerUpdatesCurrent(conn, updates))
-            {
-                await SendRage(remote, stream, ciphers, conn);
-                await updates.Schedule.Wait(PlayerUpdateRole.Rage, 250, updates.Stop.Token);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-    }
 }

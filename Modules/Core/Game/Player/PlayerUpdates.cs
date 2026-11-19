@@ -72,13 +72,12 @@ public static partial class Game
         {
             var (remote, stream, ciphers) = conn.Wire;
             StartContentTick(conn, state);
+            StartFlaskChargeRegen(conn, state);
+            RestoreFortification(conn);
             await Task.WhenAll(Drive(PlayerUpdateRole.Recovery, () => RunResourceRecovery(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.MonsterAi, () => RunMonsterAi(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.LivingCollisions, () => RunLivingCollisions(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.Charges, () => RunCharges(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Fortification, () => RunFortification(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Rage, () => RunRage(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.FlaskCharges, () => RunFlaskChargeRegen(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.FlaskGrounds, () => RunFlaskGrounds(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.Minions, () => RunPlayerMinions(remote, stream, ciphers, conn, state)),
                 Drive(PlayerUpdateRole.Footsteps, () => RunFootstepSkills(remote, stream, ciphers, conn, state)),

@@ -11,7 +11,10 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0)
+            {
                 Automation(conn).Enqueue(new(trigger, item, slot));
+                PresentStats(conn);
+            }
         }
     }
 
@@ -36,7 +39,7 @@ public static partial class Game
         finally { state.UseGate.Release(); }
     }
 
-    // Runs from the existing pause-aware flask ticker, outside combat/inventory locks. Each flask is used at most
+    // Runs as a stat presentation after a trigger was queued (QueueFlaskTrigger), outside combat/inventory locks. Each flask is used at most
     // once per event chain, preventing adjacent enchanted flasks from recursively emptying one another.
     public static async Task DrainFlaskTriggers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
