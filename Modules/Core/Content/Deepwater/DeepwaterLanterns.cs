@@ -116,9 +116,11 @@ internal static class DeepwaterLanterns
     }
 
     /// <summary>Why the server refuses a lantern at (x, y) asked for by this player, or null to place it: the sender holds
-    /// the lanterns (QuestFlags 3550), the run is still exploring and has lanterns left, the player is alive and in
-    /// light, the cell is walkable and within reach of the player, one lit lantern is at the placement range and none
-    /// is nearer than the light radius (the client's own snap rule, <c>0x141fc5800</c> and <c>0x141fc5d00</c>).</summary>
+    /// the lanterns (QuestFlags 3550), the run is still exploring and has lanterns left, the player is alive, the cell
+    /// is walkable and within reach of the player, one lit lantern is at the placement range and none is nearer than the
+    /// light radius (the client's own snap rule, <c>0x141fc5800</c> and <c>0x141fc5d00</c>). The client does not ask for
+    /// the player to stand in light, so neither does the server: a player who has just stepped into the dark may still
+    /// place one to save themselves.</summary>
     public static string? Refusal(ClientState conn, DeepwaterRun run, int x, int y)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -128,7 +130,6 @@ internal static class DeepwaterLanterns
         lock (run.Gate) if (run.Placed >= run.Total) return $"no lanterns left ({run.Placed}/{run.Total})";
         if (conn.PlayerLife == 0) return "dead";
         var at = conn.Walk.Position(now);
-        if (!run.InLight(at, now)) return $"the player at ({at.X}, {at.Y}) is not in light";
         if (conn.Layout.Walkable?.Invoke(x, y) == false) return "not walkable";
         long reach = PlayerReach + Slack;
         long pdx = x - at.X, pdy = y - at.Y;

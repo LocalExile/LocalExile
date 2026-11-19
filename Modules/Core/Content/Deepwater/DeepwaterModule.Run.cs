@@ -94,8 +94,9 @@ public sealed partial class DeepwaterModule
             case DeepwaterRuleset.Op.PlaceLantern:
                 if (DeepwaterLanterns.Refusal(conn, run, a.X, a.Y) is { } why)
                 {
-                    // Nothing is answered: the client's count changes only with mode 2.
+                    // The count is sent again so the client stays in step with the server (it changes only with mode 2).
                     module.Log($"{player.Character} <= 0x02ca DeepwaterRules PlaceLantern ({a.X}, {a.Y}) refused: {why}");
+                    await DeepwaterLanterns.SendCount(conn, run);
                     return true;
                 }
                 var lantern = DeepwaterLanterns.Add(conn, run, a.X, a.Y, counts: true);
