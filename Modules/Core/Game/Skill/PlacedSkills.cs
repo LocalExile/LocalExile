@@ -170,6 +170,12 @@ public static partial class Game
                 local: inputs.Attack ? MainHandLocalSources(conn) : null) };
     }
 
+    /// <summary>When in the throwing time the trap or mine leaves the hand: the class rig's throwfast clip for the held
+    /// weapon (its contact keyframe: 266 of 1000 ms for most, 200 for the Int rig, 333 of 1041 for StrDex).</summary>
+    public static double PlacedThrowContact(ClientState conn) => Animations.SkillAttackContact(
+        Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject,
+        AnimationWeaponProfileFor(conn), "throwfast")?.Contact ?? .266;
+
     static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
@@ -211,11 +217,12 @@ public static partial class Game
             }
         }, transport: (remote, stream, ciphers));
         double started = AreaTime(conn);
-        double release = started + seconds;
-        Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s");
-        // While the button is held the client starts its next throw when its own throw has finished, which can be before
-        // this wait ends. A throw replaced after at least half its time has left the hand, so it still lands; before that
-        // it was cancelled.
+        // The trap or mine leaves the hand at the throw clip's contact keyframe, not at the end of the throwing time:
+        // waiting the whole time, a single throw showed nothing for most of it (live 2026-11-19).
+        double contact = seconds * PlacedThrowContact(conn);
+        double release = started + contact;
+        Console.WriteLine($"[gateway] {(admission.Mine ? "mine" : "trap")} throw of skill 0x{admission.Skill:x4}: {seconds:0.000} s, leaves at {contact:0.000} s");
+        // A throw interrupted before that has not left the hand and is cancelled.
         bool replaced = false;
         while (true)
         {
@@ -224,7 +231,7 @@ public static partial class Game
                 if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission)) return false;
                 if (!current() || recovery != conn.ActionInterruptionGeneration)
                 {
-                    if (AreaTime(conn) - started < seconds / 2) return false;
+                    if (AreaTime(conn) - started < contact) return false;
                     replaced = true;
                     break;
                 }
