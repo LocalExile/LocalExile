@@ -116,7 +116,12 @@ public sealed partial class DeepwaterModule : IModule
         });
         // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons).
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, (conn, bytes) => RulesetAction(module, conn, bytes));
-        GameEvents.Tick.Add(id, (conn, _) => RunOf(conn) is { } run ? _light.Tick(module, conn, run) : Task.CompletedTask);
+        GameEvents.Tick.Add(id, async (conn, _) =>
+        {
+            if (RunOf(conn) is not { } run) return;
+            await _light.Tick(module, conn, run);
+            await DeepwaterCollapse.Tick(module, conn, run);
+        });
         GameEvents.PlayerLeaving.Add(id, (conn, _) =>
         {
             _light.Forget(conn);

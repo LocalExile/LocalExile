@@ -29,10 +29,19 @@ internal static class DeepwaterLanterns
     }
 
     /// <summary>Creates a lantern on this connection: the object (StateMachine <c>drop</c> = the animation for a new one,
-    /// 0 for one shown again; <c>dropped</c> = the animation either way, which goes straight to idle) with its light task,
-    /// then its anchor. False when the type is not written (its components or states are missing).</summary>
-    public static async Task<bool> Show(IModuleContext module, ClientState conn, DeepwaterRun.Lantern lantern, bool dropping)
+    /// 0 for one shown again; <c>dropped</c> = the animation either way, which goes straight to idle; its collapse states)
+    /// with its light task as it stands now (none once it went out), then its anchor. False when the type is not written
+    /// (its components or states are missing).</summary>
+    public static async Task<bool> Show(IModuleContext module, ClientState conn, DeepwaterRun run, DeepwaterRun.Lantern lantern, bool dropping)
     {
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        lantern = lantern.Restated(now);
+        bool shrinking, extinguished, collected;
+        lock (run.Gate)
+        {
+            var shrink = run.Shrinks.GetValueOrDefault(lantern.Id);
+            (shrinking, extinguished, collected) = (shrink?.Started == true, shrink?.Out == true, run.Flared.Contains(lantern.Id));
+        }
         var player = PlayerOf(conn);
         if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States.Value is not { } states
             || !QuestObject.CanSerialize(info.Components, true))
@@ -42,8 +51,9 @@ internal static class DeepwaterLanterns
         }
         var blob = new QuestObject(lantern.X, lantern.Y, info.Components, 0, null, info.Model)
         {
-            StateMachine = states.Set("drop", dropping ? lantern.Drop : 0).Set("dropped", lantern.Drop),
-            Tasks = [(DeepwaterConstants.LanternTask, lantern.TaskData())],
+            StateMachine = states.Set("drop", dropping ? lantern.Drop : 0).Set("dropped", lantern.Drop).Set("collected_resource", collected ? 1 : 0)
+                .Set("shrinking", shrinking ? 1 : 0).Set("extinguished", extinguished ? 1 : 0),
+            Tasks = extinguished ? [] : [(DeepwaterConstants.LanternTask, lantern.TaskData())],
         }.Blob();
         if (!await global::Game.SendWorldCreate(player, lantern.Id, InstanceEntities.CreateObject(lantern.Id, InstanceEntities.ObjectTypeHash(DeepwaterConstants.Lantern), blob),
             $"0x02bb Allflame lantern {lantern.Order} 0x{lantern.Id:x} at ({lantern.X}, {lantern.Y}), task (a {lantern.A}, {lantern.RateA}/s, b {lantern.B}, {lantern.RateB}/s)"))
@@ -57,15 +67,31 @@ internal static class DeepwaterLanterns
 
     /// <summary>The lantern's <c>collected_resource</c> = 1 (0x2bc to its StateMachine): its collection flare, the beam to
     /// the Sulphur it gathered.</summary>
-    public static async Task Flare(ClientState conn, DeepwaterRun.Lantern lantern)
+    public static Task Flare(ClientState conn, DeepwaterRun.Lantern lantern) =>
+        SendStates(conn, lantern, collected: true, shrinking: false, extinguished: false, "collected_resource = 1");
+
+    /// <summary>The lantern's StateMachine (0x2bc) with every state the server sets: the drop animation, the collection
+    /// flare and the collapse's <c>shrinking</c> (the flicker) and <c>extinguished</c>.</summary>
+    public static async Task SendStates(ClientState conn, DeepwaterRun.Lantern lantern, bool collected, bool shrinking, bool extinguished, string why)
     {
         if (QuestObjectTypes.Find(DeepwaterConstants.Lantern) is not { } info || States.Value is not { } states) return;
         int index = info.Components.ToList().IndexOf("StateMachine");
         if (index < 0) return;
-        var update = states.Set("drop", lantern.Drop).Set("dropped", lantern.Drop).Set("collected_resource", 1);
+        var update = states.Set("drop", lantern.Drop).Set("dropped", lantern.Drop).Set("collected_resource", collected ? 1 : 0)
+            .Set("shrinking", shrinking ? 1 : 0).Set("extinguished", extinguished ? 1 : 0);
         await global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.StateMachineUpdate(lantern.Id, (byte)index, update),
-            $"0x02bc Allflame lantern {lantern.Order} 0x{lantern.Id:x} collected_resource = 1");
+            $"0x02bc Allflame lantern {lantern.Order} 0x{lantern.Id:x} {why}");
     }
+
+    /// <summary>S→C 0x2c3: the lantern's light task restarts from its new data (a, rate_a, b, rate_b).</summary>
+    public static Task SendTask(ClientState conn, DeepwaterRun.Lantern lantern, string why) =>
+        global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.UpdateTask(lantern.Id, DeepwaterConstants.LanternTask, lantern.TaskData()),
+            $"0x02c3 Allflame lantern {lantern.Order} 0x{lantern.Id:x} task (a {lantern.A:0.###}, {lantern.RateA:0.###}/s, b {lantern.B:0.###}, {lantern.RateB:0.###}/s): {why}");
+
+    /// <summary>S→C 0x2c5: the lantern's light task ends (it went out).</summary>
+    public static Task RemoveTask(ClientState conn, DeepwaterRun.Lantern lantern) =>
+        global::Game.SendWorldRecord(PlayerOf(conn), lantern.Id, InstanceEntities.RemoveTask(lantern.Id, DeepwaterConstants.LanternTask),
+            $"0x02c5 Allflame lantern {lantern.Order} 0x{lantern.Id:x} task removed (extinguished)");
 
     public static async Task SendCount(ClientState conn, DeepwaterRun run)
     {

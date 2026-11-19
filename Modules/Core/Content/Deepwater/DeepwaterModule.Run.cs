@@ -55,7 +55,7 @@ public sealed partial class DeepwaterModule
             }
         }
         if (made) module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns");
-        foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, lantern, dropping: made);
+        foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
         await DeepwaterLoot.Show(conn, run);
         // The first lantern's light wakes the packs around the start and collects the Sulphur there.
@@ -96,7 +96,7 @@ public sealed partial class DeepwaterModule
                 int placed, total;
                 lock (run.Gate) (placed, total) = (run.Placed, run.Total);
                 module.Log($"{player.Character} <= 0x02ca DeepwaterRules PlaceLantern ({a.X}, {a.Y}): lantern {placed}/{total}");
-                await DeepwaterLanterns.Show(module, conn, lantern, dropping: true);
+                await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: true);
                 await DeepwaterLanterns.SendCount(conn, run);
                 await DeepwaterMonsters.Release(module, conn, run, lantern);
                 await DeepwaterLoot.Collect(module, conn, run, lantern);
@@ -105,11 +105,31 @@ public sealed partial class DeepwaterModule
                     var (remote, stream, ciphers) = conn.Wire;
                     await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.FirstLanternPlaced]);
                 }
+                // A Chart's last lantern: the lanterns collapse and its Bathysphere can be used (QuestFlags 3562).
+                if (!run.Voyage && placed >= total) await ChartCollapse(module, conn, run);
                 return true;
             default:
                 // Send to Surface (2) and Call Bathysphere (3) belong to the capsules and the extraction, not built yet.
                 module.Log($"{player.Character} <= 0x02ca DeepwaterRules {a.Op}: not built yet");
                 return true;
+        }
+    }
+
+    // The Chart's collapse: every lantern shrinks, the Bathysphere's own one (the first) only to the floor radius.
+    static async Task ChartCollapse(IModuleContext module, ClientState conn, DeepwaterRun run)
+    {
+        uint? first;
+        lock (run.Gate)
+        {
+            if (run.Phase != DeepwaterRun.RunPhase.Exploring) return;
+            run.Phase = DeepwaterRun.RunPhase.Collapsing;
+            first = run.Lanterns.FirstOrDefault(l => l.Order == 0)?.Id;
+        }
+        await DeepwaterCollapse.Start(module, conn, run, _ => true, first);
+        foreach (var member in DeepwaterLoot.Members(conn))
+        {
+            var (remote, stream, ciphers) = member.Wire;
+            await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract]);
         }
     }
 
@@ -146,6 +166,8 @@ public sealed partial class DeepwaterModule
             ["packs"] = PackState(run),
             ["loot"] = DeepwaterLoot.State(run),
             ["drowningLeft"] = _light.Drowning(conn, out double left) ? Math.Round(left, 2) : null,
+            ["collapse"] = run.CollapseState,
+            ["swarmPacks"] = run.SwarmPacks,
             ["lanterns"] = new JsonArray([.. run.Snapshot().Select(l => (JsonNode)new JsonObject
             {
                 ["id"] = l.Id, ["x"] = l.X, ["y"] = l.Y, ["radius"] = Math.Round(l.Radius(now), 1),

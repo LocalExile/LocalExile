@@ -99,7 +99,8 @@ internal static class DeepwaterLoot
     static QuestObjectTypes.Info? Info(string type) =>
         QuestObjectTypes.Find(type) is { } info && QuestObject.CanSerialize(info.Components, States.Value.GetValueOrDefault(type) is not null) ? info : null;
 
-    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
+    /// <summary>The players in this connection's instance (it first), as the run's messages go to each.</summary>
+    public static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
         .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
 
@@ -270,6 +271,7 @@ internal static class DeepwaterLoot
                 && Near((t.X, t.Y), (lantern.X, lantern.Y), DeepwaterConstants.BaseLanternRadius + 1))];
             if (due.Count == 0) return;
             foreach (var t in due) t.Done = true;
+            run.Flared.Add(lantern.Id);
             run.Sulphur += due.Sum(t => t.Sulphur);
             total = run.Sulphur;
         }

@@ -21,6 +21,21 @@ internal sealed class DeepwaterRun
             return b;
         }
 
+        /// <summary>The task's a and b at instance time <paramref name="now"/> (the client's countdown).</summary>
+        public (float A, float B) At(double now)
+        {
+            double t = Math.Max(0, now - SetAt);
+            return ((float)Math.Max(0, A - RateA * t), (float)Math.Max(0, B - RateB * t));
+        }
+
+        /// <summary>The same light restated at <paramref name="now"/>: what a lantern created now must carry to draw the
+        /// same circle.</summary>
+        public Lantern Restated(double now)
+        {
+            var (a, b) = At(now);
+            return this with { A = a, B = b, SetAt = now };
+        }
+
         /// <summary>The light radius at instance time <paramref name="now"/>, as the client draws it (<c>0x141ebe600</c>
         /// with the task's per-frame countdown <c>0x141642100</c>): a and b fall at their rates (b stops at 0), radius =
         /// lerp(10, BaseLanternRadius, clamp01(a)·(0.6 + 0.4·clamp01(b))); 0 once a reaches 0 (the task ends).</summary>
@@ -58,6 +73,25 @@ internal sealed class DeepwaterRun
     public int Sulphur { get; set; }
     public int SulphurCap { get; set; }
     public readonly Dictionary<string, int> GoldenLanterns = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The lanterns whose light collected Sulphur (their StateMachine keeps <c>collected_resource</c> = 1).</summary>
+    public readonly HashSet<uint> Flared = [];
+
+    /// <summary>A lantern's part in the collapse (DeepwaterCollapse): when it starts to shrink and at what rate, whether it
+    /// stops at the floor radius (the Bathysphere's own lantern in a Chart) and where it is now.</summary>
+    public sealed class Shrink
+    {
+        public required double Start { get; init; }
+        public required float Rate { get; init; }
+        public bool Floor { get; init; }
+        public bool Started, Held, Out;
+    }
+
+    /// <summary>The collapse: per lantern its shrink, the HUD's collapse state (0x2c9 mode 3) and the swarm's next pack.</summary>
+    public readonly Dictionary<uint, Shrink> Shrinks = [];
+    public byte CollapseState { get; set; }
+    public double NextSwarm { get; set; }
+    public int SwarmPacks { get; set; }
+
     public readonly object Gate = new();
 
     public Lantern[] Snapshot() { lock (Gate) return [.. Lanterns]; }

@@ -55,9 +55,7 @@ internal static class DeepwaterMonsters
         {
             int count = PacksPerRoom.Value.GetValueOrDefault(cell.Room);
             if (count <= 0 || cell.BiomeArea is not { } biome) continue;
-            var pool = (Packs.For(biome)?.Scattered ?? [])
-                .Where(p => MinLevels.Value.GetValueOrDefault(p.Pack.Row) <= run.Level && p.Pack.Entries.Any(e => Spawnable(e.Variety)))
-                .ToList();
+            var pool = Pool(biome, run.Level);
             if (pool.Count == 0) { notes.Add($"cell {cell.Index} {biome}: no packs"); continue; }
             var kinds = new List<string>();
             for (int i = 0; i < count; i++)
@@ -65,9 +63,7 @@ internal static class DeepwaterMonsters
                 if (Centre(layout, cell, start, centres, random) is not { } at) break;
                 centres.Add(at);
                 var kind = Pick(pool, random);
-                int roll = random.Next(100);
-                var rarity = roll < AreaPopulation.RareChance ? MonsterRarity.Rare
-                    : roll < AreaPopulation.RareChance + AreaPopulation.MagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
+                var rarity = Rarity(random);
                 var members = AreaPopulation.AtPacks([(kind, at.X, at.Y, rarity)], (x, y) => layout.WalkableFor(x, y, 1),
                     Spawnable, random.Next(), occupied: taken);
                 if (members.Count == 0) continue;
@@ -80,6 +76,18 @@ internal static class DeepwaterMonsters
         log($"Allflame monsters: {plan.Count} packs, {plan.Sum(p => p.Members.Count)} monsters planned at level {run.Level} (life +{LifeAt(run.Level)}% more); "
             + string.Join("; ", notes));
         return plan;
+    }
+
+    /// <summary>A biome's scattered packs whose MinLevel is at most the run's level and that have a monster the server
+    /// spawns, with their weights.</summary>
+    static List<(PackCatalog.Pack Pack, int Weight)> Pool(string biome, int level) => [.. (Packs.For(biome)?.Scattered ?? [])
+        .Where(p => MinLevels.Value.GetValueOrDefault(p.Pack.Row) <= level && p.Pack.Entries.Any(e => Spawnable(e.Variety)))];
+
+    static MonsterRarity Rarity(Random random)
+    {
+        int roll = random.Next(100);
+        return roll < AreaPopulation.RareChance ? MonsterRarity.Rare
+            : roll < AreaPopulation.RareChance + AreaPopulation.MagicChance ? MonsterRarity.Magic : MonsterRarity.Normal;
     }
 
     static PackCatalog.Pack Pick(List<(PackCatalog.Pack Pack, int Weight)> pool, Random random)
@@ -123,6 +131,15 @@ internal static class DeepwaterMonsters
             run.Planned.RemoveAll(due.Contains);
             run.ReleasedPacks += due.Count;
         }
+        int spawned = await Spawn(conn, run, due.SelectMany(p => p.Members));
+        lock (run.Gate) run.ReleasedMonsters += spawned;
+        module.Log($"{CharacterName(conn)}: lantern {lantern.Order} at ({lantern.X}, {lantern.Y}) woke {due.Count} packs, {spawned} monsters ("
+            + string.Join(", ", due.Select(p => $"{p.Kind.Id} cell {p.Cell} at ({p.X}, {p.Y})")) + ")");
+    }
+
+    // Spawns monsters at the run's level with its more life and the lantern stats (G that the real server set them so).
+    static async Task<int> Spawn(ClientState conn, DeepwaterRun run, IEnumerable<AreaPopulation.Spawn> members)
+    {
         byte level = (byte)Math.Clamp(run.Level, 1, MaxLevel);
         int life = LifeAt(level);
         var extraMods = life == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int> { [LevelMoreLife] = life }));
@@ -131,17 +148,44 @@ internal static class DeepwaterMonsters
             if (Stats.Key(stat) is uint key) extraStats.Add((key, 1));
         var (remote, stream, ciphers) = conn.Wire;
         int spawned = 0;
-        foreach (var pack in due)
-            foreach (var m in pack.Members)
-            {
-                if (conn.Closed || conn.LeavingArea) break;
-                if (Monsters.Find(m.Variety.ToString()) is not { Supported: true } variety) continue;
-                uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, m.Rarity, m.X, m.Y, log: false,
-                    alone: false, extraStats: extraStats, extraMods: extraMods, instanceOwned: true);
-                if (id != 0) spawned++;
-            }
-        lock (run.Gate) run.ReleasedMonsters += spawned;
-        module.Log($"{CharacterName(conn)}: lantern {lantern.Order} at ({lantern.X}, {lantern.Y}) woke {due.Count} packs, {spawned} monsters ("
-            + string.Join(", ", due.Select(p => $"{p.Kind.Id} cell {p.Cell} at ({p.X}, {p.Y})")) + ")");
+        foreach (var m in members)
+        {
+            if (conn.Closed || conn.LeavingArea) break;
+            if (Monsters.Find(m.Variety.ToString()) is not { Supported: true } variety) continue;
+            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, m.Rarity, m.X, m.Y, log: false,
+                alone: false, extraStats: extraStats, extraMods: extraMods, instanceOwned: true);
+            if (id != 0) spawned++;
+        }
+        return spawned;
+    }
+
+    // G: the swarm's ring around the player.
+    const int SwarmNear = 40, SwarmFar = 70;
+
+    /// <summary>One swarm pack of the collapse (G: the wiki's "enemies swarm" with no numbers): a pack of the biome of the
+    /// player's cell, 40-70 cells from the player on walkable ground, spawned as the lit packs are. The real server
+    /// marked these <c>wave_monster</c> (their water-skin entrance and despawn timer), which is not built: they stay
+    /// behind as ordinary monsters. Returns the monsters spawned.</summary>
+    public static async Task<int> Swarm(IModuleContext module, ClientState conn, DeepwaterRun run)
+    {
+        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        if ((run.Board.CellAt(at) ?? run.Board.Cells[0]).BiomeArea is not { } biome) return 0;
+        var pool = Pool(biome, run.Level);
+        if (pool.Count == 0) return 0;
+        var layout = conn.Layout;
+        var random = Random.Shared;
+        for (int t = 0; t < Tries; t++)
+        {
+            double angle = random.NextDouble() * Math.Tau, distance = random.Next(SwarmNear, SwarmFar + 1);
+            int x = at.X + (int)Math.Round(Math.Cos(angle) * distance), y = at.Y + (int)Math.Round(Math.Sin(angle) * distance);
+            if (!layout.WalkableFor(x, y, Clearance) || run.Board.OnDeck((x, y))) continue;
+            var kind = Pick(pool, random);
+            var members = AreaPopulation.AtPacks([(kind, x, y, Rarity(random))], (px, py) => layout.WalkableFor(px, py, 1), Spawnable, random.Next());
+            if (members.Count == 0) continue;
+            int spawned = await Spawn(conn, run, members);
+            module.Log($"{CharacterName(conn)}: Allflame swarm {kind.Id} ({spawned} monsters) at ({x}, {y}), {distance:0} cells from ({at.X}, {at.Y})");
+            return spawned;
+        }
+        return 0;
     }
 }
