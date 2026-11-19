@@ -1818,6 +1818,9 @@ public static partial class Game
             return ScheduleLeapSlam(remote, stream, ciphers, conn, skillId, gem, leap, criticalRoll,
                 sequence, fistMore, fistRadius);
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
+        if (SkillsFor(conn).EffectId(gem.Effect) == "IceNovaAltX")
+            return CastFrostboltNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
+                criticalRoll, sacrifice, supported.Stats, spellRepeats, seals, reoccurrenceMore);
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
         // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
@@ -2072,7 +2075,7 @@ public static partial class Game
     // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
     // targeted location instead of around you"; the client's 0x2a6e).
     public static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
-        !SkillsFor(conn).IsSelfTargeted(effect) || SkillsFor(conn).IsNova(effect)
+        !SkillsFor(conn).IsSelfTargeted(effect) && SkillsFor(conn).EffectId(effect) != "IceNovaAltX" || SkillsFor(conn).IsNova(effect)
             && Stats.Key("nova_spells_cast_at_target_location") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
             ? to : from;
 
@@ -2106,11 +2109,11 @@ public static partial class Game
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0,
-        HolySweepHammers.Settings? hammer = null, bool finalSpellRepeat = false) =>
+        HolySweepHammers.Settings? hammer = null, bool finalSpellRepeat = false, double? novaStartedAt = null) =>
         AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, finalSpellRepeat);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, finalSpellRepeat, novaStartedAt);
 
     private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2120,7 +2123,7 @@ public static partial class Game
         double radiusMore, SacrificeUse? sacrifice, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
         uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos,
-        HolySweepHammers.Settings? hammer, bool finalSpellRepeat)
+        HolySweepHammers.Settings? hammer, bool finalSpellRepeat, double? novaStartedAt = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -2210,7 +2213,7 @@ public static partial class Game
         // around the caster.
         var centre = IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam" ? from
-            : spell ? SpellCentre(conn, gem.Effect, from, to)
+            : novaStartedAt is not null ? to : spell ? SpellCentre(conn, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
@@ -2264,12 +2267,12 @@ public static partial class Game
         var splashMore = new Dictionary<uint, double>();
         // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
         // (GroundSlamWave); a channel's sweep lands at once.
-        bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
+        bool ring = novaStartedAt is not null || !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
         int epoch = conn.ProjectileEpoch;
-        using (ProjectileMutation(conn, advance: scheduledSession is null))
+        using (ProjectileMutation(conn, advance: scheduledSession is null && novaStartedAt is null))
         {
             double now = ProjectileWorldTime(conn);
             if (!Current() || !sacrifice.Current) return;
@@ -2298,7 +2301,7 @@ public static partial class Game
                 reach = wave || fissure
                     ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
                     : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
-                sweepStart = conn.Clock.Elapsed.TotalSeconds;
+                sweepStart = novaStartedAt ?? conn.Clock.Elapsed.TotalSeconds;
             }
             if (fissure)
                 ScheduleFissureEruption(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, gem, from, end,
@@ -2333,6 +2336,9 @@ public static partial class Game
                     }
             }
         }
+        // A projectile-scheduled nova fixes its victims at ring start, before a later simulation event can add
+        // or replace one. Damage and socket output resume outside the flight simulator.
+        if (novaStartedAt is not null) await Task.Yield();
         if (sacrificedLife)
             await Send(remote, stream, ciphers, [], null, atGate: sacrifice.LifePacket);
         // One simultaneous sweep, independent of notification latency. A holy hammer's hits are melee area hits that can
@@ -2370,7 +2376,7 @@ public static partial class Game
                 // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
                 // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
                 if ((ring || wave || fissure) && victim < reach.Length && reach[victim] > 0
-                    && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch))
+                    && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch, novaStartedAt is not null))
 
                 {
                     if (wave) Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the wave was retired "
@@ -2780,14 +2786,17 @@ public static partial class Game
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
-    public static async Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch)
+    public static Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch) =>
+        WaitProjectileTime(conn, until, epoch, false);
+
+    static async Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch, bool simulationTime)
     {
         while (true)
         {
             lock (conn.Monsters)
             {
                 if (!conn.ProjectileActive(epoch) || conn.RageRetired) return false;
-                if (!conn.Paused && conn.Clock.Elapsed.TotalSeconds >= until) return true;
+                if (!conn.Paused && (simulationTime ? ProjectileWorldTime(conn) : conn.Clock.Elapsed.TotalSeconds) >= until) return true;
             }
             await Task.Delay(16);
         }

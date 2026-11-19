@@ -29,7 +29,7 @@ public sealed class SpellEchoTests
     // Level-one Spell Echo grants one repeat and 40% more cast speed to each linked active gem.
     [Theory]
     [InlineData(536, "Fireball")]
-    [InlineData(500, "Ice Nova", "Ice Nova of Deep Freeze")]
+    [InlineData(500, "Ice Nova", "Ice Nova of Deep Freeze", "Ice Nova of Frostbolts")]
     public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(int castMs, params string[] gemNames)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-spell-echo-{Guid.NewGuid():N}.db");
@@ -45,13 +45,13 @@ public sealed class SpellEchoTests
         };
         try
         {
-            var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
+            var weapon = ItemCatalog.Create(Program.Items.Find(gemNames.Length > 2 ? "Gnarled Branch" : "Driftwood Wand")!);
             var sockets = gemNames.Append("Spell Echo Support").Select(name =>
             {
                 var gem = Program.Items.FindGem(name)!.Value;
                 return new ItemSocket(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index });
             }).ToArray();
-            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand with { Sockets = sockets, Links = [(byte)sockets.Length] });
+            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon with { Sockets = sockets, Links = [(byte)sockets.Length] });
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
                 "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
             conn.LockstepClient = true;
@@ -60,6 +60,8 @@ public sealed class SpellEchoTests
             {
                 var skill = active.Single(g => g.Name == name);
                 Assert.Equal(1, Game.SpellRepeats(conn, skill.Id, skill.Effect));
+                uint repeatStat = Program.Stats.Key("spell_repeat_count")!.Value;
+                Assert.Equal(1, Game.PlayerSkills(conn).Single(s => s.Id == skill.Id).Stats!.Single(s => s.Key == repeatStat).Value);
                 Assert.Equal(castMs, Game.CastMs(conn, skill.Effect, skill.Id)); // 750 and 700 ms at 40% more
                 Assert.Equal(name == "Fireball" ? 1.5 / 1.4 : 1.0,
                     Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
@@ -70,6 +72,15 @@ public sealed class SpellEchoTests
                     conn.LockstepBusyUntil = 0;
                     Game.HoldLockstepSkill(conn, 0x8001, 10, 10.033);
                     Assert.Equal(10 + Game.LockstepActionHold(conn, skill.Id, 0x8001), conn.LockstepBusyUntil, 6);
+                    if (name == "Ice Nova of Frostbolts")
+                    {
+                        conn.LockstepSequence = 1;
+                        Game.ReleaseFrostboltNovaRepeats(conn, 0x8002, 1, 0);
+                        Assert.Equal(11, conn.LockstepBusyUntil);
+                        Game.ReleaseFrostboltNovaRepeats(conn, 0x8001, 1, 0);
+                        Assert.Equal(10.5, conn.LockstepBusyUntil, 6);
+                        Assert.Equal(.5, conn.LockstepCastWindow!.Value.Duration, 6);
+                    }
                     if (name == "Fireball")
                     {
                         Assert.NotNull(conn.LockstepCastWindow);

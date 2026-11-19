@@ -113,7 +113,8 @@ Nothing yet.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats supported releases and area hits, including ordinary Ice Nova rings, a cast time apart
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
-  Ice Nova of Deep Freeze also repeats its caster-centred ring on the server.
+  Ice Nova of Deep Freeze also repeats its caster-centred ring on the server. Ice Nova of Frostbolts repeats around the
+  caster when no bolt is in range. Selected Frostbolts carry the extra rings and the caster finishes one animation.
   Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
   Greater Spell Echo scales repeated area and projectile hits, including Dark Bargain's damage and blast radius.
   Storm Call sends each lightning impact at the radius of its strike.

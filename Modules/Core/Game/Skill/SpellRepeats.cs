@@ -9,7 +9,7 @@ public static partial class Game
     // Ice Nova and Deep Freeze repeat the caster-centred ring. The Frostbolts variant can expand from projectiles.
     public static int SpellRepeats(ClientState conn, int effect, Func<string, int> get) =>
         !SkillsFor(conn).IsSpell(effect) || SkillsFor(conn).IsAttack(effect) || Supports.Of(effect)?.Types.Contains(47) == true
-            || SkillsFor(conn).ActionHash(effect) == IceNovaRing.Action && SkillsFor(conn).EffectId(effect) is not ("IceNova" or "IceNovaHardMode" or "IceNovaAltY")
+            || SkillsFor(conn).ActionHash(effect) == IceNovaRing.Action && SkillsFor(conn).EffectId(effect) is not ("IceNova" or "IceNovaHardMode" or "IceNovaAltX" or "IceNovaAltY")
             || get("disable_skill_repeats") != 0 ? 0
             : Math.Max(0, get("base_spell_repeat_count") + get("skill_repeat_count")
                 + (get("skill_is_mined") != 0 ? get("skill_repeat_count_if_mined") : 0));

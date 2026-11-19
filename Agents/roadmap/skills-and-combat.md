@@ -27,7 +27,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
 - Verify the native repeat of Ice Nova of Deep Freeze.
-- Ice Nova of Frostbolts needs a caster-centred cast without nearby Frostbolts and repeated rings from the selected bolts.
+- Verify Ice Nova of Frostbolts live at the 100-cell targeting boundary and follow its rings on two moving Frostbolts.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats

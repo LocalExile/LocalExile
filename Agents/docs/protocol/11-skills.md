@@ -1445,7 +1445,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   distance and waits for each (`IceNovaRing`); once released, the ring no longer depends on the player's action.
   Ordinary Ice Nova with level-one Spell Echo starts one ring per animation replay. Three 3.29.3c casts
   had two ring starts apiece, 542–546 ms apart, with the remaining repeat count falling from one to zero.
-  None incremented the internal ring counter. Frostbolt casting remains unverified.
+  None incremented the internal ring counter. On 3.29.3c, the IceNova release (`0x141c02310`) selects the closest
+  owned FrostBolt actions within 100 grid cells of the target, up to `ice_nova_number_of_frost_bolts_to_cast_on`.
+  It starts them 100 ms apart and clears the cast replay counter. At each ring start (`0x141c02940`) it resolves the
+  same projectile's current cell. After a ring finishes, its next expansion starts 300 ms later (`0x141c02d48`).
+  These expansions use the gem's damage when cast on Frostbolt. Ordinary repeats apply to the caster-centred cast.
 - **Cast speed (#192).** Genuine Spell/non-Attack skills keep the catalog milliseconds in both
   `base_spell_cast_time_ms` and `virtual_base_spell_cast_time_ms`. The native spell action already divides that
   virtual base by `1 + cast_speed_+% / 100`; pre-dividing it on the server applied cast speed twice.
@@ -1732,8 +1736,9 @@ the client drew it around the player. The client's own
 action does the same: for a self-targeted skill (target types 4 and 10) it replaces the aimed point with the caster
 unless `virtual_self_targeted_skills_target_location_instead` (0x2a6e) or `virtual_nova_spells_cast_at_marked_target`
 (0x5361) is set (`FUN_1419439e0`).
-Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed, and so do
-Novas without a self target (Dark Pact, Ice Nova of Frostbolts).
+Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed.
+Dark Pact also accepts a ground target to find skeletons. Ice Nova of Frostbolts uses the aimed point to select projectiles
+and falls back to the caster when none qualify.
 0x2a6e is `casting_spell` AND `skill_is_nova_skill` (0x2a6c) AND the caster's `nova_spells_cast_at_target_location`
 (0x2a6d) (`FUN_14289d210`, registered by `FUN_1400dc6c0`), and the skill input handler `FUN_140121a30` reads it for the
 skill it builds a use for.

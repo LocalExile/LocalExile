@@ -375,6 +375,9 @@ public static partial class Game
 
     static GameServer.Core.World.LockstepCastWindow? LockstepSpellMoveWindow(ClientState conn, ushort skill, int effect, double start, double duration)
     {
+        // Keep the full animation hold until the cast contact decides whether the projectiles take its repeats.
+        if (SkillsFor(conn).EffectId(effect) == "IceNovaAltX" && duration > 0)
+            return new(start, duration, null, duration, IceNovaRing.Action);
         // These projectile actions share the clip gate (0x141942b50). Ordinary repeats allow its early window only
         // on the first cast and its late window only on the final cast (0x1419e6460).
         if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "FreezingPulse") || duration <= 0) return null;
@@ -394,6 +397,17 @@ public static partial class Game
             LateFrom = duration - cast.Duration + cast.LateFrom,
             ActionHash = SkillsFor(conn).ActionHash(effect),
         } : null;
+    }
+
+    // Once Frostbolts take the repeats, the caster finishes the current animation. Keep its original frame anchor.
+    internal static void ReleaseFrostboltNovaRepeats(ClientState conn, ushort sequence, int repeats, int repeat)
+    {
+        if (repeat == repeats || !conn.LockstepClient || sequence != (0x8000 | conn.LockstepSequence)
+            || conn.LockstepCastWindow is not { ActionHash: IceNovaRing.Action } window
+            || conn.LockstepBusyUntil != window.Start + window.Duration) return;
+        double duration = window.Duration * (repeat + 1) / (repeats + 1);
+        conn.LockstepBusyUntil = window.Start + duration;
+        conn.LockstepCastWindow = window with { Duration = duration, LateFrom = duration };
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).
