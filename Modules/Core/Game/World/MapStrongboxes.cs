@@ -70,9 +70,6 @@ public static partial class MapStrongboxes
             || !StrongboxCatalog.All.Any(t => StrongboxCatalog.Weight(t, opening.Area.Level, LeagueFor(request.Conn).HardMode, opening.Mods) > 0)) return;
         request.HandledContent.UnionWith([Content, Reopen, Discernment, Containment, Potency]);
         MapScarabPacks.RollFragmentCount(request, CountStat, Random.Shared);
-        if (opening.Mods.Get(CountStat) > 0)
-            request.ContentWarnings.Add(("Ambush.Affixes",
-                $"area={opening.Area.Id} content=Ambush: display-only box mods (the trap, spell and curse daemons, skeletons, revives, monster streams, rogue exiles) remain unsupported"));
     }
 
     /// <summary>The area level: the map's, else the campaign area's.</summary>
