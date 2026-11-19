@@ -9,9 +9,10 @@ public static class UnloadCollector
     // each layer takes two rounds (a finalizer frees its loader allocator in one, the next collects the context). Live,
     // with a player in game and nothing holding a module, a reload of the game module left 24, 9, 9, 2, 2 and 0 alive
     // after rounds 1 to 6, the game module last. How deep the layers go depends on what the modules use of each other, so
-    // a pass goes on for as long as its rounds free something: it stops after IdleRounds in a row that freed nothing
-    // (what is left then is held), and after MaxRounds at the latest.
-    const int MaxRounds = 12, IdleRounds = 3;
+    // a pass goes on for as long as its rounds free something. A stat provider used in live combat also needed four
+    // rounds: both contexts survived the first three, then both were freed in the fourth. Allow that minimum before
+    // stopping after IdleRounds without progress; MaxRounds still bounds a pass for contexts that remain held.
+    const int MaxRounds = 12, MinRounds = 4, IdleRounds = 3;
     static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan BetweenRounds = TimeSpan.FromMilliseconds(500);
 
@@ -59,7 +60,8 @@ public static class UnloadCollector
         try
         {
             int rounds = 0;
-            for (int alive = batch.Count, idle = 0; rounds < MaxRounds && alive > 0 && idle < IdleRounds; rounds++)
+            for (int alive = batch.Count, idle = 0; rounds < MaxRounds && alive > 0
+                && (rounds < MinRounds || idle < IdleRounds); rounds++)
             {
                 if (rounds > 0) await Task.Delay(BetweenRounds);
                 GC.Collect();
