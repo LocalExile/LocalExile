@@ -291,6 +291,13 @@ internal static class DeepwaterExtraction
         if (why is not null)
         {
             module.Log($"{player.Character} <= 0x02ca DeepwaterRules SendItemsToSurface refused: {why}");
+            // The client closed its window after sending op 2; the server's window state follows. G: the entry capsule's
+            // refusal gets a chat line (the real server's answer is unknown), as its items stay in 113 out of sight and
+            // block Call Bathysphere until taken out.
+            if (capsule is not null) await CloseWindow(conn, run);
+            if (capsule is { Entry: true })
+                await player.Send(InstanceChat.ChatLine("This capsule can only call the Bathysphere. Take the items out of it first."),
+                    "0x0017 chat line: the entry capsule cannot send to the surface (G)");
             return [];
         }
         var moved = new List<InventoryItem>();
@@ -405,7 +412,9 @@ internal static class DeepwaterExtraction
     /// <summary>The capsule window pauses a lone player's game (C→S 0x1d4 1 as it opens) and a lockstep world record waits
     /// for the client's frames, so a button's world changes (the capsule taking off, the Bathysphere) go out after the
     /// window closes and the game runs again, off the message loop that has to read the client's 0x1d4 0 (L: sending
-    /// them from the handler hung the connection).</summary>
+    /// them from the handler hung the connection). A caller who leaves before the pause ends skips the body for everyone:
+    /// leaving fails the run for all its players (GameEvents.PlayerLeaving, <see cref="Fail"/>), and the per-tick work
+    /// stops at the ended run, so nothing is left half done.</summary>
     static void AfterWindow(IModuleContext module, ClientState conn, string what, Func<Task> body)
     {
         var instance = conn.Instance;
