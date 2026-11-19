@@ -1188,8 +1188,10 @@ public static partial class Game
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
         if (cooldownUse?.Attack is { } admittedAttack
             && (admittedAttack.Skill != skillId || cooldownUse.Effect != gem.Effect)) return false;
+        // A trapped or mined attack is a throw: it neither waits for the weapon's attack time nor reserves it.
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
-            && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
+            && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect)
+            && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false })
         {
             double duration = SupportedAttackSeconds(conn, skillId, sequence);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
