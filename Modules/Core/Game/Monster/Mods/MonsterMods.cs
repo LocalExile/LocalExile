@@ -50,10 +50,13 @@ public static partial class Game
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
-        out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false)
+        out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
+        int additionalCritical = 0)
     {
         var e = m.Effects;
-        critical = !cannotCrit && e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
+        // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
+        int chance = e.CriticalChance + additionalCritical;
+        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
@@ -84,6 +87,7 @@ public static partial class Game
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
+                + ScorchedResistance(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
             Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
@@ -200,14 +204,20 @@ public static partial class Game
     {
         if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
+        double increasedTaken = type switch
+        {
+            DamageType.Physical => (double)m.Effects["physical_damage_taken_+%"] + MaimedPhysicalTaken(m, now),
+            DamageType.Fire => m.Effects["fire_damage_taken_+%"],
+            DamageType.Cold => m.Effects["cold_damage_taken_+%"],
+            DamageType.Lightning => m.Effects["lightning_damage_taken_+%"],
+            _ => 0,
+        };
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
-            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
-                chaos: type == DamageType.Chaos);
-        // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
-        // all apply to the physical part only.
+            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+        // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
-            factor *= (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + MaimedPhysicalTaken(m, now) / 100.0)
-                * (1 + m.Effects["physical_damage_taken_+%"] / 100.0);
+            factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
         return factor;
     }
 

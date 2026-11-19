@@ -23,6 +23,12 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
             + (spell && finalRepeat ? skill("spell_echo_plus_chance_double_damage_%_final") : 0),
     };
 
+    /// <summary>"Attacks with this Weapon deal Double Damage" (Paradoxica's weapon-local local_double_damage_with_attacks):
+    /// every hit of an attack made with that weapon doubles. <paramref name="weaponLocal"/> holds the local stats of the
+    /// hand that made the hit (null for a spell or a shield's swing), so the other hand's weapon never doubles it.</summary>
+    public GamblerModifiers ForWeapon(IReadOnlyDictionary<string, int>? weaponLocal) =>
+        weaponLocal?.GetValueOrDefault("local_double_damage_with_attacks") is > 0 ? this with { DoubleDamageChance = 100 } : this;
+
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>
     public bool InvertsResistance(Random random) => RandomRolls.Chance(InvertElementalResistanceChance, 100, random);
     public bool UsesNinetyResistance(Random random) => RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);

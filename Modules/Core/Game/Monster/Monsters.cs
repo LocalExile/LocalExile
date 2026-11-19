@@ -594,8 +594,21 @@ public static partial class Game
         var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
         // Any other room of a generated layout places its pack points the same way: the rooms the layout gives a magic
         // or rare pack of their own (The Chamber of Innocence: twelve magic packs).
+        // A sub-area an ExtraTerrainFeatures row adds is that row's world area; the map's population stays out (the
+        // Sacred Grove beside a map: ServerLevels.Level.FeatureAreas).
+        var featureAreas = layout.Level?.FeatureAreas ?? [];
+        bool InFeatureArea(int x, int y)
+        {
+            for (int i = 0; i < featureAreas.Count; i++)
+            {
+                var a = featureAreas[i];
+                if (x >= a.X0 && y >= a.Y0 && x < a.X1 && y < a.Y1) return true;
+            }
+            return false;
+        }
         var layoutPacks = (layout.Level?.PackRooms ?? [])
-            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase))).SelectMany(r => r.Points);
+            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase)))
+            .SelectMany(r => r.Points).Where(p => !InFeatureArea(p.X, p.Y));
         var trapClear = new HashSet<(int X, int Y)>();
         // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
         var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
@@ -627,6 +640,8 @@ public static partial class Game
         }
         var mapMods = MapModsOf(conn);
         var scale = mapMods?.Packs ?? default;
+        Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
+            : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
         Phase("shrines, traps, later forms");
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
@@ -634,7 +649,7 @@ public static partial class Game
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
-            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
+            scatterable: scatterable,
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
@@ -1547,13 +1562,17 @@ public static partial class Game
         return Math.Min(now, frame.Start);
     }
 
+    // The record belongs to the acting monster unless the caller names another published object: a Rampage weapon's
+    // hit answers with the weapon's own life (RampageIncoming), and the action's generation still gates that answer.
     public static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null,
+        uint? recordId = null)
     {
+        uint record = recordId ?? id;
         while (MonsterActionCurrent(conn, id, m, action))
         {
             bool checkedAtGate = false, sent = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, record, [], log, atGate: () =>
             {
                 // The projectile runtime first, as in the AI pass: a lockstep order places its walk here, and a contact
                 // still pending before that would read the new walk's cells as the old walk's.
@@ -1564,7 +1583,7 @@ public static partial class Game
                     var bytes = packet();
                     sent = bytes is not null;
                     // The others in the instance see it too (SharedMonsters.cs).
-                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
+                    if (bytes is not null) BroadcastMonsterMessage(conn, record, bytes);
                     return bytes;
                 }
             });
@@ -1740,6 +1759,7 @@ public static partial class Game
         if (conn.PlayerLife == 0 || conn.PlayerLife >= lifeCap
             || Stats.Key("missing_unreserved_life_%_gained_as_life_before_hit") is not uint key
             || stats.GetValueOrDefault(key) is not (> 0 and var pct)) return;
+        if (LifeRecovery.NonLeechBlocked(name => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0)) return;
         var leech = LeechOf(conn);
         conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife,
             (lifeCap - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
@@ -2028,6 +2048,7 @@ public static partial class Game
         int baseAccuracy = m.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
         int monsterAccuracy = MonsterBlindRating(conn, id, m, baseAccuracy, now, stats);
         int evasion = TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn, stats).Less);
+        evasion = EvasionKeystones.Rating(evasion, a.Projectile is not null, !a.Ranged && !a.Spell, StatOf);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
         if (!a.Spell && EvadesLocked(conn, hitChance, now))
         {
@@ -2049,14 +2070,14 @@ public static partial class Game
         rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out bool monsterCritical,
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             () => SelfCriticalReduction(conn) - EnemyAuraStatLocked(conn, m, here, now, "base_critical_strike_multiplier_+"),
-            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a));   // its crit, Executioner's
+            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a), additionalCritical: PlayerBrittleCriticalChance(conn, now));   // its crit, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(conn, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
-        // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
-        double lessened = m.Ailments.ChillDamageDealtFactor(now);
+        // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
+        double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
@@ -2144,16 +2165,18 @@ public static partial class Game
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
+        AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
+            new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
-        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage);
+        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
-            m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
-        AilmentsWhenHitLocked(m, StatOf, blocked, now);
+            InflictedLocked(conn, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
+        AilmentsWhenHitLocked(conn, m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
         if (conn.PlayerLife == 0) { DamageTriggers.Remove(conn); conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
@@ -2166,7 +2189,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={conn.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
         if (recovery is not null && StatOf("damage_taken_%_recovered_as_life_from_stunning_hits") is > 0 and var recoverPct
-            && StatOf("cannot_recover_life") == 0)
+            && !LifeRecovery.NonLeechBlocked(StatOf))
         {
             double carry = 0;
             conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife, (long)damage * recoverPct / 100, ref carry);

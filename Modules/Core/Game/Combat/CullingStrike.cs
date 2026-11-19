@@ -72,8 +72,8 @@ public static partial class Game
             || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;
         m.Life = hit.Life;
         hit = TakeOwnerDamageLocked(conn, m, (int)hit.Life, rampageSource, player);
-        bool cannotRecoverLife = cullStats is not null && Stats.Key("cannot_recover_life") is uint ck
-            && cullStats.GetValueOrDefault(ck) != 0;
+        bool cannotRecoverLife = cullStats is not null && LifeRecovery.NonLeechBlocked(
+            name => Stats.Key(name) is uint k ? cullStats.GetValueOrDefault(k) : 0);
         if (!cannotRecoverLife && hit.Life == 0 && cull.RecoverLifePct > 0 && conn.PlayerLife > 0)
         {
             // Instant recovery, sent with the next vitals update like instant leech.

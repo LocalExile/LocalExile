@@ -299,7 +299,7 @@ static class Gate
     {
         var queue = new ConcurrentQueue<string>(tasks);
         var results = new ConcurrentDictionary<string, Result>();
-        string dll = Path.Combine(AppContext.BaseDirectory, "levelgen.dll");
+        string dll = typeof(Gate).Assembly.Location;
         int done = 0;
         var threads = Enumerable.Range(0, Math.Min(jobs, Math.Max(1, tasks.Count))).Select(_ => new Thread(() =>
         {

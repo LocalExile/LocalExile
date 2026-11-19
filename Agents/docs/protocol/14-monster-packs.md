@@ -328,6 +328,10 @@ monster at its base × (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Co
 cells/s, a normal one every 0.125–0.133 s; the server walks it at the same speed), `actor_scale_+%` and
 `life_regeneration_rate_per_minute_%`.
 
+**A change while it lives.** S→C 0x2bc to component 2 with the same ObjectMagicProperties data as the create (and its
+trailing `u8`) redraws a living monster's name plate: a monster a Tormented Spirit touched showed "Rogue's Touch" under
+its name (live 2026-11-18). Its stats still come only from the server (0x1b3).
+
 **Effects** (`MonsterModEffects`, summed per stat over all its mods):
 
 | Stats | Effect |

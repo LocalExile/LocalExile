@@ -115,7 +115,10 @@ public static partial class Game
                 if (m.Effects["cannot_be_poisoned"] != 0) continue;
                 int avoid = m.Effects["avoid_poison_%"];
                 if (avoid > 0 && RandomRolls.Chance(avoid, 100, Random.Shared)) continue;
-                if (m.Poisons.Add(now, dps, seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]))) spread++;
+                double lasts = seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]);
+                if (!m.Poisons.Add(now, dps, lasts)) continue;
+                InflictedLocked(conn, m, AilmentType.Poison, now + lasts);
+                spread++;
             }
             if (spread > 0) ReservationPoisonLocked(conn, now);
             if (regenerates)

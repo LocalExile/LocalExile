@@ -187,6 +187,11 @@ public sealed class MonsterElementalAilments
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
+        // Elemental Overload: ailments never count as being from critical strikes. Perfect Agony: non-critical strikes
+        // cannot inflict ailments, damaging or not; with Elemental Overload every hit counts as non-critical, so the two
+        // together stop hits inflicting any ailment (poewiki /wiki/Perfect_Agony).
+        if (attacker("keystone_elemental_overload") != 0) critical = false;
+        if (attacker("keystone_ailment_crit") != 0 && !critical) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
         double chilling = Inflicting("chill", DamageType.Cold, damage, attacker, critical);
         double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker, critical);
@@ -254,7 +259,44 @@ public sealed class MonsterElementalAilments
     public static bool CannotInflict(string ailment, Func<string, int> attacker) =>
         attacker("cannot_inflict_status_ailments") != 0 || attacker("never_ignite_chill_freeze_shock") != 0
         || attacker($"never_{ailment}") != 0
-        || ailment is "chill" or "freeze" && attacker("never_freeze_or_chill") != 0;
+        || ailment is "chill" or "freeze" && attacker("never_freeze_or_chill") != 0
+        || HandedProhibitions(ailment, attacker);
+
+    // The (stat, ailment) prohibitions modules handed over, in the order they were handed over.
+    static volatile (string Stat, string Ailment)[] _prohibitions = [];
+    static readonly object ProhibitionLock = new();
+
+    static bool HandedProhibitions(string ailment, Func<string, int> attacker)
+    {
+        foreach (var (stat, prohibited) in _prohibitions)
+            if (prohibited == ailment && attacker(stat) != 0) return true;
+        return false;
+    }
+
+    /// <summary>A hand-over for modules: an attacker with the stat of a pair cannot inflict that pair's ailment (the
+    /// name <see cref="CannotInflict"/> is asked with). The framework names none; disposing the result (the module's
+    /// lifetime) takes back the pairs it added.</summary>
+    public static IDisposable HandOverInflictProhibitions(IReadOnlyCollection<(string Stat, string Ailment)> pairs)
+    {
+        (string, string)[] added;
+        lock (ProhibitionLock)
+        {
+            added = [.. pairs.Distinct().Except(_prohibitions)];
+            _prohibitions = [.. _prohibitions, .. added];
+        }
+        return new ProhibitionHandOver(added);
+    }
+
+    sealed class ProhibitionHandOver((string, string)[] added) : IDisposable
+    {
+        int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            lock (ProhibitionLock) _prohibitions = [.. _prohibitions.Except(added)];
+        }
+    }
 
     /// <summary>Brine Bound (chance_to_freeze_enemies_for_1_second_when_hit_%): a freeze of a set base duration, through
     /// the same duration modifiers, threshold, minimum and immunity as a hit's, spreading by the player's area modifier

@@ -30,6 +30,15 @@ public static partial class Game
         return points;
     }
 
+    // Each arrow's impact radius and how far from the aim the arrows land: Blast Rain's land within its own impact radius.
+    public static (int Radius, double Spread) RainArea(ClientState conn, string id, int effect, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> player)
+    {
+        bool toxic = id == "ToxicRain", blast = id == "BlastRain";
+        int radius = SkillRadius(conn, toxic ? 18 : blast ? 20 : 10, own, false, effect, player);
+        return (radius, blast ? radius * .85 : SkillRadius(conn, 24, own, false, effect, player));
+    }
+
     internal static void ReleaseArrowRain(ProjectileSession session, ushort skill,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll critical, ushort sequence, bool mirage = false)
@@ -51,8 +60,7 @@ public static partial class Game
         int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
             + (toxic ? Get("toxic_rain_num_of_additional_projectiles") : 0)
             + (mirage ? Get("mirage_archer_number_of_additional_projectiles") : 0), 1, 256);
-        int radius = SkillArea.Radius(toxic ? 18 : blast ? 20 : 10, Get, false);
-        double spread = blast ? radius * .85 : SkillArea.Radius(24, Get, false);
+        var (radius, spread) = RainArea(conn, id, gem.Effect, own, player);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
         var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, Random.Shared);

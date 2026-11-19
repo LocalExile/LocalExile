@@ -472,7 +472,7 @@ public static partial class Game
         bool mana = devour.Mana > 0 && conn.PlayerMana < UnreservedMana(conn);
         if (!life && !mana) return;
         var player = CharacterPlayerStats(conn);
-        life &= GolemStat(player, "cannot_recover_life") == 0;
+        life &= !LifeRecovery.NonLeechBlocked(name => GolemStat(player, name));
         mana &= GolemStat(player, "cannot_recover_mana") == 0;
         if (!life && !mana) return;
         double range = TotemTargetRange(conn, totem.SkillId);

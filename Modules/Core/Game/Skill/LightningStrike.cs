@@ -17,7 +17,7 @@ static partial class Game
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         double acceptedAt = swingAt ?? ProjectileWorldTime(conn);
-        double duration = SupportedAttackSeconds(conn, skillId);
+        double duration = SupportedAttackSeconds(conn, skillId, sequence);
         double contact = GemAttackContactDelay(conn, gem.Effect, duration, out _, out _);
         int repeats = MeleeAttackRepeats(conn, skillId);
         int action = conn.ActionCount;

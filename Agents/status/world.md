@@ -109,6 +109,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
 
+- Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
+  add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,
+  a Geode map, Acts 8-10). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods, or are
+  unique (UniqueChests by weight, our 0.6% from the 2016 sample, with the area's unique chance; live: Strange Barrel,
+  Redblade Cache, Ashes of the Condemned, Deshret's Storm); a non-normal box has its rarity's hidden quantity and rarity.
+  The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
+  (each daemon sends its skill; the server applies its hit, ailment or ground at the area level; live: Ice Nova,
+  Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
+  waves and guard the box, Revive raises the dead near it. Gems with experience drop at a random level up to 20;
+  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
+  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
+  "Vaal Vessels"). Currency changes a closed
+  box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
+  unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). Our own:
+  `__col2` as the item count, Jumbled Abundance's one-in-four, the freeze's one second, stand-ins for the summons the
+  tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
+  [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped

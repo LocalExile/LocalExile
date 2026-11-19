@@ -59,6 +59,10 @@ does the mirror pass through the player's resistances. Damage over time is outsi
 penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
 monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
 before the ignites, the burn took only the mods' resistance).
+A DoT adds the target's per-type damage taken to its general increase: Izaro's Toggle Statues (BuffDefinitions
+559–564, Stats 2085/3688/3689, -20 fire/cold/lightning), Vulnerability's `physical_damage_taken_+%` (BuffDefinitions 79)
+and Maim Support's 10% while maimed. Pride stays a separate more multiplier; hits still multiply physical taken
+separately. A hit that applies Maim settles the target's bleed first, so damage already earned keeps the old value.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
@@ -121,8 +125,8 @@ The stats the server reads (whole percents, this client's Stats.dat names):
 The derived `main_hand_…`/`off_hand_…` and per-element display aliases are not raw inputs to combat.
 `WeaponIn` captures an immutable local-source dictionary with the weapon's damage. Ordinary melee uses that
 accepted weapon; ordinary bows freeze its penetration at release. Supported projectile/area attacks use their
-current main-hand weapon at contact, consistent with their existing damage path. Inactive-set items, shields and
-unqualified weapons cannot contribute. The current executors still lack off-hand attack selection.
+current swinging hand's weapon at contact (`AttackHands`, [11](11-skills.md) §4). Inactive-set items, shields and
+unqualified weapons cannot contribute.
 The source totals use wide intermediates and saturate once at the integer representation boundary.
 Either player or skill prohibition suppresses elemental penetration even if signed flag values would cancel.
 The non-critical companion is handled by the critical resistance rules below. The hand rows add the "with Weapons"
@@ -227,7 +231,7 @@ conversion fault in the filtered diagnostic capture. The native log retained fou
 this is not an exception-free-run claim. Evidence: `artifacts/issue75-completion/conversion-native/verified-matrix-independent.json`
 and `diagnostic-hook/conversion-final-diagnostic-assessment.json`.
 Monster, ailment and DoT consumers remain outside this player-hit change; conditional/minimum-/maximum-only
-operators, critical-weighted DPS, authoritative offhand alternation and official fractional parity remain open.
+operators, critical-weighted DPS and official fractional parity remain open.
 
 ## 2a. Equipped weapon-local damage
 
@@ -253,7 +257,7 @@ Pool, timing, charge and block conditions also use the active weapon profile; an
 cannot grant current speed, block or conditional bonuses. Shield base block requires an enabled active offhand.
 Pinned PoB `CalcSetup.lua` 840-845 excludes unselected weapon-set slots before `CalcPerform.lua` 147-153/221-227
 derives shield, unarmed and dual-wield conditions from the active item context.
-Offhand publication is covered separately from the still-unimplemented authoritative offhand attack alternation.
+Which hand an attack swings is `AttackHands` ([11](11-skills.md) §4).
 Alternative quality bonuses and local base-critical modifiers remain separate work.
 The player resolver retains visited-type qualifiers for destination/intermediate increases and typed more effects
 after conversion to Chaos. The separate 32-control conversion matrix above verifies that integration's local panel
@@ -271,7 +275,22 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
 `global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
 alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
-armour bonus, added only while a bow is the weapon) and the stats below are read.
+armour bonus, added only while a bow is the weapon) and the stats below are read. Weapon-family ranges go to the
+attacking hand only, before the skill's added effectiveness:
+
+- Wands: `attack_minimum/maximum_added_{lightning,fire,cold}_damage_with_wand` (Stats 412-417) and
+  `…_physical_damage_with_wands` (6772-6773). Claws and daggers: Stats 6774-6777, 6786-6789, 6800-6803, 6812-6815,
+  14155-14158; Rune Daggers count as Daggers (ReminderText 157).
+- Varunastra (Mod 12753): local Stat 4196, hand aliases 4197/4198 (client keys `0x1066/0x1067`). It counts as every
+  one-hand melee type for these ranges and weapon conditions; the hand's native weapon type stays a sword.
+- Fan of Blades (Stats 11248, 11815): the extra projectile checks either hand (type 10/12/16 or a Varunastra alias),
+  the 20% projectile hit increase only the attacking hand.
+- `DualWield3` (Stat 15135): generic increased damage; ordinary and thrusting swords are one type, and Varunastra alone
+  qualifies (as PoB).
+- Eclipse Solaris (Stats 22169-22170): the range per 1% increased light radius; none at zero or less.
+- Ritual boots implicit (Stats 13539-13540, per 200 accuracy; Stat 13577, less accuracy): whole 200-rating groups of
+  the hand's accuracy, with the less factor and Blind applied before one rounding (floor(381 × .75 × .7) = 200, not 199).
+
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
@@ -1274,8 +1293,8 @@ mitigation are composed as described in the [projectile module](../game/projecti
   supported incoming shock path are implemented. The monsters' base resistances are in §4, with penetration.
 - Remaining skill-specific increased/more/effectiveness mechanics beyond the documented packet and support paths.
   Weapon-local and character flat ranges retain conversion history and their separate scopes.
-- Outgoing ailments beyond ignite, bleed, poison (§3), chill, freeze and shock: alternative ailments (scorch, brittle,
-  sap); the shatter visual and the on-death effects Shatter suppresses.
+- The alternative ailments' remaining sources (see "Scorch, Brittle and Sap"); the shatter visual and the on-death
+  effects Shatter suppresses.
   Supported incoming elemental ailments are bounded by [Gambler](../game/gambler.md#incoming-elemental-ailments).
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, specialized leech conversions/conditions, conditional gain on hit, and Mana and Energy Shield
@@ -1683,6 +1702,24 @@ freeze is not sent there (−100 would divide the native clip by zero); the serv
 Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's
 variety (.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
 client's frozen animation (not checked live).
+
+## Scorch, Brittle and Sap
+
+The rules are the ReminderText rows (`ReminderTextScorch`, `ReminderTextBrittle`, `ReminderTextSapped` and their
+`NonHit` forms: up to 30% lower elemental resistances, +6% critical strike chance against, 20% less damage dealt, 4 s;
+10%, +2% and 6% from a source that is no hit) and PoB's `data.nonDamagingAilment` and `CalcOffence` effect functions:
+`50`, `10` and `100/3` × (damage / threshold)^0.4, floored (Brittle to 0.01%), with no minimum. The stats call
+Brittle `frostburn` (`chance_to_inflict_frostburn_%`, `immune_to_frostburn`, `virtual_frostburn_effect_+%`).
+The Gateway keeps them in `RuleAilments`, a store of timed instances by a kind the rules number (one per monster,
+shared by its instance, and one per player); `MonsterAlternateAilments.cs` holds every rule.
+
+They are shown as chill and shock are: 0x1c1 with BuffDefinitions 1243 `scorched`, 1244 `frostburn` (Name "Brittle")
+and 1245 `sapped` (BuffVisuals 1005-1007). Every column but the stat, visual and `CancelOnDeath` equals the chilled
+and shocked rows' (`IsRecovery`, one GrantedStats value, `__col44` set so +0x82 is read), so they carry the
+magnitude in their GrantedStats: `base_resist_all_elements_%` negative for Scorch, `sapped_damage_+%_final`
+negative for Sap, `enemy_additional_critical_strike_chance_against_self` in hundredths for Brittle (its description
+divides by 100). Their fixed instances are 0xfff8, 0xfff9 and 0xfffa, below the player's bleeding and poison buffs'
+0xfffb and 0xfffc; `NextBuff` wraps below `ClientState.FixedBuffInstances` (0xfff8). Not checked live.
 
 ## 2i. Petrified Blood
 

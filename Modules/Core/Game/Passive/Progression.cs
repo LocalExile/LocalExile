@@ -793,7 +793,8 @@ public static partial class Game
         // four seconds (RecentEvents), and the attributes an "if you have at least N X" id compares. A condition it
         // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
         var conditionSubject = ConditionSubject(rawAttributes, active);
-        var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
+        var sources = ItemModStats.Plus(FoldPassiveConditions(passives, conditionSubject),
+            ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
@@ -806,8 +807,8 @@ public static partial class Game
                 RequalifyChargeConditions(conn, conditionFlags, sources, dev), phaseInputs, dev, recentEvents, auraEffects, conditionNow);
             if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
             conditionFlags = chargeFlags;
-            sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats,
-                ConditionSubject(rawAttributes, active)));
+            sources = ItemModStats.Plus(FoldPassiveConditions(passives, ConditionSubject(rawAttributes, active)),
+                ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, ConditionSubject(rawAttributes, active)));
             DevotionStats.Apply(sources, Stats);
             GrandSpectrum.Apply(sources, Stats);
         }
@@ -829,6 +830,29 @@ public static partial class Game
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         conn.Performance.LookupMiss(probe, missed);
         return (sources, attributes, inactive, wornItems);
+    }
+
+    /// <summary>Moves a conditional passive stat onto its plain name when its condition holds, exactly as an item mod
+    /// does (issue #504, #1102): <c>attack_skills_damage_+%_while_dual_wielding</c> counts as
+    /// <c>attack_skills_damage_+%</c> only while dual wielding, and not at all otherwise. A condition this build cannot
+    /// answer, a stat with a consumer of its own (<c>DedicatedConsumers</c>) and an id whose plain name this build does
+    /// not know all keep their previous behaviour, so nothing that counted before stops counting.</summary>
+    internal static Dictionary<uint, int> FoldPassiveConditions(IReadOnlyDictionary<uint, int> passives,
+        StatConditions.Subject subject)
+    {
+        var folded = new Dictionary<uint, int>(passives.Count);
+        void Add(uint key, int value) => folded[key] = ActorScale.Add(key, folded.GetValueOrDefault(key), value);
+        foreach (var (key, raw) in passives)
+        {
+            if (Stats.Name(key) is not { } name) { Add(key, raw); continue; }
+            var state = StatConditions.Of(name, subject);
+            if (!StatConditions.Counts(state)) continue;
+            int value = StatConditions.Counted(name, raw, state, subject, Stats.Has, out var targets);
+            if (targets is null) Add(key, value);
+            else foreach (string target in targets)
+                    if (Stats.Key(target) is uint targetKey) Add(targetKey, value);
+        }
+        return folded;
     }
 
     static int ActiveNonVaalSkillMinionCountLocked(ClientState conn, double now)
@@ -1041,6 +1065,7 @@ public static partial class Game
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
+        aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
         int CatInput(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
         var cat = CatAspectPhaseStatsLocked(conn, bonus.AuraEffectPct, CatInput);
@@ -1183,7 +1208,9 @@ public static partial class Game
         }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
-        var pools = CharacterStats.For(classInfo, level, bonus);
+        int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
+            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore));
+        var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
         // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
         int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
@@ -1196,7 +1223,7 @@ public static partial class Game
             pools = CharacterStats.For(classInfo, level, bonus with
             {
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
-            });
+            }, ResolveAccuracy);
         if (Stats.Key("spell_critical_strike_chance_+%") is uint poolSpellCritical && !devStats.ContainsKey(poolSpellCritical))
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
@@ -1416,6 +1443,10 @@ public static partial class Game
             NoStrengthBonuses: Get(InherentAttributeBonuses.NoStrengthBonuses) != 0,
             NoDexterityBonuses: Get(InherentAttributeBonuses.NoDexterityBonuses) != 0,
             NoIntelligenceBonuses: Get(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
+            // Magebane: "Dexterity provides no inherent bonus to Evasion Rating; +1% Chance to Suppress Spell Damage
+            // per 15 Dexterity" (poewiki /wiki/Magebane).
+            NoDexterityEvasion: Get("keystone_magebane") != 0,
+            SpellSuppressionPerFifteenDexterity: Get("keystone_magebane") != 0 ? 1 : 0,
             Armour: Get("base_physical_damage_reduction_rating"), ArmourPct: armourPct,
             Evasion: Get("base_evasion_rating"), EvasionPct: evasionPct,
             EvasionWhileMovingPct: Get("evasion_rating_+%_while_moving"),

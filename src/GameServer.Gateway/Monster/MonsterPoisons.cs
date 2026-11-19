@@ -19,7 +19,11 @@ public sealed class MonsterPoisons
     /// <param name="ProjectileChance">The qualified Yriel projectile-attack poison chance frozen at release. It is
     /// additive to the contact's live generic attack chance and is not read again at contact.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds, int WeaponChance = 0, int ProjectileChance = 0, bool Secondary = false)
+        double Seconds, int WeaponChance = 0, int ProjectileChance = 0, bool Secondary = false,
+        // Elemental Overload: "Ailments never count as being from Critical Strikes".
+        bool NeverFromCrit = false,
+        // Perfect Agony: "Non-Critical Strikes cannot inflict Ailments".
+        bool OnlyFromCrit = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -41,7 +45,9 @@ public sealed class MonsterPoisons
                 * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance, Secondary: hand == "secondary");
+                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance, Secondary: hand == "secondary",
+                NeverFromCrit: get("keystone_elemental_overload") != 0,
+                OnlyFromCrit: get("keystone_ailment_crit") != 0);
         }
     }
 
@@ -101,6 +107,8 @@ public sealed class MonsterPoisons
 
     public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random)
     {
+        if (settings.NeverFromCrit) critical = false;
+        if (settings.OnlyFromCrit && !critical) return false;
         if (immune || settings.Seconds <= 0 || !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);

@@ -36,6 +36,8 @@ public sealed class ItemCatalog
         Mods = new ModCatalog(folder, hardMode);
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
+        _byId = new(() => _rows.Value.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault(t => t.Supported) ?? g.First(), StringComparer.OrdinalIgnoreCase));
         _gems = new(() => LoadGems(folder, hardMode));
         _activeGemEffects = new(() => LoadActiveGemEffects(folder));
         _requirements = new(() => LoadRequirements(folder));
@@ -150,6 +152,8 @@ public sealed class ItemCatalog
     public BaseType? ByHash(uint hash) => _byHash.Value.GetValueOrDefault(hash);
 
     private readonly Lazy<Dictionary<uint, BaseType>> _byHash;
+    // Find's first match (the exact Id) without a scan: drops name their items by Id on every kill.
+    private readonly Lazy<Dictionary<string, BaseType>> _byId;
 
     public ItemCatalog() : this("data") { }
 
@@ -208,6 +212,7 @@ public sealed class ItemCatalog
     {
         var rows = _rows.Value.Rows;
         if (int.TryParse(query, out int row)) return Row(row) is { } numbered ? EmptyResonatorType(numbered) : null;
+        if (_byId.Value.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
         foreach (Func<BaseType, bool> match in new Func<BaseType, bool>[]
         {
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
@@ -249,7 +254,8 @@ public sealed class ItemCatalog
         /// <summary>SkillGems GemColour: 1 red (strength), 2 green (dexterity), 3 blue (intelligence), 4 white.</summary>
         public int Colour { get; init; }
 
-        /// <summary>A Vaal gem's own row (IsVaalVariant) or an awakened one (RegularVariant set).</summary>
+        /// <summary>A Vaal gem's own row (IsVaalVariant), or an Awakened or exceptional upgrade (RegularVariant set, with
+        /// an experience type other than an ordinary GemProgressionN).</summary>
         public bool IsVaalOrAwakened { get; init; }
 
         /// <summary>An Awakened row (its SkillGems RegularVariant names the ordinary gem it upgrades); its name starts
@@ -550,10 +556,14 @@ public sealed class ItemCatalog
         {
             bool vaal = r.Bool("IsVaalVariant");
             int expType = Row(r, "ItemExperienceType");
-            // RegularVariant also links these ordinary upgrades to their lesser support; both were captured for sale.
-            bool ordinaryUpgrade = baseName is "Greater Multiple Projectiles Support" or "Greater Volley Support";
-            bool awakened = !ordinaryUpgrade && Row(r, "RegularVariant") >= 0
-                && (expType < 0 || xt[expType].Text("Id") != "GemProgressionExceptionalPlus");
+            // RegularVariant links an upgrade to the gem it upgrades; its experience type tells which kind it is:
+            // GemProgressionN an ordinary gem, GemProgressionExceptional[Plus] an exceptional support, and
+            // GemProgressionPlusN an ordinary Awakened support, which 3.29 disables for normal play (not created).
+            string expId = expType >= 0 && expType < xt.Count ? xt[expType].Text("Id") ?? "" : "";
+            bool upgrade = Row(r, "RegularVariant") >= 0;
+            bool ordinaryUpgrade = upgrade && expId.Length > "GemProgression".Length
+                && expId.StartsWith("GemProgression", StringComparison.Ordinal) && char.IsAsciiDigit(expId["GemProgression".Length]);
+            bool awakened = upgrade && expId.StartsWith("GemProgressionPlus", StringComparison.Ordinal);
             bool rowCreatable = !baseName.StartsWith('[') && !baseName.StartsWith("WIP") && !awakened;
             bool exceptional = false;
             var variants = new List<GemVariant>();
@@ -570,12 +580,11 @@ public sealed class ItemCatalog
                 exceptional |= hasGemTags && effects[v].Ints("GemTags").Any(exceptionalTags.Contains);
                 variants.Add(new GemVariant(i, name, effect, effect2, creatable));
             }
-            bool exceptionalFallback = expType >= 0 && expType < xt.Count
-                && xt[expType].Text("Id") is "GemProgressionExceptional" or "GemProgressionExceptionalPlus";
+            bool exceptionalFallback = expId is "GemProgressionExceptional" or "GemProgressionExceptionalPlus";
             result.TryAdd(baseRow, new GemType(baseRow, r.Bool("IsSupport"), variants,
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
-                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (!ordinaryUpgrade && Row(r, "RegularVariant") >= 0),
+                Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (upgrade && !ordinaryUpgrade),
                 IsAwakened = baseName.StartsWith("Awakened ", StringComparison.Ordinal),
                 IsExceptional = exceptionalTags.Count > 0 ? exceptional : exceptionalFallback,
                 MtxSlotTypes = [.. r.Ints("MtxSlotTypes")],
