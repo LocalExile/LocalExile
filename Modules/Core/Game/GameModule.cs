@@ -79,6 +79,12 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapHarbinger.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapHarbinger.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapHarbinger.Tick);
+        GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
