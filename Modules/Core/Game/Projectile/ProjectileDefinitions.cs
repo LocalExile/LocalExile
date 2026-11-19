@@ -110,7 +110,8 @@ public static partial class Game
     static readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProjectileSkillDefinition?> ProjectileRecipes = new();
     public static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
         ProjectileRecipes.GetOrAdd(effect, static row => ProjectileDefinition(Skills.EffectId(row) ?? "")
-            ?? (ProjectileDefinitions.RequireExplicitProfiles ? null : CatalogProjectileDefinition(row)));
+            ?? (ProjectileDefinitions.RequireExplicitProfiles ? null
+                : CatalogProjectileDefinition(row) ?? WeaponProjectileDefinition(row)));
 
     static ProjectileSkillParameters CatalogProjectileParameters(int effect, string profileId)
     {

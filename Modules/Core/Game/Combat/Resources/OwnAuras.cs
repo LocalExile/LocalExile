@@ -192,6 +192,13 @@ public static partial class Game
         var changedAuras = new List<AuraCatalog.Aura>();
         foreach (var aura in conn.Auras.Values.ToArray())
         {
+            if (IsTemporaryAura(conn, aura)) continue;
+            if (IsBlessing(SupportedSkill(conn, aura.SkillId)))
+            {
+                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+                conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura);
+                changed = true; continue;
+            }
             var reservation = SupportedReservationCost(conn, aura.SkillId);
             if (reservation is null)
             {
@@ -263,6 +270,7 @@ public static partial class Game
 
     public static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
     {
+        ExpireTemporaryAuras(conn);
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
         // replay bypasses it; module reload discards these connection-weak entries automatically.
@@ -343,7 +351,7 @@ public static partial class Game
             foreach (var aura in conn.Auras.Values)
                 if (!conn.PresentedAuras.ContainsKey(aura.SkillId))
                 {
-                    packets.AddRange(AuraBuffs(aura));
+                    packets.AddRange(AuraBuffs(aura, TemporaryAuraSecondsLeft(conn, aura)));
                     conn.PresentedAuras[aura.SkillId] = aura;
                 }
         PresentCatPhaseLocked(conn, packets);

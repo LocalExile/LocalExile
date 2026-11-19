@@ -18,9 +18,11 @@ public static partial class Game
     internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
     internal static readonly RuleTable<ClientState, VaalAuraState> VaalAuraStates = new();
 
-    static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
-        SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n))
-        * Math.Max(0, 1 + ((long)GolemStat(player, "buff_duration_+%") + GolemStat(own, "buff_duration_+%")) / 100d);
+    // A Vaal aura's buff: buff_duration_+% and the Vaal skills' increased duration add to its increased duration
+    // (kinds); its soul gain prevention takes the buff duration modifiers only (VaalUses).
+    static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
+        SkillDurationModifiers.Kinds kinds = SkillDurationModifiers.Kinds.Vaal | SkillDurationModifiers.Kinds.Buff) =>
+        SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n), kinds);
 
     static void WithVaalAura(ClientState conn, Dictionary<uint, int> stats)
     {

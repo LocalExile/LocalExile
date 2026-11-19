@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 
@@ -26,6 +27,37 @@ public static partial class Game
         ["alva"] = [("map_incursion_league", 1)],
         ["harvest"] = [("map_harvest_seeds_are_tier_1", 1), ("map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot", 1)],
     };
+
+    // [inferred] The league blocks' families by stat: each stat a node of a block's family grants (both catalogues), left
+    // out when nodes of two families grant it or a MapFragmentMods row's mod does (a scarab's own stats, such as the
+    // Harvest Scarab's map_chance_for_area_%_to_contain_harvest, turn on no block). Idols carry the Atlas passives' stats,
+    // so a map whose mods hold one of them gets the same block a node of that family gives.
+    static readonly Lazy<Dictionary<string, string>> LeagueBlockStats = new(() =>
+    {
+        var fragmentStats = new HashSet<string>(StringComparer.Ordinal);
+        var fragmentMods = new HashSet<int>();
+        foreach (var row in ClientTables.TableOrEmpty("MapFragmentMods"))
+            foreach (int mod in row.Ints("ModsKeys")) fragmentMods.Add(mod);
+        if (fragmentMods.Count > 0)
+            foreach (var row in ClientTables.TableOrEmpty("Mods"))
+                if (fragmentMods.Contains(row.Index))
+                    for (int i = 1; i <= 8 && row.IntOrNull($"StatsKey{i}") is int stat; i++) fragmentStats.Add(Stats.Name((uint)stat + 1));
+        var families = new Dictionary<string, string>(StringComparer.Ordinal);
+        var shared = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in AtlasPassiveNodes.Nodes.Concat(HardModeAtlasPassives.Value.Nodes))
+        {
+            string family = AtlasStats.Family(node);
+            if (!MapLeagueBlocks.ContainsKey(family)) continue;
+            foreach (var (key, _) in node.Stats)
+            {
+                string name = Stats.Name(key);
+                if (fragmentStats.Contains(name)) continue;
+                if (!families.TryAdd(name, family) && families[name] != family) shared.Add(name);
+            }
+        }
+        foreach (string name in shared) families.Remove(name);
+        return families;
+    });
 
     /// <summary>InstanceEvents.AreaStats: the stats of the instance <paramref name="request"/> opens.</summary>
     public static IReadOnlyDictionary<uint, int>? MapAreaStats(AreaStatsRequest request)
@@ -69,6 +101,12 @@ public static partial class Game
         // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
         if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
             foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        // The scarab's legacy stat is not a CoreLeagues forced-count input. Publish its count in the input both
+        // generators read, before the instance freezes its area stats; room placement and shrine ownership stay shared.
+        if (Stats.Key("map_leaguestone_additional_shrines") is uint shrineKey
+            && stats.GetValueOrDefault(shrineKey) > 0 && Stats.Key("map_num_extra_shrines") is uint countKey)
+            stats[countKey] = (int)Math.Min(int.MaxValue,
+                (long)stats.GetValueOrDefault(countKey) + stats[shrineKey]);
         // "Your Rare Maps contain …" (no area text): only on a map of that rarity, as the plain count.
         foreach (var (rarity, kind) in new[] { (ItemRarity.Rare, "rare"), (ItemRarity.Magic, "magic"), (ItemRarity.Normal, "normal") })
             if (Stats.Key($"map_contains_x_additional_{kind}_packs_if_{kind}") is uint key && stats.Remove(key, out int value)
@@ -104,8 +142,13 @@ public static partial class Game
             if (tier > 1) Set("map_hidden_monster_damage_+%_final", tier - 1);
         }
         Set("map_device_type", 1);
-        // The league blocks of the tree's families; a flag set by several sources is set once.
-        foreach (string family in families)
+        // The league blocks of the tree's families and of the families whose stats the map's own sources (Idols,
+        // fragments, mods) carry; a flag set by several sources is set once.
+        HashSet<string>? withMods = null;
+        foreach (var (id, value) in mods.Stats)
+            if (value != 0 && LeagueBlockStats.Value.TryGetValue(id, out string? family) && !families.Contains(family))
+                (withMods ??= new(families, StringComparer.Ordinal)).Add(family);
+        foreach (string family in withMods ?? families)
             if (MapLeagueBlocks.TryGetValue(family, out var block))
                 foreach (var (stat, value) in block) Add(stat, value);
         if (Stats.Key("map_incursion_league") is uint incursion && stats.GetValueOrDefault(incursion) > 1) stats[incursion] = 1;

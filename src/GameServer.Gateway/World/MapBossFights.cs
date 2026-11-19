@@ -47,6 +47,8 @@ public sealed class MapBossFights
 
     public static MapBossFights Current => Loaded.Value;
 
+    public IReadOnlyList<string> AtlasBosses => _atlasBosses;
+
     public Invitation? InvitationOf(int itemRow) => _invites.GetValueOrDefault(itemRow);
 
     /// <summary>The bosses a Maven invitation stands in MavenHub: WitnessAreas' last WorldAreas boss, or that many

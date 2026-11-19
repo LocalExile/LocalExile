@@ -61,7 +61,8 @@ public static class UtilityFlasks
 
     /// <summary>How a flask effect's stat counts here.</summary>
     public static Support SupportOf(string stat) =>
-        ActorScale.IsInput(stat) || Modelled.Contains(stat) || ElementalAilmentInputs.Contains(stat) ? Support.Modelled
+        ActorScale.IsInput(stat) || Modelled.Contains(stat) || ElementalAilmentInputs.Contains(stat) || HandedFlag(stat)
+            ? Support.Modelled
         : PanelOnly.Contains(stat) ? Support.PanelOnly
         : stat is "base_ward" or "ward_+%" ? Support.Ward
         : Support.Unsupported;
@@ -127,6 +128,41 @@ public static class UtilityFlasks
         ("local_unique_flask_all_damage_from_critical_strikes_can_chill_during_effect", "all_damage_from_critical_strikes_can_chill", 1, true),
         ("local_unique_flask_all_damage_from_critical_strikes_can_freeze_during_effect", "all_damage_from_critical_strikes_can_freeze", 1, true),
     ];
+
+    // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
+    static volatile (string Local, string Stat)[] _handedFlags = [];
+    static readonly object HandedFlagsLock = new();
+
+    static bool HandedFlag(string stat)
+    {
+        foreach (var flag in _handedFlags) if (flag.Stat == stat) return true;
+        return false;
+    }
+
+    /// <summary>A hand-over for modules: each pair is a flask's local "during effect" flag and the character stat it
+    /// sets to 1 while the effect runs, as a <see cref="DuringEffect"/> flag row, put in the raw stats the rules read.
+    /// The framework names none; disposing the result (the module's lifetime) takes back the pairs it added.</summary>
+    public static IDisposable HandOverDuringEffectFlags(IReadOnlyCollection<(string Local, string Stat)> flags)
+    {
+        (string, string)[] added;
+        lock (HandedFlagsLock)
+        {
+            added = [.. flags.Distinct().Except(_handedFlags)];
+            _handedFlags = [.. _handedFlags, .. added];
+        }
+        return new FlagsHandOver(added);
+    }
+
+    sealed class FlagsHandOver((string, string)[] added) : IDisposable
+    {
+        int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            lock (HandedFlagsLock) _handedFlags = [.. _handedFlags.Except(added)];
+        }
+    }
 
     /// <summary>A buff a flask grants besides its own (BuffDefinitions row, with its stats).</summary>
     public sealed record ExtraBuff(ushort BuffRow, string BuffId, IReadOnlyList<(string Stat, int Value)> Stats);
@@ -248,7 +284,7 @@ public static class UtilityFlasks
     public static List<Source> DuringEffectSources(IReadOnlyDictionary<string, int> local, double effect)
     {
         List<Source> stats = [];
-        foreach (var (localStat, stat, sign, flag) in DuringEffect)
+        foreach (var (localStat, stat, sign, flag) in DuringEffect.Concat(_handedFlags.Select(f => (f.Local, f.Stat, 1, true))))
             if (local.GetValueOrDefault(localStat) is int value and not 0 && SupportOf(stat) != Support.Unsupported)
                 stats.Add(new Source($"mod {stat}", stat, sign * (flag ? 1 : Scale(value, effect))));
         return stats;
@@ -535,7 +571,8 @@ public static class UtilityFlasks
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e81e6c).
                 "phase_through_objects" => "virtual_phase_through_objects",
-                _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat) => stat,
+                _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
+                    || HandedFlag(stat) => stat,
                 _ => null,
             };
             if (name is not null && catalog.Key(name) is uint key)

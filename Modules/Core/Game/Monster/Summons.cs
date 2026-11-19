@@ -72,10 +72,12 @@ public static partial class Game
     static double SummonDuration(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.Persistent) return double.PositiveInfinity;
+        bool secondary = definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal);
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? "spectres_have_base_duration_ms"
-            : definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal) ? "base_secondary_skill_effect_duration" : "base_skill_effect_duration");
+            : secondary ? "base_secondary_skill_effect_duration" : "base_skill_effect_duration");
         var player = CharacterPlayerStats(conn);
-        return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
+        return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n),
+            DurationKinds(conn, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
     }
 
     static SpawnedMonster? SummonCorpse(ClientState conn, (int X, int Y) aim, uint target, double radius = 15)

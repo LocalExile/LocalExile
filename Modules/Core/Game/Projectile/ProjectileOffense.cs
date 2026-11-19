@@ -38,6 +38,10 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
     public SkillCriticalRoll? CriticalRoll { get; init; }
+    /// <summary>Released by the player's own totem: its kills are the player's own device's (OwnedKills).</summary>
+    public bool FromTotem { get; init; }
+    /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
+    public IReadOnlyDictionary<string, int>? WeaponLocal { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
@@ -80,6 +84,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+    /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
+    /// claims them.</summary>
+    public UseOnce? FirstHit { get; init; }
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
@@ -115,4 +122,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         Min = value.Min * more, Max = value.Max * more,
         CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
     };
+}
+
+/// <summary>Claimed once by whichever of a use's projectiles hits first.</summary>
+public sealed class UseOnce
+{
+    int claimed;
+    public bool Claim() => Interlocked.Exchange(ref claimed, 1) == 0;
 }

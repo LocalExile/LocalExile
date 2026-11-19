@@ -157,7 +157,7 @@ public static partial class Game
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
             Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry);
-        conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - life);
+        conn.PlayerLife = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)conn.PlayerLife - life), now);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); RecordHardcoreDeath(conn); }
         return life;
     }

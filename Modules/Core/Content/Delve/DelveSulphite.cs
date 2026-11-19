@@ -27,6 +27,7 @@ public sealed partial class DelveModule
 
     void RegisterSulphite(IModuleContext module)
     {
+        GameEvents.MapOpening.Add(module.Manifest.Id, request => request.HandledContent.Add(MapScarabContent.Sulphite));
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => EnsureSulphite(module, PlayerOf(conn)));
         GameEvents.Tick.Add(module.Manifest.Id, async (connection, _) =>
         {

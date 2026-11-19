@@ -107,7 +107,7 @@ public static partial class Game
             typedIncreasedPct: ActorScale.Saturate((long)Get("fire_damage_taken_+%") + Get("elemental_damage_taken_+%")));
         int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
             Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry);
-        conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - life);
+        conn.PlayerLife = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)conn.PlayerLife - life), now);
         if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); RecordHardcoreDeath(conn); }
         return life;
     }

@@ -130,10 +130,11 @@ public static partial class Game
         flags["_while_have_cats_agility"] = catsAgility;
         flags["_if_you_have_cats_agility"] = catsAgility;
         var charges = ChargesOf(conn);
+        Func<string, int> observed = charges.ObservedStat;   // one delegate for the three types
         foreach (var type in Charges.Types)
         {
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
-                charges.Converted(type), alive);
+                charges.Converted(type), alive, ChargeScaling.CountsAsMaximum(type, observed));
         }
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,

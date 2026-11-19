@@ -55,17 +55,48 @@ public static class SkillArea
         (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
             * Math.Max(0L, 100L + get("active_skill_area_of_effect_radius_+%_final")) / 100 - 100, -100, int.MaxValue);
 
+    /// <summary>Supports' more or less area, each a "_final" multiplier on the supported skill: Spell Cascade, Arcanist
+    /// Brand, Corrupting Cry and Blessed Call (only a warcry carries the last two).</summary>
+    static readonly string[] SupportMoreArea =
+    [
+        "support_spell_cascade_area_of_effect_+%_final", "support_brand_area_of_effect_+%_final",
+        "support_corrupting_cry_area_of_effect_+%_final", "consecrated_cry_warcry_area_of_effect_+%_final",
+    ];
+
+    /// <summary>Greater Spell Echo: increased area for each repeat of the spell (the first cast is repeat 0).</summary>
+    public const string IncreasedPerRepeat = "support_greater_spell_echo_area_of_effect_+%_per_repeat";
+
+    /// <summary>A "more area" percentage as the radius multiplier it gives: the square root of (1 + more), as the area
+    /// modifier is (Fist of War's 59% more area is ×1.26 radius, not ×1.59).</summary>
+    public static double RadiusMultiplier(int moreAreaPercent) => Math.Sqrt(Math.Max(0, 1 + moreAreaPercent / 100.0));
+
     /// <summary>The area modifier: (1 + increased) × each more multiplier, at least 0.</summary>
     public static double Modifier(Func<string, int> get, bool spell)
     {
         int increased = Increased(get, spell);
         double mod = Math.Max(0, 1 + increased / 100.0);
         foreach (string more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        foreach (string more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
         // Discharge: more area per removable charge it will spend (the charges above the minimum).
         if (get(MorePerRemovableCharge) is int perCharge and not 0)
             mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get($"current_removable_{Charges.Name(t)}_charges"))) / 100.0);
         return mod;
     }
+
+    /// <summary>The ActiveSkillTypes a skill's type-scoped increased area follows (<see cref="TypedIncrease"/>).</summary>
+    public readonly record struct Types(bool Melee, bool Attack, bool Warcry, bool Vaal, bool Totem, bool Trap, bool Mine);
+
+    /// <summary>The increased area scoped to a skill's types (passives and items: "increased Area of Effect for Melee
+    /// Skills", "... for Attacks" and so on), which the panel total skill_area_of_effect_+% does not hold. A Herald has
+    /// no such stat in this build.</summary>
+    public static int TypedIncrease(Func<string, int> get, Types types) =>
+        (types.Melee ? get("melee_skills_area_of_effect_+%") : 0) + (types.Attack ? get("attack_area_of_effect_+%") : 0)
+        + (types.Warcry ? get("warcry_skill_area_of_effect_+%") : 0) + (types.Vaal ? get("vaal_skills_area_of_effect_+%") : 0)
+        + (types.Totem ? get("totem_skill_area_of_effect_+%") : 0) + (types.Trap ? get("trap_skill_area_of_effect_+%") : 0)
+        + (types.Mine ? get("mine_area_of_effect_+%") : 0) + (types.Trap || types.Mine ? get("trap_and_mine_area_of_effect_+%") : 0);
+
+    /// <summary>The panel total of increased area, where <see cref="TypedIncrease"/> is added for a skill.</summary>
+    public const string Increase = "skill_area_of_effect_+%";
 
     /// <summary>The radius in cells for <paramref name="baseRadius"/> (the skill's base when it has none of its own).</summary>
     public static int Radius(int baseRadius, Func<string, int> get, bool spell)
@@ -135,6 +166,11 @@ public static class GroundSlamWave
 
     /// <summary>Seconds after the slam's contact the front reaches a monster <paramref name="distance"/> cells away.</summary>
     public static double AdvanceSeconds(double distance) => Math.Max(0, distance) / CellsPerSecond;
+
+    /// <summary>Scale the gem's close-target hit bonus over the wave's reach, using the same falloff as Vaal Ground Slam.
+    /// The distance is the contact's distance from the original slam, so moving after release does not change it.</summary>
+    public static double CloseHitMultiplier(double distance, double length, int maximumPercent) =>
+        1 + maximumPercent / 100.0 * Math.Clamp(1 - distance / Math.Max(1, length), 0, 1);
 
     /// <summary>The wave's unit direction: from where the player stands toward what it aimed at, or (0, 0) when the two
     /// are the same cell, which is the one case a wave has no direction of its own.</summary>

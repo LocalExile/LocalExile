@@ -80,6 +80,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Unique-parent requests retain registered categories in an offline source fixture; native reopen #998 is unverified.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
   SSF refuses guild opening, tab requests and inventory moves.

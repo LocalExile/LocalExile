@@ -102,6 +102,15 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
+        else if (effect == "VolcanicFissure")
+            p = p with
+            {
+                Count = p.Count + Math.Max(0, get("volcanic_fissure_number_of_additional_projectiles")),
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("volcanic-fissure", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
+            };
         else if (effect == "HolyFlameTotem")
             p = p with { Count = Math.Max(1, get("base_number_of_projectiles")), Pierce = -1, CannotReturn = true };
 

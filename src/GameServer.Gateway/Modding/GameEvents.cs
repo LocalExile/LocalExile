@@ -190,6 +190,9 @@ public static class GameEvents
     {
         foreach (var (owner, run) in MapOpening.Subscribers(request.Conn))
             GameEventOwners.Guard(owner, nameof(MapOpening), () => run(request));
+        if (request.Opening is not null)
+            foreach (string message in request.UnhandledContent)
+                Console.WriteLine($"[map-content] {message}");
     }
 
     /// <summary>A hostile monster died by the player's hand, after its kill was committed (<see cref="Kill"/> runs inside the commit).</summary>
@@ -199,8 +202,19 @@ public static class GameEvents
     /// answers does nothing.</summary>
     public static readonly GameEvent<Func<NpcOption, Task<bool>>> NpcOption = new();
 
+    /// <summary>Whether this subscriber fills the sub-area of an ExtraTerrainFeatures row (by its Id). A gate the layout links
+    /// to such a sub-area (<see cref="AreaTransitionObject.Feature"/>) stands only where a subscriber answers true.</summary>
+    public static readonly GameEvent<Func<ClientState, string, bool>> FeatureFilled = new();
+
+    /// <summary>Whether a subscriber of the connection's league fills the row's sub-area (<see cref="FeatureFilled"/>).</summary>
+    public static bool FillsFeature(ClientState conn, string row) => FeatureFilled.For(conn).Any(run => run(conn, row));
+
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
+
+    /// <summary>A gamble window as it opens (an NPC whose shop is the black market, window kind 10): add, remove or reprice
+    /// its offers.</summary>
+    public static readonly GameEvent<Action<GambleWindow>> Gambles = new();
 
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
@@ -295,6 +309,13 @@ public static class GameEvents
             if (await GameEventOwners.Guard(owner, $"Packet 0x{opcode:x4}", async () => taken = await run(conn, bytes)) && taken) return true;
         }
         return false;
+    }
+
+    /// <summary>Every subscriber of this league sees the window's offers in turn.</summary>
+    public static void RunGambles(GambleWindow window)
+    {
+        foreach (var (owner, run) in Gambles.Subscribers(window.Conn))
+            GameEventOwners.Guard(owner, nameof(Gambles), () => run(window));
     }
 
     /// <summary>The subscribers' changes to a kill's drops; null when none of this league's changes drops.</summary>
@@ -396,6 +417,14 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
     public static readonly GameEvent<Func<ClientState, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
     public static readonly GameEvent<Func<ClientState, InstanceItems.PlaceItem, Task<bool>>> InventoryPlace = new();
+    /// <summary>How one of the player's inventories is registered with the client on entering an area (S→C 0xc0): the
+    /// Inventories row's own slot, or another kind or flags for it. The client's panels bind to the first registration
+    /// of a row, so this is where a row's kind is chosen. The first answer wins; null for no opinion. The size the
+    /// server places items by stays the row's own.</summary>
+    public static readonly GameEvent<Func<ClientState, InstanceInventories.Slot, InstanceInventories.Slot?>> InventorySlot = new();
+    /// <summary>Why the held item may not go into this inventory row (C→S 0x2a, 0x4a), for the log; null for no
+    /// objection. The first objection wins.</summary>
+    public static readonly GameEvent<Func<ClientState, byte, Item, string?>> InventoryRefusal = new();
     public static readonly GameEvent<Func<ClientState, Task>> NpcDialogueClosing = new();
     /// <summary>A gem skill's cast: its effect id, skill id, where from, the action; true when the module took it, null for not its skill.</summary>
     public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
@@ -476,6 +505,28 @@ public static class GameEvents
     {
         foreach (var run in InventoryPlace.For(conn)) if (await run(conn, place)) return true;
         return false;
+    }
+
+    public static InstanceInventories.Slot ResolveInventorySlot(ClientState conn, InstanceInventories.Slot slot)
+    {
+        foreach (var (owner, run) in InventorySlot.Subscribers(conn))
+        {
+            InstanceInventories.Slot? answer = null;
+            GameEventOwners.Guard(owner, nameof(InventorySlot), () => answer = run(conn, slot));
+            if (answer is { } changed) return changed;
+        }
+        return slot;
+    }
+
+    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item)
+    {
+        foreach (var (owner, run) in InventoryRefusal.Subscribers(conn))
+        {
+            string? answer = null;
+            GameEventOwners.Guard(owner, nameof(InventoryRefusal), () => answer = run(conn, row, item));
+            if (answer is not null) return answer;
+        }
+        return null;
     }
 
     public static async Task RunChestsOpened(ClientState conn, (int X, int Y) at, int radius)

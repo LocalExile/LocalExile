@@ -468,7 +468,8 @@ public static partial class Game
                     return ProjectileHitResult.Miss;
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
-                bool crit = random.Next(10000) < shot.CriticalChance;
+                bool crit = random.Next(10000) < shot.CriticalChance
+                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
                     shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
@@ -520,7 +521,7 @@ public static partial class Game
                 GameEvents.WithOutgoingDamage(Conn, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                     .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
                         finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
-                    .RollOutgoingHit(packet, random)), at);
+                    .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsGroundCriticalChance);
@@ -546,6 +547,8 @@ public static partial class Game
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
             Conn.RecentEvents.RecordCriticalOutcome(at, critical);
+            if (ElementalOverloadCritLocked(Conn, shot.SourceSkill, null, player, critical) is { } eoBuff)
+                Packet(eoBuff, $"elemental overload on skill 0x{shot.SourceSkill:x4}");
             // Cruelty: a player projectile's hit grants its skill's buff (a totem's or a monster's never does).
             if (shot.ActualCaster is null && target.Hostile)
                 CrueltyOnHitLocked(Conn, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
@@ -581,7 +584,8 @@ public static partial class Game
                     BleedReflected(CharacterPlayerStats(Conn)));
             if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
-            if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
+            if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
+                primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
@@ -863,6 +867,7 @@ public static partial class Game
                 visual.GlideQueued = false;
                 if (visual.Ended || !visual.Created || visual.PendingGlide is not { } glide)
                 {
+                    Conn.Performance.Count("projectile move dropped");
                     if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile glide dropped object={visual.Id} entity={p.Id}"
                             + $" ended={visual.Ended} created={visual.Created} position={p.Position} remaining={p.Remaining}");

@@ -105,6 +105,8 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
         return player + (MapModsOf(conn)?.Rarity ?? 0)
+            + (monster?.Effects["base_item_found_rarity_+%"] ?? 0)
+            + (monster?.Effects["from_league_item_rarity_+%_permyriad"] ?? 0) / 100
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
     }
 
@@ -117,7 +119,8 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
         return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
-            * (1 + Math.Max(0, monster?.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) ?? 0) / 10000.0)
+            * Math.Max(0, 1 + (monster?.Effects["base_item_found_quantity_+%"] ?? 0) / 100.0)
+            * Math.Max(0, 1 + (monster?.Effects[MapSulphite.EnragedQuantity] ?? 0) / 10000.0)
             * (MapModsOf(conn)?.QuantityFactor ?? 1);
     }
 

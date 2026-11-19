@@ -79,27 +79,34 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(_moreLife)));
 
     // The more life and more damage stats modules handed over, in the order they were handed over.
-    static volatile string[] _moreLife = [], _moreDamage = [];
+    static volatile string[] _moreLife = [], _moreDamage = [], _moreTaken = [];
     static readonly object MoreLock = new();
 
     /// <summary>A hand-over for modules: each stat in <paramref name="life"/> (<paramref name="damage"/>) that a monster
     /// has multiplies its <see cref="MaxLife"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
     /// framework names none; with none handed over, or none on the monster, the factor is exactly 1. Disposing the result
     /// (the module's lifetime) takes back the stats it added.</summary>
-    public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage)
+    public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage) =>
+        HandOverMore(life, damage, []);
+
+    /// <summary><see cref="HandOverMore(IReadOnlyCollection{string}, IReadOnlyCollection{string})"/> with the stats in
+    /// <paramref name="taken"/> as a more or less factor on the damage the monster takes (<see cref="DamageTaken"/>).</summary>
+    public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage, IReadOnlyCollection<string> taken)
     {
-        string[] addedLife, addedDamage;
+        string[] addedLife, addedDamage, addedTaken;
         lock (MoreLock)
         {
             addedLife = [.. life.Distinct().Except(_moreLife)];
             addedDamage = [.. damage.Distinct().Except(_moreDamage)];
+            addedTaken = [.. taken.Distinct().Except(_moreTaken)];
             _moreLife = [.. _moreLife, .. addedLife];
             _moreDamage = [.. _moreDamage, .. addedDamage];
+            _moreTaken = [.. _moreTaken, .. addedTaken];
         }
-        return new MoreHandOver(addedLife, addedDamage);
+        return new MoreHandOver(addedLife, addedDamage, addedTaken);
     }
 
-    sealed class MoreHandOver(string[] life, string[] damage) : IDisposable
+    sealed class MoreHandOver(string[] life, string[] damage, string[] taken) : IDisposable
     {
         int _disposed;
 
@@ -110,6 +117,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
             {
                 _moreLife = [.. _moreLife.Except(life)];
                 _moreDamage = [.. _moreDamage.Except(damage)];
+                _moreTaken = [.. _moreTaken.Except(taken)];
             }
         }
     }
@@ -214,10 +222,11 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     /// <summary>The factor on damage the monster takes: base_damage_taken_+% with <paramref name="increasedPct"/> (its
     /// shock, Glacial Wave's chill and the player's debuffs on it, which add to it) added (increased/reduced), and for
-    /// spells the rare mod's rare_monster_mod_spell_damage_taken_+%_final (less).</summary>
+    /// spells the rare mod's rare_monster_mod_spell_damage_taken_+%_final (less), and the handed-over more or less damage
+    /// taken stats (<see cref="HandOverMore(IReadOnlyCollection{string}, IReadOnlyCollection{string}, IReadOnlyCollection{string})"/>).</summary>
     public double DamageTaken(bool spell, double increasedPct = 0) => Math.Max(0, 1 + (this["base_damage_taken_+%"] + increasedPct) / 100.0)
         * (spell ? Math.Max(0, 1 + this["rare_monster_mod_spell_damage_taken_+%_final"] / 100.0) : 1)
-        * Math.Max(0, 1 + this["map_monster_damage_taken_+%_final_from_atlas_keystone"] / 100.0);
+        * Math.Max(0, 1 + this["map_monster_damage_taken_+%_final_from_atlas_keystone"] / 100.0) * More(_moreTaken);
 
     /// <summary>The chance to block an attack (monster_base_block_%), capped at Monster.ot's maximum_block_%.</summary>
     public int BlockChance => Math.Clamp(this["monster_base_block_%"], 0, MaxBlock);

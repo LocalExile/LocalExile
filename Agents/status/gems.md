@@ -68,10 +68,17 @@ Nothing yet.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
   Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
+  The trap, mine and totem supports' own more or less damage scales the supported hit.
+  A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
+  Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
+  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
+  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
+  Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
+  melee skill and support restrictions.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
@@ -118,6 +125,7 @@ Nothing yet.
   documented in [25](../docs/protocol/25-gem-supports.md).
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
   Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
+  Cast on Melee Kill releases linked spells on a linked melee attack's kill; it is not yet checked in the client.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Culling Strike.** Melee, area and projectile hits cull at 10% Life; the target-state conditions (burning, frozen,

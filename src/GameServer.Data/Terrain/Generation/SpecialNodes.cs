@@ -24,7 +24,14 @@ sealed class NodePlacement
 /// (<c>0x142128ed0</c> → <c>0x142126cf0</c>), and the placed rooms are tilised (<c>0x142127f10</c>).</summary>
 /// <summary>A tilised room as <c>0x141ff0fa0</c> records it (0x38 bytes on the layout context's +0x58 list): the
 /// room, its footprint in map entries, the node's descriptions (+0x20) and its orientation code (+0x1b).</summary>
-public sealed record PlacedRoom(RoomDef Room, int X, int Y, int Width, int Height, IReadOnlyList<string> Descriptions, int Orientation = 0);
+public sealed record PlacedRoom(RoomDef Room, int X, int Y, int Width, int Height, IReadOnlyList<string> Descriptions, int Orientation = 0)
+{
+    /// <summary>The ExtraTerrainFeatures row an extra room pool room was placed for (its id), null for any other room.</summary>
+    public string? Feature { get; init; }
+
+    /// <summary>That row's descriptions (+0x29): kept apart from <see cref="Descriptions"/>, which the layout passes read.</summary>
+    public IReadOnlyList<string> FeatureDescriptions { get; init; } = [];
+}
 
 sealed class SpecialNodes(TerrainCache files, LevelRandom rng, List<string> notes, TileGraph graph, TileGrid grid,
     int offsetX, int offsetY, TileStore store, RoomSetIndex rooms)

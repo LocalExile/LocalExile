@@ -208,7 +208,10 @@ the original player cast's first valid release (including Fireball/Spark), share
 Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;
 unreleased cancelled, replaced-source or retired casts pay nothing. Payment publishes current life/reservation;
 area poison uses the same added chaos base. Source identity survives gem experience/level-lock edits, not replacement.
-Proxy/trigger executors must supply their own actual caster and never reuse the player payment; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
+Proxy/trigger executors must supply their own actual caster and never reuse the player payment.
+Spellblade (Stat 18860) adds the one-hand melee weapons' own damage, not global attack additions. The main hand must
+be one; with two weapons each counts 60%, floored per hand before spell effectiveness (as PoB).
+Hallow's Hallowing Flame gives
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.
 
@@ -307,6 +310,8 @@ Guard cooldown recovery begins when the buff ends; guard damage absorption prece
 CoC alternates linked executable spells after an accepted attack critical hit, with native per-effect cooldown
 and separate spell payment; attacks retain manual use. CwC uses its native interval on the projectile pump,
 independently of the channel's hit/payment cadence, and drops future work when the paid channel becomes invalid.
+Cast on Melee Kill shares CoC's release (rotation, cooldown, payment) after a linked melee attack's own hit kills a
+hostile monster; kills by its ailments, by other skills or by minions do not count.
 Other generic triggers remain unavailable.
 Queued triggers retain stable source gem identity and the support configuration. XP/lock edits retain identity;
 actual gem swaps or changed levels/links cancel queued work. Reused skill IDs alone are insufficient identity. Pause freezes pending work without erasing the counter.

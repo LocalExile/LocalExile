@@ -21,7 +21,7 @@ are the Gateway's own table.
 
 ## 2. The core table
 
-world.db's `drop_currency_weights` (36 rows, all `core`/`estimated`) is the pool; `ItemDrops.Currency` is the compiled
+world.db's `drop_currency_weights` (36 rows, all `core`/`estimated`, 34 enabled) is the pool; `ItemDrops.Currency` is the compiled
 24-entry fallback (sum 4049.51) used only while the table is empty or the database fails to load. The first 24 rows
 below are that fallback's; the rest are added by `sql/updates/*/*_currency_drop_gaps.sql`. The category is 35% of an
 item drop (`drop_multiplier_currency` scales that category only). Shares below are conditional on a currency drop,
@@ -59,8 +59,8 @@ measurement. Orb of Unmaking copies Orb of Regret, and Hinekora's Lock copies th
 
 | Currency | BaseItemTypes Id | DropLevel | Weight | Basis |
 |---|---|---:|---:|---|
-| Engineer's Orb | `CurrencyStrongboxQuality` | 1 | 17 | uncommon, between Blessed and Regal |
-| Harbinger's Orb | `CurrencyUpgradeMapTier` | 1 | 1.5 | rare, as Annulment |
+| Engineer's Orb | `CurrencyStrongboxQuality` | 1 | 17 | disabled (see below) |
+| Harbinger's Orb | `CurrencyUpgradeMapTier` | 1 | 1.5 | disabled (see below) |
 | Orb of Binding | `CurrencyUpgradeToRareAndSetSockets` | 25 | 18 | uncommon, between Blessed and Regal |
 | Sacred Orb | `CurrencyRerollDefences` | 35 | 0.3 | very rare, well below Divine |
 | Ancient Orb | `CurrencyRerollUnique` | 35 | 2 | core drop since 3.28; rare, as Exalted |
@@ -71,6 +71,10 @@ measurement. Orb of Unmaking copies Orb of Regret, and Hinekora's Lock copies th
 | Cartographer's Chisel | `CurrencyMapQuality` | 52 | 35 | fairly common in its range, near Chaos/Scouring |
 | Fracturing Orb | `CurrencyFractureRare` | 68 | 0.2 | core drop since 3.28; very rare |
 | Orb of Unmaking | `CurrencyAtlasPassiveRefund` | 70 | 25 | as Orb of Regret (owner's judgment) |
+
+Engineer's and Harbinger's Orbs are kept but `enabled = 0` (`pending_world`/`currency_drop_unusable_orbs`): the client's
+`CurrencyItems` gives both "This item is no longer usable." with an empty `Action`, and the 3.29.3d client does not start
+targeting on a right-click. Their shards (`CurrencyStrongboxQualityShard`, `CurrencyUpgradeMapTierShard`) still exist.
 
 Not in the table, on purpose: Orb of Horizons (`CurrencyRerollMapType`, DropLevel 68; no longer obtained in 3.28),
 Silver Coin, the Veiled orbs and every boss- or league-only currency (§5.1).
