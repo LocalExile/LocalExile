@@ -99,6 +99,10 @@ internal sealed class DeepwaterRun
     public double LandAt { get; set; }
     /// <summary>How the run ended (null while it runs): "success", "failure: …".</summary>
     public string? Outcome { get; set; }
+    /// <summary>The run failed (a death, drowning, leaving another way; DeepwaterExtraction.Fail): its instance is dead.
+    /// Nothing in it opens, pickups stay Dredge, and a resurrect goes to The Sovereign (G: the research's "resurrect at
+    /// the hub, not in the encounter").</summary>
+    public bool Failed { get; set; }
     /// <summary>The deck's CollectionChest, once someone rode up.</summary>
     public uint DeckChest { get; set; }
     public readonly object Gate = new();

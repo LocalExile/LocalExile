@@ -183,6 +183,9 @@ internal static class DeepwaterExtraction
         else if (conn.PlayerLife == 0) why = "dead";
         else if (device.Kind == Kind.Bathysphere && (!conn.HasQuestFlag(DeepwaterConstants.CanExtract) || device.Landed == 0))
             why = device.Landed == 0 ? "still descending" : "not DeepwaterCanExtract";
+        // A Voyage leaves only by the Bathysphere it called (the wiki: calling "moves the Bathysphere there"); the start
+        // one at cell 0 stays as scenery (G: the client may still show it as usable).
+        else if (device.Kind == Kind.Bathysphere && run.Voyage && device.Landed == 2) why = "a Voyage leaves by the called Bathysphere";
         else if (device.Kind != Kind.Bathysphere && (device.Sent || device.Called)) why = "it took off";
         else if (device.Kind != Kind.Bathysphere && !run.InLight((device.X, device.Y), now)) why = "not within Lanternlight";
         if (why is not null)
@@ -249,6 +252,9 @@ internal static class DeepwaterExtraction
         else if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
         else if (!conn.HasQuestFlag(DeepwaterConstants.MapOwner)) why = "not IsMapOwner";
         else if (items.Items(CapsuleRow).Count == 0) why = "the capsule is empty";
+        // All or nothing: a capsule that took off with items left behind would leave them to a failure (G: the real
+        // server's answer to a full collection is unknown; ClientStrings has no line for it that is known).
+        else if (!AllFit(items)) why = "the collection (inventory 114) has no room for everything in the capsule";
         else
             lock (run.Gate)
             {
@@ -290,6 +296,26 @@ internal static class DeepwaterExtraction
         module.Log($"{player.Character} <= 0x02ca DeepwaterRules SendItemsToSurface: capsule 0x{capsule!.Id:x} sent {moved.Count} items to inventory 114"
             + (stayed > 0 ? $" ({stayed} did not fit and stay)" : ""));
         return removed;
+    }
+
+    /// <summary>Whether every item in the capsule (113) finds a cell in the collection (114) at once, placed as
+    /// <see cref="SendToSurface"/> places them (the first free cell, column by column).</summary>
+    static bool AllFit(PlayerInventories items)
+    {
+        var slot = InstanceInventories.PlayerDefaults[CollectionRow];
+        var taken = items.Items(CollectionRow).Select(i => ShapeOf(i.Item) is { } s ? (X: (int)i.X, Y: (int)i.Y, W: (int)s.Width, H: (int)s.Height) : (X: (int)i.X, Y: (int)i.Y, W: 0, H: 0)).ToList();
+        foreach (var it in items.Items(CapsuleRow))
+        {
+            var shape = ShapeOf(it.Item) ?? new(1, 1, "");
+            int w = shape.Width, h = shape.Height;
+            (int X, int Y)? cell = null;
+            for (int x = 0; cell is null && x + w <= slot.Width; x++)
+                for (int y = 0; y + h <= slot.Height; y++)
+                    if (!taken.Any(t => t.X < x + w && x < t.X + t.W && t.Y < y + h && y < t.Y + t.H)) { cell = (x, y); break; }
+            if (cell is not { } c) return false;
+            taken.Add((c.X, c.Y, w, h));
+        }
+        return true;
     }
 
     /// <summary>Ruleset op 3, Call Bathysphere (also the HUD's leave button): at an open, unsent capsule of a Voyage with an
@@ -467,6 +493,7 @@ internal static class DeepwaterExtraction
             run.Phase = DeepwaterRun.RunPhase.Ended;
             run.LandAt = 0;
             run.Outcome = $"failure: {reason}, {run.Sulphur} Sulphur lost";
+            run.Failed = true;
             run.OpenCapsule.Clear();
         }
         var members = DeepwaterLoot.Members(conn).Append(conn).Distinct().ToList();

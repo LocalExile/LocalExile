@@ -124,11 +124,19 @@ public sealed partial class DeepwaterModule : IModule
             await DeepwaterExtraction.Tick(module, conn, run, (c, why) => RunFailed(module, c, why));
             DeepwaterDredge.Tick(module, conn);
         });
-        // Dredge: a pickup from the ground during a run is noted; the Game module picks it up.
+        // Dredge: a pickup from the ground during a run, or in a failed run's dead instance, is noted; the Game module
+        // picks it up. What is noted after a failure goes at the next entry elsewhere (StartRun).
         GameEvents.GroundItemUse.Add(id, (conn, groundId, ground, _, _) =>
         {
-            if (RunOf(conn) is { Phase: not DeepwaterRun.RunPhase.Ended }) DeepwaterDredge.Noted(conn, groundId, ground);
+            if (RunOf(conn) is { } run && (run.Phase != DeepwaterRun.RunPhase.Ended || run.Failed)) DeepwaterDredge.Noted(conn, groundId, ground);
             return Task.FromResult(false);
+        });
+        // The encounter areas are not maps, so "Resurrect at Checkpoint" revives in the instance: after a failed run the
+        // player goes to The Sovereign instead (G).
+        GameEvents.Resurrected.Add(id, async conn =>
+        {
+            if (RunOf(conn) is { Failed: true } && PlayerOf(conn).AreaId != HubId)
+                await WorldOf(conn).TravelTo(HubId, "resurrect after a failed Allflame run (G)");
         });
         GameEvents.PlayerLeaving.Add(id, async (conn, reason) =>
         {

@@ -310,7 +310,8 @@ internal static class DeepwaterLoot
         lock (run.Gate) thing = run.Things.FirstOrDefault(t => t.Id == use.TargetId && t.Kind != Kind.Node);
         if (thing is null) return false;
         var player = PlayerOf(conn);
-        if (thing.Done || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || Info(thing.Type) is not { } info)
+        // A failed run's instance is dead: nothing in it opens any more.
+        if (thing.Done || run.Failed || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || Info(thing.Type) is not { } info)
         {
             await EndAction(conn);
             return true;
