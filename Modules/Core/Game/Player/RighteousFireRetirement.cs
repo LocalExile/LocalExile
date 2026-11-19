@@ -11,9 +11,20 @@ public static partial class Game
     // inventory operation neither spends the fractional carries nor consumes the source's timed support history.
     static RighteousFireRemoval? CaptureSocketedRighteousFireLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sources)
     {
-        if (conn.RighteousFire is not { SourceLifetime: { } lifetime } rf
-            || !sources.Any(source => source.Identity == lifetime.Key)
-            || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)
+        return conn.RighteousFire is { SourceLifetime: { } lifetime } rf
+            && sources.Any(source => source.Identity == lifetime.Key) ? CaptureRighteousFireRemovalLocked(conn, rf) : null;
+    }
+
+    static RighteousFireRemoval? CaptureEquippedRighteousFireLocked(ClientState conn, ReadOnlySpan<byte> affectedRows)
+    {
+        return conn.RighteousFire is { SourceLifetime.Key: var key } rf && key.Source != GemSkillIds.SourceKind.PassiveGrant
+            && ItemsOf(conn).RowOf(key.Host) is byte row && affectedRows.Contains(row)
+            ? CaptureRighteousFireRemovalLocked(conn, rf) : null;
+    }
+
+    static RighteousFireRemoval? CaptureRighteousFireRemovalLocked(ClientState conn, RighteousFireState rf)
+    {
+        if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)
             || !CurrentGameWork || InGracePeriod(conn)) return null;
 
         using var mutation = ProjectileMutation(conn);
@@ -28,7 +39,7 @@ public static partial class Game
 
     // The successful inventory write and this settlement hold the same actor lock. A later monster, shield gain,
     // or new source cannot enter the old interval. The resource worker retains any fractional self-burn.
-    static RighteousFireBurnOutput SettleSocketedRighteousFireLocked(string remote, NetworkStream stream,
+    static RighteousFireBurnOutput SettleRighteousFireRemovalLocked(string remote, NetworkStream stream,
         ConnectionCiphers ciphers, ClientState conn, RighteousFireRemoval fire)
     {
         var rf = fire.Source;

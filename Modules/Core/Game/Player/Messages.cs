@@ -675,6 +675,7 @@ public static partial class Game
                 var swapItems = ItemsOf(conn);
                 byte wanted = (byte)(bytes[2] == 1 ? 1 : 0);
                 byte finalWeaponSet;
+                EquipmentSourceChange? change = null;
                 List<(byte[] Packet, string Label)> swapOutputs = [];
                 // The current-set decision, mutation, qualification and final-set capture share one boundary. Outputs
                 // and SendEquipment may suspend after it; the 0xde set below is the one committed by this message.
@@ -683,18 +684,13 @@ public static partial class Game
                     finalWeaponSet = swapItems.WeaponSet;
                     if (wanted != swapItems.WeaponSet)
                     {
-                        var sourcesBefore = PlayerSkillSourcesLocked(conn);
+                        change = new(remote, stream, ciphers, conn, [PlayerInventories.Weapon1, PlayerInventories.Offhand1]);
                         var before = new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2 }
                             .ToDictionary(r => r, r => swapItems.Items(r).ToArray());
                         swapItems.SwapWeaponSets();
                         swapItems.WeaponSet = wanted;
                         finalWeaponSet = wanted;
-                        using (new PlayerStatScope(conn, fresh: true))
-                        {
-                            RecomputePoolsAndSpeed(conn);
-                            ReconcileBeastCompanionsLocked(conn);
-                            ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
-                        }
+                        change.CommitLocked();
                         foreach (var (row, old) in before)
                         {
                             uint inv = PlayerInventories.InventoryId(row);
@@ -706,6 +702,7 @@ public static partial class Game
                         }
                     }
                 }
+                if (change is not null) await change.PublishBurn();
                 foreach (var (packet, label) in swapOutputs) await Send(remote, stream, ciphers, packet, label);
                 await Send(remote, stream, ciphers, InstanceProtocol.WeaponSet(finalWeaponSet == 1),
                     $"0x00de weapon set {finalWeaponSet + 1}");

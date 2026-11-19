@@ -11,6 +11,30 @@ public static partial class Game
 
     public static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
 
+    // Capture while the old links, stats and resource pools are readable. Call CommitLocked only after the
+    // inventory accepts the write, under the same actor lock. Network output follows the mutation.
+    public sealed class EquipmentSourceChange(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, ReadOnlySpan<byte> affectedRows)
+    {
+        readonly RighteousFireRemoval? fire = CaptureEquippedRighteousFireLocked(conn, affectedRows);
+        readonly IReadOnlyList<PlayerSkillSource> before = PlayerSkillSourcesLocked(conn);
+        RighteousFireBurnOutput? finalBurn;
+
+        public void CommitLocked()
+        {
+            if (fire is not null && (ItemsOf(conn).RowOf(fire.Source.SourceLifetime!.Key.Host) is not byte row
+                || !ItemModStats.EquipmentRows.Contains(row)))
+                finalBurn = SettleRighteousFireRemovalLocked(remote, stream, ciphers, conn, fire);
+            using var scope = new PlayerStatScope(conn, fresh: true);
+            RecomputePoolsAndSpeed(conn);
+            ReconcileBeastCompanionsLocked(conn);
+            ReconcileEquipmentSourceLifetimesLocked(conn, before);
+        }
+
+        public Task PublishBurn() => finalBurn is null ? Task.CompletedTask
+            : PublishRighteousFireBurn(remote, stream, ciphers, conn, finalBurn);
+    }
+
     // Active local item defences retain their base roll, local conversions and final native rounding.
     public static IEnumerable<(byte Row, (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defence)> EquippedArmourDefences(
         ClientState conn, Func<string, int>? get = null)

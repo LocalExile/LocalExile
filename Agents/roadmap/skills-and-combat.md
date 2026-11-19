@@ -85,8 +85,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     the off hand's own stun threshold reduction and weapon-family modifiers; a wand beside a melee weapon (the default
     attack keeps the main hand); both-hand skills' on-hit locals and ailments from the off hand; Varunastra's hand
     eligibility; a live check that the server's hand matches the client's swing.
-  - Righteous Fire: check the last partial tick when the equipped socket host leaves the active weapon set, and verify
-    burn timing and rounding in the client.
+  - Righteous Fire: verify burn timing and rounding in the client when a gem is removed or its weapon set changes.
   - Continue auditing the remaining rows against the current implementation before adding formulas.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.

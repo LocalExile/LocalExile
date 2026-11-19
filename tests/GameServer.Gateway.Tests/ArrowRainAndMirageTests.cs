@@ -869,7 +869,19 @@ public class ArrowRainAndMirageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Righteous_fire_burns_only_between_activation_and_socket_removal_across_a_cosmetic_change(bool recovery)
+    public async Task Righteous_fire_burns_only_between_activation_and_physical_source_removal(bool recovery)
+    {
+        await RighteousFireSocketIntervals(recovery);
+        foreach (string move in new[] { "pickup", "place", "onto", "weapon swap", "promotion", "stash", "vendor" })
+        {
+            var (atWrite, atTick, running, lease, rate) = await RighteousFireHostInterval(recovery, move);
+            bool retained = move == "promotion";
+            Assert.Equal((move, (int)(rate * (retained ? .5 : .75)), (int)(rate * (retained ? 1 : .75)), retained, retained),
+                (move, atWrite, atTick, running, lease));
+        }
+    }
+
+    static async Task RighteousFireSocketIntervals(bool recovery)
     {
         using var b = new Battle("Righteous Fire", "Faster Attacks Support");
         var c = b.Conn;
@@ -1054,6 +1066,142 @@ public class ArrowRainAndMirageTests
             double firstBurn = recovery ? .78125 : .8125;
             Assert.Equal(new[] { 0, (int)(rate * .25), (int)(rate * .75), (int)(rate * firstBurn),
                 (int)(rate * firstBurn + linkedRate * .125 + rate * .0625) }, losses);
+        }
+        finally
+        {
+            c.Clock.Stop();
+            Game.AreaUpdateContext.Value = previous;
+            if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
+            updates.Stop.Dispose();
+        }
+    }
+
+    static async Task<(int AtWrite, int AtTick, bool Running, bool Lease, double Rate)> RighteousFireHostInterval(
+        bool recovery, string move)
+    {
+        using var b = new Battle("Righteous Fire", "Burning Damage Support");
+        var c = b.Conn;
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!);
+        var burningWand = wand with { Sockets = host.Item.Sockets, Links = [2], ItemLevel = 80 };
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => burningWand);
+        var replacement = wand with { Sockets = [burningWand.Sockets[0]], Links = [1] };
+        uint picked = host.Id;
+        if (move == "promotion")
+        {
+            items.Remove(PlayerInventories.Weapon1, host.Id);
+            items.Put(PlayerInventories.Offhand1, host with { Item = burningWand });
+            picked = items.Add(PlayerInventories.Weapon1, 0, 0, wand).Id;
+        }
+        if (move == "weapon swap") items.Add(PlayerInventories.Weapon2, 0, 0, replacement);
+        if (move is "place" or "onto") items.Add(PlayerInventories.Cursor, 0, 0, replacement);
+        if (move == "vendor")
+        {
+            var wisdom = Program.Items.Find("Scroll of Wisdom")!;
+            items.Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(wisdom));
+            var seller = Game.Npcs.Value.Find("Metadata/NPC/Epilogue/LillyHideout")!;
+            var offer = new InventoryItem(41, 0, 0, replacement with { Price = [(wisdom.Hash, 1)] });
+            c.Shop = new(new(seller, 100, 100), new() { [offer.Id] = (NpcShops.FirstTabId, offer) });
+        }
+        c.Pools = Game.PoolsFor(c, 100);
+        c.PlayerLife = c.PlayerMaxLife;
+        b.Enemy.Walk.Teleport(105, 100, 0);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        var clock = new ProjectileClock();
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, clock);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            const string name = "rf-host";
+            uint inv = PlayerInventories.InventoryId(PlayerInventories.Weapon1);
+            double start = Math.Ceiling(Math.Max(c.Clock.Elapsed.TotalSeconds, clock.Now(c))) + 1;
+            void At(double time) => b.Session.AdvanceTo(ProjectileRuntime.Time(start + time));
+            Task Pick() => Game.PickUpItem(name, b.Stream, b.Ciphers, c, new(inv, picked, 0, 0, 0));
+            Task Swap(byte set) => Game.OnClientMessages(name, b.Stream, b.Ciphers,
+                [(InstanceProtocol.SwapWeaponsId, new byte[] { 0, (byte)InstanceProtocol.SwapWeaponsId, set })], [], c);
+            At(0);
+            c.Clock.Start();
+            await Game.ActivateRighteousFire(name, b.Stream, b.Ciphers, c, gem.Id, gem.Effect, gem.Level, gem.Quality, gem.Gem);
+            var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+            Assert.Equal(host.Id, rf.SourceLifetime!.Key.Host);
+            double rate = recovery
+                ? DamageModel.Mitigate(c.PlayerMaxLife * rf.BurnPctPerMinute / 6000d,
+                    Game.Resistance(c, DamageType.Fire), Game.MaxResistance(c, DamageType.Fire))
+                : c.PlayerMaxLife * rf.DamagePctPerMinute / 6000d * 1.2;
+            uint before = recovery ? c.PlayerLife : b.Enemy.Life;
+            int Loss() => (int)(before - (recovery ? c.PlayerLife : b.Enemy.Life));
+            int atWrite = 0;
+            bool running = false, lease = false;
+            clock.OnWait(() => At(.5));
+            clock.Steps.Enqueue(async () =>
+            {
+                Assert.Equal((int)(rate * .5), Loss());
+                At(.625);
+                if (move == "pickup")
+                {
+                    var held = items.Add(PlayerInventories.Cursor, 0, 0, wand);
+                    await Pick();
+                    Assert.Same(rf, c.RighteousFire);
+                    Assert.Equal((int)(rate * .5), Loss());
+                    items.Remove(PlayerInventories.Cursor, held.Id);
+                }
+                if (move == "onto")
+                {
+                    await Game.HeldOntoItem(name, b.Stream, b.Ciphers, c, new(inv, uint.MaxValue, 0, 0, 0), "");
+                    Assert.Same(rf, c.RighteousFire);
+                    Assert.Equal((int)(rate * .5), Loss());
+                }
+                if (move == "stash")
+                {
+                    Assert.Null(ItemMoves.InventoryToStashFrom(Game.StashOf(c), items, 0, host.Id,
+                        PlayerInventories.MainInventory, Game.ShapeOf, out _));
+                    Assert.Equal(PlayerInventories.Weapon1, items.RowOf(host.Id));
+                }
+                if (move == "weapon swap")
+                {
+                    await Swap(0);
+                    Assert.Same(rf, c.RighteousFire);
+                    Assert.Equal((int)(rate * .5), Loss());
+                }
+                At(.75);
+                var gate = Program.SendGates.GetValue(b.Ciphers, _ => new(1, 1));
+                Assert.True(gate.Wait(0));
+                Task operation;
+                try
+                {
+                    operation = move switch
+                    {
+                        "pickup" or "promotion" => Pick(),
+                        "place" => Game.PlaceItem(name, b.Stream, b.Ciphers, c, new(inv, 0, 0, 0, 0, 0, 0)),
+                        "onto" => Game.HeldOntoItem(name, b.Stream, b.Ciphers, c, new(inv, host.Id, 0, 0, 0), ""),
+                        "weapon swap" => Swap(1),
+                        "stash" => Game.CtrlClickToStash(name, b.Stream, b.Ciphers, c, 0, host.Id, name),
+                        "vendor" => VendorsFeature.BuyFromShop(name, b.Stream, b.Ciphers, c, new(41, inv, 0, 0, 0, 0, 0)),
+                        _ => throw new ArgumentOutOfRangeException(nameof(move)),
+                    };
+                    Assert.False(operation.IsCompleted);
+                    atWrite = Loss();
+                    running = ReferenceEquals(rf, c.RighteousFire);
+                    lease = c.GemSourceLifetimes.IsCurrent(rf.SourceLifetime);
+                }
+                finally { gate.Release(); }
+                await operation;
+                if (move == "promotion") Assert.Equal(host.Id, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+                else Assert.DoesNotContain(items.EquipmentSnapshot(), entry => entry.Item.Id == host.Id);
+                if (move is "place" or "onto" or "weapon swap" or "vendor")
+                    Assert.Equal(gem.Id, Assert.Single(Game.GemSkillEffects(c)).Id);
+                At(1);
+            });
+            clock.OnWait(() => updates.Stop.Cancel());
+            c.Wire = (name, b.Stream, b.Ciphers);
+            c.PlayerUpdatesState = updates;
+            Assert.True(c.PlayerUpdatesWorker.TryStart(c, updates.Rules, null, updates, out updates.Generation));
+            if (recovery) await Game.RunResourceRecovery(name, b.Stream, b.Ciphers, c, updates);
+            else await Game.RunPlayerTick(name, b.Stream, b.Ciphers, c, updates);
+            Assert.Empty(clock.Steps);
+            return (atWrite, Loss(), running, lease, rate);
         }
         finally
         {

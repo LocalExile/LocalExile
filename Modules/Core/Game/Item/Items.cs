@@ -20,29 +20,22 @@ public static partial class Game
         InventoryItem? picked = null;
         InventoryItem? promoted = null;
         List<(byte[] Packet, string Label)> equipmentOutputs = [];
-        bool visible = PlayerInventories.ShowsOnModel(row);
+        bool equipment = ItemModStats.EquipmentRows.Contains(row);
+        EquipmentSourceChange? change = null;
         bool promotesOffhand = row is PlayerInventories.Weapon1 or PlayerInventories.Weapon2;
         string? passiveRefusal = null;
-        if (visible || promotesOffhand)
+        if (equipment || promotesOffhand)
         {
             // The pickup, offhand promotion and (for a visible row) source reconciliation are complete before either
             // inventory output can suspend. Allocate revisions only after that mutation, in their actual wire order.
             using (ProjectileMutation(conn, advance: false, phase: "equipment pickup"))
             {
-                var sourcesBefore = visible ? PlayerSkillSourcesLocked(conn) : [];
+                if (equipment) change = new(remote, stream, ciphers, conn, [row]);
                 picked = items.PickUp(row, pick.ItemId);
                 if (picked is not null && promotesOffhand) promoted = items.PromoteOffhand(row, ShapeOf);
-                if (picked is not null && visible)
-                {
-                    using (new PlayerStatScope(conn, fresh: true))
-                    {
-                        RecomputePoolsAndSpeed(conn);
-                        ReconcileBeastCompanionsLocked(conn);
-                        ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
-                    }
-                }
                 if (picked is { } taken)
                 {
+                    change?.CommitLocked();
                     equipmentOutputs.Add((InstanceItems.InventoryChange(pick.InventoryId, items.NextRevision(row),
                         [taken.Id], []),
                         $"0x00bf inventory {pick.InventoryId}: remove item {taken.Id} (picked up {pick})"));
@@ -101,6 +94,7 @@ public static partial class Game
             equipmentOutputs.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                 items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id}"));
         }
+        if (change is not null) await change.PublishBurn();
         foreach (var (packet, label) in equipmentOutputs) await Send(remote, stream, ciphers, packet, label);
         if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
@@ -142,7 +136,7 @@ public static partial class Game
                         if (done.Value.HeldNow is { } displaced)
                         {
                             if (fire is not null)
-                                finalBurn = SettleSocketedRighteousFireLocked(remote, stream, ciphers, conn, fire);
+                                finalBurn = SettleRighteousFireRemovalLocked(remote, stream, ciphers, conn, fire);
                             RetireDirectMinionSourcesLocked(conn, displacedSources);
                             ForgetGemActivation(conn, displaced.Item);
                         }
@@ -345,7 +339,7 @@ public static partial class Game
                 if (done is not null && ItemModStats.EquipmentRows.Contains(row))
                 {
                     if (fire is not null)
-                        finalBurn = SettleSocketedRighteousFireLocked(remote, stream, ciphers, conn, fire);
+                        finalBurn = SettleRighteousFireRemovalLocked(remote, stream, ciphers, conn, fire);
                     RetireDirectMinionSourcesLocked(conn, removedSources);
                     ForgetGemActivation(conn, done.Value.Held.Item);
                     RecomputePoolsAndSpeed(conn);
@@ -1498,7 +1492,8 @@ public static partial class Game
             await PlaceInStash(remote, stream, ciphers, conn, tab, new InstanceItems.PlaceItem(a.InventoryId, onto.X, onto.Y, (byte)(OneOf(a) ? 1 : 0), a.B, 0, 0));
             return;
         }
-        Item? held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+        Item? held = null;
+        EquipmentSourceChange? change = null;
         string why = "unknown inventory";
         PlayerInventories.Placement? done = null;
         if (PlayerInventories.Row(a.InventoryId) is not byte row) why = "unknown inventory";
@@ -1527,16 +1522,28 @@ public static partial class Game
                 }
             }
         }
-        else if (LevelTooLow(conn, row, held) is { } low) why = low;
-        else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
-        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
-            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
+        else
+        {
+            using var mutation = ItemModStats.EquipmentRows.Contains(row)
+                ? ProjectileMutation(conn, advance: false, phase: "equipment held placement") : null;
+            held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+            if (LevelTooLow(conn, row, held) is { } low) why = low;
+            else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
+            else
+            {
+                if (mutation is not null) change = new(remote, stream, ciphers, conn, [row]);
+                done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
+                    expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
+                if (done is not null) change?.CommitLocked();
+            }
+        }
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a}: refused ({why}): {hex}");
             return;
         }
+        if (change is not null) await change.PublishBurn();
         Console.WriteLine($"[gateway] {remote} <= 0x004a held item onto {a}: {hex}");
         if (done.Merged || done.Rest is not null) { await SendMerged(remote, stream, ciphers, items, done); return; }
         // Not a stack with room: swapped, as 0x2a on that cell.
@@ -1579,8 +1586,9 @@ public static partial class Game
         PlayerInventories.Placement? done = null;
         string why = "unknown inventory";
         Item? placement;
+        EquipmentSourceChange? change = null;
         if (PlayerInventories.Row(place.InventoryId) is not byte row) why = "unknown inventory";
-        else if (PlayerInventories.ShowsOnModel(row))
+        else if (ItemModStats.EquipmentRows.Contains(row))
         {
             // Cursor validation, the visible write, replacement, qualification and source retirement all happen in the
             // same mutation. The first inventory output cannot overtake a replacement create or old actor removal.
@@ -1593,14 +1601,9 @@ public static partial class Game
                     else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
                     else
                     {
-                        var sourcesBefore = PlayerSkillSourcesLocked(conn);
+                        change = new(remote, stream, ciphers, conn, [row]);
                         done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
-                        if (done is not null)
-                        {
-                            RecomputePoolsAndSpeed(conn);
-                            ReconcileBeastCompanionsLocked(conn);
-                            ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
-                        }
+                        if (done is not null) change.CommitLocked();
                     }
                 }
             }
@@ -1645,6 +1648,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");
             return;
         }
+        if (change is not null) await change.PublishBurn();
         if (done.Row == PlayerInventories.Flask) done = done with { Placed = EmptyIfEquippedInHostileArea(conn, items, done.Placed) };
         var d = done.Displaced;
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
