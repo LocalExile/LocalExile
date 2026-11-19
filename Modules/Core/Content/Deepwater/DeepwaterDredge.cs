@@ -61,6 +61,17 @@ internal static class DeepwaterDredge
         lock (list) list.Add(new(groundId, ground.Item.TypeHash, before, conn.Clock.Elapsed.TotalSeconds + PickupWait));
     }
 
+    /// <summary>An item picked up in the run but not marked yet (its pickup is matched on the next tick): one of a noted
+    /// pickup's type whose ground item is gone, held on the cursor under a new id (any of that type when it is not on the
+    /// cursor). Read only when an item is placed.</summary>
+    public static bool Unmarked(ClientState conn, Item item)
+    {
+        if (!Pickups.TryGetValue(conn, out var list)) return false;
+        uint? held = ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault(i => ReferenceEquals(i.Item, item) || i.Item == item)?.Id;
+        lock (list)
+            return list.Any(p => p.TypeHash == item.TypeHash && conn.Instance.Ground.Get(p.GroundId) is null && (held is not { } id || !p.Before.Contains(id)));
+    }
+
     /// <summary>Per tick: a noted pickup whose ground item is gone marks the new items of its type, in the save's list and
     /// on the item (re-sent as a removal and an add of the same id). Nothing to do (one table lookup) without a pickup in
     /// flight. The ground item cannot carry the flag before the pickup: the Game module takes it by reference.</summary>

@@ -270,10 +270,10 @@ internal static class DeepwaterExtraction
 
     /// <summary>Why a Dredge item may not go into this row: the client keeps a contraband item out of every inventory but
     /// the main and expanded ones (InventoryIdKey 0) and the capsule's (0x41) (0x141d65f80); the server mirrors it (G: the
-    /// exact rows, by Inventories row).</summary>
+    /// exact rows, by Inventories row), also for an item picked up but not marked yet.</summary>
     public static string? DredgeRefusal(ClientState conn, byte row, Item item) =>
         row is PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory or CapsuleRow
-            || !DeepwaterDredge.Dredged(item)
+            || !DeepwaterDredge.Dredged(item) && !DeepwaterDredge.Unmarked(conn, item)
             ? null : "a Dredge item goes only into the main inventory or a capsule";
 
     /// <summary>C→S 0x0112, Ctrl + click with the capsule window open: an item from the main (or expanded) inventory into
@@ -630,6 +630,7 @@ internal static class DeepwaterExtraction
         {
             var member = members[i];
             var (remote, stream, ciphers) = member.Wire;
+            await Leftovers(module, member);
             await DeepwaterDredge.Clear(module, member);
             await SetQuestFlags(remote, stream, ciphers, member,
                 [DeepwaterConstants.CanExtract, DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner, DeepwaterConstants.VoyageDefend], on: false);
@@ -655,6 +656,47 @@ internal static class DeepwaterExtraction
         }
         if (deck is not null && sulphur > 0 && members.Contains(conn)) await DropSulphur(module, conn, sulphur);
         return members;
+    }
+
+    /// <summary>At a ride up, what is still in the capsule grid (113) goes up with the player, unmarked: into the
+    /// collection (114), or the main inventory when that is full; what fits nowhere stays in 113 (G: the wiki does not
+    /// say; left there it would be a plain item in a grid the client keeps for contraband).</summary>
+    static async Task Leftovers(IModuleContext module, ClientState conn)
+    {
+        var items = ItemsOf(conn);
+        var left = items.Items(CapsuleRow).ToList();
+        if (left.Count == 0) return;
+        int collected = 0, carried = 0;
+        foreach (var it in left)
+        {
+            var plain = it with { Item = it.Item with { HeaderFlags = (ushort)(it.Item.HeaderFlags & ~DeepwaterDredge.DredgeFlags) } };
+            InventoryItem? placed = null;
+            byte row = 0;
+            Saves.Atomically(() =>
+            {
+                foreach (byte to in (ReadOnlySpan<byte>)[CollectionRow, PlayerInventories.MainInventory])
+                {
+                    var shape = ShapeOf(it.Item) ?? new(1, 1, "");
+                    if (items.FreeCell(to, shape.Width, shape.Height, ShapeOf) is not { } cell) continue;
+                    if (items.Remove(CapsuleRow, it.Id) is null) return;
+                    (placed, row) = (items.Put(to, plain with { X = cell.X, Y = cell.Y }), to);
+                    if (to == CollectionRow) collected++; else carried++;
+                    return;
+                }
+            });
+            if (placed is null || conn.Closed || conn.LeavingArea) continue;
+            await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), [it.Id], []),
+                $"0x00bf inventory 113: remove item {it.Id} (ride up)");
+            await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(row)}: add item {placed.Id} from the capsule (ride up)");
+        }
+        DeepwaterDredge.Untrack(conn, [.. left.Select(i => i.Id)]);
+        if (collected > 0)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems]);
+        }
+        module.Log($"{CharacterName(conn)}: ride up with {left.Count} items in the capsule: {collected} to the collection, {carried} to the inventory (G)");
     }
 
     static async Task SendEnd(ClientState conn, bool success)
