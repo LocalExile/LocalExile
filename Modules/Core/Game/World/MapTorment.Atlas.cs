@@ -160,6 +160,30 @@ public static partial class MapTorment
         return null;
     }
 
+    /// <summary>Possesses a player from outside a torment area (content that grants a Possession, such as a league
+    /// encounter's reward): <paramref name="spiritRow"/>'s spirit, or a random one of the area level's weighted spirits
+    /// (not the unusual ones) when null, for <paramref name="seconds"/> (<see cref="double.PositiveInfinity"/>: until death
+    /// or leaving the area). The Possessed buff (2113) follows on the player's next tick, the Grip's stats come with it,
+    /// and both end at life 0 or on leaving. Monsters are touched only in a torment area (the possession needs its spirit
+    /// bookkeeping). Returns the spirit's row, or null when none fits or the player already has that spirit.</summary>
+    public static int? PossessPlayer(ClientState conn, int? spiritRow, double seconds)
+    {
+        if (seconds <= 0) return null;
+        TormentCatalog.Spirit? spirit = spiritRow is int row ? TormentCatalog.ByRow(row)
+            : TormentCatalog.Pick(TormentCatalog.Pool(AreaLevel(conn), unusual: false), Random.Shared)
+              ?? TormentCatalog.Pick([.. TormentCatalog.All.Where(s => s.Weight > 0)], Random.Shared);
+        if (spirit is null) return null;
+        var possession = Possessed.GetValue(conn, _ => new());
+        lock (possession)
+        {
+            if (possession.Spirits.Any(p => p.Row == spirit.Row)) return null;
+            possession.Spirits.Add((spirit.Row, seconds, PlayerTouchLimit, 0));
+            possession.Stats = null;
+        }
+        Console.WriteLine($"[torment] {CharacterName(conn)} possessed by {spirit.Variety} for {(double.IsPositiveInfinity(seconds) ? "the area" : $"{seconds} s")}");
+        return spirit.Row;
+    }
+
     /// <summary>The runner, under the Monsters lock: a possessed player touches the normal and magic monsters they reach.</summary>
     static void PlayerTouches(ClientState conn, Area area, double now, ref bool changed)
     {

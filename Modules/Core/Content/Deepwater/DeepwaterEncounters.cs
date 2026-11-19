@@ -12,7 +12,7 @@ namespace GameServer.Modules.Deepwater;
 /// spawner of the two locked chests, spawns the guards when the encounter starts, and once they are dead lets the chest be
 /// opened for one Chart and ordinary chest loot. Per instance, shared by a party and kept in the instance's content state.
 /// The flow, counts and trigger are guesses (G, world.db <c>deepwater_encounter_*</c>) where the client data says nothing:
-/// research in the PR. The buffs the opener gets are not given here.</summary>
+/// research in the PR. The opener's buff is DeepwaterBuffs'.</summary>
 internal static class DeepwaterEncounters
 {
     public enum EncounterKind { CoralNest, CursedTreasure, BrinerotPlunder }
@@ -46,7 +46,7 @@ internal static class DeepwaterEncounters
         public List<Part> Parts { get; } = [];
         public HashSet<uint> Guards { get; } = [];
         public List<AreaPopulation.Spawn> Pending { get; } = [];
-        /// <summary>The characters who opened it (one grant per instance and character; the buffs are part of a later change).</summary>
+        /// <summary>The characters who opened it (one buff grant per instance and character: DeepwaterBuffs).</summary>
         public HashSet<string> Granted { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -139,7 +139,7 @@ internal static class DeepwaterEncounters
     static QuestObjectTypes.Info? Info(string type) =>
         QuestObjectTypes.Find(type) is { } info && QuestObject.CanSerialize(info.Components, States.Value.GetValueOrDefault(type) is not null) ? info : null;
 
-    static int AreaLevel(ClientState conn) =>
+    internal static int AreaLevel(ClientState conn) =>
         Math.Clamp(MapRunOf(conn) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
 
     static bool Near((int X, int Y) a, (int X, int Y) b, double distance)
@@ -517,6 +517,7 @@ internal static class DeepwaterEncounters
         module.Log($"{CharacterName(conn)}: Allflame {e.Kind} 0x{was:x} opened (now 0x{e.Id:x}): {string.Join(", ", drops.Select(d => d.Type.Name))}");
         int size = QuestObjectTypes.Find(e.Type)?.Size ?? 1;
         await DeepwaterLoot.Drop(conn, e.X, e.Y, size, $"Allflame {e.Kind} 0x{e.Id:x}", drops);
+        await DeepwaterBuffs.Grant(module, conn, e.Kind);
     }
 
     /// <summary>One Chart (uniform over the three biomes; normal, item level = area level, uncharted: room 0xff, G until

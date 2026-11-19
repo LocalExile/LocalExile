@@ -121,6 +121,7 @@ public sealed partial class DeepwaterModule : IModule
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, (conn, bytes) => RulesetAction(module, conn, bytes));
         GameEvents.Tick.Add(id, async (conn, _) =>
         {
+            await DeepwaterBuffs.Tick(module, conn);
             await DeepwaterEncounters.Tick(module, conn);
             if (RunOf(conn) is not { } run) return;
             await _light.Tick(module, conn, run);
@@ -145,6 +146,7 @@ public sealed partial class DeepwaterModule : IModule
         GameEvents.PlayerLeaving.Add(id, async (conn, reason) =>
         {
             _light.Forget(conn);
+            DeepwaterBuffs.Forget(conn);
             // Leaving a run any way but the Bathysphere ends it as a failure.
             if (RunOf(conn) is { Phase: not DeepwaterRun.RunPhase.Ended }) await RunFailed(module, conn, $"left ({reason})");
         });
@@ -159,17 +161,22 @@ public sealed partial class DeepwaterModule : IModule
             await DeepwaterExtraction.QuickMove(module, conn, run, InstanceItems.ReadLeagueWindowMove(bytes));
             return true;
         });
-        GameEvents.PlayerStatSources.Add(id, _light.WithSlow);
+        // The Drowning slow; the encounter buffs' chances (Craiceann's Call, Sailor's Lantern).
+        GameEvents.PlayerStatSources.Add(id, (conn, sources) => DeepwaterBuffs.PlayerStats(conn, _light.WithSlow(conn, sources)));
+        // Craiceann's Call: a rare or unique kill brings crabs.
+        GameEvents.MonsterKilled.Add(id, DeepwaterBuffs.Killed);
         GameEvents.StateBuilding.Add(id, (conn, json) =>
         {
             RunState(conn, json);
             DeepwaterEncounters.State(conn, json);
         });
-        // The league's monsters' map-related drops and the Golden Lantern stacks in a run; a Brinerot Plunder guard's Ducat.
+        // The league's monsters' map-related drops and the Golden Lantern stacks in a run; a Brinerot Plunder guard's Ducat;
+        // Sailor's Lantern's duplicated gold.
         GameEvents.Drops.Add(id, roll =>
         {
             if (RunOf(roll.Conn) is { } run) DeepwaterLoot.Drops(roll, run);
             DeepwaterEncounters.Drops(roll);
+            DeepwaterBuffs.Drops(module, roll);
         });
         // A warcry or the caster mastery opens a cleared encounter chest (3.29.1).
         GameEvents.ChestsOpened.Add(id, (conn, at, radius) => DeepwaterEncounters.OpenNear(module, conn, at, radius));
