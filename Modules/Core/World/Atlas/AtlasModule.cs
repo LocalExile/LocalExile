@@ -134,6 +134,11 @@ public sealed class AtlasModule : IModule
         // with no item. Hand the matching MavenFights invitation into the bag first; the empty FinishNPCChat still closes.
         GameEvents.NpcOptionPicked.Add(module.Manifest.Id, async (conn, talk) =>
         {
+            if (AtlasFeature.KiracConversationFlag(talk.Row) is { } heard && !conn.HasQuestFlag(heard))
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                await SetQuestFlags(remote, stream, ciphers, conn, [heard]);
+            }
             await AtlasFeature.GiveMavenInvitation(conn, talk.Script);
             return true;
         });
@@ -187,6 +192,15 @@ static class AtlasFeature
     };
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // The base Kirac rows are also used by the hideout speaker. These dialogues have no flag in NPCTalk.
+    internal static string? KiracConversationFlag(int row) => row switch
+    {
+        2282 => "KiracOnTheElderSeen",
+        2283 => "KiracOnTheElderslayersSeen",
+        2286 => "KiracOnZanaCaeseriusSeen",
+        _ => null,
+    };
 
     internal static async Task<int> EnsureUnlocked(ClientState conn)
     {
