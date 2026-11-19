@@ -4,6 +4,7 @@ public static partial class Game
 {
     public sealed record ConditionalRingSlots(Item? Left, Item? Right)
     {
+        // Extra ring pairs from GameEvents.ItemStatSources: each ring reads the other ring of its own pair.
         public IReadOnlyList<(Item? Left, Item? Right)> Layers { get; init; } = [];
         public IReadOnlyDictionary<string, bool> Flags => new Dictionary<string, bool>
         {

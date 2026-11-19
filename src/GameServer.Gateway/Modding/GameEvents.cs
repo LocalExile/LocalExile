@@ -233,8 +233,10 @@ public static class GameEvents
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
 
-    /// <summary>Additional immutable equipment sources for attributes and item-local defences only.
-    /// Native inventory, socketed-gem and granted-skill collections are unchanged. Providers use stable distinct ids.</summary>
+    /// <summary>Extra worn items counted as stat inputs only: their mods join the character's stat sources and conditions,
+    /// their local defences the armour slots' defences. They host no gems or granted skills, and checks that look for one
+    /// worn item (weapon hit stats, gem requirements, unique mechanics such as Her Embrace) still read the real inventory.
+    /// Rows outside the equipment rows are dropped; ids must be stable and distinct from real items.</summary>
     public static readonly GameEvent<Func<ClientState, IReadOnlyList<(byte Row, InventoryItem Item)>,
         IReadOnlyList<(byte Row, InventoryItem Item)>>> ItemStatSources = new();
 
