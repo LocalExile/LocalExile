@@ -134,6 +134,13 @@ height, …. Rows 0–15 are the character's own inventories (main, equipment, f
 | 57 | RitualSavedRewards1 | 0x25 | 100x4 | 116 | DeepwaterCursedDucatsStorage1 | 0x46 | 6x1 |
 | 58 | DONOTUSE1 | 0x0c | 3x2 | | | | |
 
+The Allflame windows are S→C 0x7b ([16](16-waypoints.md)) kinds **0x68** ExtractionInventory (an Allflame Capsule,
+`DeepwaterExtractionInventoryWindow`, refresh `0x140427920`) over row **113** and **0x6f** CollectionInventory (the
+deck's CollectionChest) over row **114**; the Gateway puts the object's id in the first u32 (what enables the capsule's
+buttons was not found). "Send to Surface" (ruleset op 2, [03](03-area-and-world.md) §8) is enabled only with QuestFlags
+2020 `IsMapOwner` and a non-empty 113 (else ClientStrings 8441 "final Capsule" or 8439); "Call Bathysphere" (op 3)
+only with 113 empty (8442), and with IsMapOwner it first asks 8440 "There are unused Capsules".
+
 ## 4. S→C 0x3d: passive slots
 
 Dispatcher case 0x11. Class `0x1435e6708` (0x38 bytes, ctor `0x1421a5480`), write `0x1421a54b0`.

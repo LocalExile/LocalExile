@@ -743,6 +743,8 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
   (`0x141f34200` → `0x1401297c0`); no Deepwater master has one, so the client crashes and the port refuses the level.
 
 A sent one-room chart and a 3 × 3 Voyage were traced and captured live (3.29.3d, [world](../../status/world.md)).
+The server matches cells to records by their rectangle, not by record index, and an extraction lands on
+record 1, the boat, at its `default` point (`Modules/Core/Content/Deepwater/DeepwaterBoard.cs`).
 Open: the record WorldArea switch to the biome's (+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the cell stats' and mods'
 meaning, and `killzone=3`, which the client never parses (guess: a server rule, a monster-free radius at the start).
 

@@ -162,9 +162,37 @@ when it turns targetable, and the client crashes later without it (live 2026-11-
 HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
 
 S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-7
-come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`.
-S→C 0x1e carries a ruleset event by name (such as `open_deepwater_device`, `update_collection_chest`); its layout is
-not decoded.
+come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`
+(Core `InstanceRulesets`; the Gateway frames 0x2ca by that length). The payload's first byte is an opcode or mode, the
+rest little-endian. The sender `0x1421a1960` takes a lambda whose slot 2 writes the payload; the action `i32, i32, u8`
+with `0x141689da0` is ExpeditionRules' (row 116), not row 171's.
+
+Row 171 (ClientDeepwater, the Allflame run; `Modules/Core/Content/Deepwater/DeepwaterRuleset.cs`):
+
+| C→S 0x2ca op | payload | sent by |
+|---|---|---|
+| 0 PlaceLantern | i32 x, i32 y (grid cell) | a click in placement mode (league action 55), on the previewed spot |
+| 2 SendItemsToSurface | – | the capsule window's "Send to Surface" (`0x140427bf0`), which then closes the window |
+| 3 RequestExtraction | – | the capsule window's "Call Bathysphere" (`0x140427c50`) and the HUD's leave button (`0x14044c280`) |
+
+| S→C 0x2c9 mode (reader `0x141683c40`) | after the mode | client effect |
+|---|---|---|
+| 0 | i32 x, i32 y, u32 | appends a lantern anchor for placement; nothing found reads the u32 (the Gateway sends the lantern's id) |
+| 1 | u32 a, u32 b | the Sulphur gauge, a/b in five steps (`0x1403fbe20`; the Gateway sends collected, the run's total) |
+| 2 | u8 placed, u8 total | the lantern counter (`0x1403fbf10`) and the client's placement gate (placed < total, QuestFlags 3550); placed + 1 == total with total > 2 shows the final-lantern banner once |
+| 3 | u8 state | 3 hides the HUD; 0 → 1 or 2 plays DeepwaterCollapseStart, 1 and 2 keep the collapse audio (`0x1403fbdb0`). The Gateway: 1 collapse, 2 first lantern out, 3 over |
+| 4 | u32 count | the CollectionChest's `amount_looted` model (≤ 8/16/32/64/more) |
+| 5 | – | the completion popup once (`0x1403fc330`), Valerie's ChartSuccess, VoyageSuccess or Tut_PlayerReturns line |
+| 6 | – | Valerie's ChartFail line |
+| 7 | – | closes the capsule window |
+
+The preview (`0x141683660`, each frame) snaps the cursor with `0x141fc5800`: a spot exactly BaseLanternPlacementRange
+(115) from a mode-0 anchor, no anchor within 110, under 100 cells from the player, walkable (else the nearest walkable
+cell within 9) and with a clear path. Without an anchor nothing can be placed. The module checks the same, ±10 cells.
+
+S→C 0x1e is a ruleset event by name: `u16 0x001e, u32 entity BE, u16 length BE, ASCII` (reader `0x1421a44a0`); the
+client passes it to every ruleset's slot 3. Row 171 acts only on `update_collection_chest` and
+`trigger_npc_completion_textaudio`, which its own scripts raise, so the run sends none.
 
 A row belongs to the areas whose client-side content uses it. Row 171 DeepwaterRules (ClientDeepwater) looks up the
 `DeepwaterPlugin` terrain plugin every frame (`0x1416851b0` → `0x141685030`, which returns 0x28 when it is missing, with

@@ -117,7 +117,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([03](../docs/protocol/03-area-and-world.md) §8). Valerie (NPCs 789) waits for the flag that ends the tutorial, which
   the client data does not name. The boat gates are written as plain AreaTransitions, so the client highlights them on
   hover (Boat_AreaTransition_Animate has `no_highlight`).
-  Not decoded: S→C 0x1e and the chart item's `DeepwaterChart` component.
+  Not decoded: the chart item's `DeepwaterChart` component (S→C 0x1e is decoded and a run needs none, 03 §8).
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
@@ -125,15 +125,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      the gate of the "Deepwater (2)" item of
      [server-side level generation](#server-side-level-generation), and the chart's own room, rotation, level, cell
      stats and border mods once charts exist (step 3).
-  2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
-     already rolls (their guarded chest always drops a Chart; buffs Craiceann's Call, Possession, Sailor's Lantern),
-     then inside a Chart the Allflame Lanterns (DeepwaterConstants: 6 per Chart, radius 110, range 115), Drowning
-     outside their light, Sulphur from luminous coral, the collapse and the Bathysphere extraction, and Dredge items;
-     the Bathysphere (`ExtractionObject`, shared state `landed` = 2) at the start and `killzone=3` (011 §3c4).
+  2. In-map encounters and the rest of a Chart (the run itself is in the status, "The Sovereign"): the Coral Nest,
+     Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures` already rolls (their guarded chest always drops a
+     Chart; buffs Craiceann's Call, Possession, Sailor's Lantern); in a Chart the Pointer arrow, auto-placement
+     (league flag 1841), Valerie's lantern lines (the lantern's Functions; no trigger found), the other interactables,
+     the rare-class and Anchor chests, the special rooms' encounters and the unique monsters.
   3. Charts and Voyages: the Bathysphere and Valerie's "Chart Area"/"Plan Voyage" (`open_deepwater_device[_1x1]`), the
      Chart Locker (inventory 112, DeepwaterLockerLayout), the 3x3 Voyage board, border modifiers (0x2c9 mode 1,
-     rerolls from 3000 Sulphur doubling, at most 5), Allflame Capsules (60 cells) and the deck's collection chest
-     (inventory 114).
+     rerolls from 3000 Sulphur doubling, at most 5) and the hub's collection chest (ruleset 172 op 9 TakeAllLoot).
   4. Economy and crafting: Dead Man's Sulphur, Vesper's Allflame crafting (inventories 105/106,
      DeepwaterCraftingCurrencies' costs and league quest flag gates, 2 to 4 Ghostly Copies), Ducats, Cursed Ducats and
      the upgrade pieces.

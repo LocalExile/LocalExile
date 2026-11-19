@@ -218,9 +218,31 @@ Part of [Status](../Status.md); what to build next in this area is in
   [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
   point; the board's layout and orientation are from the client's code). Their level generation is in the
   [world status](world.md) ("Level generator port").
-  Each cell plans its biome's league packs (MonsterPacks 3149-3166 by MinLevel, `DeepwaterRooms.__col8` per cell)
-  at the character's level (1-84), with DeepwaterLifeScalingPerLevel's more life; a pack spawns when a lantern's
-  light first covers it (guesses: the hidden-until-lit mechanism, the counts, the spacing; not verified live yet).
+  **The Chart run** (`Modules/Core/Content/Deepwater`; [03](../docs/protocol/03-area-and-world.md) §8,
+  [12](../docs/protocol/12-quests.md) §5; not verified live yet):
+  - Lanterns: the first is lit at the start Bathysphere.
+    The player places the rest (0x2ca op 0, the client's snap rule): 6 in a Chart, 25 in a Voyage (+40 with flag 1893).
+    Their light is the `DeepwaterLantern` task; the HUD counter and final-lantern banner follow mode 2.
+  - Drowning (buff 2736) outside every light slows action speed up to 50 % and kills after 5 s; not on the deck.
+  - Monsters: each cell plans its biome's league packs (MonsterPacks 3149-3166 by MinLevel, `DeepwaterRooms.__col8`)
+    at the character's level (1-84), with DeepwaterLifeScalingPerLevel's more life.
+    A pack wakes when a lantern's light first covers it; league monsters drop half as many maps.
+  - Dead Man's Sulphur nodes are collected by the light and fill the gauge (mode 1).
+  - Chests and objects open only in light: Sunken Loot, Gold Piles, Treasure Clams, Messages in a Bottle (the bottle
+    as a plain drop), the Golden Lantern buff, Soothing Coral, Allflame Kindling (Voyage).
+  - Collapse: after a Chart's last lantern or a Voyage's call, the lanterns shrink newest first and swarm packs come.
+  - Leaving: a Voyage's Allflame Capsules (0x7b kind 0x68, inventory 113) send items up to inventory 114 (saved) or
+    call the Bathysphere, which lands after 30 s.
+    The Bathysphere, or a Chart's backup capsule, takes everyone to the encounter's own deck (record 1): Valerie's
+    line, the Sulphur as one stack, the CollectionChest (0x7b kind 0x6f, 114).
+  - Dredge: items picked up in a run are lost on a death, a drowning or any other exit.
+  - Guesses: monsters hidden until lit; pack, node and object counts, spacing and amounts; the Sulphur formula; the
+    area level (until charts exist); the first lantern not counted; the collapse timings (20 s, then 8 s each, 10 s
+    apart, the Bathysphere's lantern held at radius 30); the swarm (a pack every 4 s, at most 30); the 30 s descent;
+    the fail line under 25 % of the Sulphur; the slow's linear ramp; Dredge matched by new item ids (no client marker).
+  - Left: the Pointer arrow, auto-placement (league flag 1841), Valerie's lantern lines (Functions), the other
+    interactables (altars, graves, barrels, crab eggs, cages, strongboxes, essences, shrines), the rare-class and
+    Anchor chests, the special rooms' encounters, and the unique monsters.
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
