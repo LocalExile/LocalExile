@@ -234,7 +234,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's Craiceann's Call, Possession or
   Sailor's Lantern (`DeepwaterEncounters.cs`, `DeepwaterBuffs.cs`; built 2026-11-19, not yet checked live). The trigger
   distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`, `deepwater_*_chance`).
-  Charts drop only from these chests, at normal rarity, uncharted (no chart mods yet). Not built: removing Possession
+  Charts drop only from these chests, at normal rarity, with the area's level and a random room of their biome (no chart
+  mods yet). Not built: removing Possession
   by right-clicking its buff, and its monster touches outside torment maps; the Drowned Crawlers' possessed rares; the
   Brinerot barrels' own monsters and `free` state (plain Brinerots stand in); dungeon areas such as The Submerged
   Passage, where the port rolls the room but does not place it.

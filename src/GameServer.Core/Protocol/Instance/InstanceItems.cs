@@ -117,8 +117,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public bool Vestigial { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
 
-    /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30, u8 +0x31, u8 a DeepwaterRooms row (+0x20).
-    /// Null writes 00 00 FF (no room).</summary>
+    /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30 the Area Level its tooltip shows, u8 +0x31,
+    /// u8 a DeepwaterRooms row (+0x20). The client crashes drawing a chart whose row is out of range (0xff), so null
+    /// writes 00 00 00 (row 0).</summary>
     public ChartData? Chart { get; init; }
 
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
@@ -248,8 +249,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     (HeistBlueprint ?? new HeistBlueprintState(0, 1, 1, false, [])).Write(w);
                     break;
                 case "DeepwaterChart":
-                    var chart = Chart ?? new ChartData(0, 0, 0xff);
-                    w.U8(chart.A).U8(chart.B).U8(chart.Room);
+                    var chart = Chart ?? new ChartData(0, 0, 0);
+                    w.U8(chart.AreaLevel).U8(chart.B).U8(chart.Room);
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
@@ -677,5 +678,5 @@ public static class InstanceItems
     }
 }
 
-/// <summary>The DeepwaterChart component's three bytes: two unnamed (+0x30, +0x31) and the DeepwaterRooms row (0xff: none).</summary>
-public readonly record struct ChartData(byte A, byte B, byte Room);
+/// <summary>The DeepwaterChart component's three bytes: the Area Level (+0x30), one unnamed (+0x31) and the DeepwaterRooms row.</summary>
+public readonly record struct ChartData(byte AreaLevel, byte B, byte Room);
