@@ -77,6 +77,8 @@ public static partial class Game
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (conn.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
+            lock (conn.Monsters)
+                if (conn.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
             MarkLaterStep(conn, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (conn, stats, _) =>

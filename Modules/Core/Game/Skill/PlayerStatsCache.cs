@@ -325,6 +325,8 @@ public static partial class Game
         On([PlayerStatStep.TimedRecovery], a => conn.EnduringCryRecovery.Changed = a);
         On([PlayerStatStep.TotemAura], a => conn.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => conn.Rampage.Changed = a);
+        On(PlayerStatChangeReaders[(int)PlayerStatChange.IncomingAilments],
+            a => conn.IncomingAilments.Changed = () => { a(); PresentStats(conn); });
         On(PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments],
             a => conn.ElementalAilments.Changed = () => { a(); PresentStats(conn); });
         return graph;

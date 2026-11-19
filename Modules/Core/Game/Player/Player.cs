@@ -957,39 +957,6 @@ public static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
-            IncomingDamagingAilments.State nextIncoming;
-            IncomingDamagingAilments.State presented;
-            int incomingEpoch;
-            lock (conn.Monsters)
-            {
-                nextIncoming = conn.IncomingAilments.Snapshot(tickNow);
-                presented = conn.PresentedIncomingAilments ??
-                    new(false, double.NegativeInfinity, 0, double.NegativeInfinity, 0, 0);
-                incomingEpoch = conn.IncomingHitEpoch;
-            }
-            if (nextIncoming != presented)
-            {
-                foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, tickNow))
-                    await Send(remote, stream, ciphers, [], log, atGate: () =>
-                    {
-                        lock (conn.Monsters)
-                        {
-                            if (conn.Closed || conn.LeavingArea || conn.IncomingHitEpoch != incomingEpoch
-                                || conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) != nextIncoming)
-                                return null;
-                            return packet;
-                        }
-                    });
-                lock (conn.Monsters)
-                    if (!conn.Closed && !conn.LeavingArea && conn.IncomingHitEpoch == incomingEpoch
-                        && conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) == nextIncoming)
-                    {
-                        conn.PresentedIncomingAilments = nextIncoming;
-                        conn.PresentedIncomingAilmentEpoch = incomingEpoch;
-                    }
-                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.IncomingAilments);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-            }
             // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
             // eleven holds a tick, each with the Monsters lock, were what the input handlers queued behind. Spirit
             // Chieftain stays outside: its minion follows its published state.

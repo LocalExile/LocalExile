@@ -10,6 +10,7 @@ public static partial class Game
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
+        SendIncomingAilmentChanges,
     ];
 
     sealed class Presenting
@@ -17,6 +18,42 @@ public static partial class Game
         public volatile bool Pending;
         public Task Running = Task.CompletedTask;
         public (bool Ignite, int Chill, bool Freeze, int Shock) Ailments;
+    }
+
+    // The bleed and poison buffs on the player, against the ones the client was shown.
+    static async Task SendIncomingAilmentChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        IncomingDamagingAilments.State nextIncoming;
+        IncomingDamagingAilments.State presented;
+        int incomingEpoch;
+        lock (conn.Monsters)
+        {
+            nextIncoming = conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+            presented = conn.PresentedIncomingAilments ??
+                new(false, double.NegativeInfinity, 0, double.NegativeInfinity, 0, 0);
+            incomingEpoch = conn.IncomingHitEpoch;
+        }
+        if (nextIncoming == presented) return;
+        {
+            foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, conn.Clock.Elapsed.TotalSeconds))
+                await Send(remote, stream, ciphers, [], log, atGate: () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (conn.Closed || conn.LeavingArea || conn.IncomingHitEpoch != incomingEpoch
+                            || conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) != nextIncoming)
+                            return null;
+                        return packet;
+                    }
+                });
+            lock (conn.Monsters)
+                if (!conn.Closed && !conn.LeavingArea && conn.IncomingHitEpoch == incomingEpoch
+                    && conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) == nextIncoming)
+                {
+                    conn.PresentedIncomingAilments = nextIncoming;
+                    conn.PresentedIncomingAilmentEpoch = incomingEpoch;
+                }
+        }
     }
 
     // The player's elemental ailment buffs, against the ones the client was shown.

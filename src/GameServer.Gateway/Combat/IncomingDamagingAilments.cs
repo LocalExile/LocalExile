@@ -33,6 +33,20 @@ public sealed class IncomingDamagingAilments
             .DefaultIfEmpty(double.NegativeInfinity).Max();
     public bool Idle => bleeds.Count == 0 && poisons.Count == 0;
 
+    /// <summary>A bleed or poison was added or removed (the stats and presentation that show them follow).</summary>
+    public Action? Changed;
+
+    /// <summary>When a bleed or poison next starts or ends after <paramref name="now"/>; null without one.</summary>
+    public double? NextChangeAt(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var b in bleeds) next = Math.Min(next, Next(b.From, b.Until));
+        foreach (var p in poisons) next = Math.Min(next, Next(p.From, p.Until));
+        return double.IsFinite(next) ? next : null;
+        double Next(double from, double until) =>
+            from > now + TimeEpsilon ? from : until > now + TimeEpsilon ? until : double.PositiveInfinity;
+    }
+
     public State Snapshot(double now) =>
         new(Bleeding(now), BleedingUntil(now), PoisonStacks(now), PoisonUntil(now), bleedRevision, poisonRevision);
 
@@ -50,6 +64,7 @@ public sealed class IncomingDamagingAilments
         if (!(seconds > 0)) return false;
         bleeds.Add(new(now, now + seconds, perSecond, source, reflected));
         bleedRevision++;
+        Changed?.Invoke();
         return true;
     }
 
@@ -63,6 +78,7 @@ public sealed class IncomingDamagingAilments
         if (!(seconds > 0)) return false;
         poisons.Add(new(now, now + seconds, perSecond, source, reflected));
         poisonRevision++;
+        Changed?.Invoke();
         return true;
     }
 
@@ -226,6 +242,7 @@ public sealed class IncomingDamagingAilments
         // equal to a fresh empty state.
         bleedRevision++;
         poisonRevision++;
+        Changed?.Invoke();
     }
 
     const double TimeEpsilon = 1e-9;
@@ -243,14 +260,14 @@ public sealed class IncomingDamagingAilments
     void RemoveBleeds(Predicate<Bleed> match)
     {
         int removed = bleeds.RemoveAll(match);
-        if (removed > 0) bleedRevision++;
+        if (removed > 0) { bleedRevision++; Changed?.Invoke(); }
         if (bleeds.Count == 0) bleedFraction = bleedTakenFraction = 0;
     }
 
     void RemovePoisons(Predicate<Poison> match)
     {
         int removed = poisons.RemoveAll(match);
-        if (removed > 0) poisonRevision++;
+        if (removed > 0) { poisonRevision++; Changed?.Invoke(); }
         if (poisons.Count == 0) poisonFraction = poisonTakenFraction = 0;
     }
 
