@@ -280,6 +280,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterPoisons Poisons = new();
     // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
     public readonly MonsterContagion Contagion = new();
+    public MonsterContagion? Bane;
     // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), under the Monsters lock.
     public readonly MonsterEssenceDrain EssenceDrain = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
