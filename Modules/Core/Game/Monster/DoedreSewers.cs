@@ -121,7 +121,7 @@ public static class DoedreSewers
     {
         if (c.Layout.Id != Area || !Fights.TryGetValue(c.Instance, out var f) || use.TargetId != f.ValveId) return false;
         if (!TryBeginObjectWalk(c, requestedAt, f.ValveAt.X, f.ValveAt.Y, 3, out var walk)) return true;
-        var (action, now, here, stop, arrive) = walk; var w = c.Wire;
+        var (action, now, here, stop, arrive) = walk;
         if (!use.Started) await SendWorldRecord(c, PlayerId,
             InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, f.ValveAt.X, f.ValveAt.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
             still: () => PlayerActionCurrent(c, action));
@@ -212,7 +212,7 @@ public static class DoedreSewers
             : s.Type.EndsWith("FaceDoor") ? (byte)(finished ? 3 : 1) : (byte)1;
         async Task Create(ClientState c, Scene s)
         {
-            var a = s.At; var w = c.Wire;
+            var a = s.At;
             string? model = s.Info.OwnModel ? null : a.Model ?? s.Info.Model;
             await Send(c, InstanceEntities.CreateObject(s.Id, InstanceEntities.ObjectTypeHash(s.Type),
                 new QuestObject(a.X, a.Y, s.Info.Components, a.Rotation, a.Z, model, State(s), Blocked: s.Type.EndsWith("FaceDoor") && !finished).Blob()), "[Doedre] arena object");
@@ -357,7 +357,7 @@ public static class DoedreSewers
                     { Count = effect == Wand ? 3 : 1, SpreadRadians = Math.PI / 9 };
                 foreach (var p in Present.Where(Awake))
                 {
-                    var wire = p.Wire; var session = ProjectilesFor(p);
+                    var session = ProjectilesFor(p);
                     session.Advance();
                     session.Schedule(ProjectileRuntime.Time(now + attack.Seconds * (effect == Wand ? .4 : .5)),
                         () => !stopped && !draining && MonsterActionCurrent(p, id, boss, generation), () =>

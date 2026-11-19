@@ -395,7 +395,7 @@ public sealed class ShrineTests
                 Pools = new(1, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("shrine-test", "Standard", false, false),
                     new HashSet<string>(["Game", "shrine-regression", "shrine-explosion-regression"])),
-                Wire = ("shrine-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                Session = new("shrine-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
             };
             return new(writer, reader, conn, reader.GetStream().CopyToAsync(Stream.Null));
         }

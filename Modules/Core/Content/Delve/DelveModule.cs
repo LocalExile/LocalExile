@@ -184,7 +184,7 @@ public sealed partial class DelveModule : IModule
             if (talk.Script.Contains("BeginDelve", StringComparison.Ordinal))
             {
                 world.NpcEndTalk();
-                var conn = ConnOf(talk.Player); var wire = conn.Wire;
+                var conn = ConnOf(talk.Player);
                 if (conn.Layout.Hash != Hub)
                     await ChangeArea(conn,
                         new PendingTransfer(Hub, 0, false, AtWaypoint: true), $"{talk.Npc}: {talk.Option}");
@@ -345,7 +345,7 @@ public sealed partial class DelveModule : IModule
 
     static Task RemoveSceneObject(IPlayer player, uint id)
     {
-        var conn = ConnOf(player); var wire = conn.Wire;
+        var conn = ConnOf(player);
         return global::Game.SendWorldRemoval(conn, id);
     }
 

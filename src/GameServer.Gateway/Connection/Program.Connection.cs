@@ -125,14 +125,14 @@ public partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level) };
+                conn.Session = new(remote, stream, ciphers) { Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 ConnectionMetrics.Add(ciphers, conn.Performance);
-                PacketHistories.Add(ciphers, conn.Packets);
+                PacketHistories.Add(ciphers, conn.Session.Packets);
                 left = conn;
                 // Another connection's requests (a trade, a party invite) reach this client through its own send gate, and
                 // a rule that takes this connection over (AdmittingAsync) can tell it why before it is prepared.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
-                conn.Wire = (remote, stream, ciphers);
                 // A rule may end the connection this one replaces first (one connection per character, AdmittingAsync):
                 // this connection's character is loaded only after that.
                 // Closed: a third login of the character ended this one while it waited for the first.
@@ -198,7 +198,7 @@ public partial class Program
                         total += n;
                         await OnClientData(remote, stream, ciphers, buffer.AsSpan(0, n).ToArray(), conn, inbox, Stopwatch.GetTimestamp());
                         // A lost stream (ClientInbox.LostAfterUnframedReads): leaving the loop closes the connection.
-                        if (conn.UnframedRun >= ClientInbox.LostAfterUnframedReads) { reason = conn.CloseReason; break; }
+                        if (conn.Session.UnframedRun >= ClientInbox.LostAfterUnframedReads) { reason = conn.CloseReason; break; }
                     }
                     reason ??= conn.CloseReason ?? "closed by the server";
                 }
@@ -257,11 +257,11 @@ public partial class Program
             {
                 reason = $"error: {ex.GetType().Name}: {ex.Message}";
                 Console.WriteLine($"[gateway] {remote} error: {ServerLog.Describe(ex)}");
-                left?.Packets.Print(remote, "before the error");
+                left?.Session.Packets.Print(remote, "before the error");
             }
         }
         if (left is not null && vanished)
-            left.Packets.Print(remote, "before the client closed the connection");
+            left.Session.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
             try
@@ -294,7 +294,7 @@ public partial class Program
         else if (entered is not null) Instances.Leave(entered);   // ended before its ClientState existed
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder
-            ? left.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
+            ? left.Session.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
             : null;
         Console.WriteLine($"[gateway] DISCONNECT {remote} total={total} after {Stopwatch.GetElapsedTime(connectedAt).TotalSeconds:0.0} s: " +
                           $"{reason ?? "?"}{(dump is null ? "" : $" (packets: {dump})")}");
@@ -307,22 +307,22 @@ public partial class Program
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
-        byte[] all = [.. conn.Carry, .. data];
-        var messages = InstanceProtocol.SplitClientMessages(all, out conn.Carry, out byte[] unknown);
+        byte[] all = [.. conn.Session.Carry, .. data];
+        var messages = InstanceProtocol.SplitClientMessages(all, out conn.Session.Carry, out byte[] unknown);
         (ushort[] Predictive, ushort[] Lockstep)? mixed = null;
         foreach (var (id, bytes) in messages)
         {
-            conn.Packets.Received(id, bytes);
+            conn.Session.Packets.Received(id, bytes);
             mixed ??= conn.NotePacket(remote, id);
             // ServerTrace.Client: every C→S message in full, the 0x1b ticks too, to compare what clients send.
             if (ServerTrace.Client || ServerTrace.Packets && PacketHistory.Kept(sent: false, id))
                 Console.WriteLine($"[packets] {remote} <= 0x{id:x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
         }
         if (mixed is { } both) await ReportMixedModes(remote, stream, ciphers, both.Predictive, both.Lockstep);
-        if (unknown.Length > 0) conn.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")
-        conn.UnframedRun = ClientInbox.UnframedRun(conn.UnframedRun, messages.Count, unknown.Length);
-        if (conn.UnframedRun == ClientInbox.LostAfterUnframedReads)
-            conn.CloseReason = $"the client's stream no longer decodes ({conn.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
+        if (unknown.Length > 0) conn.Session.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")
+        conn.Session.UnframedRun = ClientInbox.UnframedRun(conn.Session.UnframedRun, messages.Count, unknown.Length);
+        if (conn.Session.UnframedRun == ClientInbox.LostAfterUnframedReads)
+            conn.CloseReason = $"the client's stream no longer decodes ({conn.Session.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
                 // 0x18e click, 0x192 the held button's newest target, 0x195 release: a lockstep client's whole move
@@ -335,7 +335,7 @@ public partial class Program
             // Answered after the input read before it (ClientInbox.DeferTick); the ack index and the side channel are taken
             // when it goes out, so the answers keep the ticks' order.
             inbox.DeferTick(() => SendPong(stream, ciphers, InstanceProtocol.Pong(serverDelayMs: ClientInbox.ServerDelayMs,
-                ackIndex: inbox.NextAckIndex(), sideChannel: conn.Hnc!.NextIdleU32())));
+                ackIndex: inbox.NextAckIndex(), sideChannel: conn.Session.Hnc!.NextIdleU32())));
             var waited = Stopwatch.GetElapsedTime(readAt);
             if (waited > ClientInbox.SlowAfter)
                 Console.WriteLine($"[gateway] {remote} slow tick #{conn.Ticks}: 0x001c sent {waited.TotalMilliseconds:0} ms after the 0x001b was read");
@@ -387,7 +387,7 @@ public partial class Program
             string ids = handling is null ? "" : " handling " + string.Join(", ", handling.Messages.Select(m => $"0x{m.Id:x4}"));
             conn.CloseReason = $"handler error{ids}: {ex.GetType().Name}: {ex.Message}";
             Console.WriteLine($"[gateway] {remote} error{ids}: {ServerLog.Describe(ex)}");
-            if (ex is not (IOException or ObjectDisposedException)) conn.Packets.Print(remote, "before the handler error");
+            if (ex is not (IOException or ObjectDisposedException)) conn.Session.Packets.Print(remote, "before the handler error");
         }
         finally { turn?.Dispose(); }
         inbox.Complete();
@@ -418,7 +418,9 @@ public partial class Program
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
     /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
     /// clients); it must copy what it keeps.</summary>
-    public static Action<ConnectionCiphers, byte[]>? Outgoing;
+    public static Action<ClientState, byte[]>? Outgoing;
+    /// <summary>The player each connection's ciphers send for (ClientState.Session), for <see cref="Outgoing"/>.</summary>
+    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ClientState> PlayersByCiphers = new();
     [ThreadStatic] public static WorldOutput.Packet? WritingWorldRecord;
 
     // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
@@ -428,7 +430,7 @@ public partial class Program
     /// <summary>Sends to the player's client (<see cref="Send(string, NetworkStream, ConnectionCiphers, byte[], string?, Func{bool}?, Func{byte[]?}?, string?)"/>).</summary>
     public static Task Send(ClientState conn, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null) =>
-        Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, bytes, log, still, atGate, sync);
+        Send(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, still, atGate, sync);
 
     public static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
@@ -490,7 +492,7 @@ public partial class Program
 
     // Called under SendGate. Diagnostics and the shared-object observer see actual transmission, not queueing.
     public static Task WritePacket(ClientState conn, byte[] bytes, string? log, WorldOutput.Packet? record = null) =>
-        WritePacket(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, bytes, log, record);
+        WritePacket(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, record);
 
     public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         byte[] bytes, string? log, WorldOutput.Packet? record = null)
@@ -508,7 +510,7 @@ public partial class Program
             // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
             var previousRecord = WritingWorldRecord;
             WritingWorldRecord = record;
-            try { if (Outgoing is { } outgoing) outgoing(ciphers, bytes); }
+            try { if (Outgoing is { } outgoing && PlayersByCiphers.TryGetValue(ciphers, out var player)) outgoing(player, bytes); }
             finally { WritingWorldRecord = previousRecord; }
             string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
@@ -532,7 +534,7 @@ public partial class Program
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
     public static Task<bool> SendBatched(ClientState conn, Func<Task<bool>> body) =>
-        SendBatched(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, body);
+        SendBatched(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, body);
 
     public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
     {
@@ -570,7 +572,7 @@ public partial class Program
                     else PacketSummaries.Value.Write(line);
                 }
                 HistoryFor(ciphers).Sent(bytes);
-                if (Outgoing is { } outgoing) outgoing(ciphers, bytes);
+                if (Outgoing is { } outgoing && PlayersByCiphers.TryGetValue(ciphers, out var player)) outgoing(player, bytes);
                 all.AddRange(bytes);
             }
             if (all.Count > 0) await Write(stream, ciphers, [.. all]);
@@ -640,6 +642,8 @@ public partial class Program
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
+    /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
+    public static Task SendPong(ClientState conn, byte[] bytes) => Write(conn.Session.Stream, conn.Session.Ciphers, bytes);
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();

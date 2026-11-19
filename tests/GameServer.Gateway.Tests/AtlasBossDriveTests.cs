@@ -114,7 +114,7 @@ public sealed class AtlasBossDriveTests
         {
             PlayerLife = 1000, PlayerSent = true, Character = "BossDrive",
         };
-        conn.Wire = ("127.0.0.1:1", toClient, serverCiphers);
+        conn.Session = new("127.0.0.1:1", toClient, serverCiphers);
         conn.Walk.Teleport(100, 100, 0);
         var variety = new MonsterCatalog().Find(Shaper);
         Assert.NotNull(variety);

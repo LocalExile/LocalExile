@@ -164,7 +164,6 @@ public static class MapEssences
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return true;
         if (monolith.Stage >= 4)
         {
-            var wire = conn.Wire;
             await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
             return true;
         }

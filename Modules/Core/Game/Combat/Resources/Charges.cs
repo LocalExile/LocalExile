@@ -338,7 +338,7 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 session.State.Restore(carried, updates.Schedule.Now(conn));
-                Console.WriteLine($"[gateway] {conn.Wire.Remote} charges carried from the last area: " +
+                Console.WriteLine($"[gateway] {conn.Remote} charges carried from the last area: " +
                     string.Join(", ", carried.Select(c => $"{c.Held} {Charges.Name(c.Type)} ({c.Remaining:0.0} s left)")));
             }
         session.Woken = () => WakeCharges(conn);

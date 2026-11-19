@@ -50,7 +50,7 @@ public sealed class PredictiveLeapSlamTests
         reader.ReceiveTimeout = 5000;
         var ciphers = new ConnectionCiphers(new byte[64], false);
         var decrypt = new ConnectionCiphers(new byte[64], true);
-        owner.Wire = ("leap-ack-test", writer.GetStream(), ciphers);
+        owner.Session = new("leap-ack-test", writer.GetStream(), ciphers);
         var outgoing = Program.Outgoing;
         Program.Outgoing = Game.MirrorSharedMonsters;
         Program.InGame[owner] = 0;
@@ -64,7 +64,7 @@ public sealed class PredictiveLeapSlamTests
             try
             {
                 canceled = Program.Send(owner, [], null, still: () => current,
-                    atGate: () => { prepared = true; return Game.LeapSlamAcknowledgement(ciphers, []); });
+                    atGate: () => { prepared = true; return Game.LeapSlamAcknowledgement(owner, []); });
                 current = false;
             }
             finally { gate.Release(); }
@@ -79,7 +79,7 @@ public sealed class PredictiveLeapSlamTests
                     0x010c, 0x1038, 0x0409, targetObjectId: target), .. InstanceProtocol.ActionEnded(Program.PlayerId)];
                 var unchanged = (byte[])full.Clone();
                 await Program.Send(owner, [], null,
-                    atGate: () => Game.LeapSlamAcknowledgement(ciphers, full));
+                    atGate: () => Game.LeapSlamAcknowledgement(owner, full));
                 var ack = new byte[12];
                 reader.GetStream().ReadExactly(ack);
                 decrypt.Receive.Process(ack);

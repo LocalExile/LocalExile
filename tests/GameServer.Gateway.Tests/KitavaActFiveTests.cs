@@ -24,7 +24,7 @@ public sealed class KitavaActFiveTests
             },
         };
         var c = new ClientState(layout, 1, 1) { Character = "KitavaRegression", PlayerSent = true, PlayerLife = 1000000,
-            Instance = new(), Pools = new(45, 1000000, 100, 1, 0), Wire = ("kitava", wire.Stream, wire.Ciphers) };
+            Instance = new(), Pools = new(45, 1000000, 100, 1, 0), Session = new("kitava", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.LaterFormPoints[KitavaActFive.First] = (2000, 2000);
         var v = Game.Monsters.Find(KitavaActFive.First)!;
         var body = new SpawnedMonster("Kitava", new PlayerWalk(2000, 2000, 0), 200, 20, 1000)

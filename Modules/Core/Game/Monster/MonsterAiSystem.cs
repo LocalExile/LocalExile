@@ -110,6 +110,6 @@ public static partial class Game
         Program.ActingPlayer.Value = conn;
         try { await work(); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
-        catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Wire.Remote} area AI work failed: {ServerLog.Describe(ex)}"); }
+        catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Remote} area AI work failed: {ServerLog.Describe(ex)}"); }
     }
 }

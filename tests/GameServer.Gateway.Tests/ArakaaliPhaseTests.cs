@@ -15,20 +15,20 @@ public sealed class ArakaaliPhaseTests
         using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1908, 1639, (_, _) => true, []), 1, 1)
             { LockstepClient = false, Character = "YugulGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
-                Pools = new(60, 10000, 200, 1, 0), Wire = ("yugul-ground", wire.Stream, wire.Ciphers) };
+                Pools = new(60, 10000, 200, 1, 0), Session = new("yugul-ground", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1908, 1639, 0);
         uint id = await Game.SpawnMonster(c, Game.Monsters.Find(Yugul.Boss)!,
             58, MonsterRarity.Unique, 1920, 1646, unrisen: false);
         var boss = c.Monsters[id]; boss.Aggro = true;
         var observer = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
-            Wire = ("yugul-observer", observerWire.Stream, observerWire.Ciphers) };
+            Session = new("yugul-observer", observerWire.Stream, observerWire.Ciphers) };
         runtime.Observers.Add(observer); observer.Walk.Teleport(2100, 1800, 0);
         var hazards = new YugulHazards(id, boss, c); await hazards.Bind(c); await hazards.Bind(observer);
         var sent = new List<(ConnectionCiphers Cipher, byte[] Bytes)>();
         var previousOutgoing = Program.Outgoing;
         try
         {
-            Program.Outgoing = (cipher, bytes) => sent.Add((cipher, bytes.ToArray()));
+            Program.Outgoing = (player, bytes) => sent.Add((player.Session.Ciphers, bytes.ToArray()));
             await hazards.Step(c, 100);
         }
         finally { Program.Outgoing = previousOutgoing; }
@@ -88,7 +88,7 @@ public sealed class ArakaaliPhaseTests
         using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, SolarisLunaris.Area, 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
             { LockstepClient = false, Character = "CelestialGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
-                Pools = new(60, 10000, 200, 1, 0), Wire = ("celestial-ground", wire.Stream, wire.Ciphers) };
+                Pools = new(60, 10000, 200, 1, 0), Session = new("celestial-ground", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
         uint id = await Game.SpawnMonster(c,
             Game.Monsters.Find(SolarisLunaris.Moon + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
@@ -100,7 +100,7 @@ public sealed class ArakaaliPhaseTests
         c.Walk.Teleport(1100, 1100, 101); await hazards.Step(c, 101.1);
         Assert.Equal(life, c.PlayerLife);
         var observer = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
-            Wire = ("celestial-observer", observerWire.Stream, observerWire.Ciphers) };
+            Session = new("celestial-observer", observerWire.Stream, observerWire.Ciphers) };
         runtime.Observers.Add(observer); observer.Walk.Teleport(1100, 1100, 101); await hazards.Bind(observer);
         Assert.Equal(c.SceneViews.Order(), observer.SceneViews.Order());
         await hazards.Step(c, 105); await hazards.Step(c, 106);
@@ -138,16 +138,16 @@ public sealed class ArakaaliPhaseTests
         using var sleepingWire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, Arakaali.Area, 3000, 3000, 1000, 1000, (_, _) => true, []), 1, 1)
             { LockstepClient = false, Character = "ArakaaliPhaseRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
-                Wire = ("arakaali-phase", wire.Stream, wire.Ciphers) };
+                Session = new("arakaali-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c;
         var v = Game.Monsters.Find(Arakaali.Boss)!;
         uint id = await Game.SpawnMonster(c, v, 55,
             MonsterRarity.Unique, 1000, 1000);
         var boss = c.Monsters[id];
         var sleeping = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
-            Wire = ("arakaali-sleeping", sleepingWire.Stream, sleepingWire.Ciphers) };
+            Session = new("arakaali-sleeping", sleepingWire.Stream, sleepingWire.Ciphers) };
         var unbound = new ClientState(c.Layout, 3, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
-            Wire = ("arakaali-unbound", observerWire.Stream, observerWire.Ciphers) };
+            Session = new("arakaali-unbound", observerWire.Stream, observerWire.Ciphers) };
         runtime.Observers.AddRange([sleeping, unbound]);
         sleeping.MonsterViews[id] = unbound.MonsterViews[id] = c.MonsterViews[id];
         sleeping.AsleepMonsters.Add(id);
@@ -257,7 +257,7 @@ public sealed class ArakaaliPhaseTests
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1940, 1620, (_, _) => true, []), 1, 1)
             { LockstepClient = false, Character = "MirrorIntervalRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
-                Wire = ("mirror-phase", wire.Stream, wire.Ciphers) };
+                Session = new("mirror-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1940, 1620, 0);
         var v = Game.Monsters.Find(Yugul.Boss)!;
         uint id = await Game.SpawnMonster(c, v, 58,
@@ -303,7 +303,7 @@ public sealed class ArakaaliPhaseTests
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, SolarisLunaris.Area, 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
             { LockstepClient = false, Character = "SisterHandoffRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
-                Wire = ("sister-phase", wire.Stream, wire.Ciphers) };
+                Session = new("sister-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
         async Task<uint> Spawn(string type, int x) => await Game.SpawnMonster(c, Game.Monsters.Find(type)!, 60, MonsterRarity.Unique, x, 1000, unrisen: false);
         uint sid = await Spawn(SolarisLunaris.Sun, 1000), mid = await Spawn(SolarisLunaris.Moon, 1010);

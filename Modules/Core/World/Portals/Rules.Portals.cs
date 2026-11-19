@@ -21,7 +21,6 @@ static partial class PortalsRules
             }
             try
             {
-                var (r, s, c) = visitor.Wire;
                 foreach (uint id in ids)
                 {
                     await SendMapPortals(visitor, MapDeviceHere(visitor)?.Id ?? 0, run.Area.Hash16, closed: id);

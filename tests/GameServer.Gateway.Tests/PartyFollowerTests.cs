@@ -212,7 +212,7 @@ public sealed class PartyFollowerTests
                 ? new ClientState(layout, 1, 1) { Instance = instance, Character = character, PeerId = id }
                 : new ClientState(layout, 1, 1) { Instance = instance, Character = character };
             conn.PlayerLife = 1000; conn.PlayerSent = true; conn.Controlled = true;
-            conn.Wire = ("follower-test", wire.Stream, wire.Ciphers);
+            conn.Session = new("follower-test", wire.Stream, wire.Ciphers);
             players.Add(conn); Program.InGame.TryAdd(conn, 0);
             return conn;
         }

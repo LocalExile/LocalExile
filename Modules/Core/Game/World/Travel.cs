@@ -546,7 +546,7 @@ public static partial class Game
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;
-        await Send(conn, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),
+        await Send(conn, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.TicketKey(r.Ticket)),
             $"0x0027 connect to instance {r.Instance} of area 0x{r.Area:x4} (seed {r.Seed}) at {host}:{port}, ticket 0x{r.Ticket:x8}");
     }
 }

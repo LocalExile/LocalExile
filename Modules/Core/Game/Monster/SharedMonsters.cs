@@ -66,7 +66,7 @@ public static partial class Game
     // ailments and collisions). Their walks get its collision: the last view of the bodies went with it.
     static void StepForViewLocked(ClientState conn, InstanceWorld world)
     {
-        string remote = conn.Wire.Remote;
+        string remote = conn.Remote;
         var old = world.Runner;
         world.Runner = conn;
         if (old is null || ReferenceEquals(old, conn)) return;
@@ -179,7 +179,7 @@ public static partial class Game
     // The Gateway's Outgoing hook is the loaded rules' mirror: set when they load and taken back when they unload, so a
     // reload's new rules mirror from then on and the Gateway keeps no delegate into an unloaded game module (it held the
     // old module in memory, and ran its mirror, until the Gateway restarted).
-    static readonly Action<ConnectionCiphers, byte[]> Mirror = MirrorSharedMonsters;
+    static readonly Action<ClientState, byte[]> Mirror = MirrorSharedMonsters;
     public static IDisposable InstallMirror()
     {
         Volatile.Write(ref Program.Outgoing, Mirror);
@@ -215,37 +215,36 @@ public static partial class Game
         if (record.Order.Key == sourceId)
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
         if (record.Creates is not null) return SendWorldCreate(other, id, () => bytes);
-        var wire = other.Wire;
         if (record.Removes is not null) return SendWorldRemoval(other, id);
         return SendWorldRecord(other, id, bytes, null);
     }
 
-    public static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
+    public static void MirrorSharedMonsters(ClientState sender, byte[] bytes)
     {
         if (Mirroring.Value || Program.WritingWorldRecord is { SharedView: true } || bytes.Length < 12) return;
-        if (LeapSlamPeerActions.TryGetValue(bytes, out var leap) && ReferenceEquals(leap.Owner, ciphers))
+        if (LeapSlamPeerActions.TryGetValue(bytes, out var leap) && ReferenceEquals(leap.Owner, sender))
             bytes = leap.Records;
         ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
         if (message is InstanceProtocol.ActionStartedId or 0x1ac
             && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) == PlayerId)
         {
-            MirrorPlayerAction(ciphers, bytes);
+            MirrorPlayerAction(sender, bytes);
             return;
         }
         if (message == InstanceProtocol.ActionHitId
             && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) == PlayerId)
         {
-            MirrorPlayerHit(ciphers, bytes);
+            MirrorPlayerHit(sender, bytes);
             return;
         }
         if (message is InstanceEntities.CreateObjectId or InstanceProtocol.EnterWakeZoneId or InstanceProtocol.TeleportId
             or InstanceProtocol.MoveToId or InstanceProtocol.AnimationUpdateId or InstanceProtocol.RemoveObjectId
-            && MirrorProjectiles(ciphers, bytes)) return;
+            && MirrorProjectiles(sender, bytes)) return;
         if (message is not (InstanceProtocol.ActionStartedId or 0x1ac or InstanceProtocol.ActorAnimationId
             or InstanceProtocol.AnimationUpdateId or InstanceEntities.AddBuffId or InstanceEntities.RemoveBuffId)) return;
         uint id = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2));
         ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
+        if (InGame.ContainsKey(sender)) conn = sender;
         // The instance's monsters' own messages go where they are made (BroadcastMonsterMessage); here only the players'
         // minions', whose ids each other client shows under its own.
         if (id >= SharedMonsterIds || conn is null || conn.Closed || conn.LeavingArea || !Mirrorable(conn, bytes, id)) return;
@@ -285,10 +284,10 @@ public static partial class Game
     // sequences the owners' own, never 0xffff, 844 of them from the cell the receiving client had the player on. A walk
     // is one of them. It used to come from the player's published pose instead (SyncInstancePlayers): a later order from
     // a sampled cell, which restarted the walk a few cells off (a third of those orders matched the receiver's cell).
-    static void MirrorPlayerAction(ConnectionCiphers ciphers, byte[] bytes)
+    static void MirrorPlayerAction(ClientState sender, byte[] bytes)
     {
         ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
+        if (InGame.ContainsKey(sender)) conn = sender;
         if (conn is null || conn.Closed || conn.LeavingArea) return;
         var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
         if (others.Length == 0) return;
@@ -378,7 +377,6 @@ public static partial class Game
                 return;
             }
             if (after is { } start) await other.FrameFrom(start);
-            var wire = other.Wire;
             foreach (var bytes in copies)
             {
                 if (keyed) System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
@@ -459,7 +457,7 @@ public static partial class Game
 
     // A player's hit on an instance monster (0x1af: u16 id, object, u32 0, u16 0, u16 sequence, u8, u8, u32 target, u16
     // flags, u8 kind, then by kind: bit1 (u16 when flags 0x400) u8 u8, bit2 u16, bit3 u16). One message exactly, or none.
-    static void MirrorPlayerHit(ConnectionCiphers ciphers, byte[] bytes)
+    static void MirrorPlayerHit(ClientState sender, byte[] bytes)
     {
         if (bytes.Length < 23) return;
         byte kind = bytes[22];
@@ -470,7 +468,7 @@ public static partial class Game
         if (length != bytes.Length) return;
         uint target = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(16));
         ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
+        if (InGame.ContainsKey(sender)) conn = sender;
         if (conn is null || conn.Closed || conn.LeavingArea || !conn.Instance.World.MonsterOrigins.ContainsKey(target)) return;
         // The hit keeps the sequence of the action it belongs to, as that action does on the other clients
         // (MirrorPlayerAction; GGG's hits carry their attack's sequence, never 0xffff), and follows it in the same order.
@@ -650,7 +648,7 @@ public static partial class Game
     // on every other client in the instance, under an id of that client's own: created, woken, gliding, stopped, playing
     // its clips and removed with it. The messages are split by their fixed layouts; a blob with anything else is left.
     // True when the bytes were a projectile's.
-    public static bool MirrorProjectiles(ConnectionCiphers ciphers, byte[] bytes)
+    public static bool MirrorProjectiles(ClientState sender, byte[] bytes)
     {
         var parts = new List<(int At, int Length, uint Id, ushort Message)>();
         for (int at = 0; at < bytes.Length;)
@@ -671,7 +669,7 @@ public static partial class Game
             at += length;
         }
         ClientState? conn = null;
-        foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
+        if (InGame.ContainsKey(sender)) conn = sender;
         if (conn is null) return false;
         try
         {

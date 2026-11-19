@@ -202,7 +202,7 @@ public static partial class Game
                 if (!Active || output.Writer.TryWrite(intent)) return;
                 // Never stall gameplay or silently lose ordered lifecycle/inventory packets on a slow socket.
                 Console.WriteLine($"[gateway] {Conn.Remote} projectile output backlog exceeded 8192 intents; closing connection");
-                Conn.Closed = true; Invalidate(); Conn.Wire.Stream.Close();
+                Conn.Closed = true; Invalidate(); Conn.Disconnect();
             }
         }
         // A kill's aftermath (its loot roll, its explosion, the remaining-monsters count) waits behind the presentation

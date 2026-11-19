@@ -417,7 +417,7 @@ static class KitavaActFive
         }
         async Task Finish(ClientState p, double now)
         {
-            await Leaving(p); var w = p.Wire;
+            await Leaving(p);
             await SetQuestFlags(p, [Complete]);
             await ClearDock(p);
             var point = p.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == "Metadata/Terrain/Act5/Area8/Objects/LandingZone");

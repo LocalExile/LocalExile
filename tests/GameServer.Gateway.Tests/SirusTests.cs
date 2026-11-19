@@ -20,7 +20,7 @@ public sealed class SirusTests
         var c = new ClientState(new(1789, Sirus.Area, 4000, 4000, 1845, 1994, (_, _) => true, []), 1, 1)
         { LockstepClient = false,
             Character = "SirusRegression", PlayerSent = true, Instance = new(), PlayerLife = 1000000,
-            Pools = new(100, 1000000, 100, 1, 0), Wire = ("sirus-regression", wire.Stream, wire.Ciphers), Immune = true,
+            Pools = new(100, 1000000, 100, 1, 0), Session = new("sirus-regression", wire.Stream, wire.Ciphers), Immune = true,
         };
         runtime.Player = c; c.LaterFormPoints[Sirus.Body] = (2000, 2000);
         foreach (string type in new[] { Sirus.Body, Sirus.Throne, Sirus.Apparition, Sirus.Storm, Sirus.StationaryStorm })

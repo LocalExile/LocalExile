@@ -261,8 +261,7 @@ static partial class QuestobjectsRules
                 foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
                 {
                     if (peer.Owner is not { Controlled: false, Closed: false, LeavingArea: false } other) continue;
-                    var (peerRemote, peerStream, peerCiphers) = other.Wire;
-                    await Send(peerRemote, peerStream, peerCiphers, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
+                    await Send(other, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
                 }
             }
             uint izaro = await SpawnMonster(conn, variety, level, MonsterRarity.Unique, elevator.X, elevator.Y,

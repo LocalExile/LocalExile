@@ -172,7 +172,6 @@ public sealed partial class DeliriumModule
             }
             Save(conn, run);
         }
-        var wire = conn.Wire;
         foreach (var item in output) await SendGroundItem(conn, item.Id, item.Item, null, justDropped: true);
         await PublishStarter(conn, run, recreate: true);
         await Broadcast(conn, $"Simulacrum wave {wave}/15 complete — {output.Count} rewards. " +

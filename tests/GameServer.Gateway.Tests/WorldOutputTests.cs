@@ -38,7 +38,7 @@ public class WorldOutputTests : IDisposable
         var receiver = new ConnectionCiphers(new byte[64], isClient: true);
         var conn = new ClientState(new(1, "world-order", 300, 300, 100, 100, null, []), 1, 1)
         {
-            LockstepClient = true, Wire = ("world-order", writer.GetStream(), ciphers),
+            LockstepClient = true, Session = new("world-order", writer.GetStream(), ciphers),
         };
         try
         {

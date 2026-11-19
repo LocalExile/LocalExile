@@ -120,7 +120,6 @@ public static class MapStrongboxes
         if (box.Phase != 0)
         {
             int current = conn.ActionCount;
-            var wire = conn.Wire;
             await SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
                 still: () => PlayerActionCurrent(conn, current));
             return true;

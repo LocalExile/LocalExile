@@ -96,7 +96,6 @@ public static partial class Game
                     if (ApplyMonsterHitLocked(conn, target, damage, player: player) is not { } hit) continue;
                     if (hit.StageStarts)
                     {
-                        var wire = conn.Wire;
                         CommitBossStage(conn, id, target, now);
                         hit = hit with { StageStarts = false };
                     }

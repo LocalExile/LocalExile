@@ -44,7 +44,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameRules || conn.Closed || conn.RageRetired || !conn.PlayerSent
-                || conn.Wire.Stream is null || conn.Wire.Ciphers is null) return;
+                || !conn.Connected) return;
             if (conn.PlayerUpdatesState is not PlayerUpdatesState state || !PlayerUpdatesCurrent(conn, state))
             {
                 conn.RetirePlayerUpdates();
@@ -86,7 +86,7 @@ public static partial class Game
                 Task.Delay(Timeout.Infinite, state.Stop.Token));
         }
         catch (OperationCanceledException) when (state.Stop.IsCancellationRequested) { }
-        catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Wire.Remote} player updates failed: {ServerLog.Describe(ex)}"); throw; }
+        catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Remote} player updates failed: {ServerLog.Describe(ex)}"); throw; }
         finally
         {
             AreaUpdateContext.Value = null;

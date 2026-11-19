@@ -857,7 +857,7 @@ public static partial class Game
         string acknowledgement = $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab player skill")} 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})";
         if (predictedLeap)
             await Send(conn, [], acknowledgement, still: Acknowledge,
-                atGate: () => LeapSlamAcknowledgement(conn.Wire.Ciphers, [.. ActionRecords().SelectMany(p => p)]));
+                atGate: () => LeapSlamAcknowledgement(conn, [.. ActionRecords().SelectMany(p => p)]));
         else
             await SendWorldRecords(conn, PlayerId, ActionRecords, acknowledgement, still: Acknowledge);
         if (flickers && spellAcknowledged)
@@ -3101,7 +3101,6 @@ public static partial class Game
             {
                 if (record.LifeWritten is not { } life || record.Object is not { } target
                     || !conn.Monsters.TryGetValue(target.Id, out var m)) continue;
-                var wire = conn.Wire;
                 bool kept = life == 0 && !conn.DeathWritten(target.Id, m)
                     && KeepCorpseLocked(conn, target.Id, m);
                 conn.NoteLifeWritten(target.Id, m, life);

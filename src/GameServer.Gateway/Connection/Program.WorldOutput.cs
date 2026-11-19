@@ -20,7 +20,7 @@ public partial class Program
             if (dependencies.Intersect(reservations).Any())
                 throw new ArgumentException("An output batch cannot wait on its own unadmitted birth.");
             if (!await output.AwaitBirths(dependencies)) return false;
-            var wire = conn.Wire;
+            var wire = conn.Session;
             var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
             if (quest) await conn.QuestGate.WaitAsync();
             try
@@ -61,7 +61,7 @@ public partial class Program
     /// lockstep client, into the frame once the client has the object (as SendWorld); anything else goes out at once.</summary>
     public static async Task SendAreaRecord(ClientState conn, AreaOutput.Record record)
     {
-        var wire = conn.Wire;
+        var wire = conn.Session;
         if (record.Object is uint id && conn.LockstepClient && record.Bytes.Length >= 12)
         {
             var order = new WorldOrder(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(record.Bytes.AsSpan(6)),
@@ -83,7 +83,7 @@ public partial class Program
     // values (the game module's) would ride along for the area's life.
     public static void StartWorldFrames(ClientState conn)
     {
-        var (remote, stream, ciphers) = conn.Wire;
+        var (remote, stream, ciphers) = conn.Session;
         if (ExecutionContext.IsFlowSuppressed())
         {
             _ = Task.Run(() => conn.Frames.Join(remote, stream, ciphers, conn));
@@ -95,7 +95,7 @@ public partial class Program
 
     public static async Task<double> BeginWorldFrames(ClientState conn, double frameSeconds)
     {
-        var gate = SendGates.GetValue(conn.Wire.Ciphers, _ => new(1, 1));
+        var gate = SendGates.GetValue(conn.Session.Ciphers, _ => new(1, 1));
         await gate.WaitAsync();
         try
         {
@@ -116,7 +116,7 @@ public partial class Program
 
     public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
     {
-        var wire = conn.Wire;
+        var wire = conn.Session;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
         await gate.WaitAsync();
         bool committed = false;
@@ -155,7 +155,7 @@ public partial class Program
     /// the frame timeline: it ends no frame of the clock's.</summary>
     public static async Task EndPausedFrame(ClientState conn)
     {
-        var wire = conn.Wire;
+        var wire = conn.Session;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
         await gate.WaitAsync();
         bool committed = false;
@@ -184,6 +184,6 @@ public partial class Program
     {
         conn.CloseReason ??= "World output failed; its cipher stream cannot be retried";
         conn.Closed = true;
-        conn.Wire.Stream.Close();
+        conn.Session.Stream.Close();
     }
 }

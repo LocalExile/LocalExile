@@ -167,7 +167,7 @@ static partial class SurvivorsRunRules
             }
             Active.TryRemove(conn, out _);
         }
-        if (!conn.Closed && !conn.LeavingArea && conn.Wire.Ciphers is not null)
+        if (!conn.Closed && !conn.LeavingArea && conn.Connected)
             _ = ClearPresentation();
 
         async Task ClearPresentation()

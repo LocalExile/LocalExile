@@ -179,7 +179,6 @@ public sealed partial class DeliriumModule : IModule
         var run = State(conn);
         if (run.Wave == SimulacrumRules.Waves && run.Rewarded)
         {
-            var wire = conn.Wire;
             if (Descendancies.Find("Delirious") is { } bloodline)
                 await OpenDescendancySelector(conn, bloodline.Index);
             return;

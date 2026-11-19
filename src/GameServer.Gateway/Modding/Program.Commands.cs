@@ -25,7 +25,7 @@ public partial class Program
         if (left.Commands is { } commands) left.Commands = commands.Emptied();
     }
 
-    static (string, NetworkStream, ConnectionCiphers) WireOrNone(ClientState? conn) => conn is null ? ("", null!, null!) : conn.Wire;
+    static Session WireOrNone(ClientState? conn) => conn is null ? Session.None : conn.Session;
 
     // The chat commands of one connection (ChatCommands.cs).
     public static ChatCommands Commands(ClientState conn)
@@ -93,8 +93,8 @@ public partial class Program
         .Add("lastpackets", "/lastpackets [n] (the connection's last n messages, both directions, to the Gateway log; default 64)", async args =>
         {
             int n = args.Length > 0 && int.TryParse(args[0], out int count) ? Math.Clamp(count, 1, PacketHistory.Capacity) : 64;
-            conn.Packets.Print(remote, "/lastpackets", n);
-            await conn.Commands!.Reply($"The last {Math.Min(n, conn.Packets.Count)} of {conn.Packets.Count} packet(s) are in logs\\live-gateway.log.");
+            conn.Session.Packets.Print(remote, "/lastpackets", n);
+            await conn.Commands!.Reply($"The last {Math.Min(n, conn.Session.Packets.Count)} of {conn.Session.Packets.Count} packet(s) are in logs\\live-gateway.log.");
         });
         return GameEvents.RunCommandsBuilding(conn, commands);
     }

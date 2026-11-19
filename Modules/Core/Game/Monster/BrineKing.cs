@@ -72,7 +72,6 @@ public static class BrineKing
         var tide = Tides.GetValue(conn, _ => new());
         if (tide.MaimActive) await RemoveTideBuff(conn, tide.MaimBuff);
         tide.MaimActive = true; tide.MaimUntil = conn.Clock.Elapsed.TotalSeconds + 4; tide.MaimBuff = conn.NextBuff++;
-        var wire = conn.Wire;
         await Send(conn, InstanceEntities.AddBuff(PlayerId, tide.MaimBuff, 513,
             u68: BitConverter.SingleToUInt32Bits(4)), "[Brine King] cleave maim");
         await RefreshPlayerStats(conn);
@@ -80,7 +79,6 @@ public static class BrineKing
     static async Task RefreshPlayerStats(ClientState conn)
     {
         lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
-        var wire = conn.Wire;
         await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn), null);
     }
     static async Task TideAt(ClientState conn, bool active, double rawDps)
@@ -288,7 +286,6 @@ public static class BrineKing
             if (!boss.BossBarShown && boss.Variety is { BossHealthBar: true } && boss.States?.IndexOf("boss_life_bar") >= 0)
             {
                 lock (runner.Monsters) { boss.BossBarShown = true; conn.BossBarsSeen.Add(id); }
-                var wire = conn.Wire;
                 await ShowBossLifeBar(id, boss, conn);
             }
             bool begin;

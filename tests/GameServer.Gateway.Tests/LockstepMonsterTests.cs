@@ -737,7 +737,7 @@ public class LockstepMonsterTests : IDisposable
             Saves.Open(database);
             try
             {
-                conn.Wire = ("mortar-goal", writer.GetStream(), ciphers);
+                conn.Session = new("mortar-goal", writer.GetStream(), ciphers);
                 var nativeVariety = new MonsterCatalog().Find("Metadata/Monsters/SandSpitters/SandSpitter")!;
                 uint id = await Game.SpawnMonster(conn, nativeVariety,
                     70, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 140, 100,

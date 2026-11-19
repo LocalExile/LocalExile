@@ -31,7 +31,6 @@ public sealed partial class DeliriumModule
             foreach (var update in updates)
             {
                 if (!peer.MonsterViews.ContainsKey(update.Id)) continue;
-                var wire = peer.Wire;
                 await SendWorldRecord(peer, update.Id,
                     InstanceEntities.StateMachineUpdate(update.Id, update.Component, update.States), null);
             }

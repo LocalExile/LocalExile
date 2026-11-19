@@ -16,7 +16,7 @@ public sealed class MapReentryPortalTests
             new(new(area.Hash16, area.Id, 300, 300, 10, 10, null, []), 0, 1)
             {
                 Character = owner, Account = owner, Instance = instance, InstanceNumber = number, PlayerSent = true,
-                PlayerLife = 100, Wire = (owner, wire.Stream, wire.Ciphers),
+                PlayerLife = 100, Session = new(owner, wire.Stream, wire.Ciphers),
             };
         try
         {

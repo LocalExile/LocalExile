@@ -187,7 +187,6 @@ public sealed partial class DelveModule
         {
             var p = PlayerOf(recipient);
             await p.Send(InstanceDelve.SulphiteChanged(before, after), $"Sulphite mined: {before} -> {after} (deposit {deposit.Index + 1})");
-            var wire = recipient.Wire;
             await SetQuestFlags(recipient, ["NikoHaveMinedSulphite"]);
         }
         await global::Game.SendWorldRecord(PlayerOf(conn), deposit.Id, InstanceEntities.StateMachineUpdate(deposit.Id, 5, MapSulphite.States(true, MapSulphite.Fumes(encounter.Mods))), "Mine sulphite deposit");

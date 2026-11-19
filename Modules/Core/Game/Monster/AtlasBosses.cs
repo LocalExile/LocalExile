@@ -305,7 +305,7 @@ static class AtlasBosses
                     : IsShaper(variety) ? new ShaperFight(id, monster, conn)
                     : new ElderFight(id, monster, conn);
                 byMonster[id] = fight;
-                Console.WriteLine($"[gateway] {conn.Wire.Remote} 0x{id:x} {variety.Name ?? variety.Id} "
+                Console.WriteLine($"[gateway] {conn.Remote} 0x{id:x} {variety.Name ?? variety.Id} "
                     + $"({variety.Id}, level {monster.Level}, life {monster.MaxLife}): fight started, "
                     + $"{(IsMonsterRunner(conn) ? "its steps run here" : "another connection runs its steps")}");
             }
@@ -318,7 +318,7 @@ static class AtlasBosses
             catch (Exception ex)
             {
                 // Guard logs an exception that escapes a tick and drops the hook; a fight that cannot step must say so.
-                Console.WriteLine($"[gateway] {conn.Wire.Remote} {monster.Variety!.Id} 0x{id:x} step failed: {ServerLog.Describe(ex)}");
+                Console.WriteLine($"[gateway] {conn.Remote} {monster.Variety!.Id} 0x{id:x} step failed: {ServerLog.Describe(ex)}");
             }
             finally { fight.Gate.Release(); }
         }

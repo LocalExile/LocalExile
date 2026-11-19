@@ -107,7 +107,7 @@ public static class SolarisLunaris
         {
             var (_, body) = Body(index); string type = body.Variety!.Id + "CelestialForm";
             lock (c.Monsters) if (c.Monsters.Values.Any(m => m.Variety?.Id == type && Alive(m))) return;
-            var at = body.Walk.Position(now); var w = c.Wire;
+            var at = body.Walk.Position(now);
             uint id = await SpawnMonster(c, Monsters.Find(type)!, body.Level,
                 MonsterRarity.Normal, at.X, at.Y, scripted: true, owned: (_, m) =>
                 { m.NoRewards = true; m.EntranceGrace = true; m.Aggro = true; }, ownedCurrent: () => !stopped);

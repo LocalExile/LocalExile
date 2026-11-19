@@ -204,7 +204,7 @@ public sealed class Act6EncounterTests
             var conn = new ClientState(new(1, "brine-party-test", 1000, 1000, x, y, null, []), 1, 1)
             { LockstepClient = false,
                 Character = character, Instance = instance, PlayerLife = 1000000, PlayerSent = true,
-                Pools = new(49, 1000000, 100, 2, 0), Wire = (character, wire.Stream, wire.Ciphers),
+                Pools = new(49, 1000000, 100, 2, 0), Session = new(character, wire.Stream, wire.Ciphers),
             };
             players.Add(conn);
             Program.InGame.TryAdd(conn, 0);

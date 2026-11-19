@@ -167,7 +167,7 @@ public class OpeningSceneTests
 
         // Rewritten combat packets also need a copy per peer, not one copy for the fan-out.
         sender.Conn.Instance.World.MonsterOrigins[id] = new(123, new(10, 10, 23, []), 0, 1, MonsterRarity.Normal);
-        sender.Conn.Wire = ("fanout-test", sender.Stream, sender.Ciphers);
+        sender.Conn.Session = new("fanout-test", sender.Stream, sender.Ciphers);
         Program.InGame[sender.Conn] = 0;
         foreach (var peer in new[] { first, second })
             peer.Conn.SeenPlayers[sender.Conn.PeerId] = new(sender.Conn.PeerId, 7, new("Owner", 1, 10, 10, 50, 40), 10, 10, 50, sender.Conn);
@@ -177,21 +177,21 @@ public class OpeningSceneTests
                 packet => Game.BroadcastMonsterMessage(sender.Conn, id, packet));
             sender.Conn.PeerActing = true;
             await Check(InstanceProtocol.ActionEnded(0x1000), InstanceProtocol.ActionEnded(sender.Conn.PeerId),
-                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+                packet => Game.MirrorSharedMonsters(sender.Conn, packet));
             // The other clients run the player's own orders: the hit keeps its action's sequence, and a walk goes to them
             // as the same Move with the owner's sequence instead of being left to the published pose.
             await Check(InstanceProtocol.ActionHit(0x1000, 12, id, kind: 1),
                 InstanceProtocol.ActionHit(sender.Conn.PeerId, 12, id, kind: 1),
-                packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+                packet => Game.MirrorSharedMonsters(sender.Conn, packet));
             byte[] walk = InstanceProtocol.ActionStarted(0x1000, 10, 10, 30, 12, 0x2909, 0x8005, 0x0408);
             byte[] walked = InstanceProtocol.ActionStarted(sender.Conn.PeerId, 10, 10, 30, 12, 0x2909, 0x8005, 0x0408);
-            await Check(walk, walked, packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+            await Check(walk, walked, packet => Game.MirrorSharedMonsters(sender.Conn, packet));
 
             // A lockstep client's frames end on the instance's grid, and it is given what the owner was sent in a frame as
             // records of the frame after it: nothing while it still sends the owner's frame, the order once that ends.
             using var stepped = new Wire(sender.Conn.Instance);
             stepped.Conn.LockstepClient = true;
-            stepped.Conn.Wire = ("fanout-test", stepped.Stream, stepped.Ciphers);
+            stepped.Conn.Session = new("fanout-test", stepped.Stream, stepped.Ciphers);
             stepped.Conn.Outbox = (_, _) => Task.CompletedTask;
             stepped.Conn.SeenPlayers[sender.Conn.PeerId] = new(sender.Conn.PeerId, 7, new("Owner", 1, 10, 10, 50, 40), 10, 10, 50, sender.Conn);
             sender.Conn.Instance.PublishPlayer(new(stepped.Conn.PeerId, 7, new("Peer", 1, 10, 10, 50, 40), 10, 10, 50, stepped.Conn));
@@ -209,7 +209,7 @@ public class OpeningSceneTests
                 sender.Conn.LockstepClient = true;
                 sender.Conn.LockstepFrame = (sending.End, sending.End + .033);   // the owner's frame end has just been written
                 Program.WritingWorldRecord = new(walk, null, WorldOrder.First);
-                try { Game.MirrorSharedMonsters(sender.Ciphers, walk); }
+                try { Game.MirrorSharedMonsters(sender.Conn, walk); }
                 finally { Program.WritingWorldRecord = null; sender.Conn.LockstepClient = false; }
                 Assert.Empty(stepped.Conn.WorldOutput.TakeFrame().Packets);
                 await Program.EndWorldFrame(stepped.Conn, (sending.End, sending.End + .033));

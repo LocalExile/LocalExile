@@ -244,7 +244,7 @@ public static class DepravedTrinity
         if (Destination(c, gate) is not { } destination) return false;
         if (!TransitionShown(c, use.TargetId, gate)) return true;
         if (!TryBeginObjectWalk(c, requestedAt, gate.GridX, gate.GridY, AreaTransitionObjectSize, out var walk)) return true;
-        var (action, now, here, stop, arrive) = walk; var w = c.Wire;
+        var (action, now, here, stop, arrive) = walk;
         if (!use.Started) await SendWorldRecord(c, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, gate.GridX, gate.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null, still: () => PlayerActionCurrent(c, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(c, action)) return true;
@@ -323,7 +323,7 @@ public static class DepravedTrinity
             foreach (var e in Exposures) _ = Leaving(e.Key);
             foreach (var s in Seeds)
                 if (s.Value.Id != 0 && !s.Key.Closed && !s.Key.LeavingArea)
-                    _ = Send(s.Key.Wire.Remote, s.Key.Wire.Stream, s.Key.Wire.Ciphers, InstanceProtocol.RemoveObject(s.Value.Id), null);
+                    _ = Send(s.Key, InstanceProtocol.RemoveObject(s.Value.Id), null);
         }
     }
     sealed record Hit(double At, int Effect, (int X, int Y) Aim, double Radius, string Model, double Duration = 0, int Colour = -1, int Generation = 0,

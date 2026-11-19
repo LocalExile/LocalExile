@@ -156,7 +156,6 @@ public static partial class Game
             conn.ApplyMovementSpeed();
             conn.Degens[DebuffsOf.GetValue(conn, _ => new())] = DebuffDegenLocked(conn);
         }
-        var wire = conn.Wire;
         await SendPlayerStatSnapshot(conn, () => PlayerStatsOffFrames(conn), null);
     }
 

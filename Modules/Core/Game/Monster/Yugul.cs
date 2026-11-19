@@ -63,7 +63,7 @@ public static class Yugul
         async Task Hide(ClientState c)
         {
             if (!c.MonsterViews.ContainsKey(id) || c.AsleepMonsters.Contains(id)) return;
-            var at = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds); var w = c.Wire;
+            var at = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds);
             await SendWorldRecord(c, id,
                 InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, HideSkill,
                     c.NextActionSequence(), 0x0800, id), "[Yugul] dive for mirror interval");
@@ -146,7 +146,7 @@ public static class Yugul
             foreach (var p in Present.ToArray())
             {
                 await SyncInstanceMonsters(p);
-                var at = boss.Walk.Position(now); var w = p.Wire;
+                var at = boss.Walk.Position(now);
                 await SendWorldRecord(p, id,
                     InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, 0x0101,
                         p.NextActionSequence(), 0x0800, id), "[Yugul] emerges after mirrors");

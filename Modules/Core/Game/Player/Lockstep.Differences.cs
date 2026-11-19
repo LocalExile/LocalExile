@@ -99,7 +99,7 @@ public static partial class Game
         }
         if (sent != 0) conn.LockstepLatency.Add(LockstepLatency.Lost);
         Interlocked.Exchange(ref conn.LockstepProbeSentAt, Stopwatch.GetTimestamp());
-        await SendPong(conn.Wire.Stream, conn.Wire.Ciphers, InstanceProtocol.AfkRequest());
+        await SendPong(conn, InstanceProtocol.AfkRequest());
     }
 
     // The client's answer to 0x194: readAt is when its bytes reached the socket, so handlers running late do not count.

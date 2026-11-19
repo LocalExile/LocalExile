@@ -30,7 +30,7 @@ public partial class Program
             }
             // Closed stops the frame loops (WorldOutput.Close); closing the stream is what ends the pending read.
             conn.Closed = true;
-            if (conn.Wire.Stream is { } stream)
+            if (conn.Session.Stream is { } stream)
             {
                 try { stream.Close(); }
                 catch (Exception e) when (e is IOException or ObjectDisposedException) { }

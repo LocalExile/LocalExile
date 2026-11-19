@@ -285,7 +285,7 @@ public static partial class Game
             {
                 var busiest = frame.StepRuns.Select((runs, step) => (runs, step: (PlayerStatStep)step)).Where(r => r.runs > 0)
                     .OrderByDescending(r => r.runs).Take(6).Select(r => $"{r.step} {r.runs}");
-                Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} change(s), {graph.RuleRuns} step run(s) so far, {frame.Published} panel(s) in {frame.Steps} frames; {string.Join(", ", busiest)}");
+                Console.WriteLine($"[stats] {conn.Remote} {frame.Builds} change(s), {graph.RuleRuns} step run(s) so far, {frame.Published} panel(s) in {frame.Steps} frames; {string.Join(", ", busiest)}");
             }
             Array.Clear(frame.StepRuns);
             frame.Steps = frame.Builds = frame.Published = 0;
@@ -399,7 +399,7 @@ public static partial class Game
         string names = string.Join(" ", wrong.Take(12));
         int seen = FrameStatsMisses.AddOrUpdate(string.Join(" ", wrong.Take(12).Select(w => w[..w.IndexOf(' ')])), 1, (_, n) => n + 1);
         if (seen is 1 or 10 or 100 or 1000)
-            Console.WriteLine($"[stats-verify] {conn.Wire.Remote} {wrong.Length} stat(s) changed unmarked (x{seen}): {names}");
+            Console.WriteLine($"[stats-verify] {conn.Remote} {wrong.Length} stat(s) changed unmarked (x{seen}): {names}");
     }
 
     // ---- the skill list ----

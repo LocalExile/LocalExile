@@ -22,7 +22,7 @@ public sealed partial class ReservationCurseSummonTests
             League = "Standard", LeagueForm = "Standard", ClassRow = 1, Instance = new(),
             PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
             Experience = CharacterStats.ExperienceFor(100), LeagueModule = template.LeagueModule,
-            Wire = ("madness", wire.Stream, wire.Ciphers), Pools = new(100, 1, 1, 0, 0), PlayerLife = 1,
+            Session = new("madness", wire.Stream, wire.Ciphers), Pools = new(100, 1, 1, 0, 0), PlayerLife = 1,
         };
         try
         {

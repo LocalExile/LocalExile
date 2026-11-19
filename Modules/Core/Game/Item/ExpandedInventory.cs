@@ -34,7 +34,6 @@ static partial class Game
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
         int mode = ExpandedInventoryMode(conn);
         if (conn.ExpandedInventoryMode == mode) return;
-        var wire = conn.Wire;
         if (Stats.Key(ExpandedInventoryStat) is not uint key) return;
         await Send(conn, [], null, atGate: () =>
         {

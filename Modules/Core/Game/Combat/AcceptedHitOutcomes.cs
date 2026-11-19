@@ -19,7 +19,7 @@ public static partial class Game
             : new ChargeEvent.Hit(e.Critical, true, null, e.Rarity, e.Effect,
                 name => Stats.Key(name) is uint key ? e.Skill!.GetValueOrDefault(key) : 0, e.Killed, e.Primary));
         var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0, Random.Shared);
-        foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Wire.Remote} {line} (accepted contact)");
+        foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Remote} {line} (accepted contact)");
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
         // rebuilding the full skill list per hit (the 2026-11-05 log: 4 PlayerSkills builds in 80 ms, each inside the
         // send gate, and 0x0025 handlers at 50-200 ms).

@@ -350,7 +350,7 @@ public static partial class Game
         session.State.Restore(merged.Values, now);
         var restored = session.Refresh(now);
         foreach (string line in admitted.Log.Concat(aged.Log).Concat(restored.Log))
-            Console.WriteLine($"[gateway] {conn.Wire.Remote} {line} ({entryName} entry {entryAt:0.###})");
+            Console.WriteLine($"[gateway] {conn.Remote} {line} ({entryName} entry {entryAt:0.###})");
     }
 
     public static bool CatOnslaughtActiveLocked(ClientState conn) =>

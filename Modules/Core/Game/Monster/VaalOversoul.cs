@@ -124,10 +124,9 @@ public static class VaalOversoul
             bound.RemoveWhere(p => p.Closed || p.LeavingArea);
             if (!players.Contains(conn)) players.Add(conn);
             if (boss.Dead || !Awake(conn) || !bound.Add(conn)) return;
-            var wire = conn.Wire;
             await Send(conn, InstanceEntities.PlayerSkillsChange(id, SkillsFor(conn, boss.Variety!, boss.Level)!,
                 boss.Attack is { } attack && !Effects.Any(e => Skill(e) == attack.SkillId) ? [attack.SkillId] : []), "[Vaal Oversoul] native skill list");
-            if (!rising) await Send(wire.Remote, wire.Stream, wire.Ciphers,
+            if (!rising) await Send(conn,
                 InstanceEntities.TransitionableUpdate(id, TransitionIndex(), 2), "[Vaal Oversoul] targetable actor");
             if (!burrowing) await Send(conn, ModelScale(), "[Vaal Oversoul] model scale");
         }
@@ -207,7 +206,7 @@ public static class VaalOversoul
             boss.Target = target; boss.Aggro = true;
             if (!boss.BossBarShown)
             {
-                boss.BossBarShown = true; var w = target.Wire;
+                boss.BossBarShown = true;
                 await ShowBossLifeBar(id, boss, target);
             }
             if (pending != 0) { int effect = pending; pending = 0; if (effect == Laser) laserLeft = 2; await Cast(target, effect, now); return; }

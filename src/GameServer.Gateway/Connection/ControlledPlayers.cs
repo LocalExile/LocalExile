@@ -44,8 +44,8 @@ public static class ControlledPlayers
         };
         // The stream is borrowed solely as an opaque routing argument. Write rejects its virtual
         // cipher before touching or encrypting anything; closing a bot never disposes the leader's stream.
-        player.Wire = ($"bot:{character.Name}", leader.Wire.Stream, ciphers);
-        player.Outbox = (bytes, log) => Program.Send(player.Wire.Remote, player.Wire.Stream, ciphers, bytes, log);
+        player.Session = new($"bot:{character.Name}", leader.Session.Stream, ciphers);
+        player.Outbox = (bytes, log) => Program.Send(player.Session.Remote, player.Session.Stream, ciphers, bytes, log);
         return player;
     }
 

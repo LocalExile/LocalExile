@@ -58,7 +58,6 @@ public static partial class Game
         {
             try
             {
-                var wire = visitor.Wire;
                 await SendMapPortals(visitor,
                     MapDeviceHere(visitor)?.Id ?? 0, run.Area.Hash16);
             }

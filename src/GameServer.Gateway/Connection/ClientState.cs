@@ -750,10 +750,21 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>
     public string? ModuleWindow;
-    /// <summary>What sends to this client, for what is reached only with the connection (the built-in mods).</summary>
-    public (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers) Wire;
+    /// <summary>The client's connection; the framework's alone (the rules send with Program.Send).</summary>
+    internal Session Session
+    {
+        get => session;
+        set { session = value; if (value.Ciphers is { } ciphers) Program.PlayersByCiphers.AddOrUpdate(ciphers, this); }
+    }
+    Session session = Session.None;
     /// <summary>The client's address, for logs.</summary>
-    public string Remote => Wire.Remote;
+    public string Remote => Session.Remote;
+    /// <summary>Whether a client is connected (a test's or a tool's player has none).</summary>
+    public bool Connected => Session.Connected;
+    /// <summary>Drops the client's connection; its reading ends and the connection closes.</summary>
+    public void Disconnect() => Session.Stream?.Close();
+    /// <summary>The key a ticket of this connection's keyring gives (the next instance's connect, S→C 0x14).</summary>
+    public byte[] TicketKey(uint ticket) => Session.Keyring.Key(ticket);
     public double GemExperienceCarry;
     public bool BossRecoveryHandled;
     public bool HardcoreDeathRecorded;
@@ -769,8 +780,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
     readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();
     public readonly ConnectionPerformance Performance = new();
-    // The connection's last messages, both directions (PacketHistory), and why the server closed it (the DISCONNECT line).
-    public readonly PacketHistory Packets = new();
+    // Why the server closed the connection (the DISCONNECT line).
     public volatile string? CloseReason;
     /// <summary>Completes once the connection has ended and everything it saves is written (Program.EndAsync waits for it,
     /// so a connection that takes over the character loads what this one saved, never an older copy).</summary>
@@ -986,9 +996,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public bool PlayerSent;
     // Server frames ended so far (0x2b7).
     public long ServerFrame;
-    public byte[] Carry = [];
-    /// <summary>Reads in a row that framed nothing (ClientInbox.UnframedRun).</summary>
-    public int UnframedRun;
     /// <summary>The portal cosmetic: the MicrotransactionPortalVariations row every portal is listed with (0x008f +0x26),
     /// 0 for the base effect. Applied to portals already standing as well as to new ones.</summary>
     public ushort CosmeticPortalVariation;
@@ -1015,9 +1022,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public (ushort Key, uint InventoryId, uint CurrencyId, uint TargetInventoryId, uint TargetId, uint Seed, Item? Preview)? ForesightRequest;
     public ChooserList? Chooser;
     public ChatCommands? Commands;
-    // 0x1c's u32 is an HNC carrier and must decrypt to idle zero bytes, or the client throws "HNC Protocol Violated".
-    public HncSender? Hnc;
-    public InstanceKeyring Keyring = null!;
     // Server objects created after entering (monsters); the player is 0x1000 and area transitions start at 0x2000.
     public uint NextObjectId
     {

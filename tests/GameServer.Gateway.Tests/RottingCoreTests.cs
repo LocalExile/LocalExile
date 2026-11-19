@@ -16,7 +16,7 @@ public sealed class RottingCoreTests
     {
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, []), 1, 1)
-            { Character = "VisibleSoulRegression", Instance = new(), Wire = ("soul-visibility", wire.Stream, wire.Ciphers) };
+            { Character = "VisibleSoulRegression", Instance = new(), Session = new("soul-visibility", wire.Stream, wire.Ciphers) };
         runtime.Player = c;
         var v = Game.Monsters.Find(DepravedTrinity.Souls[0])!;
         int visible = v.StateMachine!.IndexOf("visible");
@@ -135,7 +135,7 @@ public sealed class RottingCoreTests
         var c = new ClientState(layout, 1, 1)
         {
             Character = "TrinityRegression", PlayerSent = true, PlayerLife = 1000000, Instance = new(),
-            Pools = new(64, 1000000, 100, 2, 0), Wire = ("trinity", wire.Stream, wire.Ciphers),
+            Pools = new(64, 1000000, 100, 2, 0), Session = new("trinity", wire.Stream, wire.Ciphers),
         };
         runtime.Player = c;
         var item = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyIdentification")!);

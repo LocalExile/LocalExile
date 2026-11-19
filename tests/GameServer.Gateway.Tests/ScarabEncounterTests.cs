@@ -371,7 +371,7 @@ public sealed class ScarabEncounterTests
                 PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true, Pools = new(70, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("scarab-test", "Standard", false, false),
                     new HashSet<string>(["Game", "scarab-regression"])),
-                Wire = ("scarab-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                Session = new("scarab-regression", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
             };
             conn.Clock.Stop();
             return new(writer, reader, conn, reader.GetStream().CopyToAsync(Stream.Null));

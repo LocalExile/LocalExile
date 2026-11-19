@@ -84,7 +84,7 @@ public static partial class Game
 
     static List<PlayerMinions.Output> CommitQuestItem(ClientState conn, string itemId, (int X, int Y) at, string source)
     {
-        string remote = conn.Wire.Remote;
+        string remote = conn.Remote;
         if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
         {
             Console.WriteLine($"[gateway] {remote} quest drop {itemId} from {source}: not in the item data");
@@ -559,7 +559,6 @@ public static partial class Game
                     ? KitavaActFive.SpawnPoint(owner, (at.X, at.Y))
                     : owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
                 byte level = (byte)Math.Clamp(Packs.For(area)?.AreaLevel ?? 1, 1, 100);
-                var wire = owner.Wire;
                 spawned = await SpawnMonster(owner, variety, level,
                     MonsterRarity.Unique, point.Item1, point.Item2) != 0;
             }

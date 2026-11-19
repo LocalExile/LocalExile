@@ -19,7 +19,7 @@ public sealed class KitavaActTenTests
             { SourceType = KitavaActTen.PortalType };
         var layout = new AreaLayout(1, KitavaActTen.Area, 4000, 4000, 2000, 1930, (_, _) => true, [(8195, originalExit)]);
         var c = new ClientState(layout, 1, 1) { LockstepClient = false, Character = "FinalKitavaRegression", PlayerSent = true, PlayerLife = 1000000,
-            Instance = new(), Pools = new(67, 1000000, 100, 1, 0), Wire = ("kitava-final", wire.Stream, wire.Ciphers) };
+            Instance = new(), Pools = new(67, 1000000, 100, 1, 0), Session = new("kitava-final", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.LaterFormPoints[KitavaActTen.Body] = (2000, 2000);
         c.QuestFlags.Add(KitavaActTen.Started); c.QuestFlags.Add("a5q6-CompletedBoss");
         var v = Game.Monsters.Find(KitavaActTen.Body)!;
@@ -49,7 +49,7 @@ public sealed class KitavaActTenTests
             Assert.Equal(2, origin.Object.TransitionState);
             c.Instance.World.MonsterOrigins[ally.Key] = origin with { Object = origin.Object with { TransitionState = 3 } };
         }
-        var observer = new ClientState(layout, 2, 1) { LockstepClient = false, Instance = c.Instance, Wire = c.Wire, PlayerSent = true };
+        var observer = new ClientState(layout, 2, 1) { LockstepClient = false, Instance = c.Instance, Session = c.Session, PlayerSent = true };
         var shown = new List<byte[]>();
         observer.MonsterViews[id] = new((2000, 2000), (2000, 2000), body.Life);
         await fight.Bind(observer);
@@ -57,7 +57,7 @@ public sealed class KitavaActTenTests
         var previousOutgoing = Program.Outgoing;
         try
         {
-            Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, observer.Wire.Ciphers)) shown.Add(bytes.ToArray()); };
+            Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, observer.Session.Ciphers)) shown.Add(bytes.ToArray()); };
             await Game.SyncInstanceMonsters(observer);
         }
         finally { Program.Outgoing = previousOutgoing; }
@@ -129,7 +129,7 @@ public sealed class KitavaActTenTests
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, KitavaActTen.Area, 4000, 4000, 2000, 1930, (_, _) => true, []), 1, 1)
         { LockstepClient = false, Character = "FinalKitavaDamage", PlayerSent = true, Instance = new(), PlayerLife = 1000000,
-            Pools = new(67, 1000000, 100, 1, 0), Wire = ("kitava-damage", wire.Stream, wire.Ciphers) };
+            Pools = new(67, 1000000, 100, 1, 0), Session = new("kitava-damage", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.LaterFormPoints[KitavaActTen.Body] = (2000, 2000); c.QuestFlags.Add(KitavaActTen.Started);
         var v = Game.Monsters.Find(KitavaActTen.Body)!;
         Assert.Equal(30, KitavaActTen.SkillsFor(c, v, 67)!.Count);

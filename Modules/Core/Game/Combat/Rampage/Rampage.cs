@@ -15,7 +15,7 @@ public static partial class Game
     {
         // Called under Monsters, from current-runtime activation, not from a retained module callback.
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || !conn.PlayerSent
-            || conn.Wire.Stream is null || conn.Wire.Ciphers is null
+            || !conn.Connected
             || !runtime.Enabled && runtime.PendingRemoval.Count == 0 && runtime.PendingBuffRemoval.Count == 0) return;
         var owner = CombatLifetime!;
         var source = runtime.SourceOwner;
@@ -123,7 +123,7 @@ public static partial class Game
             var before = conn.ElementalAilments.Snapshot(now);
             conn.ElementalAilments.Clear();
             conn.ApplyMovementSpeed();
-            if (conn.Wire.Stream is not null && conn.Wire.Ciphers is not null)
+            if (conn.Connected)
             {
                 _ = SendPlayerAilmentBuffs(conn, before, conn.ElementalAilments.Snapshot(now));
             }

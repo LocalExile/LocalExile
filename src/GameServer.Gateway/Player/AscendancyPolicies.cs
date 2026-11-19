@@ -166,7 +166,7 @@ public static class AscendancyPolicies
                     conn.InvalidateIncomingHits();
                 }
                 Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: {_family} module reloaded; reconnect to retain current rules");
-                conn.Wire.Stream?.Close();
+                conn.Session.Stream?.Close();
             }
         }
     }

@@ -68,7 +68,7 @@ sealed class ChatService : IDisposable
         IReadOnlyList<InventoryItem> items = stash.TabOf(link.InventoryId) is int tab ? stash.Inventory(tab).Items
             : PlayerInventories.Row(link.InventoryId) is byte row ? ItemsOf(conn).Items(row) : [];
         if (items.FirstOrDefault(i => i.Id == link.ItemId) is { } linked) _linked.GetOrAdd(conn, _ => new())[link.Index] = linked.Item;
-        else Log($"{conn.Wire.Remote} <= 0x0012 link of {link}: no such item");
+        else Log($"{conn.Remote} <= 0x0012 link of {link}: no such item");
         return Task.FromResult(true);
     }
 
@@ -99,7 +99,7 @@ sealed class ChatService : IDisposable
         _linked.TryRemove(conn, out var linked);
         if (chat.IsCommand) return false;
         string name = CharacterName(conn);
-        Log($"{conn.Wire.Remote} <= 0x0015 chat \"{chat.Text}\"");
+        Log($"{conn.Remote} <= 0x0015 chat \"{chat.Text}\"");
         var (channel, typed) = InstanceChat.SplitChannel(chat.Text);
         string text = ChatWire.Clean(typed);
         if (string.IsNullOrWhiteSpace(text)) return true;
@@ -112,7 +112,7 @@ sealed class ChatService : IDisposable
             case TypedChannel.Party:
                 // The party is a module's to know, so the framework hands the line over; nothing else keeps it.
                 if (!await GameEvents.RunPartyChat(conn, text, OwnLine(chat, linked, text, prefix)))
-                    Log($"{conn.Wire.Remote} <= 0x0015 party line \"{text}\" from {name} with no party to take it");
+                    Log($"{conn.Remote} <= 0x0015 party line \"{text}\" from {name} with no party to take it");
                 break;
             case TypedChannel.Global or TypedChannel.Trade:
                 var kind = channel == TypedChannel.Global ? ChatChannelKind.Global : ChatChannelKind.Trade;
@@ -159,7 +159,7 @@ sealed class ChatService : IDisposable
     // for by a command.
     public async Task<bool> Join(ClientState conn, ReadOnlyMemory<byte> bytes)
     {
-        string remote = conn.Wire.Remote;
+        string remote = conn.Remote;
         if (InstanceChat.ReadJoinChannel(bytes.Span) is not { } join)
         {
             Log($"{remote} <= 0x0134 join with an unknown channel kind, ignored: {Convert.ToHexString(bytes.Span)}");
@@ -168,11 +168,11 @@ sealed class ChatService : IDisposable
         string asked = join.Channel == InstanceChat.AnyChannel ? "any" : join.Channel.ToString();
         Log($"{remote} <= 0x0134 join {join.Kind} chat channel {asked} ({(join.Automatic ? "on entering" : "command")}, language {join.Language})");
         var (channel, changed) = JoinOn(Session(conn), CharacterName(conn), join.Kind, join.Channel, join.Language);
-        await Send(remote, conn.Wire.Stream, conn.Wire.Ciphers, InstanceChat.ChannelJoined(join.Kind, channel, join.Language), $"0x0135 joined {join.Kind} chat channel {channel}");
+        await Send(conn, InstanceChat.ChannelJoined(join.Kind, channel, join.Language), $"0x0135 joined {join.Kind} chat channel {channel}");
         if (changed || !join.Automatic)
         {
             string text = ChatChannels.JoinedText(join.Kind, channel, join.Language);
-            await Send(remote, conn.Wire.Stream, conn.Wire.Ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
+            await Send(conn, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         }
         return true;
     }

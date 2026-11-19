@@ -95,7 +95,7 @@ sealed class SmokeCloudEffect : IShrineEffect
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(_cloud,
                     InstanceEntities.ObjectTypeHash(EffectObject.TypePath), cloud.Blob()), null));
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(_cloud), null));
-                Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine {shrine.Definition.Id} smoke cloud " +
+                Console.WriteLine($"[gateway] {conn.Remote} shrine {shrine.Definition.Id} smoke cloud " +
                     $"0x{_cloud:x} at ({at.X}, {at.Y}) {shrine.State}");
             }
             // The cloud is a zone at it (OwnedZones): the unclaimed shrine's reaches the players, the claimed one's the
@@ -119,7 +119,7 @@ sealed class SmokeCloudEffect : IShrineEffect
         // Logged when the count changes rather than on every refresh, which would be a line a second.
         if (blinded == _blindedCount) return;
         _blindedCount = blinded;
-        Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine {shrine.Definition.Id}: the smoke blinds " +
+        Console.WriteLine($"[gateway] {conn.Remote} shrine {shrine.Definition.Id}: the smoke blinds " +
             $"{blinded} monster(s){(fogged.Length > 0 ? " and the player" : "")}");
         await Task.CompletedTask;
     }

@@ -58,13 +58,13 @@ public static partial class Game
 
     public static Task SendWorldRecord(IPlayer player, uint id, byte[] bytes, string? log = null)
     {
-        var conn = ConnOf(player); var wire = conn.Wire;
+        var conn = ConnOf(player);
         return SendWorldRecord(conn, id, bytes, log);
     }
 
     public static Task SendWorldRemoval(IPlayer player, uint id, string? log = null)
     {
-        var conn = ConnOf(player); var wire = conn.Wire;
+        var conn = ConnOf(player);
         return SendWorldRemoval(conn, id, log);
     }
 
@@ -90,7 +90,6 @@ public static partial class Game
         // magic monsters alone held the entry's population for 3.2 s that way (live 2026-11-17).
         Func<IReadOnlyList<byte[]>?>? afterCreation = null)
     {
-        var wire = conn.Wire;
         if (!conn.LockstepClient)
         {
             bool sent = false;
@@ -146,7 +145,7 @@ public static partial class Game
         Func<byte[]?>? atGate = null, string? sync = null)
     {
         if (!conn.LockstepClient) return Send(conn, bytes, log, still, atGate, sync);
-        if (sync is not null && !MetricsFor(conn.Wire.Ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
+        if (sync is not null && !conn.Performance.SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
         var target = conn.WorldOutput.PublishedObject(id);
         return SendWorldBatch(conn, QuestKillCommitOutput is not null && atGate is null ? [] : [target], _ =>
         {
@@ -161,7 +160,7 @@ public static partial class Game
         if (!conn.LockstepClient)
             return Send(conn, [], log, still, atGate: () =>
                 records() is { } batch ? [.. batch.SelectMany(p => p)] : null, sync: sync);
-        if (sync is not null && !MetricsFor(conn.Wire.Ciphers).SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
+        if (sync is not null && !conn.Performance.SyncDue(sync, SyncPublishMilliseconds)) return Task.CompletedTask;
         var target = conn.WorldOutput.PublishedObject(id);
         return SendWorldBatch(conn, [target], _ => records() is { } batch
             ? new(batch.Where(p => p.Length > 0).Select(p => PresentedRecord(target, p, log)).ToArray()) : null,
@@ -221,7 +220,6 @@ public static partial class Game
         }, still);
         async Task<bool> Predictive()
         {
-            var wire = conn.Wire;
             bool sent = false;
             await Send(conn, [], log, still, atGate: () =>
             {

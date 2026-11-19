@@ -90,7 +90,7 @@ public static partial class Game
         {
             var tagged = atGate;
             atGate = admission => tagged(admission) is not { } records ? null : records.Records.Count == 0 ? records
-                : Logged(records, () => Console.WriteLine($"[present-verify] {conn.Wire.Remote} {presentTag} sent unmarked: (records)"));
+                : Logged(records, () => Console.WriteLine($"[present-verify] {conn.Remote} {presentTag} sent unmarked: (records)"));
         }
         if (Mirroring.Value)
         {
@@ -126,9 +126,8 @@ public static partial class Game
 
         async Task<bool> PredictiveBatch()
         {
-            var wire = conn.Wire;
             bool projected = false;
-            await Program.Send(wire.Remote, wire.Stream, wire.Ciphers, [], null, still, atGate: () =>
+            await Program.Send(conn, [], null, still, atGate: () =>
             {
                 // Preserve predictive's existing batching, guards, projection time and combined wire write.
                 var admission = new WorldAdmission(conn.WorldOutput, []);
@@ -158,7 +157,7 @@ public static partial class Game
         }
         if (QuestKillCommitOutput is not { } output)
             return Program.Send(conn, bytes, log, still, atGate, sync);
-        if (!ReferenceEquals(output.Connection.Wire.Ciphers, conn.Wire.Ciphers))
+        if (!ReferenceEquals(output.Connection, conn))
             throw new ArgumentException("A quest capture belongs to one cipher stream.");
         if (still is not null && !still()) return Task.CompletedTask;
         if (atGate is not null)

@@ -181,7 +181,7 @@ public static class ShrineManager
             await Create(conn, shrine);
             made++;
         }
-        Console.WriteLine($"[gateway] {conn.Wire.Remote} /shrines: {made} shrine(s) created around ({px}, {py})");
+        Console.WriteLine($"[gateway] {conn.Remote} /shrines: {made} shrine(s) created around ({px}, {py})");
         return made;
         }
         finally { state.Area.Gate.Release(); }

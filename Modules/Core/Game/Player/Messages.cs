@@ -368,7 +368,7 @@ public static partial class Game
                     {
                         byte[] reply = [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                             .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []];
-                        return predictedLeap ? LeapSlamAcknowledgement(conn.Wire.Ciphers, reply) : reply;
+                        return predictedLeap ? LeapSlamAcknowledgement(conn, reply) : reply;
                     });
                     if (acknowledged) await SendNativeCooldownRefresh(conn);
                     else if (ServerTrace.Latency)
