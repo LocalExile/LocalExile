@@ -241,6 +241,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   before 0x21, so the deck's Loot window (0x7b kind 0x6f) shows the collection; its Ctrl+click (C→S 0x0113) and Take
   All (ruleset 172 op 9) move it to the main inventory (verified live 2026-11-19). What is still in a capsule's grid at
   a ride up goes, unmarked, to the collection or the inventory (G).
+  Dead Man's Sulphur counts and pays across the Chart Locker (112), main/expanded bags (0/84) and personal stash.
+  Vesper's Allflame Crafting (`DeepwaterCraftingWindow`, 0x7b kind 0x69; C→S 0x010f into/out of 105; ruleset 172 op 2)
+  uses the client's two-division cost formula, LQF copy-tier gates (`1876`/`1877`/`1878`), Ruthless costs/exclusions,
+  Intangibility accumulation and 1-copy penalty, all 11 Ducats (`DeepwaterDucats.cs`), 15 core orbs, 104 Essences,
+  Eldritch/Fracturing/Influenced Exalted/Foulborn orbs, and the four `GhostflameCraftingOutput` `HeistRewardDisplay`
+  vats (hover mod-diff via secondary item, two-click crack/claim, `inv 106` + `QF 3578` relog persistence; deferred:
+  Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs).
+  Cursed Ducats (`DeepwaterCursedDucats.cs`) bind inventories 115 (3×1 active, no duplicates) and 116 (6×1 fixed
+  `x = Id`), C→S 0x0115 quick-move, LQF `1899–1904` / QF `3629–3634` sync, area stats + monster/drop effects in both
+  Charts and Voyages, five non-Velka drop sources (incl. Pirate's Locker, Offering of the Drowned, Rotmother's Stash,
+  special-room Ducats and Filthscrabble/Captainsbane minibosses), and Valerie's reclaimable reward offer (`#139`,
+  generalized with Kirac's `#111`).
+  Messages in a Bottle (`DeepwaterBottles.cs`) open on C→S 0x0058 into `Cursor1` + `BottledItemRevealWindow` (0x7b
+  kind 0x6d) with Normal/HardMode tables and all 11 unique messages. Crafting, Cursed Ducats and Bottles await live
+  client verification.
 - **Allflame encounters in ordinary areas:** an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot
   Plunder rooms the level generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that
   opens once they are dead for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's

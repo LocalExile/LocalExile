@@ -205,7 +205,7 @@ is no op 3. Adding a chart to the Voyage board sends nothing (`0x14041c610`): th
 |---|---|---|
 | 0 OpenMission | u8 n, n × u8: per board slot the chart's x in inventory 104, 0xff empty; n 4 (2 × 2, slot i = cell i) or 9 | the Voyage window's "Set Forth!" (`0x14041b5d0`), only when its validator `0x141fbeda0` passes |
 | 1 Open1x1Mission | – | the Chart window's "Descend" (`0x14040cea0`): needs an identified chart in 103 and room in 104 (ClientStrings 8466, 8426) |
-| 2 DoCraft | u32, u32 | Vesper's crafting (`0x140412df0`) |
+| 2 DoCraft | u32 LE currencyInvId, u32 LE currencyItemId | Vesper's Allflame Crafting (`0x140412df0`): target item is read from inventory 105 (omitted for Changeling's Ducat); outputs go into inventory 106 and the four `GhostflameCraftingOutput` `HeistRewardDisplay` vats (`0x141eb4120`: u8 hasPrimary, u8 hasSecondary, raw Item.Payload() × present, i32 LE openAttempts) |
 | 4 MoveStoredChart | u8 from, u8 to | a drag inside 104 (`0x140414530`) |
 | 5 RotateStoredChart | u8 x in 104 | a right click on a stored chart or a board slot (`0x140413f10`, `0x14041c3b0`); the client leaves the item alone, so the server turns the chart's rotation ([13](13-items.md) §2) and resends it |
 | 6 DeleteStoredChart | u8 x in 104 | `0x140419390` from a callback (a confirm, M) |
@@ -236,8 +236,8 @@ there only, after 0x7d; the client keeps it there (3.29.3d, 2026-11-18). Whether
 DeepwaterHubRules alone (no per-frame code). The encounter areas take it too, and both get it before 0x21: the in-game
 UI attaches its windows to the area once (`0x140dba5d0`), and the deck's Loot window (0x7b kind 0x6f, shown by
 `0x140dac350` without attaching again) builds its grid over inventory 114 only if row 172 was there then
-(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The Chart and Voyage windows (0x7b
-kinds 0x67, 0x6a) attach the same way (`0x1403feb40`, `0x1404179e0`) and build nothing without row 172.
+(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The Chart, Crafting and Voyage windows (0x7b
+kinds 0x67, 0x69, 0x6a) attach the same way (`0x1403feb40`, `0x14040f940`, `0x1404179e0`) and build nothing without row 172.
 The capsule window attaches again when
 shown (`0x140425400`), so row 171 after 0x21 is enough for it. Row 171's area type 53 checks are for the Sovereign that the plugin adds
 inside an encounter as a secondary area (`0x141f32870`).

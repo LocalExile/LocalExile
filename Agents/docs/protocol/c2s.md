@@ -193,14 +193,14 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x010b | `0x1435ca998` / `0x141f9fa30` | 9 |  | `0x14064fc40`, `0x140655860` |  |
 | 0x010c | `0x1435cae50` / `0x141f9fa30` | 9 |  | `0x14216eed0` |  |
 | 0x010d | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef30` |  |
-| 0x010e | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef80` |  |
-| 0x010f | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403170a0`, `0x14216efd0` |  |
+| 0x010e | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216ef80` | as 0x0112, for the Inventories row 0x67 window (DeepwaterChartWindow); framed (`InstanceItems.MissionSlotMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
+| 0x010f | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x1403170a0`, `0x14216efd0` | as 0x0112, for the Inventories row 0x69 window (DeepwaterCraftingWindow); framed (`InstanceItems.CraftingSlotMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
 | 0x0110 | `0x1435ca3a0` / `0x141fa06e0` | 12 |  | `0x14216f020` | Ctrl + click with the Inventories row 0x6c window open; an extra argument, not framed |
 | 0x0111 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f080` | as 0x0112, for the Inventories row 0x70 window (Chart Locker); framed (`InstanceItems.LockerMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
 | 0x0112 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f0d0` | Ctrl + click with the Allflame capsule window open (`0x14030e970`, only while UI slot +0x8a0 is true): u32 BE item id, u8 the clicked grid is row 0x54, u8 1 = from the main inventory (row 0) into row 0x71, 0 = out of row 0x71; other grids send nothing. Framed (`InstanceItems.ExtractionMoveId`) |
 | 0x0113 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14216f120` | u32 BE item id taken out of the Inventories row 0x72 window; framed (`InstanceItems.CollectionTakeId`) |
 | 0x0114 | `0x1435ca220` / `0x141fa08c0` | 16 |  | `0x140312da0` |  |
-| 0x0115 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f170`, `0x14216f1c0` |  |
+| 0x0115 | `0x1435ca028` / `0x141f993f0` | 8 |  | `0x14216f170`, `0x14216f1c0` | Ctrl + click for Inventories rows 0x73/0x74 (Cursed Ducats): u32 BE item id, u8 fromMain (1 = row 0, 0 = row 0x73/0x74), u8 isActive (1 = row 0 or 0x73, 0 = row 0x74); framed (`InstanceItems.SocketStorageMoveId`), handled by the Allflame module ([05](05-inventories-and-ui.md) §3) |
 | 0x0116 | `0x1435ca4e0` / `0x141fa09e0` | 26 |  | `0x1403f8670`, `0x14040ac30` |  |
 | 0x011a | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x1408e7070`, `0x140ac1750` |  |
 | 0x011d | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x1408e6ff0` |  |
