@@ -20,6 +20,9 @@ static class PerfBenchMain
     // Not top-level statements: their class would be named Program, beside the Gateway's own.
     static async Task<int> Main(string[] args)
     {
+        // The game data built before anything reads it, as the Gateway does before it listens (the tests' TestEnvironment);
+        // catalogue and single measure those loads themselves.
+        if (args.FirstOrDefault() is not ("catalogue" or "single")) PerfBench.LoadWorld();
         // The game module, as the Gateway loads it: it gives the framework its game logic (the loops ask for it).
         var lifetime = new ModuleLifetime("Game");
         Game.CombatLifetime = lifetime;
@@ -35,7 +38,8 @@ static class PerfBenchMain
                 case "single": await PerfBench.Single_player_memory(); break;
                 case "idle": await PerfBench.Idle_player_cpu(); break;
                 case "sweep": await PerfBench.Area_sweep(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep"); return 2;
+                case "stats": PerfBench.Player_stat_builds(); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -123,12 +127,13 @@ static class PerfBench
         return lines;
     }
 
-    static Player Player(AreaLayout layout, uint seed)
+    static Player Player(AreaLayout layout, uint seed, Wire wire)
     {
         EnsureSaves();
         var conn = new Player(layout, 1, seed)
         {
             Character = "PerfBench" + Guid.NewGuid().ToString("N"), ClassRow = 1, PlayerSent = true, Instance = new(),
+            Session = new("perf", wire.Stream, wire.Ciphers),
         };
         Program.ConnectionMetrics.Add(new ConnectionCiphers(new byte[64], false), conn.Performance);
         // Nothing the monsters do ends the measurement: a large life pool, and no death screen.
@@ -138,7 +143,29 @@ static class PerfBench
         return conn;
     }
 
-    static Task PopulateArea(Wire wire, Player conn) => Game.PopulateArea("perf", wire.Stream, wire.Ciphers, conn);
+    static Task PopulateArea(Wire wire, Player conn) => Game.PopulateArea(conn);
+
+    // A copy of world.db (the Gateway holds its own open), then the client tables and the catalogues.
+    public static void LoadWorld()
+    {
+        string world = Path.Combine(Path.GetTempPath(), $"localexile-perf-world-{Guid.NewGuid():N}.db");
+        File.Copy(GameData.DefaultPath, world);
+        GameData.Open(world);
+        GameServer.Core.ClientTables.LoadAll();
+        WorldLoader.Load();
+        GameServer.Modules.Game.GameModule.LoadData();
+    }
+
+    // What the area-generated message (0x7d) starts: the world frames (the area's driver, its systems and the monster AI)
+    // and the player's updates. The returned task ends a little after the player closes.
+    static async Task StartArea(Player conn)
+    {
+        Game.ActivateResourceEffects(conn, Game.ProjectileWorldTime(conn));
+        Program.StartWorldFrames(conn);
+        Program.ActivatePlayerUpdates(conn);
+        while (!conn.Closed) await Task.Delay(100);
+        await Task.Delay(500);
+    }
 
     // A save database of its own for the run (the characters the scenarios create); Main deletes it.
     static string? _saves;
@@ -262,7 +289,7 @@ static class PerfBench
                 var layout = AreaLayouts.For(hash, seed);
                 held.Add(layout);
                 using var wire = new Wire();
-                var conn = Player(layout, seed);
+                var conn = Player(layout, seed, wire);
                 await PopulateArea(wire, conn);
                 Record("single", $"{name}: monsters", conn.Monsters.Count, "");
                 Snapshot(name);
@@ -292,20 +319,9 @@ static class PerfBench
         _ = ConsoleLog.Value;
         var town = AreaLayouts.For(AreaLayouts.LioneyesWatch, 1);
         using var wire = new Wire();
-        var conn = Player(town, 1);
-        string[] loops = ["RunMonsterRegeneration", "RunServerFrames", "RunMonsterAi", "RunLivingCollisions", "RunPlayerTick",
-            "RunResourceRecovery", "RunCharges", "RunFortification", "RunRage", "RunFlaskChargeRegen"];
-        var tasks = loops.Select(name => (Task)(typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)
-                ?? typeof(Program).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)
-                ?? throw new MissingMethodException("Game or Program", name))
-            .Invoke(null, ["perf", wire.Stream, wire.Ciphers, conn])!).ToList();
+        var conn = Player(town, 1, wire);
+        var area = StartArea(conn);
         await Task.Delay(TimeSpan.FromSeconds(5));
-        Record("idle player", "loops still running", tasks.Count(t => !t.IsCompleted), "");
-        foreach (var (task, name) in tasks.Zip(loops).Where(t => t.First.IsFaulted))
-        {
-            Record("idle player", $"{name} faulted: {task.Exception!.InnerException!.GetType().Name}", 1, "");
-            Out.WriteLine(task.Exception.InnerException);
-        }
         using var self = Process.GetCurrentProcess();
         self.Refresh();
         var cpuBefore = self.TotalProcessorTime;
@@ -319,7 +335,7 @@ static class PerfBench
         Record("idle player", "allocated KB per second", (Allocated() - allocated) / 1024.0 / seconds, "KB/s");
         Record("idle player", "bytes sent per second", (Interlocked.Read(ref wire.Received) - received) / seconds, "B/s");
         lock (conn.Monsters) conn.Closed = true;
-        await Task.WhenAny(Task.WhenAll(tasks), Task.Delay(5000));
+        await area;
     }
 
     // An area instance as a player's entry creates it: the layout (generated by the server for a supported area, at a
@@ -359,7 +375,7 @@ static class PerfBench
             Record("area", $"{id} layout retained MB", (GC.GetTotalMemory(forceFullCollection: true) - live) / 1048576.0, "MB");
             first = false;
             using var wire = new Wire();
-            var conn = Player(layout, seed);
+            var conn = Player(layout, seed, wire);
             before = Allocated();
             clock.Restart();
             await PopulateArea(wire, conn);
@@ -438,7 +454,7 @@ static class PerfBench
         const int Crowd = 60, Idle = 140;
         ushort hash = AreaTransitionCatalog.HashOf(id)!.Value;
         var layout = AreaLayouts.For(hash, 1);
-        var conn = Player(layout, 1);
+        var conn = Player(layout, 1, wire);
         var kinds = Game.Packs.For(id)!.Scattered.SelectMany(p => p.Pack.Entries).Select(e => Game.Monsters.Find(e.Variety.ToString()))
             .OfType<MonsterCatalog.Variety>().Where(v => v.Supported).DistinctBy(v => v.Row)
             // Monsters that wait buried rise on a wall-clock watch (MonsterEmerge): left out, so every run is the same.
@@ -455,7 +471,7 @@ static class PerfBench
             int x = px + random.Next(-spread, spread + 1), y = py + random.Next(-spread, spread + 1);
             if (placed >= Crowd && Math.Max(Math.Abs(x - px), Math.Abs(y - py)) < 150) continue;
             if (!layout.WalkableFor(x, y, 2)) continue;
-            await Game.SpawnMonster("perf", wire.Stream, wire.Ciphers, conn, kinds[placed % kinds.Count], 5,
+            await Game.SpawnMonster(conn, kinds[placed % kinds.Count], 5,
                 MonsterRarity.Normal, x, y, log: false);
             placed++;
         }
@@ -486,14 +502,18 @@ static class PerfBench
             }
         });
         using var self = Process.GetCurrentProcess();
-        var ai = Game.RunMonsterAi("perf", wire.Stream, wire.Ciphers, conn);
-        // A warm-up first: the JIT's tier-1 recompilation of the hot methods is a one-time cost of a fresh process,
-        // not of a running server's instance.
-        await Task.Delay(TimeSpan.FromSeconds(5));
+        var ai = StartArea(conn);
+        // A warm-up first (Game_PERF_WARMUP seconds, default 5): the JIT's tier-1 recompilation of the hot methods is a
+        // one-time cost of a fresh process, not of a running server's instance.
+        await Task.Delay(TimeSpan.FromSeconds(double.TryParse(Environment.GetEnvironmentVariable("Game_PERF_WARMUP"), out var w) ? w : 5));
         self.Refresh();
         var cpuBefore = self.TotalProcessorTime;
         long allocatedBefore = Allocated();
         int gen0 = GC.CollectionCount(0), gen2 = GC.CollectionCount(2);
+        var pauseBefore = GC.GetTotalPauseDuration();
+        // Game_PERF_ALLOC=1: the runtime's allocation samples (one per ~100 KB) by type over the measured window.
+        using var allocations = Environment.GetEnvironmentVariable("Game_PERF_ALLOC") == "1" ? new AllocationSampler() : null;
+        long workBefore = ThreadPool.CompletedWorkItemCount;
         long sentBefore = Interlocked.Read(ref wire.Received);
         long linesBefore = LogLines();
         var clock = Stopwatch.StartNew();
@@ -503,12 +523,16 @@ static class PerfBench
         double cpuMs = (self.TotalProcessorTime - cpuBefore).TotalMilliseconds;
         lock (conn.Monsters) conn.Closed = true;
         stop.Cancel();
-        await ai.WaitAsync(TimeSpan.FromSeconds(10));
+        await ai;
         await walking;
         Record("busy", "process CPU ms per game second", cpuMs / elapsed, "ms/s");
         Record("busy", "allocated MB per game second", (Allocated() - allocatedBefore) / 1048576.0 / elapsed, "MB/s");
         Record("busy", "gen0 GCs per game second", (GC.CollectionCount(0) - gen0) / elapsed, "/s");
         Record("busy", "gen2 GCs", GC.CollectionCount(2) - gen2, "");
+        if (allocations is not null)
+            foreach (var (type, kb) in allocations.Top(25)) Record("busy alloc", type, kb / elapsed, "KB/s");
+        Record("busy", "GC pause ms per game second", (GC.GetTotalPauseDuration() - pauseBefore).TotalMilliseconds / elapsed, "ms/s");
+        Record("busy", "thread-pool work items per game second", (ThreadPool.CompletedWorkItemCount - workBefore) / elapsed, "/s");
         Record("busy", "bytes sent per game second", (Interlocked.Read(ref wire.Received) - sentBefore) / elapsed, "B/s");
         Record("busy", "aggro monsters", conn.Monsters.Values.Count(m => m.Aggro), "");
         Record("busy", "log lines per game second", (LogLines() - linesBefore) / elapsed, "/s");
@@ -556,13 +580,33 @@ static class PerfBench
     // One Ice Nova (level 20, in a body armour socket) on N monsters inside its radius: the real AreaSkillHit with every
     // packet encrypted and sent, at 100, 300 and 500 monsters, and the per-call cost of the inputs its loop reads.
     // The monsters keep a huge life pool, so the sweeps measure hits (no deaths, loot or experience).
+    // One player's full stat build (CharacterPlayerStats) in a loop for Game_PERF_SECONDS (default 20), after a warm-up:
+    // its cost per call and allocation, steady enough to sample with dotnet-stack while it runs.
+    public static void Player_stat_builds()
+    {
+        _ = ConsoleLog.Value;
+        using var wire = new Wire();
+        var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf("1_1_2")!.Value, 1);
+        var conn = Player(layout, 1, wire);
+        for (int i = 0; i < 300; i++) Game.CharacterPlayerStats(conn);
+        double seconds = double.TryParse(Environment.GetEnvironmentVariable("Game_PERF_SECONDS"), out var s) ? s : 20;
+        Out.WriteLine($"stats: looping, pid {Environment.ProcessId}");
+        long a0 = Allocated();
+        int calls = 0;
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed.TotalSeconds < seconds) { Game.CharacterPlayerStats(conn); calls++; }
+        Record("stats", "CharacterPlayerStats us per call", clock.Elapsed.TotalMilliseconds * 1000 / calls, "us");
+        Record("stats", "CharacterPlayerStats KB per call", (Allocated() - a0) / 1024.0 / calls, "KB");
+        conn.Closed = true;
+    }
+
     public static async Task Area_sweep()
     {
         _ = ConsoleLog.Value;
         using var wire = new Wire();
         const string id = "1_1_2";
         var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(id)!.Value, 1);
-        var conn = Player(layout, 1);
+        var conn = Player(layout, 1, wire);
         var items = Game.ItemsFor(conn);
         var (gemType, variant) = items.FindGem("Ice Nova") ?? throw new InvalidOperationException("no Ice Nova gem");
         var gem = Game.ItemsFor(conn).Gem(gemType)!;
@@ -583,7 +627,7 @@ static class PerfBench
             {
                 // Inside the nova's radius (the aimed point is the player): spawning may push a monster a little out.
                 int x = px + random.Next(-12, 13), y = py + random.Next(-12, 13);
-                await Game.SpawnMonster("perf", wire.Stream, wire.Ciphers, conn, kind, 5, MonsterRarity.Normal, x, y, log: false);
+                await Game.SpawnMonster(conn, kind, 5, MonsterRarity.Normal, x, y, log: false);
             }
             // Crowded spawns push each other apart: put every monster back inside the radius (overlapping is fine here).
             double now0 = conn.Clock.Elapsed.TotalSeconds;
@@ -600,7 +644,7 @@ static class PerfBench
                 foreach (var m in conn.Monsters.Values) m.FlinchUntil = 0;
                 long a0 = Allocated(), s0 = Interlocked.Read(ref wire.Received);
                 var clock = Stopwatch.StartNew();
-                await Game.AreaSkillHit("perf", wire.Stream, wire.Ciphers, conn, nova.Id, nova, (px, py), (px, py), immediate: true);
+                await Game.AreaSkillHit(conn, nova.Id, nova, (px, py), (px, py), immediate: true);
                 times.Add(clock.Elapsed.TotalMilliseconds);
                 if (i > 0) { allocated += Allocated() - a0; sent += Interlocked.Read(ref wire.Received) - s0; }
             }
@@ -646,8 +690,34 @@ static class PerfBench
             Time("GamblerFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(conn, player, first.Value,
                 (Game.GamblerFor(player) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
         }
-        Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit("perf", wire.Stream, wire.Ciphers, conn, first.Key, first.Value,
+        Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit(conn, first.Key, first.Value,
             new(1_000_000, false), 1, "bench", log: true).GetAwaiter().GetResult(), 200);
         conn.Closed = true;
     }
+}
+
+// The runtime's GC AllocationTick events (about one per 100 KB allocated), summed by type: where a scenario's allocation goes.
+sealed class AllocationSampler : System.Diagnostics.Tracing.EventListener
+{
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> bytes = new();
+
+    protected override void OnEventSourceCreated(System.Diagnostics.Tracing.EventSource source)
+    {
+        if (source.Name == "Microsoft-Windows-DotNETRuntime")
+            EnableEvents(source, System.Diagnostics.Tracing.EventLevel.Verbose, (System.Diagnostics.Tracing.EventKeywords)0x1);
+    }
+
+    protected override void OnEventWritten(System.Diagnostics.Tracing.EventWrittenEventArgs e)
+    {
+        if (e.EventName is not "GCAllocationTick_V4" and not "GCAllocationTick_V3" || e.Payload is null) return;
+        int type = e.PayloadNames!.IndexOf("TypeName"), amount = e.PayloadNames.IndexOf("AllocationAmount64"),
+            kind = e.PayloadNames.IndexOf("AllocationKind");
+        if (type < 0 || amount < 0) return;
+        // A large object (85 KB and more) is collected only with generation 2: the full collections that pause everything.
+        string name = (kind >= 0 && Convert.ToInt32(e.Payload[kind]) == 1 ? "LARGE " : "") + (string)e.Payload[type]!;
+        bytes.AddOrUpdate(name, Convert.ToInt64(e.Payload[amount]), (_, v) => v + Convert.ToInt64(e.Payload[amount]));
+    }
+
+    public IEnumerable<(string Type, double Kb)> Top(int n) =>
+        bytes.OrderByDescending(p => p.Value).Take(n).Select(p => (p.Key.Length > 46 ? p.Key[^46..] : p.Key, p.Value / 1024.0));
 }
