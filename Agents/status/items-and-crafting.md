@@ -34,6 +34,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
+  sources feed attributes and local defences without adding socket or skill sources. Server checks pass; native
+  3.29.3c/3.29.3d picker acceptance is pending. Docs: [23](../docs/protocol/23-microtransactions.md).
+
 - Unique-flask mechanics; Oriath explosion parity, Sap, Brittle and Replica Rumi's Petrified remain open.
   Docs: [13](../docs/protocol/13-items.md) §8a.
 

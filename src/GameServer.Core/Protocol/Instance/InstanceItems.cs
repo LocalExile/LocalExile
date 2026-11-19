@@ -72,6 +72,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
+    /// <summary>Complete native skin-transfer donor, retained independently of the target mods and sockets.</summary>
+    public Item? SkinTransferSource { get; init; }
+
     /// <summary>Transformed component's original item; null when an imported snapshot omits it.</summary>
     public Item? OriginalItem { get; init; }
 
@@ -188,7 +191,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // Bit 7 (a vendor price): u8 n, then n × (u32 item type hash, compact uint amount; 0x141fabcc0 looks the type
                 // up, 0x141e655b0 reads the amount); stored in the Base's +0xb8 item list.
                 case "Base":
-                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0)).U16((ushort)(Price.Count > 0 ? 0x80 : 0)).U8((byte)Influences);
+                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0))
+                        .U16((ushort)((Price.Count > 0 ? 0x80 : 0) | (SkinTransferSource is not null ? 0x40 : 0))).U8((byte)Influences);
+                    if (SkinTransferSource is { } skin)
+                    {
+                        if (skin.SkinTransferSource is not null) throw new InvalidDataException("Nested skin transfers are not supported");
+                        w.Bytes(skin.Payload());
+                    }
                     if (Price.Count > 0)
                     {
                         w.U8((byte)Price.Count);

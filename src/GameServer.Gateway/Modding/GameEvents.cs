@@ -12,6 +12,9 @@ using GameServer.Core.World;
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     ImmutableArray<(string Owner, int Rank, T Run)> _subscribers = [];
+    long _revision;
+    /// <summary>Changes when a provider is added or removed, for consumers that retain derived state.</summary>
+    public long Revision => Volatile.Read(ref _revision);
 
     public GameEvent() => GameEventOwners.Register(this);
 
@@ -24,7 +27,12 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
             while (at > 0 && s[at - 1].Rank > rank) at--;
             return s.Insert(at, (owner, rank, run));
         });
-        return new Subscription(() => ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run))));
+        Interlocked.Increment(ref _revision);
+        return new Subscription(() =>
+        {
+            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
+            Interlocked.Increment(ref _revision);
+        });
     }
 
     public IEnumerable<T> All => _subscribers.Select(s => s.Run);
@@ -57,8 +65,11 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
                 yield return (owner, run);
     }
 
-    void GameEventOwners.IOwned.Release(string owner, int rank) =>
-        ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank));
+    void GameEventOwners.IOwned.Release(string owner, int rank)
+    {
+        if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank)))
+            Interlocked.Increment(ref _revision);
+    }
 
     int GameEventOwners.IOwned.Count(string owner) => _subscribers.Count(e => e.Owner == owner);
 
@@ -210,6 +221,11 @@ public static class GameEvents
 
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
+
+    /// <summary>Additional immutable equipment sources for attributes and item-local defences only.
+    /// Native inventory, socketed-gem and granted-skill collections are unchanged. Providers use stable distinct ids.</summary>
+    public static readonly GameEvent<Func<ClientState, IReadOnlyList<(byte Row, InventoryItem Item)>,
+        IReadOnlyList<(byte Row, InventoryItem Item)>>> ItemStatSources = new();
 
     static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, GameEvent<Func<ClientState, byte[], Task<bool>>>> Packets = new();
 
