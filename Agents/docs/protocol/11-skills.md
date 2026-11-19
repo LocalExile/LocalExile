@@ -2854,9 +2854,10 @@ look and the throw never showed. A 0x1ba glide supplies the horizontal travel an
 The payload skill carries `skill_is_non_pathing`, as a totem's does (section 10g). Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
 `DetonateMines` admission (`0x141d26730`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
 A throw takes the trap or mine throwing time (0.6 s and 0.3 s over throwing speed), not the spell's cast time.
+The object is created at the throw clip's contact keyframe (the class rig's `throwfast_<weapon>`: 266 of 1000 ms for
+most), not at the end of the throwing time; a throw interrupted before that is cancelled.
 With the button held, the 3.29.3c client sent its next use about 0.39 s after the last (live 2026-11-17, Fireball with
-Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
-throw replaced after half its time still lands. On the official client a trap is in the air 0.15 s at the thrower's
+Trap Support). On the official client a trap is in the air 0.15 s at the thrower's
 feet and 0.4 s from about 29 cells on, a mine 0.13 s at 25 cells and 0.18 s at 46 (video at 30 frames a second,
 2026-11-19); the server's flight is a fit to these, and the object is armed when its clip ends.
 A trap goes off when its duration ends; a mine is removed.
