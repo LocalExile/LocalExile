@@ -28,6 +28,7 @@ public static partial class Game
             m.TakenFromPlayer = m.TakenFromPlayer with { All = conn.EnemyDebuffs.TauntedDamageTakenPct };
             taunted++;
         }
+        if (taunted > 0) PresentNearby(conn);
         return taunted;
     }
 

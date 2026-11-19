@@ -64,6 +64,7 @@ public static partial class Game
             var at = target.Walk.Position(AreaTime(conn));
             conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
                 AreaTime(conn) + 8, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, at, 14)));
+            PresentNearby(conn);
         }
         if (ReservationAura(conn, "HeraldOfPurity") is { } purity && !target.Dead
             && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique

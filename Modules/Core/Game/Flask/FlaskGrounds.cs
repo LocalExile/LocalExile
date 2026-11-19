@@ -29,6 +29,7 @@ public static partial class Game
             int taken = kind == FlaskGrounds.Kind.ConsecratedGround ? ConsecratedEnemyDamageTakenNow(conn) : 0;
             conn.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds,
                 QueueGroundArtLocked(conn, kind, at, radius), taken));
+            PresentNearby(conn);
             Console.WriteLine($"[gateway] flask ground {kind} at ({at.X}, {at.Y}) radius {radius} for {seconds:0.##} s" +
                 (taken > 0 ? $", enemies on it take {taken}% increased damage" : ""));
         }
@@ -61,6 +62,7 @@ public static partial class Game
         if (chance <= 0 || Random.Shared.Next(100) >= chance) return;
         conn.FlaskGrounds.Add(FlaskGrounds.ProfaneGround(at, AreaTime(conn),
             QueueGroundArtLocked(conn, FlaskGrounds.Kind.ProfaneGround, at, FlaskGrounds.ProfaneRadius)));
+        PresentNearby(conn);
     }
 
     static uint? QueueGroundArtLocked(ClientState conn, FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
@@ -130,15 +132,15 @@ public static partial class Game
         }
     }
 
-    public static async Task RunFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, PlayerUpdatesState updates)
+    // A nearby presentation: grounds placed (PresentNearby), walkers in or out of them, the player still or moving (a stat
+    // condition), and each ground's end or linger (PresentIn).
+    static async Task SendFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        while (PlayerUpdatesCurrent(conn, updates))
-        {
-            await updates.Schedule.Wait(PlayerUpdateRole.FlaskGrounds, 100, updates.Stop.Token);
-            AdvanceFlaskGrounds(conn, updates);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await PublishFlaskChanges(remote, stream, ciphers, conn);
-        }
+        if (conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
+        AdvanceFlaskGrounds(conn, updates);
+        double now = updates.Schedule.Now(conn);
+        if (conn.FlaskGrounds.NextChangeAt(now) is double next) PresentIn(conn, next - now + 1e-6);
+        if (!PlayerUpdatesCurrent(conn, updates)) return;
+        await PublishFlaskChanges(remote, stream, ciphers, conn);
     }
 }

@@ -173,7 +173,7 @@ public static class FlaskGrounds
             }
         }
 
-        /// <summary>True once when a stationary radius needs the ticker and none runs (Program.RunPlayerTick starts it).</summary>
+        /// <summary>True once when a stationary radius needs the ticker and none runs.</summary>
         public bool StartTickerIfConfigured()
         {
             lock (_lock)
@@ -248,6 +248,21 @@ public static class FlaskGrounds
         public void TickerExited()
         {
             lock (_lock) _ticking = false;
+        }
+
+        /// <summary>When a ground next ends, or a linger after leaving one (consecrated, a monster's profane) runs out;
+        /// null without any.</summary>
+        public double? NextChangeAt(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                void Next(double at) { if (at > now && at < next) next = at; }
+                foreach (var g in _grounds) Next(g.Ends);
+                if (_consecrated is not null) Next(_lastCovered + _lingerSeconds);
+                foreach (var (_, profane) in _profane) Next(profane.LastCovered + _profaneLingerSeconds);
+                return double.IsFinite(next) ? next : null;
+            }
         }
 
         /// <summary>The grounds whose time is up by <paramref name="now"/> (removed).</summary>

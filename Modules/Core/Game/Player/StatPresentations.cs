@@ -38,6 +38,7 @@ public static partial class Game
     static readonly Func<string, NetworkStream, ConnectionCiphers, ClientState, Task>[] NearbyPresentations =
     [
         SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld, SendQuestThresholds,
+        SendFlaskGrounds,
     ];
 
     // A monster that never dies reached its quest threshold (its PresentationChanged).
