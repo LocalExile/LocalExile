@@ -288,6 +288,7 @@ public sealed class MonsterCatalog(string folder = "data")
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
+        var chains = new Dictionary<string, string[]>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
         var blocking = new Dictionary<string, bool>();
         var phasing = new HashSet<string>();
@@ -300,6 +301,7 @@ public sealed class MonsterCatalog(string folder = "data")
             {
                 string type = t.Text("type")!;
                 components[type] = ObjectTypes.Components(t);
+                chains[type] = t.Texts("chain");
                 if (ObjectTypes.Flag(t, "positioned_blocking") is bool block) blocking[type] = block;
                 if (t.BoolOrNull("phases") == true) phasing.Add(type);
                 if (t.BoolOrNull("immobile") == true) immobile.Add(type);
@@ -353,10 +355,12 @@ public sealed class MonsterCatalog(string folder = "data")
                 // The add-on types (AddonMonsterTypeIndex) join the client's type after the base: their shared states and
                 // timers follow the base's in the StateMachine data. Without them a Coconut Crab (add-on
                 // DeepwaterBaseWaveOnly: state size, timer despawn) gave "Buffer Underflow" (live 2026-11-19, the client
-                // read wave_monster, size and one timer). Add-on components are not merged (not traced).
+                // read wave_monster, size and one timer). Add-on components are not merged (not traced). An add-on the type
+                // already inherits adds nothing (Abberath2Gauntlet lists itself).
                 var machine = stateMachines.GetValueOrDefault(type);
+                var chain = chains.GetValueOrDefault(type) ?? [];
                 foreach (string addon in r.Texts("AddonMonsterTypeIndex"))
-                    if (machine is not null && stateMachines.GetValueOrDefault(addon) is { } extra)
+                    if (machine is not null && addon != type && !chain.Contains(addon) && stateMachines.GetValueOrDefault(addon) is { } extra)
                         machine = new StateMachineData([.. machine.SharedStates, .. extra.SharedStates], machine.SharedTimers + extra.SharedTimers,
                             [.. machine.Names ?? machine.SharedStates.Select(_ => ""), .. extra.Names ?? extra.SharedStates.Select(_ => "")]);
                 int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
