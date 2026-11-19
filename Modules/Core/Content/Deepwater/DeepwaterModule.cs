@@ -122,6 +122,13 @@ public sealed partial class DeepwaterModule : IModule
             await _light.Tick(module, conn, run);
             await DeepwaterCollapse.Tick(module, conn, run);
             await DeepwaterExtraction.Tick(module, conn, run, (c, why) => RunFailed(module, c, why));
+            DeepwaterDredge.Tick(module, conn);
+        });
+        // Dredge: a pickup from the ground during a run is noted; the Game module picks it up.
+        GameEvents.GroundItemUse.Add(id, (conn, groundId, ground, _, _) =>
+        {
+            if (RunOf(conn) is { Phase: not DeepwaterRun.RunPhase.Ended }) DeepwaterDredge.Noted(conn, groundId, ground);
+            return Task.FromResult(false);
         });
         GameEvents.PlayerLeaving.Add(id, async (conn, reason) =>
         {

@@ -15,6 +15,9 @@ public sealed partial class DeepwaterModule
     {
         var player = PlayerOf(conn);
         var (remote, stream, ciphers) = conn.Wire;
+        // Dredge left by a run that ended another way (a crash, a relog): gone, unless this is that run, still going.
+        if (RunOf(conn) is not { Phase: not DeepwaterRun.RunPhase.Ended } && DeepwaterDredge.Ids(conn).Count > 0)
+            await DeepwaterDredge.Remove(module, conn, live: true, "found at the next entry");
         if (!DeepwaterGrid.IsEncounter(player.AreaId))
         {
             // A crash or a relog in a run left its flags on.

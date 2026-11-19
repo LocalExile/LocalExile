@@ -280,6 +280,7 @@ internal static class DeepwaterExtraction
         if (moved.Count > 0)
             await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CollectionRow), items.NextRevision(CollectionRow), [], moved),
                 $"0x00bf inventory 114: {moved.Count} items arrive");
+        DeepwaterDredge.Untrack(conn, removed);
         var (remote, stream, ciphers) = conn.Wire;
         await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems]);
         foreach (var member in DeepwaterLoot.Members(conn)) await Transition(member, capsule!);
@@ -419,6 +420,7 @@ internal static class DeepwaterExtraction
         {
             var member = members[i];
             var (remote, stream, ciphers) = member.Wire;
+            DeepwaterDredge.Clear(module, member);
             await SetQuestFlags(remote, stream, ciphers, member,
                 [DeepwaterConstants.CanExtract, DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner, DeepwaterConstants.VoyageDefend], on: false);
             if (deck is not { } at)
@@ -454,7 +456,8 @@ internal static class DeepwaterExtraction
     }
 
     /// <summary>A failed run (a death, drowning, leaving another way): the run ends for everyone in it, its Sulphur is
-    /// lost, the capsule's leftovers (113) are removed (G) and the fail line plays for those still here. The flags are
+    /// lost, the capsule's leftovers (113) and the Dredge are removed (G: for every player in it) and the fail line plays
+    /// for those still here. The flags are
     /// put right at the next entry (StartRun). Returns the players it ended for.</summary>
     public static async Task<IReadOnlyList<ClientState>> Fail(IModuleContext module, ClientState conn, DeepwaterRun run, string reason)
     {
@@ -475,6 +478,7 @@ internal static class DeepwaterExtraction
             var left = items.Items(CapsuleRow);
             var removed = left.Where(it => items.Remove(CapsuleRow, it.Id) is not null).Select(it => it.Id).ToList();
             if (removed.Count > 0) module.Log($"{CharacterName(member)}: {removed.Count} items left in the capsule are lost");
+            await DeepwaterDredge.Remove(module, member, live, reason);
             if (!live) continue;
             if (removed.Count > 0)
                 await PlayerOf(member).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(CapsuleRow), items.NextRevision(CapsuleRow), removed, []),
