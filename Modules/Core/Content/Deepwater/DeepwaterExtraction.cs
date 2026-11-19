@@ -169,7 +169,8 @@ internal static class DeepwaterExtraction
     }
 
     /// <summary>The run's flags on an entry: the Bathysphere's gate (3562) while it can be used, the Voyage's defence
-    /// (3572) while a called Bathysphere is coming or waiting; the deck's 3625 only after a ride up.</summary>
+    /// (3572) while a called Bathysphere is coming or waiting; the deck's 3625 only after a ride up; the CollectionChest's
+    /// 3547 while the collection (114) holds items, as it is a session flag the save drops (L: gone after an area change).</summary>
     public static async Task SyncFlags(ClientState conn, DeepwaterRun run)
     {
         bool extract = run.Phase == DeepwaterRun.RunPhase.Extractable || run.Phase == DeepwaterRun.RunPhase.Collapsing && !run.Voyage;
@@ -180,6 +181,7 @@ internal static class DeepwaterExtraction
         Want(DeepwaterConstants.CanExtract, extract);
         Want(DeepwaterConstants.VoyageDefend, defend);
         if (run.Phase != DeepwaterRun.RunPhase.Ended) Want(DeepwaterConstants.InPseudoHub, false);
+        Want(DeepwaterConstants.StoredItems, ItemsOf(conn).Items(CollectionRow).Count > 0);
         var (remote, stream, ciphers) = conn.Wire;
         if (on.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, on);
         if (off.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, off, on: false);
