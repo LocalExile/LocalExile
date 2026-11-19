@@ -1294,7 +1294,9 @@ public static partial class Game
                 }
                 if (paid && beastCompanion is { } beast)
                     QueueBeastCompanionLocked(conn, beast, skillId, actionToken);
-                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
+                // The native Holy Flame skill is tagged Channel for the totem's payload. Its owner places it with a
+                // single cast. Starting an owner channel would tie the placement to the input that movement clears.
+                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(conn, skillId))
                 {
                     channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
