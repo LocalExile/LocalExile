@@ -20,7 +20,7 @@ static partial class VendorsRules
         // A league quest flag taken flag is read and set in the account's stash inside the claim's transaction.
         var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, quest, items, reward, ShapeOf, row,
             expandedAllowed: ExpandedInventoryGranted(conn), leagueFlag: data.TakenLeagueFlag,
-            leagueFlags: data.TakenLeagueFlag is null ? null : PersonalStashOf(conn));
+            leagueFlags: data.TakenLeagueFlag is null ? null : PersonalStashOf(conn), reclaimable: data.Reclaimable);
         if (claimed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
             items.NextRevision(row), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");

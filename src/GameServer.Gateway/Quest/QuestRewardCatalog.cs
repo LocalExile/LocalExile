@@ -10,6 +10,9 @@ public sealed class QuestRewardCatalog
     public sealed record Choice(uint Id, int ItemRow, int Level, int Stack, IReadOnlyList<int> Classes)
     {
         public int? Rarity { get; init; }
+        /// <summary>A league quest flag required for this choice to be offered (<c>__col13</c>, a <see cref="Quests.League"/>
+        /// id; the table's out-of-range 1911 is none).</summary>
+        public int? RequiredLeagueFlag { get; init; }
     }
     /// <summary>A QuestRewardOffers row. <paramref name="TakenFlag"/> is the row's QuestFlag, null when it has none: the
     /// quest books, keys and other quest items, whose own Quest flags (grant_flag held, remove_flag once used) tell that
@@ -20,6 +23,9 @@ public sealed class QuestRewardCatalog
         /// out-of-range 1911 is none): an offer every character of the league takes once, such as a league's tutorial
         /// reward. With it the offer is taken when the account's league holds the flag.</summary>
         public int? TakenLeagueFlag { get; init; }
+        /// <summary>Whether each choice is offered whenever not already carried (rather than a single once-only claim):
+        /// offers without a <see cref="TakenFlag"/> whose <c>__col5</c> and <c>__col6</c> are both set.</summary>
+        public bool Reclaimable { get; init; }
     }
     readonly Dictionary<int, Offer> offers = [];
     public Offer? Find(int row) => offers.GetValueOrDefault(row);
@@ -46,6 +52,7 @@ public sealed class QuestRewardCatalog
                 r.Int("Reward"), r.Int("RewardLevel"), r.Int("RewardStack"), r.Ints("Characters"))
             {
                 Rarity = r.IntOrNull("__col5"),
+                RequiredLeagueFlag = r.Has("__col13") && r.IntOrNull("__col13") is int lf and > 0 and <= Quests.League.Count ? lf : null,
             }).ToArray());
         foreach (var r in ClientTables.Table("QuestRewardOffers"))
         {
@@ -54,7 +61,13 @@ public sealed class QuestRewardCatalog
             // Without a QuestFlag the offer is taken when its quest item's flags say so (the Act 1 books: offers 5, 6, 9, 11).
             if (r.IntOrNull("QuestFlag") is not int f)
             {
-                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? []) { TakenLeagueFlag = league };
+                bool reclaimable = r.Has("__col5") && r.IntOrNull("__col5") is > 0
+                    && r.Has("__col6") && r.IntOrNull("__col6") is > 0;
+                result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? [])
+                {
+                    TakenLeagueFlag = league,
+                    Reclaimable = reclaimable,
+                };
                 continue;
             }
             if (f < 0 || f >= names.Length || names[f] == "NEVER_SET") continue;
@@ -115,15 +128,18 @@ public sealed class QuestRewardCatalog
     /// the same transaction.</summary>
     public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
         Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row = PlayerInventories.MainInventory,
-        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null) => Saves.Atomically(() =>
+        bool expandedAllowed = false, int? leagueFlag = null, AccountStash? leagueFlags = null, bool reclaimable = false) => Saves.Atomically(() =>
     {
         if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
         bool league = leagueFlag is int lf && leagueFlags is not null;
-        // An offer with only a league flag is taken by it alone (Taken(null, null) would call it taken already).
+        // A reclaimable offer prevents claiming duplicates while allowing any missing unlocked item;
+        // otherwise an offer with only a league flag is taken by it alone (Taken(null, null) would call it taken already).
         bool taken = league && leagueFlags!.LeagueQuestFlags.Contains(leagueFlag!.Value)
-            || (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains);
+            || (reclaimable
+                ? QuestItems.Carried(inventory).Any(c => c.Item.Item.TypeHash == reward.TypeHash)
+                : (!league || takenFlag is not null || quest is not null) && Taken(takenFlag, quest, saved.Contains));
         if (taken || !inventory.Fits(row, reward, shapeOf)) return null;
         var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");

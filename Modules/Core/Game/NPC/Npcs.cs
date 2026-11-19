@@ -224,13 +224,26 @@ public static partial class Game
     {
         var (remote, stream, ciphers) = conn.Wire;
         var rewardCatalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
-        var rewardItems = rewardCatalog.Choices(offer, conn.ClassRow)
+        if (rewardCatalog.Find(offer) is not { } rewardOffer) return false;
+        HashSet<int> leagueFlags;
+        lock (conn.Monsters) leagueFlags = [.. conn.LeagueQuestFlags];
+        var allChoices = rewardCatalog.Choices(offer, conn.ClassRow);
+        var unlockedChoices = allChoices
+            .Where(c => c.RequiredLeagueFlag is not int req || leagueFlags.Contains(req))
+            .ToArray();
+        if (allChoices.Count > 0 && unlockedChoices.Length == 0) return false;
+        var rewardItems = unlockedChoices
             .Select(c => (Choice: c, Item: QuestRewardCatalog.Create(c, ItemsFor(conn), RollsFor(conn))))
             .Where(c => c.Item is not null)
             .Select(c => ItemsFor(conn).ByHash(c.Item!.TypeHash) is { } type
                 ? (c.Choice, Item: (Item?)GameEvents.ResolveRewardItem(conn, offer, c.Item!, type)) : c)
             .ToArray();
-        if (rewardCatalog.Find(offer) is not { } rewardOffer) return false;
+        if (rewardOffer.Reclaimable)
+        {
+            var carriedTypes = QuestItems.Carried(ItemsOf(conn)).Select(x => x.Item.Item.TypeHash).ToHashSet();
+            rewardItems = [.. rewardItems.Where(c => !carriedTypes.Contains(c.Item!.TypeHash))];
+            if (rewardItems.Length == 0) return false;
+        }
         // An offer none of whose choices can be built yet (unique gear, jewels) still counts as taken, so its quest completes
         // (campaign-quests.md E10): its taken flag is set without an item, and the options come back.
         if (rewardItems.Length == 0)
@@ -243,8 +256,10 @@ public static partial class Game
         }
         var rewardQuest = ItemsFor(conn).ByHash(rewardItems[0].Item!.TypeHash)?.Quest;
         // An offer with a league flag is taken by it or by its own flags (an offer with only a league flag has none).
+        // Reclaimable offers skip the single-item taken check (already filtered against carried items above).
         if (LeagueRewardTaken(conn, rewardOffer) == true
-            || (rewardOffer.TakenLeagueFlag is null || rewardOffer.TakenFlag is not null || rewardQuest is not null)
+            || !rewardOffer.Reclaimable
+            && (rewardOffer.TakenLeagueFlag is null || rewardOffer.TakenFlag is not null || rewardQuest is not null)
             && QuestRewardCatalog.Taken(rewardOffer.TakenFlag, rewardQuest, f => ClientHasQuestFlag(conn, f))) return false;
         conn.InNpcTalk = false;
         conn.NpcRewardOffer = offer;
