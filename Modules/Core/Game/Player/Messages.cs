@@ -102,7 +102,8 @@ public static partial class Game
             {
                 // The client buffers a click from the last part of a hold and sends it as its own hold ends, which can be a
                 // few ms before the server's. On localhost it arrives inside them: dropped, the client acts alone.
-                while (HoldEndsWithin(conn, HoldEndGraceSeconds) is > 0 and var left)
+                // A paused world never reaches the hold's end, and the resume (C→S 0x1d4 0) queues behind this message.
+                while (!conn.Paused && HoldEndsWithin(conn, HoldEndGraceSeconds) is > 0 and var left)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(left + .001));
                     readAt = 0;
