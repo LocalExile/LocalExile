@@ -14,6 +14,9 @@ public sealed class HarbingerTests
         return new(type.Hash, type.Class, type.Name, type.Row, [], 0) { BaseId = type.Id };
     }
 
+    static (int, int, int) Wave(HarbingerCatalog.HarbingerKind kind, int level) =>
+        HarbingerCatalog.Profile(kind, level) is var p ? (p.BaseCount, p.ExtraCountChancePct, p.Permyriad) : default;
+
     [Fact]
     public void Harbinger_catalog_opening_and_shard_drops_honor_scarabs_stats_and_329_exclusions()
     {
@@ -23,6 +26,15 @@ public sealed class HarbingerTests
         Assert.Equal(9, HarbingerCatalog.All.Count(e => e.Strong));
         Assert.DoesNotContain(HarbingerCatalog.Pool(20), e => e.Strong);
         Assert.Contains(HarbingerCatalog.Pool(75), e => e.Strong);
+
+        // Wave profiles are the client's HarbingerSummonMonsters / 2 / Atlas rows for the monster level.
+        Assert.Equal((6, 25, 410), Wave(HarbingerCatalog.HarbingerKind.Normal, 60));
+        Assert.Equal((6, 25, 400), Wave(HarbingerCatalog.HarbingerKind.Strong, 60));
+        Assert.Equal((8, 61, 181), Wave(HarbingerCatalog.HarbingerKind.Strong, 75));
+        var kingWave = HarbingerCatalog.Profile(HarbingerCatalog.HarbingerKind.King, 83);
+        Assert.Equal((15, 15, 1), (kingWave.BaseCount, kingWave.MaxMagic, kingWave.MaxRare));
+        var atlasShards = new MapMods(new Dictionary<string, int> { ["map_harbingers_drops_additional_currency_shards"] = 38 });
+        Assert.Equal(6, HarbingerCatalog.RollShards(Program.Items, 75, HarbingerCatalog.NormalBaseTenths, 0, atlasShards, new Random(1)).Count);
 
         // Exactly 11 active 3.29 currency shards; disabled 3.29 shards (Horizon, Harbinger's, Engineer's) excluded.
         Assert.Equal(11, HarbingerCatalog.Shards.Count);

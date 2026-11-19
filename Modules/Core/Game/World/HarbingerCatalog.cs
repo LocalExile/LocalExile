@@ -137,17 +137,22 @@ public static class HarbingerCatalog
     public static WaveProfile Profile(HarbingerKind kind, int level) => kind switch
     {
         HarbingerKind.King => new(CooldownSeconds: 2.0, BaseCount: 15, ExtraCountChancePct: 75, Permyriad: 50,
-            MaxMagic: 8, MaxRare: 2, MagicChancePct: 20, RareChancePct: 5, AliveCap: 22),
-        HarbingerKind.Strong => level >= 85
-            ? new(CooldownSeconds: 2.0, BaseCount: 8, ExtraCountChancePct: 75, Permyriad: 100,
-                MaxMagic: 8, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12)
-            : new(CooldownSeconds: 2.0, BaseCount: 8, ExtraCountChancePct: 61, Permyriad: 181,
+            MaxMagic: 15, MaxRare: 1, MagicChancePct: 20, RareChancePct: 5, AliveCap: 22),
+        // HarbingerSummonMonsters2 levels 3 (monster level 46), 4 (73) and 5 (85); strong Harbingers start at 60.
+        HarbingerKind.Strong => level switch
+        {
+            <= 72 => new(CooldownSeconds: 2.0, BaseCount: 6, ExtraCountChancePct: 25, Permyriad: 400,
+                MaxMagic: 4, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12),
+            <= 84 => new(CooldownSeconds: 2.0, BaseCount: 8, ExtraCountChancePct: 61, Permyriad: 181,
                 MaxMagic: 6, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12),
+            _ => new(CooldownSeconds: 2.0, BaseCount: 8, ExtraCountChancePct: 75, Permyriad: 100,
+                MaxMagic: 8, MaxRare: 1, MagicChancePct: 20, RareChancePct: 20, AliveCap: 12),
+        },
         _ => level switch
         {
             <= 44 => new(CooldownSeconds: 3.0, BaseCount: 3, ExtraCountChancePct: 0, Permyriad: 700,
                 MaxMagic: 1, MaxRare: 0, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
-            <= 72 => new(CooldownSeconds: 3.0, BaseCount: 6, ExtraCountChancePct: 0, Permyriad: 410,
+            <= 72 => new(CooldownSeconds: 3.0, BaseCount: 6, ExtraCountChancePct: level >= 46 ? 25 : 0, Permyriad: 410,
                 MaxMagic: 2, MaxRare: level >= 46 ? 1 : 0, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
             <= 84 => new(CooldownSeconds: 3.0, BaseCount: 8, ExtraCountChancePct: 61, Permyriad: 198,
                 MaxMagic: 4, MaxRare: 1, MagicChancePct: 10, RareChancePct: 10, AliveCap: 12),
@@ -179,7 +184,8 @@ public static class HarbingerCatalog
         if (mods is not null)
         {
             tenths += Math.Max(0, mods.Get("map_harbinger_additional_currency_shard_stack_tenths_to_drop"));
-            tenths += Math.Max(0, mods.Get("map_harbingers_drops_additional_currency_shards")) * 10;
+            // In tenths like the base stat: the Atlas mod's 38 is the strong Harbinger's own 38 (3.8 stacks).
+            tenths += Math.Max(0, mods.Get("map_harbingers_drops_additional_currency_shards"));
             extraStackChance = Math.Max(0, mods.Get("map_harbinger_additional_currency_shard_stack_chance_%"));
             fullCurrencyStat = Math.Max(0, mods.Get("map_harbingers_have_chance_to_drop_full_currency"));
             dupChance = Math.Max(0, mods.Get("map_harbinger_currency_shards_duplicate_chance"));
