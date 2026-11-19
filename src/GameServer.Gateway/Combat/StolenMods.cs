@@ -26,7 +26,7 @@ public sealed class StolenMods
     public void Steal(MonsterModSet mods, ModCatalog catalog, double now) =>
         Steal(mods, catalog, now, Seconds);
 
-    /// <summary>A slain monster's affixes for an explicit duration (e.g. 20 s for Beyond Scarab of Haemophilia).</summary>
+    /// <summary>A slain monster's affixes for an explicit duration in seconds.</summary>
     public void Steal(MonsterModSet mods, ModCatalog catalog, double now, double seconds) =>
         Add(Eligible(mods, catalog), catalog, now + seconds, belt: true);
 

@@ -87,29 +87,30 @@ public static partial class MapBeyond
     static async Task TickBossBuffs(ClientState conn, double seconds)
     {
         if (!BossBuffs.TryGetValue(conn, out var state)) return;
-        var add = new List<(ushort Instance, ushort Row, float Duration)>();
-        var remove = new List<ushort>();
+        List<(ushort Instance, ushort Row, float Duration)>? add = null;
+        List<ushort>? remove = null;
         bool changed = false;
         lock (state)
         {
+            if (state.Active.Count == 0) return;
             for (int i = state.Active.Count - 1; i >= 0; i--)
             {
                 var (row, left, inst, refresh) = state.Active[i];
                 left -= seconds;
                 if (left <= 0 || conn.PlayerLife == 0)
                 {
-                    if (inst != 0) remove.Add(inst);
+                    if (inst != 0) (remove ??= []).Add(inst);
                     state.Active.RemoveAt(i);
                     changed = true;
                     continue;
                 }
                 if (refresh || inst == 0)
                 {
-                    if (inst != 0) remove.Add(inst);
+                    if (inst != 0) (remove ??= []).Add(inst);
                     if (BeyondCatalog.ByRow(row) is { BossBuffRow: > 0 } faction)
                     {
                         inst = conn.NextBuff++;
-                        add.Add((inst, faction.BossBuffRow, (float)left));
+                        (add ??= []).Add((inst, faction.BossBuffRow, (float)left));
                     }
                     state.Active[i] = (row, left, inst, false);
                     changed = true;
@@ -121,13 +122,15 @@ public static partial class MapBeyond
         }
         if (!changed) return;
         var w = conn.Wire;
-        foreach (ushort buff in remove)
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
-                InstanceEntities.RemoveBuff(PlayerId, buff), "beyond: boss buff ends");
-        foreach (var (inst, row, duration) in add)
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
-                InstanceEntities.AddBuff(PlayerId, inst, row, PlayerId, u68: BitConverter.SingleToUInt32Bits(duration)),
-                $"beyond: boss buff {row}");
+        if (remove is not null)
+            foreach (ushort buff in remove)
+                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
+                    InstanceEntities.RemoveBuff(PlayerId, buff), "beyond: boss buff ends");
+        if (add is not null)
+            foreach (var (inst, row, duration) in add)
+                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
+                    InstanceEntities.AddBuff(PlayerId, inst, row, PlayerId, u68: BitConverter.SingleToUInt32Bits(duration)),
+                    $"beyond: boss buff {row}");
         lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
         await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
