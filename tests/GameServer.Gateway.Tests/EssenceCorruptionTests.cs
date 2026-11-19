@@ -80,7 +80,7 @@ public sealed class EssenceCorruptionTests
         var instance = new InstanceState();
         var world = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         var mods = new MapMods(new Dictionary<string, int> { ["map_extra_monoliths"] = 3, ["map_stable_essence_corruption"] = 1 });
-        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(world.Id, 0x505, 70, stats);
         ServerLevels.For(world.Id, seed, 70);
         var layout = AreaLayouts.For(world.Hash16, seed);
