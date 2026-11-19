@@ -126,7 +126,7 @@ public static partial class Game
             && !conn.Layout.Id.StartsWith("HeistHub", StringComparison.Ordinal)) return null;
         var worn = new Dictionary<uint, int>();
         foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
-            foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
+            foreach (var (stat, value) in ActiveCosmeticEffect(conn, w)?.Stats ?? [])
                 worn[stat] = worn.GetValueOrDefault(stat) + value;
         int Of(string name) => Stats.Key(name) is uint key ? worn.GetValueOrDefault(key) : 0;
         int index = Of("mtx_tencent_lunar_set_polymorph") == 4
@@ -229,7 +229,7 @@ public static partial class Game
     {
         var worn = new Dictionary<uint, int>();
         foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
-            foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
+            foreach (var (stat, value) in ActiveCosmeticEffect(conn, w)?.Stats ?? [])
                 worn[stat] = worn.GetValueOrDefault(stat) + value;
         return DerivedArtStats(name => Stats.Key(name) is not uint key ? 0 : skill.TryGetValue(key, out int own) ? own : worn.GetValueOrDefault(key),
             skill: true);

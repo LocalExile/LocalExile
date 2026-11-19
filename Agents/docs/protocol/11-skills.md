@@ -1797,7 +1797,8 @@ even though the rig also has a `spell_projectile_wand` clip without a lock. The 
 `@SpellProjectile` to row 20 and retains it on the alias (`0x141da5f8a`, `0x141da2fe0`). When the requested
 row lacks a stat, `0x141e9f2a0` looks up the alias row's `animation_variation_spell_projectile`. Both duration
 and rate selectors compare that value with each candidate's variation. The Witch's Elemental Staff skin gives 1
-(ItemisedVisualEffect 3013). Both eligible clips contact at 599 of 1066 ms without a cancellation lock.
+while the selected hand holds a usable staff or warstaff ([cosmetic eligibility](23-microtransactions.md) §3).
+Both eligible clips contact at 599 of 1066 ms without a cancellation lock.
 The ordinary staff clip has the same contact and locks until 754 ms. These ACT roles also name 25 distinct
 locked effect clips. Across their authored timelines there are four `contact` events and one `endtrl`.
 The Auspicious effect uses the first 1000 ms of `animate` through the `animate_01` view, which has no event.

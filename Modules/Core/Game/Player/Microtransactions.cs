@@ -93,6 +93,10 @@ public sealed class CosmeticEffects(string folder = "data")
         /// skin: both), empty for any. A skin or weapon effect is drawn only on an item of one of them.</summary>
         public IReadOnlyList<int> ItemClasses { get; init; } = [];
 
+        /// <summary>Character rows for a weapon skin that supplies the projectile cast animation. An empty list
+        /// admits every character. Other effects have no weapon cast to qualify.</summary>
+        public IReadOnlyList<int>? ProjectileCastCharacters { get; init; }
+
         /// <summary>Whether the cosmetic dresses an item of this ItemClasses row.</summary>
         public bool Fits(int classRow) => ItemClasses.Count == 0 || ItemClasses.Contains(classRow);
 
@@ -117,6 +121,8 @@ public sealed class CosmeticEffects(string folder = "data")
     /// <summary>A Cosmetics tab slot: its name and the model slot it dresses (null: none).</summary>
     public sealed record Slot(string Name, byte? ModelSlot)
     {
+        public byte? InventoryRow { get; init; }
+
         /// <summary>Weapon effects go in the second reference of the weapon's entry, everything else in the first.</summary>
         public bool IsWeaponEffect => Name is "Weapon Effect" or "Weapon Added Effect";
     }
@@ -140,6 +146,7 @@ public sealed class CosmeticEffects(string folder = "data")
         var identities = Hash16s("ItemVisualIdentity");
         var weaponEffects = Hash16s("ItemVisualEffect");
         if (gameSpecific is null || identities is null || weaponEffects is null) return (effects, slots);
+        uint? projectileCast = Program.Stats.Key("animation_variation_spell_projectile");
         var skillEffects = Rows("MtxTypeGameSpecific")
             .Where(r => r.Ints("__col4").Contains(27)).Select(r => r.UInt("HASH32")).ToHashSet();
 
@@ -153,6 +160,8 @@ public sealed class CosmeticEffects(string folder = "data")
             effects.TryAdd(hash, new Effect(visual, effect, stats)
             {
                 ItemClasses = row.Ints("ItemClasses"),
+                ProjectileCastCharacters = stats.Exists(s => s.Item1 == projectileCast) && row.Ints("__col8").Contains(1)
+                    ? row.Ints("Character") : null,
                 Skill = skillEffects.Contains(hash) && row.Ints("__col8").Contains(27)
                     && Int(row, "EffectSlotType") is int slotType
                     ? new(slotType, row.Ints("BaseItemTypes"), row.Ints("ItemClasses")) : null,
@@ -187,7 +196,10 @@ public sealed class CosmeticEffects(string folder = "data")
         foreach (var row in Rows("MicrotransactionSlot"))
             if (Int(row, "Id") is int id and > 0 and < InstanceMicrotransactions.SlotCount)
                 slots[(byte)id] = new Slot(row.TextOrNull("Name") ?? "",
-                    Int(row, "__col7") is int model and >= 0 and < 17 ? (byte)model : null);
+                    Int(row, "__col7") is int model and >= 0 and < 17 ? (byte)model : null)
+                {
+                    InventoryRow = Int(row, "InventorySlot") is int inventory ? checked((byte)inventory) : null,
+                };
         return (effects, slots);
     }
 
