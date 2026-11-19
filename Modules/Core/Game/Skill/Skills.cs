@@ -772,9 +772,13 @@ public static partial class Game
                 if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
             }
-            else if (SkillsFor(conn).EffectId(effect) == "ShockNova" && ManualMarkedNova(conn, id, supported))
+            else if (IsPlayerShockNova(SkillsFor(conn).EffectId(effect)) && ManualMarkedNova(conn, id, supported))
+            {
                 stats[Stats.Key("total_skill_area_of_effect_radius_+%_including_final")!.Value] =
                     ShockNovaRadiusPercent(Get, GolemStat(own, SkillArea.BaseIncreased));
+                if (SkillsFor(conn).BehaviourVariation(effect) is > 0 and var variation)
+                    stats[StatKeys.SkillBehaviourVariation] = variation;
+            }
             // Molten Strike's client ballistic/explosion builders read 0x1591 (0x14193efd0) for both scatter range and
             // explosion radius; its StatSet omits active_skill_base_area_of_effect_radius, whose base is 9 (0x141b6baa0).
             else if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(effect)))

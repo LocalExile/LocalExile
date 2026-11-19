@@ -41,6 +41,86 @@ public sealed class AreaSpellTimingTests
         Assert.Null(contacts.SpellMoveWindow("Metadata/None.ao", wand, CastAnimationKind.Projectile, 0, .65, false));
         await VortexDetonatesSelectedBolts();
         await ShockNovaSamplesBothContacts();
+        await ProcessionRepeatsAlongItsOriginalAim();
+    }
+
+    static async Task ProcessionRepeatsAlongItsOriginalAim()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Shock Nova of Procession", "Assassin's Mark");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Use(conn.Layout with
+        {
+            Sight = (x, _) => x == 330 ? 0 : 5,
+            Clearance = (x, _, size) => size == 0 && x != 329
+        });
+        conn.Walk.Teleport(100, 100, 0);
+        conn.Monsters.Clear();
+        battle.AdvanceBy(12);
+        conn.Clock.Start();
+        conn.PlayerStats[Program.Stats.Key("global_cannot_crit")!.Value] = 1;
+        conn.PlayerStats[Program.Stats.Key("nova_spells_cast_at_marked_target")!.Value] = 1;
+        var nova = Game.GemSkillEffects(conn).Single(s => s.Name == "Shock Nova of Procession");
+        var mark = Game.GemSkillEffects(conn).Single(s => s.Name == "Assassin's Mark");
+        var wire = Game.PlayerSkills(conn).Single(s => s.Id == nova.Id).Stats!;
+        foreach (var (name, value) in new[] { ("skill_behaviour_variation", 1), ("spell_repeat_count", 2),
+            ("total_skill_area_of_effect_radius_+%_including_final", -17), ("virtual_nova_spells_cast_at_marked_target", 1) })
+            Assert.Contains((Program.Stats.Key(name)!.Value, value), wire);
+
+        SpawnedMonster At(int x, int y = 100) =>
+            conn.Monsters[(uint)(1000 * y + x)] = new("nova witness", new(x, y, 0), 0, 0, 100000) { Hostile = true };
+        var marked = At(305);
+        lock (conn.Monsters)
+            Assert.True(Game.ApplyCurseLocked(conn, marked, mark.Id, Game.ProjectileWorldTime(conn), aura: false));
+        var firstRing = At(421);
+        var firstDisc = At(529);
+        var secondRing = At(341);
+        var secondDisc = At(347);
+        var thirdDisc = At(357);
+        var pastWall = At(358);
+        var cursor = At(100, 240);
+        double cast = Game.CastMs(conn, nova.Effect, nova.Id)!.Value / 1000d;
+        long start = session.Runtime.Now;
+        long contact = start + ProjectileRuntime.Time(cast * Game.Animations.SpellAreaRelease(
+            Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+        long interval = ProjectileRuntime.Time(cast), gap = ProjectileRuntime.Time(.1);
+        var use = Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, nova.Id,
+            (100, 100), (100, 240), conn.ActionInterruptionGeneration);
+        // The moving mark controls both first-cast hits. It supplied the repeat path's start at (305,100).
+        marked.Walk.Teleport(400, 100, Game.ProjectileWorldTime(conn));
+        session.AdvanceTo(contact - 1);
+        Assert.Equal(firstRing.MaxLife, firstRing.Life);
+        session.AdvanceTo(contact);
+        Assert.True(firstRing.Life < firstRing.MaxLife);
+        marked.Walk.Teleport(500, 100, Game.ProjectileWorldTime(conn));
+        session.AdvanceTo(contact + gap);
+        Assert.True(firstDisc.Life < firstDisc.MaxLife);
+        Assert.Equal(secondRing.MaxLife, secondRing.Life);
+        // Single-precision normalization of the 205-cell vector gives a step of 13. The next ray stops at 328.
+        session.AdvanceTo(contact + interval);
+        Assert.True(secondRing.Life < secondRing.MaxLife);
+        Assert.Equal(secondDisc.MaxLife, secondDisc.Life);
+        session.AdvanceTo(contact + interval + gap);
+        Assert.True(secondDisc.Life < secondDisc.MaxLife);
+        Assert.Equal(thirdDisc.MaxLife, thirdDisc.Life);
+        session.AdvanceTo(contact + 2 * interval + gap);
+        await use;
+        Assert.True(thirdDisc.Life < thirdDisc.MaxLife);
+        Assert.Equal(pastWall.MaxLife, pastWall.Life);
+        Assert.Equal(cursor.MaxLife, cursor.Life);
+
+        // A cast aimed at the caster's own cell still has a known first ring and disc.
+        conn.PlayerStats.Remove(Program.Stats.Key("nova_spells_cast_at_marked_target")!.Value);
+        var self = At(100);
+        contact = session.Runtime.Now + (contact - start);
+        use = Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, nova.Id,
+            (100, 100), (100, 100), conn.ActionInterruptionGeneration);
+        session.AdvanceTo(contact);
+        Assert.Equal(self.MaxLife, self.Life);
+        session.AdvanceTo(contact + gap);
+        Assert.True(self.Life < self.MaxLife);
+        session.AdvanceTo(contact + 2 * interval + gap);
+        await use;
     }
 
     static async Task ShockNovaSamplesBothContacts()

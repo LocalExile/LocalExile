@@ -38,7 +38,8 @@ public static partial class Game
         bolt * 0.1 + expansion * (IceNovaRing.Seconds(artVariation) + 0.3);
 
     static bool ManualMarkedNova(ClientState conn, ushort id, SupportedGem gem) =>
-        (SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action || SkillsFor(conn).EffectId(gem.Effect) is "Vortex" or "VortexAltX" or "ShockNova")
+        (SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action || SkillsFor(conn).EffectId(gem.Effect) is "Vortex" or "VortexAltX"
+            || IsPlayerShockNova(SkillsFor(conn).EffectId(gem.Effect)))
             && !IsTotemSkill(conn, id) && PlacedKind(gem) is { Trap: false, Mine: false } && TriggerOnlyReason(gem) is null;
 
     // Resolve the owner's current recipient at the instant a nova requests a marked centre.

@@ -1746,6 +1746,17 @@ stat, `casting_spell` and `skill_is_nova_skill` to set 0x5361.
 For ordinary Shock Nova, NewShockNova (0x141d20bd0) reads cursor targeting before the mark on each hit.
 At contact its ring spans 14–26 cells. A child action (0x141d176e0) selects again 100 ms later for a 33-cell disc.
 The three radii use the skill's radius percentage. Both edges include the victim's positioned size (0x141d2542f).
+Shock Nova of Procession uses the same action with `skill_behaviour_variation` 1 and two built-in repeats.
+The first ring and disc each read the cursor, current marked actor or caster. At action start (0x141d17740)
+the cursor supplies a terrain-checked aim, a mark supplies the actor's cell, and an ordinary cast starts at the caster.
+With Novamark and no marked actor the action keeps the requested point for the repeat path.
+The step is half the initial scaled disc radius. A distant start rounds each normalized vector component with
+`floor(x + 0.5)`. A caster-centred start takes the floored components of the actor's facing vector.
+At each animation restart (0x141d17af0) the action adds the saved step to its last accepted cell, then traces
+from the current caster. A zero in the projectile grid ends the trace. The last cell with walk layer 0 of at
+least one supplies the new centre. Both hits of that repeat use the saved cell, including after a mark moves.
+On the Gateway, an aim that needs the actor's previous rotation still resolves the first ring and disc.
+The directional repeats for that case require retained player facing.
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
 Ice Nova can use a reserved bolt. GroundEffectTypes `Maelstorm` has its own art variation and the buff

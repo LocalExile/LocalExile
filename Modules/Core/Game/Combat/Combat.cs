@@ -1822,9 +1822,9 @@ public static partial class Game
                 sequence, fistMore, fistRadius);
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         string? nova = SkillsFor(conn).EffectId(gem.Effect);
-        if (nova == "ShockNova")
+        if (nova == "ShockNova" || nova == "ShockNovaAltX" && ManualMarkedNova(conn, skillId, supported))
             return CastShockNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
-                criticalRoll, sacrifice, spellRepeats, seals, reoccurrenceMore);
+                criticalRoll, sacrifice, spellRepeats, seals, reoccurrenceMore, procession: nova == "ShockNovaAltX");
         if (nova is "IceNovaAltX" or "Vortex" or "VortexAltX")
             return CastFrostboltNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
                 criticalRoll, sacrifice, supported, spellRepeats, seals, reoccurrenceMore, vortex: nova != "IceNovaAltX");

@@ -31,7 +31,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - Verify Vortex in a native session, including the explosion, removal of predicted Frostbolts, ground coverage on
   spawning or emerging monsters, marked-target placement and worn effects. Check triggered or proxy Vortex releases
   and Runegraft of the Novamark on other nova actions. Verify ordinary Shock Nova placement and timing live,
-  including worn effects. Trace the directional repeats of Shock Nova of Procession and proxy releases.
+  including worn effects. Verify Procession's moving marks, directional repeats, terrain edges and proxy casts live.
+  Track the player's retained facing for repeats when the start and caster coincide and the action does not turn.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats
