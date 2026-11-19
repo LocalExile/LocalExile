@@ -369,13 +369,16 @@ public static class InstanceItems
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
         LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7;
 
-    /// <summary>C→S 0x0111 / 0x0112: Ctrl + click on an item with a league storage window open (one class, writer
-    /// 0x141f993f0; 0x0112 sender 0x14216f0d0 from 0x14030e970, sent only while UI slot +0x8a0 is true). 0x0112 is
-    /// Inventories row 0x71's window, 0x0111 row 0x70's. 8 bytes: u16 id, u32 BE item id, u8 the clicked grid is row 0x54
-    /// (ExpandedMainInventory1), u8 1 from the main inventory into the window's inventory, 0 out of it.
+    /// <summary>C→S 0x010e, 0x010f, 0x0111, 0x0112, 0x0115: Ctrl + click on an item with a league window open (one class, writer
+    /// 0x141f993f0; 0x0112 sender 0x14216f0d0 from 0x14030e970, sent only while UI slot +0x8a0 is true). 0x010e is
+    /// Inventories row 0x67's window, 0x010f row 0x69's, 0x0111 row 0x70's, 0x0112 row 0x71's, 0x0115 rows 0x73/0x74's.
+    /// 8 bytes: u16 id, u32 BE item id, u8 flag A (for 0x010e/0x010f/0x0111/0x0112: clicked grid is row 0x54
+    /// ExpandedMainInventory1; for 0x0115: clicked grid is row 0 MainInventory), u8 flag B (for 0x010e/0x010f/0x0111/0x0112:
+    /// 1 into the window's inventory, 0 out of it; for 0x0115: 1 from row 0 or row 0x73, 0 from row 0x74).
     /// C→S 0x0113 (sender 0x14216f120, 6 bytes): u16 id, u32 BE item id, taken out of row 0x72's window. A sibling 0x0110
     /// (row 0x6c) has an extra argument of unknown length and is not framed.</summary>
-    public const ushort LockerMoveId = 0x0111, ExtractionMoveId = 0x0112, CollectionTakeId = 0x0113;
+    public const ushort MissionSlotMoveId = 0x010e, CraftingSlotMoveId = 0x010f,
+        LockerMoveId = 0x0111, ExtractionMoveId = 0x0112, CollectionTakeId = 0x0113, SocketStorageMoveId = 0x0115;
     public const int LeagueWindowMoveLength = 8, CollectionTakeLength = 6;
 
     public readonly record struct LeagueWindowMove(uint ItemId, bool FromExpanded, bool Into);
