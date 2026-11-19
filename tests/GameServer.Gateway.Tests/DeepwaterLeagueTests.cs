@@ -78,6 +78,11 @@ public sealed class DeepwaterLeagueTests
             Tasks = [(0xc4df, light)],
         }.Blob();
         Assert.Equal("01DFC4" + Convert.ToHexString(light), Convert.ToHexString(lantern[^19..]));
+
+        // An int script variable (type 9): this.RandomNumber = 3 in the base data.
+        Assert.Equal(0xe70679ebu, QuestObject.VariableHash("RandomNumber"));
+        byte[] numbered = new QuestObject(0, 0, ["Positioned"]) { IntVariables = new Dictionary<uint, int> { [0xe70679eb] = 3 } }.Blob();
+        Assert.Equal("0001" + "EB7906E7" + "000109" + "03000000", Convert.ToHexString(numbered[..13]));
     }
 
     static byte[] Tick()

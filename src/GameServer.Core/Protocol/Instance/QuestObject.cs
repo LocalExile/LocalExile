@@ -39,6 +39,14 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public IReadOnlyList<(uint Key, int Value)> Stats { get; init => field = Owned.List(value); } = [];
     /// <summary>Base-data script variables containing one entity reference (141dedf80 / 141dfe5a0, type 1).</summary>
     public IReadOnlyDictionary<uint, uint> EntityVariables { get; init; } = new Dictionary<uint, uint>();
+    /// <summary>Base-data script variables containing one i32 (type 9, read by 0x141806520), written after the entity ones.</summary>
+    public IReadOnlyDictionary<uint, int> IntVariables { get; init; } = new Dictionary<uint, int>();
+    /// <summary>Base-data script variables containing one f32 (type 8), written after the int ones.</summary>
+    public IReadOnlyDictionary<uint, float> FloatVariables { get; init; } = new Dictionary<uint, float>();
+
+    /// <summary>A script variable's name hash (0x1406db8f0): MurmurHash2 of the UTF-16LE name, seed 0.</summary>
+    public static uint VariableHash(string name) =>
+        InstanceEntities.Murmur2(System.Runtime.InteropServices.MemoryMarshal.AsBytes(name.AsSpan()));
     /// <summary>HarvestWorldObject's seed list: HarvestSeeds rows and their counts.</summary>
     public IReadOnlyList<(byte SeedRow, byte Count)> HarvestSeeds { get; init => field = Owned.List(value); } = [];
     /// <summary>The object's running tasks: GameObjectTasks HASH16 and the task's data. Empty by default.</summary>
@@ -64,10 +72,16 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
         w.U8(0);            // object flags
-        if (EntityVariables.Count > byte.MaxValue) throw new ArgumentException("too many entity variables");
-        w.U8((byte)EntityVariables.Count);
+        int variables = EntityVariables.Count + IntVariables.Count + FloatVariables.Count;
+        if (variables > byte.MaxValue) throw new ArgumentException("too many script variables");
+        w.U8((byte)variables);
+        // Each: u32 name hash, u8 flags 0, u8 value count 1, u8 type (1 entity, 9 i32, 8 f32), the value.
         foreach (var (hash, entity) in EntityVariables.OrderBy(v => v.Key))
             w.U32(hash).U8(0).U8(1).U8(1).U32(entity);
+        foreach (var (hash, value) in IntVariables.OrderBy(v => v.Key))
+            w.U32(hash).U8(0).U8(1).U8(9).I32(value);
+        foreach (var (hash, value) in FloatVariables.OrderBy(v => v.Key))
+            w.U32(hash).U8(0).U8(1).U8(8).F32(value);
         foreach (string c in Components)
         {
             switch (c)

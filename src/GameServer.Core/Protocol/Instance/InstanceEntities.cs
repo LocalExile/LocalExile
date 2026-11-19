@@ -22,6 +22,12 @@ public static class InstanceEntities
     {
         Span<byte> b = path.Length <= 256 ? stackalloc byte[path.Length] : new byte[path.Length];
         for (int i = 0; i < path.Length; i++) b[i] = (byte)path[i];
+        return Murmur2(b);
+    }
+
+    /// <summary>MurmurHash2 (32-bit, seed 0) over bytes (0x140df6e10).</summary>
+    public static uint Murmur2(ReadOnlySpan<byte> b)
+    {
         const uint m = 0x5bd1e995;
         uint h = (uint)b.Length;
         int p = 0;
