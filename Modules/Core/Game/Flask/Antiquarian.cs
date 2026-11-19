@@ -82,7 +82,7 @@ public static partial class Game
             if (double.IsFinite(cry))
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.EnduringCryBuff = conn.NextBuff++, 1541, PlayerId,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, cry - conn.Clock.Elapsed.TotalSeconds))));
-            bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+            bytes.AddRange(PlayerStatsOffFrames(conn));
             // The native client predicts regeneration between corrections. Removing the rate alone leaves
             // its predicted overshoot in place when the server has no further recovery tick to publish.
             bytes.AddRange(PlayerLifeUpdate(conn));

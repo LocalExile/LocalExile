@@ -418,15 +418,24 @@ public static partial class Game
     // the same moment) takes the full SendCharacterStats.
     public static async Task SendChargeStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
+        if (StatsPublishedByFrame(conn)) return;
+        await PublishStatValues(remote, stream, ciphers, conn, $"charges {why}");
+    }
+
+    /// <summary>The stats after a change of their values: 0x1b3, the skills whose records changed and the Energy Shield
+    /// (a changed skill set takes the full publication).</summary>
+    public static async Task PublishStatValues(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        string why = "changed")
+    {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
         var skills = PlayerSkills(conn);
         if (!conn.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
+            await PublishCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
             return;
         }
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-            () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats (charges {why})");
+            () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerSkillsIfChanged(conn, PlayerSkills(conn)),
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");

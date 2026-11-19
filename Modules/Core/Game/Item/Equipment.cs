@@ -323,7 +323,7 @@ public static partial class Game
         await SendWornCosmetics(remote, stream, ciphers, conn, "equipment changed");
         await SendSkills(remote, stream, ciphers, conn);
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-            () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+            () => PlayerStatsOffFrames(conn),
             "0x01b3 player stats (equipment)");
         await Send(remote, stream, ciphers, [], "0x01b1 player life (equipment)", atGate: () =>
         {

@@ -685,7 +685,7 @@ public static partial class Game
                 // lifetime. Project through a new scope so the packet contains the reconciled counts and buffs.
                 using (new PlayerStatScope(conn, fresh: true))
                 {
-                    bytes.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    bytes.Add(PlayerStatsOffFrames(conn));
                     bytes.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 }
                 return bytes.Count == 0 ? null : [.. bytes];

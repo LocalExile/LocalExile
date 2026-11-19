@@ -113,7 +113,7 @@ public static partial class Game
                     {
                         speed.Percent = percent;
                         RecomputePoolsAndSpeed(conn);
-                        bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                        bytes.AddRange(PlayerStatsOffFrames(conn));
                     }
                     return [.. bytes];
                 }
@@ -130,7 +130,7 @@ public static partial class Game
                     speed.Buff = 0;
                     speed.Percent = 0;
                     RecomputePoolsAndSpeed(conn);
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    bytes.AddRange(PlayerStatsOffFrames(conn));
                     return [.. bytes];
                 }
             });

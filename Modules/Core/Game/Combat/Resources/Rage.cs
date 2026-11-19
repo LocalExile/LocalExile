@@ -126,7 +126,7 @@ public static partial class Game
             bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.RageBuff, 1060, PlayerId,
                 stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
         }
-        bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+        bytes.AddRange(PlayerStatsOffFrames(conn));
         // The skill list prepared before the gate for this very value, else built here (a value that moved meanwhile).
         var skills = prepared is { } p && p.Value == value && p.Inputs?.Matches(conn, stats) == true
             ? p.Skills : PlayerSkills(conn);

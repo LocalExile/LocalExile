@@ -60,8 +60,10 @@ public static partial class Game
         public volatile bool Active = true;
         /// <summary>The one character snapshot of this flow's work: a client message's whole validation, payment and
         /// launch, or one PlayerSkills build. Built on the first read, so a message that reads no stats pays nothing.
-        /// (2026-11-05: a cast message built it five or six times, and 154 builds a second cost a full core.)</summary>
-        public Dictionary<uint, int> Stats => character ??= CharacterPlayerStatsSnapshot(conn, out _, out _);
+        /// (2026-11-05: a cast message built it five or six times, and 154 builds a second cost a full core.)
+        /// In an area's frames that is the graph's last Stats phase (a change made in this flow reaches the stats, and the
+        /// client, in the next one); off them a fresh build.</summary>
+        public Dictionary<uint, int> Stats => character ??= CharacterPlayerStatsCore(conn, out _);
         public List<(uint, int)>? Final;
         public readonly Dictionary<ushort, SupportedGem> Supported = [];
     }
@@ -1153,7 +1155,7 @@ public static partial class Game
     }
 
     // The character panel, the skills and the Energy Shield as they are now.
-    static async Task PublishCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerStatChange why)
+    internal static async Task PublishCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,

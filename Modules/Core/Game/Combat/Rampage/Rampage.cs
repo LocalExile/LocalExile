@@ -246,7 +246,7 @@ public static partial class Game
             if (signature != conn.SentRampageStat)
             {
                 conn.ApplyMovementSpeed();
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.AddRange(PlayerStatsOffFrames(conn));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 conn.SentRampageStat = signature;
             }

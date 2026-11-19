@@ -157,7 +157,7 @@ public static partial class Game
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, spirits.SentInstance = conn.NextBuff++, active.Row, PlayerId,
                     u68: BitConverter.SingleToUInt32Bits((float)(active.Until - now))));
             spirits.Sent = active;
-            bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+            bytes.AddRange(PlayerStatsOffFrames(conn));
             Console.WriteLine($"[gateway] {CharacterName(conn)}: Leadership buff "
                 + (active is null ? "ends" : $"{active.Row} for {active.Until - now:0.##} s"));
             return [.. bytes];

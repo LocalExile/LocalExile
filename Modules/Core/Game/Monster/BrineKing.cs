@@ -80,7 +80,7 @@ public static class BrineKing
     {
         lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
         var wire = conn.Wire;
-        await SendPlayerStatSnapshot(wire.Remote, wire.Stream, wire.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
+        await SendPlayerStatSnapshot(wire.Remote, wire.Stream, wire.Ciphers, conn, () => PlayerStatsOffFrames(conn), null);
     }
     static async Task TideAt(ClientState conn, bool active, double rawDps)
     {
@@ -102,7 +102,7 @@ public static class BrineKing
         await Send(remote, stream, ciphers, active
             ? TideBuff(PlayerId, tide.Buff)
             : InstanceEntities.RemoveBuff(PlayerId, tide.Buff), "[Brine King] tidal wave slow/degen");
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
+        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn), null);
     }
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));

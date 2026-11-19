@@ -1033,9 +1033,13 @@ public static partial class Game
             var session = new ProjectileSession(remote, stream, ciphers, conn);
             if (!CurrentGameWork || !session.Active) { session.Invalidate(); throw new OperationCanceledException("The Game generation retired"); }
             conn.ProjectileRuntime = session; session.Start();
+            // ProjectileWorldTime now reads the runtime's clock, not the connection's: the steps timed on it read again.
+            foreach (var step in ProjectileClockSteps) MarkPlayerStats(conn, step);
             return session;
         }
     }
+
+    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage];
 
     public static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
 

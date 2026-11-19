@@ -438,7 +438,7 @@ public static partial class Game
                 if (totems.All.FirstOrDefault(t => t.Id == source) is { Aura: { } aura })
                     bytes.World(PlayerId, InstanceEntities.AddBuff(PlayerId, totems.SentAuraInstance = conn.NextBuff++, aura.Row, PlayerId));
                 totems.SentAuraTotem = source;
-                bytes.World(PlayerId, PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.World(PlayerId, PlayerStatsOffFrames(conn));
             }
             return bytes.Count == 0 ? null : bytes.Build();
         }

@@ -365,7 +365,7 @@ public static partial class Game
         if (conn.AuraStatsDirty)
         {
             conn.AuraStatsDirty = false;
-            packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+            packets.Add(PlayerStatsOffFrames(conn));
             packets.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));

@@ -205,7 +205,7 @@ public static partial class Game
                         };
                         if (output.UtilityStart is { } effect)
                         {
-                            var prefix = PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+                            var prefix = PlayerStatsOffFrames(conn);
                             double now = AreaTime(conn);
                             bool live = conn.PlayerLife > 0 && effect.Ends > now
                                 && conn.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)

@@ -81,7 +81,7 @@ public static partial class Game
     public static async Task RunShieldCharge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse)
     {
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn),
             $"0x01b3 player stats (Shield Charge starts: movement_velocity_+% {conn.Pools.MovementVelocityPct}, " +
             $"+{ShieldChargeMovementPct(conn)} while charging, until t={arrivesAt:0.000})");
         bool Current() => ShieldChargeRuns.TryGetValue(conn, out var r) && r.Token == token && !conn.Closed;
@@ -118,7 +118,7 @@ public static partial class Game
             run.Percent = 0;
             RecomputePoolsAndSpeed(conn);
         }
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn),
             $"0x01b3 player stats (Shield Charge ends: movement_velocity_+% {conn.Pools.MovementVelocityPct})");
     }
 }

@@ -73,7 +73,7 @@ public static partial class Game
                         auraSource: true, displayState: 0, visual: kind.Visual));
                     bytes.AddRange(InstanceEntities.AddBuff(PlayerId, aura.Buff, kind.BuffRow, PlayerId, skillId,
                         u68: BitConverter.SingleToUInt32Bits((float)seconds), visual: kind.Visual));
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    bytes.AddRange(PlayerStatsOffFrames(conn));
                     return [.. bytes];
                 }
             });
@@ -106,7 +106,7 @@ public static partial class Game
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired
                     || ExpireVaalAura(conn, AreaTime(conn)) is not { } bytes) return null;
-                return [.. bytes, .. PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn))];
+                return [.. bytes, .. PlayerStatsOffFrames(conn)];
             }
         });
     }

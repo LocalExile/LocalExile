@@ -151,7 +151,7 @@ public static class DepravedTrinity
             if (count != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[n], (ushort)(n == 0 ? 832 : 834), stacks: (ushort)count), "[Rotting Core] effluent");
         }
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
-        if (!c.Closed && !c.LeavingArea) await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsUpdateAtGate(c, PlayerStatsWithCleared(c)), null);
+        if (!c.Closed && !c.LeavingArea) await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsOffFrames(c), null);
     }
     public static Task Leaving(ClientState c) => !Exposures.TryGetValue(c, out _) ? Task.CompletedTask : ExposureUpdate(c, false, false, 0, clear: true);
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));

@@ -54,8 +54,6 @@ static partial class SurvivorsRewards
     internal static async Task<bool> SurvivorsEquipCore(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, Item item, SurvivorsOwnership ownership)
     {
-        static Dictionary<uint, int> StatsNow(ClientState c) => PlayerStatsWithCleared(c).ToDictionary(s => s.Item1, s => s.Item2);
-        var before = StatsNow(conn);
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return false;
         var items = ItemsOf(conn);
         byte? slot = null;
@@ -87,11 +85,8 @@ static partial class SurvivorsRewards
         if (!ownership.Current) return false;
         await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         if (!ownership.Current) return false;
-        // The item's mods must reach the character: the stat packet above is checked against the same build.
-        var after = StatsNow(conn);
-        var changed = after.Where(kv => before.GetValueOrDefault(kv.Key) != kv.Value)
-            .Select(kv => $"{Stats.Name(kv.Key)} {before.GetValueOrDefault(kv.Key)}->{kv.Value}").Take(8).ToList();
-        Console.WriteLine($"[gateway] {remote} survivors unique {type.Name}: {(changed.Count == 0 ? "no stat change" : string.Join(", ", changed))}");
+        // The item's mods reach the stats, and the client, in the next Stats phase (the verifier checks them there).
+        Console.WriteLine($"[gateway] {remote} survivors unique {type.Name} equipped");
         return true;
     }
 

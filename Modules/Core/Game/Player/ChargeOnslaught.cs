@@ -64,7 +64,7 @@ public static partial class Game
             visual.Active = active;
             if (changed)
             {
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.AddRange(PlayerStatsOffFrames(conn));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
             }
             return bytes.Count > 0 ? [.. bytes] : null;

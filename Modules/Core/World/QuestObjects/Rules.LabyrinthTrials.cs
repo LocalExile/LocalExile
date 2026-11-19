@@ -1662,7 +1662,7 @@ static partial class QuestobjectsRules
             await Send(remote, stream, ciphers, on
                 ? InstanceEntities.AddBuff(PlayerId, slow.Buff, row, u68: BitConverter.SingleToUInt32Bits((float)LabyrinthTrials.ArrowSlowSeconds))
                 : InstanceEntities.RemoveBuff(PlayerId, slow.Buff), null);
-        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsOffFrames(conn),
             $"0x01b3 player stats (trial dart slow {(on ? "starts" : "ends")}: movement {conn.Pools.MovementVelocityPct:+0;-0}%)");
     }
 

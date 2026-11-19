@@ -348,7 +348,7 @@ public static class ShrineManager
                         u68: BitConverter.SingleToUInt32Bits((float)shrine.Duration)));
                     // The buff's stats are in the character's sum now, so pools and the panel must follow.
                     RecomputePoolsAndSpeed(conn);
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    bytes.AddRange(PlayerStatsOffFrames(conn));
                     return [.. bytes];
                 }
             });
@@ -377,7 +377,7 @@ public static class ShrineManager
                 removed = true;
                 var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, buff.Instance));
                 RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.AddRange(PlayerStatsOffFrames(conn));
                 return [.. bytes];
             }
         });

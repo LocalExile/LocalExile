@@ -34,6 +34,8 @@ public static partial class Game
         public StatGraph? Graph;
         public readonly PlayerStepOutputs Outputs = new();
         public PlayerStatChange? Publish;
+        // The graph's values changed: the stats (and the skills that follow them) go to the client.
+        public bool PublishValues;
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
         // Game_TRACE=budget: the runs of each step in the window.
@@ -258,15 +260,18 @@ public static partial class Game
             Array.Clear(frame.StepRuns);
             frame.Steps = frame.Builds = frame.Published = 0;
         }
-        PlayerStatChange why;
+        PlayerStatChange? why;
         lock (frame)
         {
-            if (frame.Publish is not { } asked || !frame.Publishing.IsCompleted) return;
-            (why, frame.Publish) = (asked, null);
+            if (built) frame.PublishValues = true;
+            if (!frame.Publishing.IsCompleted || frame.Publish is null && !frame.PublishValues) return;
+            (why, frame.Publish, frame.PublishValues) = (frame.Publish, null, false);
             frame.Published++;
         }
         var (remote, stream, ciphers) = conn.Wire;
-        frame.Publishing = AsPlayer(conn, updates, () => PublishCharacterStats(remote, stream, ciphers, conn, why));
+        frame.Publishing = AsPlayer(conn, updates, () => why is { } asked
+            ? PublishCharacterStats(remote, stream, ciphers, conn, asked)
+            : PublishStatValues(remote, stream, ciphers, conn));
     }
 
     static StatGraph PlayerStatGraph(ClientState conn, FrameStats frame)
@@ -307,6 +312,15 @@ public static partial class Game
         if (runningFrame is not null) MarkPlayerStats(conn, step);
     }
 
+    /// <summary>Whether the area's Stats phase publishes the player's stats when they change: a send of them after a change
+    /// would carry the last phase's values, so it sends nothing (<see cref="PlayerStatsOffFrames"/>).</summary>
+    public static bool StatsPublishedByFrame(ClientState conn) =>
+        FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is not null;
+
+    /// <summary>The player's stats as a 0x1b3 after a change, off an area's frames (empty when the frame publishes them).</summary>
+    public static byte[] PlayerStatsOffFrames(ClientState conn) =>
+        StatsPublishedByFrame(conn) ? [] : PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+
     public static void MarkPlayerStats(ClientState conn, PlayerStatStep step)
     {
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);
@@ -319,6 +333,11 @@ public static partial class Game
         if (frame.Graph is not { } graph) return;
         var kept = graph.Values;
         var fresh = CharacterPlayerStatsSnapshot(conn, out _, out _);
+        // A change made on another thread after the step, or a timed end reached since, is the next step's: its mark waits.
+        if (graph.MarksPending) return;
+        double clock = conn.Clock.Elapsed.TotalSeconds;
+        lock (frame.Timed)
+            if (frame.Timed.Values.Any(times => times.Any(t => (t.Now?.Invoke() ?? clock) >= t.At))) return;
         var wrong = fresh.Keys.Union(kept.Keys).Where(k => fresh.GetValueOrDefault(k) != kept.GetValueOrDefault(k))
             .Select(k => $"{Stats.Name(k)} {kept.GetValueOrDefault(k)}->{fresh.GetValueOrDefault(k)}").Order().ToArray();
         if (wrong.Length == 0) return;

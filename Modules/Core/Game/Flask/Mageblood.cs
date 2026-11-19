@@ -119,7 +119,7 @@ public static partial class Game
         if (MagebloodBelt(conn) is null) return;
         lock (conn.Monsters) RecomputePoolsAndSpeed(conn);
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-            () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
+            () => PlayerStatsOffFrames(conn),
             "0x01b3 player stats (Mageblood flasks)");
     }
 }

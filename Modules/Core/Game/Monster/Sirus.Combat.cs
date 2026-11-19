@@ -38,7 +38,7 @@ static partial class Sirus
     {
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
         var w = c.Wire;
-        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsUpdateAtGate(c, PlayerStatsWithCleared(c)), null);
+        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsOffFrames(c), null);
     }
     internal static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
     {

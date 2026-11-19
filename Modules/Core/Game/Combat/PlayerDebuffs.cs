@@ -159,7 +159,7 @@ public static partial class Game
             conn.Degens[DebuffsOf.GetValue(conn, _ => new())] = DebuffDegenLocked(conn);
         }
         var wire = conn.Wire;
-        await SendPlayerStatSnapshot(wire.Remote, wire.Stream, wire.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
+        await SendPlayerStatSnapshot(wire.Remote, wire.Stream, wire.Ciphers, conn, () => PlayerStatsOffFrames(conn), null);
     }
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over

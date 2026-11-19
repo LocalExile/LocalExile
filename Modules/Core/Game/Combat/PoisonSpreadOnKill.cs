@@ -183,7 +183,7 @@ public static partial class Game
             if (stats)
             {
                 RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.AddRange(PlayerStatsOffFrames(conn));
                 Console.WriteLine($"[gateway] Bino's regeneration {(added is var (_, s) ? $"started, {s:0.0} s" : "ended")}");
             }
             return [.. bytes];

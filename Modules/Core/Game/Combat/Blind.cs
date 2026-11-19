@@ -174,7 +174,7 @@ public static partial class Game
                 }
                 if (mergedChanged) bytes.AddRange(InstanceEntities.StatsUpdate(actor,
                     [(973u, value.Less > 0 ? 1 : 0), (15023u, -value.Less), (15024u, -value.Less)]));
-                if (isPlayer) bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                if (isPlayer) bytes.AddRange(PlayerStatsOffFrames(conn));
                 blind.Sent = value;
             }
             Present(PlayerId, state.PlayerBlind, PlayerBlindValue(conn, player), conn.PlayerLife == 0 || BlindImmune(conn, player), true);

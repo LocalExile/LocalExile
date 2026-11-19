@@ -83,6 +83,7 @@ public static partial class Game
                 return WithOwnAuraRecords(conn, () =>
                 {
                     byte[] bytes = packet();
+                    if (bytes.Length == 0) return [];
                     RelayWalkForStats(conn, bytes);
                     return [bytes];
                 });

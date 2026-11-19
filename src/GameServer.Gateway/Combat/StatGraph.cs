@@ -101,6 +101,9 @@ public sealed class StatGraph
         else markedRules.Enqueue(rule);
     }
 
+    /// <summary>A mark is waiting for the next step (a change made after this one ran).</summary>
+    public bool MarksPending => !markedLayers.IsEmpty || !markedRules.IsEmpty || !markedInputs.IsEmpty;
+
     /// <summary>An input changed: the rules that read it run in the next step.</summary>
     public void MarkInput(int input) => markedInputs.Enqueue(input);
 

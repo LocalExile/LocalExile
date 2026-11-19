@@ -142,7 +142,7 @@ public static partial class Game
             {
                 MarkPlayerStats(conn, PlayerStatStep.Onslaught);
                 RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.AddRange(PlayerStatsOffFrames(conn));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 Console.WriteLine($"[gateway] Onslaught {(o.Applied ? "started" : "ended")}");
             }
