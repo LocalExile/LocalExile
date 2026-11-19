@@ -1784,7 +1784,10 @@ This release does not turn the actor. Subsequent Unleash contacts and Spell Echo
 In loopback, a paid Lightning Warp lands on a moving enemy's original cell during Fireball windup. Both
 Fireballs then fly toward the point picked at the first contact. The four action classes' target-update slot
 (`+0x110`) is empty. A separate animation event (`0xc4a5`, base handler `0x141942838`) can refresh the aim
-from a bound target. Its use by player clips and native presentation still need verification.
+from a bound target. Across the seven base player rigs, the `SpellProjectile` and `SpellProjectileUpward`
+ACT pools have only `contact` (`0x9b8d`) and, where present, `lock_cancelling` (`0xb566`) on the actor.
+The four stock gems leave `GrantedEffects.Animation` empty. The default action's clip choice, events from
+attached effects and native presentation still need verification.
 
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
