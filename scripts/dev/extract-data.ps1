@@ -42,11 +42,13 @@ $manifest = @(
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     # After area-transitions and room-points: --all also takes the object types those files name. The Labyrinth's
     # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name; so is
-    # Oshabi's soul tree, which the Harvest module places itself (no table, room or tile line names it).
+    # Oshabi's soul tree, which the Harvest module places itself (no table, room or tile line names it), and the Allflame
+    # encounter rooms' lamp and barrels (only those TerrainFeatures rooms name them).
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
                 'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker',
-                'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree'); Version = 12; Needs = @('tables', 'area-transitions', 'room-points')
+                'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree', 'Metadata/Terrain/Leagues/Deepwater/Objects/CursedTreasureChestEncounterLamp',
+                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
        UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')

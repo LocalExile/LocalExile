@@ -93,7 +93,7 @@ public static class GameDataFiles
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
-        ("object-types", 12, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree) and inherited monster Actor slow-animation policy, phasing and immobility"),
+        ("object-types", 13, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree, the Allflame encounters' lamp and barrels) and inherited monster Actor slow-animation policy, phasing and immobility"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older
