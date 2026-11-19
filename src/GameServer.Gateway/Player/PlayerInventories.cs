@@ -301,18 +301,14 @@ public sealed class PlayerInventories
     /// </summary>
     public (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? Socket(byte row, uint itemId, int socket,
         Func<Item, Shape?> shapeOf, Func<uint> newId, out string why)
-        => Socket(row, itemId, socket, shapeOf, newId, null, out why);
-
-    public (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? Socket(byte row, uint itemId, int socket,
-        Func<Item, Shape?> shapeOf, Func<uint> newId, Func<Item, SocketColour, string?>? refusal, out string why)
     {
-        var result = SocketCore(row, itemId, socket, shapeOf, newId, refusal, out why);
+        var result = SocketCore(row, itemId, socket, shapeOf, newId, out why);
         if (result is not null) Persist();
         return result;
     }
 
     (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? SocketCore(byte row, uint itemId, int socket,
-        Func<Item, Shape?> shapeOf, Func<uint> newId, Func<Item, SocketColour, string?>? refusal, out string why)
+        Func<Item, Shape?> shapeOf, Func<uint> newId, out string why)
     {
         lock (_lock)
         {
@@ -326,21 +322,15 @@ public sealed class PlayerInventories
             if (_offered.ContainsKey(itemId)) { why = "offered for sale"; return null; }
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
-            var target = item.Item.Sockets[socket];
-            if (target.Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
+            var sockets = item.Item.Sockets.ToList();
+            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
                 : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
             {
-                why = target.Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
                 return null;
             }
-            if (refusal?.Invoke(held.Item, target.Colour) is { } reason)
-            {
-                why = reason;
-                return null;
-            }
-            var sockets = item.Item.Sockets.ToList();
-            var old = target.Gem;
-            sockets[socket] = target with { Gem = held.Item };
+            var old = sockets[socket].Gem;
+            sockets[socket] = sockets[socket] with { Gem = held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
             cursor.RemoveAt(0);

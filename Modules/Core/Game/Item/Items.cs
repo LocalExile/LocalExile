@@ -117,32 +117,24 @@ public static partial class Game
         IReadOnlyList<PlayerSkillSource> displacedSources = [];
         string why = "unknown inventory";
         string? missing = null;
-        string? colourRefusal = null;
-        (byte[] Item, byte[] Cursor)? correction = null;
         byte row = default;
         using (ProjectileMutation(conn, advance: false, phase: "gem socket"))
         {
             if (PlayerInventories.Row(s.InventoryId) is byte currentRow)
             {
                 row = currentRow;
-                var host = items.Items(row).FirstOrDefault(i => i.Id == s.ItemId);
-                if (host is not null && s.Socket < host.Item.Sockets.Count)
+                if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is { } host
+                    && s.Socket < host.Item.Sockets.Count)
                 {
                     displacedBefore = host.Item.Sockets[(int)s.Socket].Gem;
                     if (displacedBefore is not null)
                         displacedSources = GemSourceRowsLocked(conn, host.Id, (int)s.Socket, displacedBefore);
                 }
-                var held = items.Items(PlayerInventories.Cursor).FirstOrDefault();
-                if (held is not null && GemRequirementsUnmet(conn, held.Item) is { } unmet)
+                if (items.Items(PlayerInventories.Cursor) is [var held, ..] && GemRequirementsUnmet(conn, held.Item) is { } unmet)
                     missing = unmet;
                 else
                 {
-                    done = items.Socket(row, s.ItemId, (int)s.Socket, ShapeOf, items.NewItemId,
-                        (gem, colour) => colourRefusal = GemSocketColourRefusal(conn, gem, colour), out why);
-                    if (colourRefusal is not null && host is not null && held is not null)
-                        correction = (InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [host.Id], [host]),
-                            InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
-                                items.NextRevision(PlayerInventories.Cursor), [held.Id], [held]));
+                    done = items.Socket(row, s.ItemId, (int)s.Socket, ShapeOf, items.NewItemId, out why);
                     if (done is not null && ItemModStats.EquipmentRows.Contains(row))
                     {
                         if (done.Value.HeldNow is { } displaced)
@@ -164,11 +156,6 @@ public static partial class Game
         if (done is not { } result)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
-            if (correction is { } original)
-            {
-                await Send(remote, stream, ciphers, original.Item, $"0x00bf inventory {s.InventoryId}: restore socket after colour refusal");
-                await Send(remote, stream, ciphers, original.Cursor, "0x00bf cursor: restore gem after colour refusal");
-            }
             return;
         }
         var (item, before, now) = result;
@@ -178,14 +165,6 @@ public static partial class Game
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
         if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(remote, stream, ciphers, conn, items);
-    }
-
-    static string? GemSocketColourRefusal(ClientState conn, Item gem, SocketColour socket)
-    {
-        if (socket is not (SocketColour.Red or SocketColour.Green or SocketColour.Blue)) return null;
-        var catalog = ItemsFor(conn);
-        return catalog.ByHash(gem.TypeHash) is { } baseType && catalog.Gem(baseType) is { Colour: >= 1 and <= 3 } type
-            && (SocketColour)type.Colour != socket ? $"a {(SocketColour)type.Colour} gem needs a matching or white socket" : null;
     }
 
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
