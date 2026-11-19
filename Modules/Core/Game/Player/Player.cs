@@ -922,8 +922,6 @@ public static partial class Game
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         double last = updates.Schedule.Now(conn);
-        int suppression = Suppression(conn).Chance;
-        bool moving = conn.Walk.Moving(last);
         (int X, int Y)? goldCheckedAt = null;
         while (PlayerUpdatesCurrent(conn, updates))
         {
@@ -991,21 +989,6 @@ public static partial class Game
             if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
                 await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
-            // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
-            if (Suppression(conn).Chance is var chance && chance != suppression)
-            {
-                suppression = chance;
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [.. SuppressionChanceKeys.Select(k => (k, chance))]),
-                    $"0x01b3 player Spell Suppression chance {chance}%");
-            }
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            if (conn.Walk.Moving(tickNow) is var nowMoving && nowMoving != moving)
-            {
-                moving = nowMoving;
-                await SendWhileMovingStats(remote, stream, ciphers, conn);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-            }
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
             if (conn.Layout.Waypoint is { } waypoint

@@ -49,6 +49,8 @@ public static partial class Game
         // The conditions of life, mana and moving the steps read, as last marked; when moving next changes by itself.
         public long Conditions = -1;
         public double MovingCheckAt = double.PositiveInfinity;
+        // Until when the player has hit an enemy recently, as last marked: a hit inside it changes nothing the steps read.
+        public double HitRecentlyUntil = double.NegativeInfinity;
         public double Clock;
         // The area the steps last ran in: a new one has none of the last one's stat buffs.
         public GameArea? Area;
@@ -193,6 +195,11 @@ public static partial class Game
                 break;
             case StatInput.RecentEvents:
                 graph.MarkRule((int)PlayerStatStep.Sources);
+                break;
+            case StatInput.EnemyHit:
+                // "Hit an enemy recently" (the Spell Suppression chance): only a start marks; the step times its end.
+                if (conn.LastEnemyHitAt > frame.HitRecentlyUntil) graph.MarkRule((int)PlayerStatStep.TailCritical);
+                frame.HitRecentlyUntil = conn.LastEnemyHitAt + RecentlySeconds;
                 break;
             case StatInput.Walk:
                 graph.MarkRule((int)PlayerStatStep.TotemAura);

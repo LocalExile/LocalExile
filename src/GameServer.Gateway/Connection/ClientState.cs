@@ -713,7 +713,7 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 /// <summary>An input of the player's stats the framework holds; its change is handed to the game (ClientState.StatsChanged).
 /// Pools, Items and Passives are read through the stat graph (StatGraph.ReadInput), so their change runs again only the
 /// steps that read them.</summary>
-public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects }
+public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects, EnemyHit }
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
@@ -1125,7 +1125,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public bool ForceAttackBlockLucky, ForceSpellBlockLucky;
     // When the player last hit an enemy (attack or spell hit; Clock seconds), for "if you've hit an enemy recently".
     // Guarded by the Monsters lock.
-    public double LastEnemyHitAt = double.NegativeInfinity;
+    public double LastEnemyHitAt { get => lastEnemyHitAt; set { lastEnemyHitAt = value; MarkStatsDirty(StatInput.EnemyHit); } }
+    double lastEnemyHitAt = double.NegativeInfinity;
     // PoE evasion entropy (0..99): every attack adds the attacker's hit chance, and 100+ means a hit. Shared by all
     // attackers and reset after 3.33 s without an attack. Guarded by the Monsters lock.
     public double EvasionEntropy = -1;

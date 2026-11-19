@@ -213,7 +213,8 @@ public static partial class Game
             stats[actionCombinedKey] = (int)Math.Round(100 * (inputs.ActionFactor - 1));
         if (Stats.Key("virtual_action_speed_+%") is uint virtualActionKey && inputs.ActionFactor > 0)
             stats[virtualActionKey] = (int)Math.Round(100 * (inputs.ActionFactor - 1));
-        // The conditions as they are now; the player tick sends the chance again when they change.
+        // The conditions as they are now: full life, full Energy Shield and moving are stat conditions, and "hit an
+        // enemy recently" marks and times the step (StatInput.EnemyHit).
         foreach (uint key in SuppressionChanceKeys) stats[key] = inputs.SuppressionChance;
         if (Stats.Key("main_hand_critical_strike_multiplier") is uint multiplier)
             stats[multiplier] = AttackMultiplier(stats);

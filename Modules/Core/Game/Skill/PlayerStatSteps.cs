@@ -237,6 +237,7 @@ public static partial class Game
             double now = conn.Clock.Elapsed.TotalSeconds;
             var ailments = conn.ElementalAilments.Snapshot(now);
             if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
+            if (now - conn.LastEnemyHitAt <= RecentlySeconds) StatsChangeIn(conn.LastEnemyHitAt + RecentlySeconds - now + 1e-6);
             ComputeStatSnapshotTail(PlayerTailInputs(conn, stats) with
             {
                 Ailments = [ailments.Ignite ? 1 : 0, ailments.Chill > 0 ? 1 : 0, ailments.Freeze ? 1 : 0, ailments.Shock > 0 ? 1 : 0],
