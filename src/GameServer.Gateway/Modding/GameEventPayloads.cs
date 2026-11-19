@@ -100,6 +100,10 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>Scales the gold pile (1: the server's own).</summary>
     public double Gold { get; set; } = 1;
 
+    /// <summary>Scales the chance of a map-related drop (a map; 1: the server's own), as the monster stat
+    /// <c>map_related_item_drop_chance_+%_final_from_league</c> does.</summary>
+    public double MapRelated { get; set; } = 1;
+
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
 
