@@ -41,11 +41,12 @@ public static partial class Game
 
     internal static void ReleaseArrowRain(ProjectileSession session, ushort skill,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll critical, ushort sequence, bool mirage = false)
+        SkillCriticalRoll critical, ushort sequence, bool mirage = false, (int X, int Y)? from = null)
     {
         var conn = session.Conn;
         string id = SkillsFor(conn).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence);
+        // from: where the volley leaves when it is not the player (a trap or mine).
+        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence, from: from);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(conn, shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };

@@ -461,6 +461,24 @@ public static partial class Game
         // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
         // does a triggered spell's: no local input action predicts it.
         var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
+        // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
+        // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
+        if (!bear && payload.Name is not null && payload.Effect == placed.Effect && ArrowRain(SkillsFor(conn).EffectId(placed.Effect)))
+        {
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            var lifetime = CombatLifetime;
+            var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
+            var at = placed.At;
+            var rain = conn.Monsters.Values.Where(m => m is { Hostile: true, Dead: false, Life: > 0 })
+                .Select(m => m.Walk.Position(now)).Where(p => Dist(p, at) <= 60).OrderBy(p => Dist(p, at))
+                .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? at;
+            session.Runtime.Schedule(session.Runtime.Now, () =>
+            {
+                if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && conn.PlayerLife > 0)
+                    ReleaseArrowRain(session, placed.Skill, payload, rain, critical, 0, from: at);
+            });
+            return;
+        }
         if (!bear && payload.Name is not null && payload.Effect == placed.Effect && UsesProjectileRuntime(placed.Effect)
             && ResolveProjectileDefinition(placed.Effect) is not null)
         {
