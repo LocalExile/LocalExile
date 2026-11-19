@@ -100,9 +100,10 @@ public static partial class Game
     {
         RefreshSingleUseCooldowns(conn);
         var stats = FinalPlayerStats(conn).ToList();
-        var now = stats.Select(s => s.Item1).ToHashSet();
         lock (conn.Monsters)
         {
+            AddMarkedTargetStatsLocked(conn, stats);
+            var now = stats.Select(s => s.Item1).ToHashSet();
             stats.AddRange(conn.SentStatKeys.Where(k => !now.Contains(k)).Select(k => (k, 0)));
             conn.SentStatKeys = now;
             RefreshPeerScale(conn, stats.Single(s => s.Item1 == ActorScale.Final).Item2);
@@ -685,13 +686,15 @@ public static partial class Game
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
                     name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
                     name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0, DurationKinds(conn, effect)));
-            // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
-            // virtual_self_targeted_skills_target_location_instead, which its calculator (FUN_14289d210) derives from these
-            // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).
-            if (new[] { "nova_spells_cast_at_target_location", "casting_spell", "skill_is_nova_skill" }
-                    .All(n => Stats.Key(n) is uint k && stats.GetValueOrDefault(k) != 0)
-                && Stats.Key("virtual_self_targeted_skills_target_location_instead") is uint novaKey)
-                stats[novaKey] = 1;
+            // Network skill records run neither native nova targeting calculator (0x14289d210, 0x14289d270).
+            if (Get("casting_spell") != 0 && Get("skill_is_nova_skill") != 0)
+            {
+                if (Get("nova_spells_cast_at_target_location") != 0)
+                    stats[Stats.Key("virtual_self_targeted_skills_target_location_instead")!.Value] = 1;
+                // Publish marked placement for the actions whose server release follows the same target.
+                if (Get("nova_spells_cast_at_marked_target") != 0 && ManualMarkedNova(conn, id, supported))
+                    stats[Stats.Key("virtual_nova_spells_cast_at_marked_target")!.Value] = 1;
+            }
             // Parallel volley (0x141bbb460): the client reads virtual_additional_projectiles_fire_parallel_x_dist;
             // without it the distance is zero and parallel projectiles collapse onto each other.
             if (Stats.Key("virtual_additional_projectiles_fire_parallel_x_dist") is uint virtualParallelXKey

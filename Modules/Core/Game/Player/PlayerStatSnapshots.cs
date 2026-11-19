@@ -20,6 +20,7 @@ public static partial class Game
         {
             if (key == counterKey) count = value;
             if (key == chanceKey) chance = value;
+            if (key == MarkedTargetStats.TargetId) conn.PresentedMarkedTarget = unchecked((uint)value);
         }
         if (count is int sentCount && chance is int sentChance) conn.PresentedRecentEnemyHits = (sentCount, sentChance);
         return packet;

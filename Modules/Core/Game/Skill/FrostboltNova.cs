@@ -37,11 +37,22 @@ public static partial class Game
     internal static double FrostboltNovaDelay(int bolt, int expansion, int artVariation) =>
         bolt * 0.1 + expansion * (IceNovaRing.Seconds(artVariation) + 0.3);
 
+    static bool ManualMarkedNova(ClientState conn, ushort id, SupportedGem gem) =>
+        (SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action || SkillsFor(conn).EffectId(gem.Effect) is "Vortex" or "VortexAltX")
+            && !IsTotemSkill(conn, id) && PlacedKind(gem) is { Trap: false, Mine: false } && TriggerOnlyReason(gem) is null;
+
+    // Both native actions resolve the owner's mark at release, after looking for Frostbolts.
+    static (int X, int Y)? MarkedNovaCentreLocked(ClientState conn, ushort id, SupportedGem gem, double now) =>
+        MarkedMonsterLocked(conn) is { } target && SkillsFor(conn).IsNova(gem.Effect) && SkillsFor(conn).IsSpell(gem.Effect)
+            && GolemStat(CharacterPlayerStats(conn), "nova_spells_cast_at_marked_target") != 0 && ManualMarkedNova(conn, id, gem)
+            ? target.Monster.Walk.Position(now) : null;
+
     static async Task CastFrostboltNova(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         ushort sequence, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll critical, SacrificeUse sacrifice,
-        IReadOnlyDictionary<uint, int> own, int repeats, int seals, double sealMore, bool vortex)
+        SupportedGem gemStats, int repeats, int seals, double sealMore, bool vortex)
     {
+        var own = gemStats.Stats;
         if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
@@ -88,7 +99,12 @@ public static partial class Game
             double more = seal ? sealMore : 1;
             if (bolts.Length == 0)
             {
-                var centre = SpellCentre(conn, gem.Effect, conn.Walk.Position(ProjectileWorldTime(conn)), aim);
+                (int X, int Y) centre;
+                lock (conn.Monsters)
+                {
+                    double now = ProjectileWorldTime(conn);
+                    centre = MarkedNovaCentreLocked(conn, skillId, gemStats, now) ?? SpellCentre(conn, gem.Effect, conn.Walk.Position(now), aim);
+                }
                 await Hit(centre, repeat, repeat > 0 && repeat == repeats, more);
                 return;
             }

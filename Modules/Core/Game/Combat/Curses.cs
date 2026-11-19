@@ -35,6 +35,29 @@ public static partial class Game
                 ChargesOf(conn).Enqueue(new ChargeEvent.Grant(kind, 1, "curse"));
     }
 
+    // Marks last until displaced, removed or either actor dies. Keep the id the owner's client can resolve.
+    static (uint Id, SpawnedMonster Monster)? MarkedMonsterLocked(ClientState conn) =>
+        conn.MarkedTarget is { } target && conn.PlayerLife > 0
+            && conn.Monsters.TryGetValue(target.Id, out var monster) && !monster.Dead && monster.Life > 0
+            && monster.Curses.All.ContainsKey((conn.PeerId, target.Effect)) ? (target.Id, monster) : null;
+
+    static class MarkedTargetStats
+    {
+        public static readonly uint HasTarget = Stats.Key("has_a_marked_target")!.Value;
+        public static readonly uint TargetId = Stats.Key("marked_target_id")!.Value;
+    }
+
+    // Another player can evict this mark without changing any of the owner's cached character stats.
+    // The native actions read these two rows from the owner, independently of the skill record.
+    static void AddMarkedTargetStatsLocked(ClientState conn, List<(uint Key, int Value)> stats)
+    {
+        uint target = MarkedMonsterLocked(conn)?.Id ?? 0;
+        if (target == 0 && conn.PresentedMarkedTarget == 0) return;
+        stats.RemoveAll(static s => s.Key == MarkedTargetStats.HasTarget || s.Key == MarkedTargetStats.TargetId);
+        stats.Add((MarkedTargetStats.HasTarget, target == 0 ? 0 : 1));
+        stats.Add((MarkedTargetStats.TargetId, unchecked((int)target)));
+    }
+
     static int CurseLimit(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string n) => GolemStat(player, n);
@@ -81,8 +104,16 @@ public static partial class Game
         if (aura && monster.Curses.All.GetValueOrDefault((conn.PeerId, effect)) is { Aura: true } existing
             && existing.Skill == skill && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         if (definition.Mark)
-            foreach (var m in conn.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
-                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Mark).ToArray()) m.Curses.Remove(mark.Caster, mark.Effect);
+        {
+            conn.MarkedTarget = null;
+            foreach (var (id, other) in conn.Monsters)
+            {
+                if (ReferenceEquals(other, monster)) conn.MarkedTarget = (id, effect);
+                else
+                    foreach (var mark in other.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Mark).ToArray())
+                        other.Curses.Remove(mark.Caster, mark.Effect);
+            }
+        }
         monster.Curses.Put(new(conn.PeerId, effect, skill, definition.Buff, conn.NextBuff++, now,
             aura ? double.PositiveInfinity : now + seconds / rate, aura, definition.Mark, stats), CurseLimit(conn, player));
         return true;
@@ -209,5 +240,9 @@ public static partial class Game
                 m.Curses.PresentedVersion = m.Curses.Version;
             }
         }
+        uint target = MarkedMonsterLocked(conn)?.Id ?? 0;
+        if (target != conn.PresentedMarkedTarget)
+            bytes.AddRange(PlayerStatsUpdateAtGate(conn, [(MarkedTargetStats.HasTarget, target == 0 ? 0 : 1),
+                (MarkedTargetStats.TargetId, unchecked((int)target))]));
     }
 }

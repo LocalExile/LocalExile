@@ -1824,7 +1824,7 @@ public static partial class Game
         string? nova = SkillsFor(conn).EffectId(gem.Effect);
         if (nova is "IceNovaAltX" or "Vortex" or "VortexAltX")
             return CastFrostboltNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
-                criticalRoll, sacrifice, supported.Stats, spellRepeats, seals, reoccurrenceMore, vortex: nova != "IceNovaAltX");
+                criticalRoll, sacrifice, supported, spellRepeats, seals, reoccurrenceMore, vortex: nova != "IceNovaAltX");
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
         // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
@@ -2291,6 +2291,7 @@ public static partial class Game
                 && PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return;
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
+            else if (ring && novaStartedAt is null) centre = MarkedNovaCentreLocked(conn, skillId, admittedGem, now) ?? centre;
             (int X, int Y) end = fissure ? VolcanicFissureSweep.End(conn.Layout, from, to, radius) : default;
             double reachLimit = wave ? waveLength : fissure ? Dist(from, end) : radius;
             var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))

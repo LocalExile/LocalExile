@@ -56,6 +56,13 @@ public sealed class MonsterCurses
     }
 }
 
+public sealed partial class ClientState
+{
+    // The recipient's curse slot is authoritative. Other casters can replace it.
+    public (uint Id, string Effect)? MarkedTarget;
+    public uint PresentedMarkedTarget;
+}
+
 public static class CurseCatalog
 {
     public sealed record Definition(ushort Buff, bool Mark = false);

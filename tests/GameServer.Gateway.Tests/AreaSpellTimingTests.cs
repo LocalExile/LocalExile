@@ -43,7 +43,7 @@ public sealed class AreaSpellTimingTests
 
     static async Task VortexDetonatesSelectedBolts()
     {
-        using var battle = new ArrowRainAndMirageTests.Battle("Vortex of Projection", "Frostbolt");
+        using var battle = new ArrowRainAndMirageTests.Battle("Vortex of Projection", "Frostbolt", "Assassin's Mark");
         var conn = battle.Conn;
         var session = battle.Session;
         conn.Monsters.Clear();
@@ -78,6 +78,15 @@ public sealed class AreaSpellTimingTests
         var oldCell = Witness(803, 350, 126);
         var lost = Witness(804, 207, 126);
         var self = Witness(805, 100, 122);
+        var marked = Witness(806, 550, 100);
+        var mark = Game.GemSkillEffects(conn).Single(s => s.Name == "Assassin's Mark");
+        conn.PlayerStats[Program.Stats.Key("nova_spells_cast_at_marked_target")!.Value] = 1;
+        void Mark(SpawnedMonster target)
+        {
+            lock (conn.Monsters)
+                Assert.True(Game.ApplyCurseLocked(conn, target, mark.Id, Game.ProjectileWorldTime(conn), aura: false));
+        }
+        Mark(marked);
         var cast = Cast();
         session.AdvanceTo(contact - 1);
         Assert.Contains(first, session.Runtime.Projectiles);
@@ -89,6 +98,8 @@ public sealed class AreaSpellTimingTests
         Assert.Equal(beyond.MaxLife, beyond.Life);
         Assert.Equal(two.MaxLife, two.Life);
         uint afterFirst = one.Life;
+        Assert.Equal(marked.MaxLife, marked.Life); // The selected Frostbolt takes precedence over the mark.
+        lock (conn.Monsters) marked.Curses.Clear();
 
         // A second use finds only reserved bolts. It falls back to the player while the first use still owes its bolts.
         var overlappingCast = Cast();
@@ -111,6 +122,35 @@ public sealed class AreaSpellTimingTests
         Assert.Equal(172u, afterFirst - one.Life);
         Assert.Equal(172u, afterSecond - two.Life);
         Assert.Equal(beyond.MaxLife, beyond.Life);
+
+        // Without a Frostbolt the mark is resolved at release, even when the caster can aim novas at the cursor.
+        battle.AdvanceBy(12);
+        conn.PlayerStats[Program.Stats.Key("nova_spells_cast_at_target_location")!.Value] = 1;
+        Mark(marked);
+        var markedCast = Cast();
+        var next = Witness(807, 700, 100);
+        Mark(next);
+        next.Walk.Teleport(800, 100, Game.ProjectileWorldTime(conn));
+        var nearNewCell = Witness(808, 800, 110);
+        battle.AdvanceBy(1);
+        await markedCast;
+        Assert.Equal(marked.MaxLife, marked.Life);
+        Assert.True(next.Life < next.MaxLife);
+        Assert.True(nearNewCell.Life < nearNewCell.MaxLife);
+
+        // A full refresh in the same stat scope observes a removed recipient slot immediately.
+        lock (conn.Monsters)
+        {
+            using var scope = new Game.PlayerStatScope(conn, fresh: true);
+            uint idKey = Program.Stats.Key("marked_target_id")!.Value, hasKey = Program.Stats.Key("has_a_marked_target")!.Value;
+            var active = Game.PlayerStatsWithCleared(conn);
+            Assert.Contains((idKey, 807), active);
+            Game.PlayerStatsUpdateAtGate(conn, active);
+            next.Curses.Clear();
+            var cleared = Game.PlayerStatsWithCleared(conn);
+            Assert.Contains((idKey, 0), cleared);
+            Assert.Contains((hasKey, 0), cleared);
+        }
     }
 
     [Fact]

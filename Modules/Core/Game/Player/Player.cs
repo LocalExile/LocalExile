@@ -1866,7 +1866,11 @@ public static partial class Game
         var statList = stats.Select(kv => (kv.Key, kv.Value)).ToList();
         var weaponStats = WeaponStats(conn, weapon, stats);
         // The new player object starts with exactly these (PlayerStatsWithCleared clears from here).
-        lock (conn.Monsters) conn.SentStatKeys = [.. statList.Select(s => s.Item1), .. weaponStats.Select(s => s.Item1)];
+        lock (conn.Monsters)
+        {
+            AddMarkedTargetStatsLocked(conn, statList);
+            conn.SentStatKeys = [.. statList.Select(s => s.Item1), .. weaponStats.Select(s => s.Item1)];
+        }
         int reservedMana = ReservedMana(conn);
         int reservedLife = ReservedLife(conn);
         bool washedUp = conn.ArriveAt is null && conn.CameFrom is null && !conn.ArriveAtWaypoint
@@ -2001,6 +2005,7 @@ public static partial class Game
                         if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
                         ReconcileOwnAuras(conn, validateSkills: true);
                         var player = PlayerForCreation(conn);
+                        conn.PresentedMarkedTarget = MarkedMonsterLocked(conn)?.Id ?? 0;
                         conn.PeerTemplate = player;
                         conn.ClientSkillIds = [.. player.Skills!.Select(s => s.Id)];
                         conn.SentVaalSouls.Clear();
