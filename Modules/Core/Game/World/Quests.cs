@@ -52,14 +52,24 @@ public static partial class Game
             var wanted = flags.Distinct().ToList();
             var clientBefore = PlayerQuestFlags(conn);
             var ownBefore = conn.QuestFlagsSnapshot();
-            var had = wanted.ToDictionary(f => f, f => Quests.ClientHas(f, ownBefore, clientBefore));
+            bool InstanceHas(string flag) => conn.Instance?.HasState(flag) == true;
+            var had = wanted.ToDictionary(f => f, f => Quests.IsInstanceFlag(f)
+                ? InstanceHas(f) : Quests.ClientHas(f, ownBefore, clientBefore));
             var changed = new List<string>();
+            List<string>? instanceChanges = null;
             foreach (string flag in wanted)
-                // A flag every character is given (Quests.EveryCharacter) but has not earned yet is earned now: saved, though
-                // the client may have had it (Kitava's death sets EndGameAvailable, which a hideout and the maps had).
+            {
+                if (Quests.IsInstanceFlag(flag))
+                {
+                    if (conn.Instance is { } instance && (on ? instance.SetState(flag) : instance.ClearState(flag)))
+                        (instanceChanges ??= []).Add(flag);
+                    continue;
+                }
+                // An earned flag is saved even if the client had it as an unearned flag before.
                 if (on ? conn.QuestFlags.Add(flag) | conn.UnearnedQuestFlags.Remove(flag) : conn.QuestFlags.Remove(flag)) changed.Add(flag);
-            if (changed.Count == 0) return null;
-            CharacterSaves.ChangeQuestFlags(CharacterName(conn), changed, on);
+            }
+            if (changed.Count == 0 && instanceChanges is null) return null;
+            if (changed.Count > 0) CharacterSaves.ChangeQuestFlags(CharacterName(conn), changed, on);
             // A flag with refund points (QuestStaticRewards) was credited by the save: the balance follows it.
             if (on && changed.Any(f => QuestStaticRewards.Default.Value.Find(f) is { RefundPoints: > 0 }))
             {
@@ -73,7 +83,8 @@ public static partial class Game
             }
             var all = PlayerQuestFlags(conn);
             var own = conn.QuestFlagsSnapshot();
-            bool Has(string flag) => Quests.ClientHas(flag, own, all);
+            bool Has(string flag) => Quests.IsInstanceFlag(flag) ? InstanceHas(flag) : Quests.ClientHas(flag, own, all);
+            if (instanceChanges is not null) changed.AddRange(instanceChanges);
             var effective = Quests.EffectiveChanges(changed, f => had[f], Has);
             List<uint> gone = [.. conn.QuestRoomObjects.Where(o => effective.Contains(o.Value.Flag) && Has(o.Value.Flag)).Select(o => o.Key)];
             foreach (uint id in gone) conn.QuestRoomObjects.Remove(id);
@@ -106,6 +117,12 @@ public static partial class Game
         if (ChangesStaticRewards(change.Changed))
             await SendPassives(remote, stream, ciphers, conn);
         await UpdateShownTransitions(remote, stream, ciphers, conn, $"quest flags {string.Join(", ", change.Effective)}");
+        if (change.Effective.Any(Quests.IsInstanceFlag))
+        {
+            var instanceFlags = change.Effective.Where(Quests.IsInstanceFlag).ToArray();
+            foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
+                if (peer.Owner is { } other) QueueDoorRefresh(other, instanceFlags);
+        }
         await UpdateQuestNpcs(remote, stream, ciphers, conn, $"quest flags {string.Join(", ", change.Effective)}");
         if (change.Effective.Contains(GlyphQuest.PlacedGlyphs))
             await ChangeSubmergedPassage(remote, stream, ciphers, conn, ClientHasQuestFlag(conn, GlyphQuest.PlacedGlyphs));
