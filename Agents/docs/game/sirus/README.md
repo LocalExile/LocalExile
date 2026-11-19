@@ -19,13 +19,8 @@ the repository's:
 
 ## How the reference was produced
 
-The client is read with IDA through `scripts/re/ida.py` (read-only idalib sessions against
-`Client/Game.patched.exe.i64`; the operations list comes from `$IDA_OPS`), and with the extracted tables under
-`data/tables/`. Nothing is written back to the client.
-
-```
-IDA_DB=Client/Game.patched.exe.i64 IDA_OPS=logs/tmp/ida-ops.txt python -X utf8 scripts/re/ida.py
-```
+The classes were read with a disassembler (Ghidra's read-only project works: [tooling](../../re/tooling.md)) and the
+tables from `data/client.db`. Nothing is written back to the client.
 
 The per-skill pages keep the class cards (hash, factory, constructor, vtable, own slots), the state machines, the
 serialisation field by field, and the hit tests, because that is what a server implementation has to match.
