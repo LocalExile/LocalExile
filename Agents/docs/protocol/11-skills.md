@@ -1766,7 +1766,9 @@ Manual Fireball, Spark, Freezing Pulse and Frostbolt share the projectile action
 from `[sequence, derived byte, chain count, outer repeats remaining, owner ID]`. The root action has zero
 derived byte and chain count. It adds the truncated components of `60 * (sin(angle), cos(angle))` to the
 source and stores that point before applying the facing gates. Targeting the player's own object skips the
-turn but still sets the projectile aim. Spell Echo restarts from the saved point with one fewer repeat.
+turn but still sets the projectile aim. Spell Echo restarts from the saved point with one fewer repeat when
+`spell_repeat_count_target_search_range` is zero, as on the four ordinary gems linked to level-one Spell Echo.
+A nonzero range lets the spell start (`0x1419e71c0`) search for a target before the common projectile action starts.
 For an object action, the input reader `0x14193e340` stores the resolved target's current grid. The ordinary
 contact event (`0x9b8d`) uses the stored aim. If the caster now occupies that cell, release preparation
 (`0x141ba7eb7..0x141ba7f8b`) draws with the current outer repeat count and writes back the new point.
