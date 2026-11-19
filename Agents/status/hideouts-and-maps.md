@@ -114,6 +114,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
   Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
+  (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
+  spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
+  Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
+  (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  `Game.MapModsOf`.
+  Not yet: specialised Beyond boss spell kits, Ghorr's Debilitate on hit, and live client verification.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
