@@ -22,8 +22,8 @@ public sealed class MapReturnPortalExpiryTests
     [Fact]
     public void Only_a_town_or_a_hideout_is_recreated_on_entry()
     {
-        Assert.True(PortalsFeature.RecreatedOnEntry(AreaLayouts.LioneyesWatch));
-        Assert.True(PortalsFeature.RecreatedOnEntry(HideoutCatalog.Default!.AreaHash16));
-        Assert.False(PortalsFeature.RecreatedOnEntry(AreaLayouts.TheCoast));
+        Assert.True(AreaInstances.RecreatedOnEntry(AreaLayouts.LioneyesWatch));
+        Assert.True(AreaInstances.RecreatedOnEntry(HideoutCatalog.Default!.AreaHash16));
+        Assert.False(AreaInstances.RecreatedOnEntry(AreaLayouts.TheCoast));
     }
 }
