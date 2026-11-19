@@ -253,11 +253,11 @@ public static partial class Game
         TotemState.Strike? strike = null;
         if (!spellTotem && TotemProxy(conn, skillId) is { } granted)
         {
-            // The spell totems' proxy (totem flags cleared, cast time and speed its own): with the gem's own stats
-            // (is_totem, base_skill_is_totemified) the client takes the action for a totem placement and plays nothing.
+            // The spell totems' proxy (totem flags cleared, non-pathing, cast time and speed its own): with the gem's
+            // own stats (is_totem, base_skill_is_totemified) the client takes the action for a totem placement and plays
+            // nothing.
             var payload = (granted.Stats ?? []).ToList();
             if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey) payload.Add((radiusKey, radius));
-            payload.Add((StatKeys.SkillIsNonPathing, 1));
             action = granted with { Stats = payload };
             if (TotemNova(conn, effect)) strike = new(TotemActionSkill, radius);
         }
