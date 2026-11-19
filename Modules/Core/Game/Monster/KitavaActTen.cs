@@ -11,7 +11,7 @@ static partial class KitavaActTen
         Heart = Root + "KitavaFinalHeart", Sin = Root + "InnocenceSin/Sin", Innocence = Root + "InnocenceSin/Innocence";
     const string PreSin = "Metadata/NPC/Act10/SinTrough", PreInnocence = "Metadata/NPC/Act10/InnocenceTrough";
     internal const string Started = "SinPreKitavaTalk", Talked = "SinOnKitavaDead";
-    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly Store<InstanceState, Fight> Fights = new();
     static readonly RuleTable<AreaLayout, Anchor> Anchors = new();
     internal sealed record Anchor(int X, int Y, float Rotation);
     internal static bool IsBody(MonsterCatalog.Variety? v) => v?.Id == Body;

@@ -13,7 +13,7 @@ public static partial class Game
         public double NextCheck;
         public volatile bool Completed;
     }
-    static readonly RuleTable<InstanceState, MapRunProgress> MapRuns = new();
+    static readonly Store<InstanceState, MapRunProgress> MapRuns = new();
 
     // A run survives its owner's area change and belongs to guests too. The instance keeps its exact run even when
     // the owner opens another copy of the same area; neither character names nor area ids identify a run.
@@ -97,7 +97,7 @@ public static partial class Game
 
     // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
     // town portal): object id Ã¢â€ ’ the area it leads to, for the connection that made them.
-    static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
+    static readonly Store<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
 
     /// <summary>
     /// Lists a portal that stands without a map device, <paramref name="afterMs"/> after its create and once more

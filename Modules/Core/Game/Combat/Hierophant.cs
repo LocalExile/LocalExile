@@ -45,7 +45,7 @@ public static class Hierophant
     sealed class Carry { public double Life; }
     static readonly RuleTable<TotemState.Totem, Carry> TotemCarry = new();
 
-    static readonly RuleTable<ClientState, State> States = new();
+    static readonly Store<ClientState, State> States = new();
     public static State Of(ClientState conn) => States.GetValue(conn, _ => new());
 
     public static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;

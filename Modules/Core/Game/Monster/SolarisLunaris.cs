@@ -11,7 +11,7 @@ public static class SolarisLunaris
     // Rotation cadence is a development calibration; the native OT supplies the 1.6-second entrance timer.
     internal const double RotationSeconds = 20, EntranceSeconds = 1.6, TransformSeconds = 1.8;
     static readonly string MoonActive = Quests.InstanceFlag("Sisters-MoonActive");
-    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly Store<InstanceState, Fight> Fights = new();
     public static bool IsBody(MonsterCatalog.Variety? v) => v?.Id is Sun or Moon;
     public static bool IsCelestial(MonsterCatalog.Variety? v) => v?.Id is Root + "SolarisCelestialForm" or Root + "LunarisCelestialForm";
     public static bool Held(ClientState c, SpawnedMonster m) => c.Layout.Id == Area && IsBody(m.Variety) && m.EntranceGrace;

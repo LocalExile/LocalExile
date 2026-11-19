@@ -17,7 +17,7 @@ public static class DepravedTrinity
         variety.Id == Souls[0] ? variety.StateMachine?.Set("visible", 1) : null;
     static readonly string[] PortalNames = ["DoedrePortal", "MaligaroPortal", "ShavronnePortal"];
     sealed class Routes { public readonly Dictionary<AreaTransitionObject, (int Soul, bool Return)> Gates = []; }
-    static readonly RuleTable<ClientState, Routes> Routing = new();
+    static readonly Store<ClientState, Routes> Routing = new();
 
     public static void ConfigureRoutes(ClientState c)
     {
@@ -62,10 +62,10 @@ public static class DepravedTrinity
                 c.ReplaceAreaTransition(id, gate with { DestinationHash16 = destination, TeleportTo = null, Label = null, Kind = 0 });
     }
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
-    static readonly RuleTable<InstanceState, Fight> Fights = new();
-    static readonly RuleTable<ClientState, SeedScene> Seeds = new();
+    static readonly Store<InstanceState, Fight> Fights = new();
+    static readonly Store<ClientState, SeedScene> Seeds = new();
     sealed class CleanupClock { public double Next; }
-    static readonly RuleTable<InstanceState, CleanupClock> CleanupClocks = new();
+    static readonly Store<InstanceState, CleanupClock> CleanupClocks = new();
     const string SeedType = "Metadata/QuestObjects/Act9/HarvestFinalBossAnimate";
     sealed class SeedScene
     {
@@ -120,7 +120,7 @@ public static class DepravedTrinity
         public readonly ushort[] Buffs = new ushort[2];
         public double NextStack;
     }
-    static readonly RuleTable<ClientState, Exposure> Exposures = new();
+    static readonly Store<ClientState, Exposure> Exposures = new();
     public static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
     {
         if (!Exposures.TryGetValue(c, out var e)) return stats;

@@ -409,7 +409,7 @@ public static partial class Game
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
     sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; }
-    static readonly RuleTable<ClientState, SentSkillList> SentSkillLists = new();
+    static readonly Store<ClientState, SentSkillList> SentSkillLists = new();
 
     public static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {

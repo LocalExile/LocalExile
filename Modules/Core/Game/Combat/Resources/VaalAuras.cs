@@ -16,7 +16,7 @@ public static partial class Game
         ["VaalDiscipline"] = new(160, 329, "energy_shield_recharge_not_delayed_by_damage"),
     };
     internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
-    internal static readonly RuleTable<ClientState, VaalAuraState> VaalAuraStates = new();
+    internal static readonly Store<ClientState, VaalAuraState> VaalAuraStates = new();
 
     static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n))

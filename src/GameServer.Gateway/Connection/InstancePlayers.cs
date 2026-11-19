@@ -103,8 +103,11 @@ public partial class Program
     }
 }
 
-public sealed partial class InstanceState
+public sealed partial class InstanceState : IHasComponents
 {
+    /// <summary>What modules keep on this area (their stores).</summary>
+    public Components Components { get; } = new();
+
     public InstanceState() : this(null) { }
     public InstanceState(InstancePresence? presence) => Presence = presence ?? new();
 

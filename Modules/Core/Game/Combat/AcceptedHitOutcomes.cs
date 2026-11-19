@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     sealed class ChargePoolRefresh { public bool Pending; }
-    static readonly RuleTable<ClientState, ChargePoolRefresh> ChargePoolRefreshes = new();
+    static readonly Store<ClientState, ChargePoolRefresh> ChargePoolRefreshes = new();
 
     // Resolve the batch once, before any output await. Only current-state presentation remains queued, so a delayed
     // hook/send cannot replay historical events through the live ticker or resurrect their expired deadlines.

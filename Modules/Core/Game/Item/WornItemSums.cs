@@ -25,7 +25,7 @@ public static partial class Game
         IReadOnlyDictionary<string, int> Sum);
     // The callers pass a few different views of the worn items (all, the active ones): one remembered sum for each.
     sealed class WornSums { public readonly WornSum?[] Kept = new WornSum?[4]; public int Next; }
-    static readonly RuleTable<ClientState, WornSums> WornSumsOf = new();
+    static readonly Store<ClientState, WornSums> WornSumsOf = new();
 
     /// <summary>The items' global mod stats together: with no subject, or, given the recent events, with the stats
     /// that depend on them decided and folded onto their plain names (as SelfCurseConditionInputs sums its gear).</summary>
@@ -59,7 +59,7 @@ public static partial class Game
     // WornGrantedSkills.For reads every mod of every worn item; its answer is a pure function of the catalog and of
     // the items in their rows. The Physical Aegis condition asks on every stat-sources lookup (12 us of one).
     sealed record WornGrants(WornGrantedSkills Owner, (byte Row, InventoryItem Item)[] Equipment, IReadOnlyList<WornGrantedSkills.Grant> Grants);
-    static readonly RuleTable<ClientState, WornGrants> WornGrantsOf = new();
+    static readonly Store<ClientState, WornGrants> WornGrantsOf = new();
 
     static IReadOnlyList<WornGrantedSkills.Grant> WornGrantsFor(ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment)
     {

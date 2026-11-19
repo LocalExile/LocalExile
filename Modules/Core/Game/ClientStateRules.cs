@@ -4,7 +4,7 @@ public static class ClientStateRules
     // The last passive and equipment stat sum and its inputs (CharacterStatSources), per connection. A rule table rather
     // than a field of the connection: a closed connection that something still refers to (a monster of a kept instance)
     // would hold the value, and with it the rules that made it, in memory after a reload.
-    static readonly RuleTable<ClientState, Game.StatSourcesResult> StatSources = new();
+    static readonly Store<ClientState, Game.StatSourcesResult> StatSources = new();
 
     extension(ClientState conn)
     {

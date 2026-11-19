@@ -35,7 +35,7 @@ public static partial class Game
 {
     public const string ElusiveOnCritical = "gain_elusive_on_crit_%_chance", ElusiveOnKill = "gain_elusive_on_kill_chance_%";
     public const ushort ElusiveBuffRow = 1374;
-    static readonly RuleTable<ClientState, ElusiveState> Elusives = new();
+    static readonly Store<ClientState, ElusiveState> Elusives = new();
     public static ElusiveState ElusiveOf(ClientState conn) => Elusives.GetOrCreateValue(conn);
     public sealed record CarriedElusive(string Source, double Age, double Initial, double Rate, double Minimum, double RisingSeconds);
 

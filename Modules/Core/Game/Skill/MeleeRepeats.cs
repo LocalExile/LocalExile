@@ -1,7 +1,7 @@
 public static partial class Game
 {
     sealed record MeleeRepeatUse(double Start, double Seconds, int Repeats, double End, double Hold);
-    static readonly RuleTable<ClientState, MeleeRepeatUse> MeleeRepeatUses = new();
+    static readonly Store<ClientState, MeleeRepeatUse> MeleeRepeatUses = new();
 
     // The first swing has already reserved NextAttackAt. Repeats cost nothing and hold the same use's cadence.
     public static void ReserveMeleeRepeats(ClientState conn, ushort skill, double seconds)

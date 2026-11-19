@@ -6,7 +6,7 @@ using static Program;
 
 static partial class Sirus
 {
-    static readonly RuleTable<ClientState, Exposure> Exposures = new();
+    static readonly Store<ClientState, Exposure> Exposures = new();
     sealed class Exposure
     {
         public double Dps, BeamUntil, NextBeam, BloodUntil, BloodDps;

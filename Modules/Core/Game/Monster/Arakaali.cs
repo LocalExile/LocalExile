@@ -12,7 +12,7 @@ public static class Arakaali
     internal const double SilkSeconds = 6.333;
     // Actor stances are zero-based ACT ordinals; this actor's named stance2 follows its base stance.
     internal const byte SecondStance = 1;
-    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly Store<InstanceState, Fight> Fights = new();
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     public static byte Stance(ClientState c, MonsterCatalog.Variety v) =>
         IsBoss(v) && c.Instance.HasState(SecondPhase) ? SecondStance : (byte)0;

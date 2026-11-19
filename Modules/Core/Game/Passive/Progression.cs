@@ -875,7 +875,7 @@ public static partial class Game
 
     sealed record AttributeRequirementSource(PassiveTree Tree, ushort[] Ordinary, ushort[] Ascendancy,
         Dictionary<ushort, ushort> Masteries, int Value);
-    static readonly RuleTable<ClientState, AttributeRequirementSource> AttributeRequirementSources = new();
+    static readonly Store<ClientState, AttributeRequirementSource> AttributeRequirementSources = new();
 
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
     public sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,

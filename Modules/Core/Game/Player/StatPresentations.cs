@@ -193,7 +193,7 @@ public static partial class Game
         presenting.Ailments = next;
         await SendPlayerAilmentBuffs(remote, stream, ciphers, before, next);
     }
-    static readonly RuleTable<ClientState, Presenting> PresentingOf = new();
+    static readonly Store<ClientState, Presenting> PresentingOf = new();
 
     /// <summary>What a stat presentation shows changed: they run after the next Stats phase.</summary>
     static void PresentStats(ClientState conn) => PresentingOf.GetOrCreateValue(conn).Pending = true;

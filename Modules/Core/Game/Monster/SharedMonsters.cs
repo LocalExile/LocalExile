@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Per recipient, not per killer: a virtual bot transport is not the player's view.
-    static readonly RuleTable<ClientState, DeadMonsterBars> DeadBars = new();
+    static readonly Store<ClientState, DeadMonsterBars> DeadBars = new();
     sealed class DeadMonsterBars
     {
         public InstanceWorld? World;

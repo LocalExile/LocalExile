@@ -45,7 +45,7 @@ public static partial class Game
                 && SameSkillItem(p.First.Item.Item, p.Second.Item.Item, Items));
     }
     sealed class AuraReconcileCache { public AuraReconcileInputs? Inputs; }
-    static readonly RuleTable<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
+    static readonly Store<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
 
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.
@@ -125,7 +125,7 @@ public static partial class Game
         // When an own aura's state next changes on its own (AreaTime): the Stats phase reconciles them then.
         public double NextAt = double.PositiveInfinity;
     }
-    static readonly RuleTable<ClientState, ReservationInputCache> ReservationInputCaches = new();
+    static readonly Store<ClientState, ReservationInputCache> ReservationInputCaches = new();
     static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
         [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values]);
 
@@ -211,7 +211,7 @@ public static partial class Game
     sealed record AuraPriceInputs(StatSourcesResult? Qualified, CharacterStats.Pools Pools,
         string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw);
     sealed class AuraPriceCache { public AuraPriceInputs? Last; }
-    static readonly RuleTable<ClientState, AuraPriceCache> AuraPrices = new();
+    static readonly Store<ClientState, AuraPriceCache> AuraPrices = new();
 
     static bool RepriceOwnAuras(ClientState conn, out bool poolsRebuilt)
     {

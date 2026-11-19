@@ -11,7 +11,7 @@ public static class ArakaaliLasers
     // turret_rig.amd: activate 533 ms; fire's contact 1999 ms, end 3333 ms.
     internal const double Charge = .533, Contact = 1.999, Duration = 3.333;
     internal const double Radius = 3; // Collision-band calibration in grid cells.
-    static readonly RuleTable<InstanceState, Field> Fields = new();
+    static readonly Store<InstanceState, Field> Fields = new();
     public static async Task Tick(ClientState c)
     {
         if (c.Layout.Id != Arakaali.Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;

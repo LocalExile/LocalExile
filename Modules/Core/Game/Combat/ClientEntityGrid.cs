@@ -18,7 +18,7 @@ public static class ClientEntityGrid
         public readonly Dictionary<uint, (int Tx, int Ty, long Order)> Entries = [];
     }
 
-    static readonly RuleTable<ClientState, Grid> Grids = new();
+    static readonly Store<ClientState, Grid> Grids = new();
 
     // An area change (ClientState.ProjectileEpoch) starts a new grid.
     // An instance's walkers are stepped by the area (AreaMovement), so its grid is the area's, one for every client in it.

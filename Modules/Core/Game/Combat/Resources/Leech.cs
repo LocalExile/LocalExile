@@ -6,7 +6,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static readonly RuleTable<ClientState, LeechSession> LeechSessions = new();
+    public static readonly Store<ClientState, LeechSession> LeechSessions = new();
     public static LeechSession LeechOf(ClientState conn) => LeechSessions.GetValue(conn, _ => new());
 
     // Invisible BuffDefinitions rows for the leech overlay on the life, mana and energy-shield orbs.

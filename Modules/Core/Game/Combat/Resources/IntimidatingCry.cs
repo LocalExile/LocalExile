@@ -31,7 +31,7 @@ public static partial class Game
         internal ushort Buff;
         internal double PresentedUntil;
     }
-    static readonly RuleTable<ClientState, CryRuntime> CryRuntimes = new();
+    static readonly Store<ClientState, CryRuntime> CryRuntimes = new();
     static readonly RuleTable<SpawnedMonster, List<CryGift>> MinionCryGifts = new();
 
     static CryRuntime CryOf(ClientState conn)

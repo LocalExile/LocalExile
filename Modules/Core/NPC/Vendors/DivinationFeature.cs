@@ -6,7 +6,7 @@ static class DivinationFeature
 {
     const string Owner = "Vendors.Divination";
     const byte Row = InstanceDivination.InventoryRow;
-    static readonly RuleTable<ClientState, Session> Sessions = new();
+    static readonly Store<ClientState, Session> Sessions = new();
     sealed class Session(uint id, SpawnedNpc npc)
     {
         public uint Id => id;

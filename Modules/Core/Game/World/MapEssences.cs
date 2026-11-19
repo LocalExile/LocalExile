@@ -24,11 +24,11 @@ public static class MapEssences
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Monolith>? Monoliths;
     }
-    static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly Store<InstanceState, Area> Areas = new();
+    static readonly Store<ClientState, HashSet<uint>> Presented = new();
     sealed record Snapshot(string Text, List<Monolith> List);
     sealed class Parse { public volatile Snapshot? Last; }
-    static readonly RuleTable<InstanceState, Parse> Parsed = new();
+    static readonly Store<InstanceState, Parse> Parsed = new();
     static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Area, int Level), AreaInfo> AreaInfos = new();
 
     public static void Opening(MapOpening request)

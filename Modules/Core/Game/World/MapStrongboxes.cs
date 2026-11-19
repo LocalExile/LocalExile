@@ -23,8 +23,8 @@ public static class MapStrongboxes
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
     }
-    static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly Store<InstanceState, Area> Areas = new();
+    static readonly Store<ClientState, HashSet<uint>> Presented = new();
 
     public static void Opening(MapOpening request)
     {

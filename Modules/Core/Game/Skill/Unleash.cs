@@ -6,7 +6,7 @@ public static partial class Game
         public double Since = now;
     }
 
-    static readonly RuleTable<ClientState, Dictionary<ushort, SealProgress>> Seals = new();
+    static readonly Store<ClientState, Dictionary<ushort, SealProgress>> Seals = new();
 
     static void RemoveMissingSealSources(ClientState conn, IEnumerable<ushort> ids)
     {

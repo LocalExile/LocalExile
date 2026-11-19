@@ -11,7 +11,7 @@ public static class Yugul
     internal const int HideEffect = 8455;
     // Frog/rig.amd: jump_into 3166 ms; jump_out 1166 ms.
     internal const double HideSeconds = 3.166, RiseSeconds = 1.166;
-    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly Store<InstanceState, Fight> Fights = new();
     static string Done(int round) => Quests.InstanceFlag($"Yugul-Mirrors-{round}");
     static string Spawned(int round, int slot) => Quests.InstanceFlag($"Yugul-Mirrors-{round}-Image-{slot}");
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;

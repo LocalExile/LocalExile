@@ -80,7 +80,7 @@ public static partial class Game
     /// <summary>"Enemies within 3 metres" (10 cells to the metre).</summary>
     public const int PoisonSpreadRadius = 30;
 
-    static readonly RuleTable<ClientState, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
+    static readonly Store<ClientState, SpreadPoisonRegeneration> SpreadPoisonRegenerations = new();
     static readonly RuleTable<SpawnedMonster, SpreadPoisonRegeneration> AllySpreadPoisonRegenerations = new();
     public static SpreadPoisonRegeneration SpreadPoisonRegenerationOf(ClientState conn) =>
         SpreadPoisonRegenerations.GetValue(conn, _ => new());

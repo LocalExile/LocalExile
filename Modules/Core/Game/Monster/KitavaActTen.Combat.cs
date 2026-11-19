@@ -11,7 +11,7 @@ static partial class KitavaActTen
     internal static readonly int[] Effects = [6587, 6592, 6596, 8484, 6589, 8508, 8510, 8512, 8486, 8488, 8490, 8492, 8494,
         8496, 8498, 8500, 8502, 8504, 8506, 6625, 6629, 6633, 8678, 8682, 8686, 8691, 8693, 8680, 8684, 8688];
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
-    static readonly RuleTable<ClientState, Exposure> Exposures = new();
+    static readonly Store<ClientState, Exposure> Exposures = new();
     sealed class Exposure { public double Dps; }
     static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));

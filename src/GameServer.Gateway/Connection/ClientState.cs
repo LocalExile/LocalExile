@@ -718,8 +718,11 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 /// steps that read them.</summary>
 public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects, EnemyHit }
 
-public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
+public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed) : IHasComponents
 {
+    /// <summary>What modules keep on this player (their stores).</summary>
+    public Components Components { get; } = new();
+
     /// <summary>The hand-over for a change of what the player's stats are built from: the game sets it and marks what reads
     /// the input. An input the framework holds marks itself when it changes (its setter).</summary>
     public static Action<ClientState, StatInput>? StatsChanged;
