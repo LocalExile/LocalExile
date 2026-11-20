@@ -11,7 +11,7 @@ public static partial class MapBeyond
 {
     const double HaemophiliaSeconds = 20;
     const double BossBuffSeconds = 60;
-    const string BossLessDamageStat = "damage_taken_+%_final_from_beyond_boss_buff";
+    public const string BossLessDamageStat = "damage_taken_+%_final_from_beyond_boss_buff";
 
     // ---- Beyond monster kills: Haemophilia & Demonic Power ----
 
@@ -43,7 +43,6 @@ public static partial class MapBeyond
     {
         public readonly List<(int FactionRow, double Left, ushort BuffInstance, bool Refresh)> Active = [];
         public Dictionary<uint, int>? Stats;
-        public volatile int LessDamageTakenPct;
     }
 
     static readonly RuleTable<ClientState, BossBuffState> BossBuffs = new();
@@ -69,19 +68,19 @@ public static partial class MapBeyond
     static void RebuildBuffCacheLocked(BossBuffState state)
     {
         var stats = new Dictionary<uint, int>();
-        int lessTaken = 0;
         foreach (var (row, _, _, _) in state.Active)
         {
             if (BeyondCatalog.ByRow(row) is not { } faction) continue;
             foreach (var (name, value) in faction.BossBuffStats)
             {
-                if (name == BossLessDamageStat) { lessTaken += value; continue; }
+                // BuffTemplates row 634 stores +10 for Ghorr's 10% less damage taken (3.30 fixes it to -10);
+                // normalize to a negative final-taken modifier so IncomingResourceDefences reduces damage.
+                int effective = name == BossLessDamageStat ? -Math.Abs(value) : value;
                 if (Program.Stats.Key(name) is uint key)
-                    stats[key] = stats.GetValueOrDefault(key) + value;
+                    stats[key] = stats.GetValueOrDefault(key) + effective;
             }
         }
         state.Stats = stats;
-        state.LessDamageTakenPct = lessTaken;
     }
 
     static async Task TickBossBuffs(ClientState conn, double seconds)
@@ -150,15 +149,6 @@ public static partial class MapBeyond
         if (own is null || own.Count == 0) return stats;
         foreach (var (key, value) in own) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
-    }
-
-    /// <summary>GameEvents.IncomingDamage: Ghorr's Magnificence 10% less damage taken. Fast-path when inactive.</summary>
-    public static int IncomingDamage(ClientState conn, int damage)
-    {
-        if (damage <= 0 || !BossBuffs.TryGetValue(conn, out var state)) return damage;
-        int less = state.LessDamageTakenPct;
-        if (less <= 0) return damage;
-        return Math.Max(1, (int)Math.Round(damage * Math.Max(0, 100 - less) / 100.0));
     }
 
     // ---- Drops & Experience ----
