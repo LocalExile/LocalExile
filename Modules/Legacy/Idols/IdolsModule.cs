@@ -24,10 +24,10 @@ public sealed class IdolsModule : IModule
                 Stats.Key(IdolRules.LeagueStat) is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
         GameEvents.InventorySlot.Add(id, (_, slot) =>
             slot.Row == IdolRules.Row ? slot with { Kind = IdolRules.PanelKind } : null);
-        GameEvents.InventoryRefusal.Add(id, (conn, row, item) =>
-            row != IdolRules.Row ? null
-            : !IdolRules.IsIdol(ItemsFor(conn).ByHash(item.TypeHash)) ? "only Idols go in the Idol inventory"
-            : IdolRules.LimitRefusal(ItemsOf(conn), item));
+        GameEvents.InventoryPlacementRefusal.Add(id, p =>
+            p.Row != IdolRules.Row ? null
+            : !IdolRules.IsIdol(ItemsFor(p.Conn).ByHash(p.Item.TypeHash)) ? "only Idols go in the Idol inventory"
+            : IdolRules.LimitRefusal(ItemsOf(p.Conn), p.Item, p.Replaced));
         GameEvents.MapOpening.Add(id, request =>
         {
             if (request.Campaign || request.Opening is not { } opening) return;
@@ -38,12 +38,22 @@ public sealed class IdolsModule : IModule
             request.Opening = opening with { Mods = IdolRules.With(opening.Mods, stats) };
             Console.WriteLine($"[gateway] {conn.Wire.Remote} {CharacterName(conn)}: {idols.Count} Idol(s) add {stats.Count} stat(s) to {opening.Area.Name}");
         });
+        // Faustus's gamble window has an Idols tab.
+        GameEvents.Gambles.Add(id, window =>
+        {
+            if (!IdolRules.GamblesIdols(window.Npc)) return;
+            var conn = window.Conn;
+            foreach (var (shown, idol, gold) in IdolRules.GambleOffers(ItemsFor(conn), window.CharacterLevel, window.PriceLevel))
+                window.Offers.Add(new(shown, gold,
+                    random => IdolRules.Gamble(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), idol, window.CharacterLevel, random), "Idols"));
+        });
         if (choices.DropRate > 0)
             GameEvents.Drops.Add(id, roll =>
             {
                 var conn = roll.Conn;
-                if (roll.Cancel || MapRunOf(conn) is not { Atlas: true }) return;
-                if (IdolRules.Drop(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), roll.Monster.Level, roll.Monster.Rarity, choices.DropRate, Random.Shared) is { } idol)
+                if (roll.Cancel || MapRunOf(conn) is not { Atlas: true } || MapModsOf(conn) is not { } mapMods) return;
+                double rate = choices.DropRate * mapMods.QuantityFactor * Math.Max(0, roll.Quantity);
+                if (rate > 0 && IdolRules.Drop(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), roll.Monster.Level, roll.Monster.Rarity, rate, Random.Shared) is { } idol)
                     roll.Made.Add(idol);
             });
     }

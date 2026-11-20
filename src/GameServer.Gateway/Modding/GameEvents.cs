@@ -499,6 +499,9 @@ public static class GameEvents
     /// <summary>Why the held item may not go into this inventory row (C→S 0x2a, 0x4a), for the log; null for no
     /// objection. The first objection wins.</summary>
     public static readonly GameEvent<Func<ClientState, byte, Item, string?>> InventoryRefusal = new();
+    /// <summary>Why a placement (possibly swapping out an existing item) may not go into this inventory row (C→S 0x2a,
+    /// 0x4a), for the log; null for no objection. The first objection wins.</summary>
+    public static readonly GameEvent<Func<InventoryPlacement, string?>> InventoryPlacementRefusal = new();
     public static readonly GameEvent<Func<ClientState, Task>> NpcDialogueClosing = new();
     /// <summary>A gem skill's cast: its effect id, skill id, where from, the action; true when the module took it, null for not its skill.</summary>
     public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
@@ -603,12 +606,23 @@ public static class GameEvents
         return slot;
     }
 
-    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item)
+    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item) =>
+        FirstInventoryRefusal(conn, row, item, null);
+
+    public static string? FirstInventoryRefusal(ClientState conn, byte row, Item item, InventoryItem? replaced)
     {
         foreach (var (owner, run) in InventoryRefusal.Subscribers(conn))
         {
             string? answer = null;
             GameEventOwners.Guard(owner, nameof(InventoryRefusal), () => answer = run(conn, row, item));
+            if (answer is not null) return answer;
+        }
+        if (!InventoryPlacementRefusal.Any) return null;
+        var placement = new InventoryPlacement(conn, row, item, replaced);
+        foreach (var (owner, run) in InventoryPlacementRefusal.Subscribers(conn))
+        {
+            string? answer = null;
+            GameEventOwners.Guard(owner, nameof(InventoryPlacementRefusal), () => answer = run(placement));
             if (answer is not null) return answer;
         }
         return null;

@@ -361,7 +361,7 @@ public sealed class ScarabEncounterTests
     internal sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
     {
         public ClientState Conn => conn;
-        public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
+        public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed, string? character = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
@@ -371,7 +371,7 @@ public sealed class ScarabEncounterTests
             var reader = await accepting;
             var conn = new ClientState(layout, 1, seed)
             {
-                Character = "ScarabMap" + Guid.NewGuid().ToString("N"), Instance = instance,
+                Character = character ?? "ScarabMap" + Guid.NewGuid().ToString("N"), Instance = instance,
                 PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true, Pools = new(70, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("scarab-test", "Standard", false, false),
                     new HashSet<string>(["Game", "scarab-regression"])),

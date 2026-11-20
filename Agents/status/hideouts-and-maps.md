@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
+- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
   The 3.29.3 clients have no Idol panel, so the Idol inventory is the map device's storage grid: 4 by 5 cells, one loadout.
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
@@ -123,7 +123,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
   spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
   Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
-  (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  (Endless Tide, Demonic Power map-instance boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
   `Game.MapModsOf`.
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 

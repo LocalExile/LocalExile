@@ -1537,7 +1537,7 @@ public static partial class Game
                 var targetItem = items.Items(row).FirstOrDefault(i => i.Id == a.ItemId);
                 if (targetItem is null) why = "no such item";
                 else if (LevelTooLow(conn, row, held) is { } low) why = low;
-                else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
+                else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
                 else if (PassiveJewelRefusal(conn, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
                 else if (ClusterRemovalRefusal(conn, targetItem) is { } clusterRefusal) why = clusterRefusal;
                 else if (AllocationBypassRemovalRefusal(conn, targetItem) is { } bypassRefusal) why = bypassRefusal;
@@ -1555,7 +1555,7 @@ public static partial class Game
             }
         }
         else if (LevelTooLow(conn, row, held) is { } low) why = low;
-        else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
+        else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
             expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
@@ -1617,7 +1617,7 @@ public static partial class Game
                 {
                     placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                     if (LevelTooLow(conn, row, placement) is { } low) why = low;
-                    else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
+                    else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
                     else
                     {
                         var sourcesBefore = PlayerSkillSourcesLocked(conn);
@@ -1639,7 +1639,7 @@ public static partial class Game
                 placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                 var leaving = items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y);
                 if (LevelTooLow(conn, row, placement) is { } low) why = low;
-                else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
+                else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
                 else if (leaving is not null && ClusterRemovalRefusal(conn, leaving) is { } clusterRefusal)
                     why = clusterRefusal;
                 else if (leaving is not null && AllocationBypassRemovalRefusal(conn, leaving) is { } bypassRefusal)
@@ -1662,7 +1662,7 @@ public static partial class Game
         {
             placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
             if (LevelTooLow(conn, row, placement) is { } low) why = low;
-            else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
+            else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
                 expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
