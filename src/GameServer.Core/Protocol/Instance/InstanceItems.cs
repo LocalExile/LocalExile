@@ -473,22 +473,40 @@ public static class InstanceItems
         return new(id, r.WStr());
     }
 
-    /// <summary>The length of a 0x16 at the start of <paramref name="data"/>, or null until its header has arrived.</summary>
-    public static int? CommandLength(ReadOnlySpan<byte> data)
+    /// <summary>The length of a 0x16 at the start of <paramref name="data"/>, or null until its header has arrived (or if invalid).</summary>
+    public static int? CommandLength(ReadOnlySpan<byte> data) =>
+        MeasureCommandLength(data, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureCommandLength(ReadOnlySpan<byte> data, out int length)
     {
-        if (data.Length < 5) return null;
-        int count = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[3..]), at = 5;
-        for (int i = 0; i < count; i++)
-        {
-            if (at >= data.Length) return null;
-            at += data[at] switch { < 0x80 => 1, 0x80 => 3, _ => 5 };
-        }
-        return at <= data.Length ? at : null;
+        length = 0;
+        if (data.Length < 3) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(data[3..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        length = 3 + textLength;
+        return WireMeasure.Ok;
     }
 
     // C→S 0x29 (class 0x1431768d8, id only, sender 0x140117ee0): drop the held item into the world. Outside town the
     // client sends it at once; in town (and for quest items) it shows the Keep / Destroy popup instead and sends nothing
     // unless Destroy is chosen (0x16, DestroyCursorItemCommand).
+
+    /// <summary>
+    /// C→S 0x29d CurrencyApplicationForesightRequest (class 0x1435caf18, writer 0x141fa52d0, sender 0x142173fa0; 20 bytes):
+    /// u16 id, u16 BE key, u32 BE currency inventory, u32 BE currency item id, u32 BE target inventory, u32 BE target item id.
+    /// Answered with S→C 0x2a0 using the same key.
+    /// </summary>
+    public const ushort CurrencyApplicationForesightRequestId = 0x29d;
+    public const int CurrencyApplicationForesightRequestLength = 20;
+
+    public sealed record CurrencyApplicationForesightRequest(ushort Key, uint CurrencyInventory, uint CurrencyId,
+        uint TargetInventory, uint TargetId);
+
+    public static CurrencyApplicationForesightRequest ReadCurrencyApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32());
+    }
 
     public const ushort CurrencyApplicationForesightResultId = 0x2a0;
 
