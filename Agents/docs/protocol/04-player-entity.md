@@ -147,7 +147,7 @@ Offsets are inside the component object. "If bN" means that bit of the component
 | u8 flags0, u8 flags1 | | |
 | if f0 & 0x20: f32 +0x2b0, f32 +0x2a8, f32 +0x2ac | | +0x2b0 the uniform scale (× the object type's own, type `+0x5c`; "Scale" in the info dump `0x141e36650`; setter `0x141e39050`, skipped when `+0x1e6` bit 4 "locked scale"), +0x2a8 / +0x2ac an x / y stretch on top of it: the local-to-world transform `0x141e394f0` takes x × +0x2a8 × +0x2b0, y × +0x2ac × +0x2b0, z × +0x2b0. The constructor sets 1.0. Sending s in all three draws at s² in x and y (Righteous Fire's ring, live 2026-10-23) |
 | if f1 & 0x04: f32 +0x2d8, +0x2dc, +0x2e0, +0x2e4 | | probably a rotation quaternion (copied as one block) |
-| if f0 & 0x04: i32 +0x290, f32 +0x2b4 | | **fixed height**: whole steps of 7.8125 and the world z; when `+0x290` ≠ `0x7fffffff` the z is used instead of the terrain height (`0x141e38b40`) |
+| if f0 & 0x04: i32 +0x290, f32 +0x2b4 | | **fixed height**: −z / 7.8125 in whole steps (world z points down) and the world z; when `+0x290` ≠ `0x7fffffff` the z is used instead of the terrain height (`0x141e38b40`) |
 | if f0 & 0x40: f32 +0x2b8, f32 +0x2bc | else derived from x/y | world x, y (else `(grid + 0.5) × 250/23`) |
 | if f1 & 0x01: u32, u32, u32, u8, u32, u8 | | movement (`0x141e37460`) |
 | if f1 & 0x02: u8, u8 | | visibility toggles |

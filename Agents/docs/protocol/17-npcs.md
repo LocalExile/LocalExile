@@ -137,8 +137,7 @@ by the same amount.
   0x02's two bytes): i32 −z / 7.8125 and f32 z, the live server's convention for a fixed height (its projectiles,
   [11](11-skills.md) "Sign"; world z points down). Live the NPCs looked the same with either sign of the i32 (Nessa,
   Kira, Oyun, Act 6's Lilly on her pier, 2026-10-25: same pose and name labels at the same height), so for a standing
-  object the client seems to use the f32. The area transitions and waypoints still send +z / 7.8125
-  ([08](08-area-transitions.md) §5); aligning them is left for a later change.
+  object the client seems to use the f32. Every fixed-height writer sends this sign.
 - **Seed.** The origins other than (0, 0) were captured with seed 1, the seed the Gateway gives towns; `TownNpcs`
   stores it with those rooms and leaves a room's NPCs out (with a log line) in an instance of another seed. Oriath's
   rooms are generated around fixed nodes, so their origins could depend on it; the single-room towns' borders

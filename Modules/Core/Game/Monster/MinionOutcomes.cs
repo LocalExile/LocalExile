@@ -258,7 +258,8 @@ public static partial class Game
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
-                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life),
+                        PlayerMinions.OutputKind.Life => InstanceProtocol.LifeUpdate(output.TargetId!.Value, output.Target!.Life,
+                            u2c: output.Target.Life == 0 ? output.DeathKind : InstanceProtocol.DeathKindNormal),
                         PlayerMinions.OutputKind.Vaal => VaalSoulPresentation(conn),
                         PlayerMinions.OutputKind.Experience => InstanceEntities.PlayerExperienceUpdate(PlayerId, CurrentExperience(conn)),
                         PlayerMinions.OutputKind.Flinch => output.Target is { Dead: false } m && m.ActionGeneration == output.Action

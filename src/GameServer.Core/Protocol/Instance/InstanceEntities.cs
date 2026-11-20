@@ -650,12 +650,12 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
             switch (c)
             {
                 // the float after x, y is stored at +0x29c: the object's rotation (radians), which turns its model.
-                // flags0 bit2: a fixed height, u32 +0x290 (whole steps of 7.8125; 0x7fffffff = none) and the float
+                // flags0 bit2: a fixed height, i32 +0x290 (−z / 7.8125, 0x7fffffff = none; world z points down) and the float
                 // world z +0x2b4, used instead of the terrain height (0x141e38b40). Tile objects need it: their .tmd
                 // record has its own z.
                 case "Positioned":
                     w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
                     break;
                 // Animated (0x141e5afd0): bit0 + a u32-counted UTF-16 .ao path (anything else throws "Filename must
                 // end with .ao"): the area transition's model, the white surface highlighted on hover. For a tile object it is the
