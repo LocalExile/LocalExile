@@ -4294,3 +4294,19 @@ The omitted-duration default 0x14015a9b0 is float positive infinity (0x7f800000)
 An integer 60000 was interpreted as a tiny subnormal float and immediately displayed 0:00.
 The regression independently decodes the BE duration bits and checks float 60, rather than comparing two calls
 to the same packet writer. Native icon was confirmed; corrected countdown awaits live verification.
+
+### Brands, Snipe and General's Cry (3.29.3c client findings)
+
+- **Brands (`ActiveSigil` buffs)**: `BuffDefinitions` rows `1218` (`conduit_sigil`), `1230` (`cataclysm_sigil`),
+  `1547` (`magma_sigil`), `1548` (`immolation_sigil`) and `1549` (`trigger_sigil`) use `ActiveSigil` ctor
+  `0x1415c6860` (`0x1415c68ee`, `0x1415c6a99`) and update `0x1415c6d60`, which read `buff+0x80` (`list`) entries
+  `[0]` (`MiscAnimated` row `4478..4482`) and `[1]` (`0 = fadein`, `1 = chargeup_start`) unchecked. Every `0x1c1`
+  for these buffs must include a 2-element `list`; omitting it dereferences null. `1551` (`magma_pustule`,
+  `PenanceBrandCharge`, ctor `0x1417bfa90`) reads no `list`. HUD counters read `SigilDisplay` stats
+  (`current_number_of_active_*_sigils`, `current_number_of_inactive_*_sigils`, `current_total_number_of_sigils`).
+- **Snipe**: `BuffDefinitions` `1494` (`snipe_stacks`, `ShowCount`, `BuffVisuals` `1285` `snipe_stages`) displays
+  channelled stages; unlinked releases fire `Metadata/Projectiles/ChannelledSnipeDefaultProjectile`.
+- **General's Cry Mirage Warriors**: `Metadata/Monsters/MirageWarrior/MirageWarrior<Class>` (rows `8411..8417`)
+  serialize with `NonBlocking` `Positioned` flags (`flags1 = 0x0a`, trailing `1` → `+0x1e6` bit `0x40`, matching
+  `PetObject`) so the client never blocks player movement on the warrior's cell, and render via `BuffDefinitions`
+  `1748` with `BuffVisuals` `1215` (`mirage_warrior_visual`).
