@@ -62,7 +62,7 @@ public sealed class BeyondTests
             ["map_beyond_boss_spawn_chance_+%"] = 1200,
         });
         var instance = new InstanceState();
-        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x7051, 70, stats);
         Assert.IsType<ServerLevels.Level>(ServerLevels.For(area.Id, seed, 70));
         var layout = AreaLayouts.For(area.Hash16, seed);
@@ -188,7 +188,7 @@ public sealed class BeyondTests
 
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         var instance = new InstanceState();
-        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1, false));
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x7052, 70, stats);
         Assert.IsType<ServerLevels.Level>(ServerLevels.For(area.Id, seed, 70));
         var layout = AreaLayouts.For(area.Hash16, seed);
@@ -340,7 +340,7 @@ public sealed class BeyondTests
         var mods = new MapMods(new Dictionary<string, int> { ["map_beyond_rules"] = 1 });
         var layout = new AreaLayout(1, "MapWorldsStrand", 200, 200, 50, 50, (_, _) => true, []);
         var instance = new InstanceState();
-        instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1, false));
+        instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1));
         instance.OpenedWith(new("BeyondOwner", new(layout.Hash, layout.Id, "Strand", 3) { Level = 70 }, mods));
 
         TestEnvironment.OpenOwnSaves("beyond-demonic-power");

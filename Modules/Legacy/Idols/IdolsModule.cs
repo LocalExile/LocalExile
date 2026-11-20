@@ -51,7 +51,7 @@ public sealed class IdolsModule : IModule
             GameEvents.Drops.Add(id, roll =>
             {
                 var conn = roll.Conn;
-                if (roll.Cancel || MapModsOf(conn) is not { } mapMods) return;
+                if (roll.Cancel || MapRunOf(conn) is not { Atlas: true } || MapModsOf(conn) is not { } mapMods) return;
                 double rate = choices.DropRate * mapMods.QuantityFactor * Math.Max(0, roll.Quantity);
                 if (rate > 0 && IdolRules.Drop(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), roll.Monster.Level, roll.Monster.Rarity, rate, Random.Shared) is { } idol)
                     roll.Made.Add(idol);

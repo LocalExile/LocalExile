@@ -197,6 +197,10 @@ public static class GameEvents
     /// <summary>Messages sent as the player enters an area, before its objects: a log line and the message.</summary>
     public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> EnterMessages = new();
 
+    /// <summary>Messages sent with the player's own, before 0x21 activates the area: what the client's UI reads once as
+    /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
+    public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
+
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
 
@@ -218,6 +222,10 @@ public static class GameEvents
     /// <summary>An option picked in an NPC's dialogue; what an option does is a module's. True: it was this subscriber's. An option nothing
     /// answers does nothing.</summary>
     public static readonly GameEvent<Func<NpcOption, Task<bool>>> NpcOption = new();
+
+    /// <summary>The player right-clicked a removable buff icon to cancel it (C→S 0x004b, buff instance id).
+    /// True: this subscriber owned and removed that buff.</summary>
+    public static readonly GameEvent<Func<ClientState, ushort, Task<bool>>> BuffCancel = new();
 
     /// <summary>Whether this subscriber fills the sub-area of an ExtraTerrainFeatures row (by its Id). A gate the layout links
     /// to such a sub-area (<see cref="AreaTransitionObject.Feature"/>) stands only where a subscriber answers true.</summary>
@@ -301,6 +309,14 @@ public static class GameEvents
         return messages;
     }
 
+    public static List<(string Log, byte[] Message)> RunBeforeEnterMessages(ClientState conn)
+    {
+        var messages = new List<(string, byte[])>();
+        foreach (var (owner, run) in BeforeEnterMessages.Subscribers(conn))
+            GameEventOwners.Guard(owner, nameof(BeforeEnterMessages), () => messages.AddRange(run(conn)));
+        return messages;
+    }
+
     public static AreaHeader? RunAreaHeader(ClientState conn)
     {
         AreaHeader? header = null;
@@ -324,6 +340,18 @@ public static class GameEvents
         {
             bool taken = false;
             if (await GameEventOwners.Guard(owner, nameof(NpcOption), async () => taken = await run(option)) && taken) return true;
+        }
+        return false;
+    }
+
+    /// <summary>True when a subscriber owned and removed the buff.</summary>
+    public static async Task<bool> RunBuffCancel(ClientState conn, ushort buffInstance)
+    {
+        if (!BuffCancel.Any) return false;
+        foreach (var (owner, run) in BuffCancel.Subscribers(conn))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(BuffCancel), async () => taken = await run(conn, buffInstance)) && taken) return true;
         }
         return false;
     }
@@ -396,6 +424,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, bool>> LootAllowed = new();
     /// <summary>True when an optional system handled closing the native reward dialogue.</summary>
     public static readonly GameEvent<Func<ClientState, Task<bool>>> RewardClosing = new();
+    /// <summary>A quest reward choice the server built for this QuestRewardOffers row; a module completes its league's
+    /// item parts. Return the item unchanged for no opinion; the first answer that changes it wins.</summary>
+    public static readonly GameEvent<Func<ClientState, int, Item, ItemCatalog.BaseType, Item>> RewardItem = new();
     /// <summary>A league encounter may refuse unrelated travel while its gate is closed.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, string?>> TravelRefusal = new();
     /// <summary>The Auth transfer answer, after failed-transfer recovery and before a successful ticket is sent.</summary>
@@ -423,6 +454,17 @@ public static class GameEvents
         return false;
     }
 
+    public static Item ResolveRewardItem(ClientState conn, int offer, Item item, ItemCatalog.BaseType type)
+    {
+        foreach (var (owner, run) in RewardItem.Subscribers(conn))
+        {
+            Item answer = item;
+            GameEventOwners.Guard(owner, nameof(RewardItem), () => answer = run(conn, offer, item, type));
+            if (answer != item) return answer;
+        }
+        return item;
+    }
+
     public static async Task RunResurrected(ClientState conn)
     {
         foreach (var run in Resurrected.For(conn)) await run(conn);
@@ -442,6 +484,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, uint, WorldItemObject, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> GroundItemUse = new();
     /// <summary>An NPC option was picked, before its action; false stops it.</summary>
     public static readonly GameEvent<Func<ClientState, NpcCatalog.Talk, Task<bool>>> NpcOptionPicked = new();
+    /// <summary>Whether an NPC opts into NPCTalk league quest flag filtering, automatic conversation matching, and
+    /// league-flag updates (<c>__col15/__col16/__col17/__col18</c>); false leaves other NPCs untouched.</summary>
+    public static readonly GameEvent<Func<ClientState, NpcCatalog.Npc, bool>> NpcUsesLeagueFlags = new();
     /// <summary>A read of client messages was handled.</summary>
     public static readonly GameEvent<Func<ClientState, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
     public static readonly GameEvent<Func<ClientState, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
@@ -520,6 +565,17 @@ public static class GameEvents
     {
         foreach (var run in NpcOptionPicked.For(conn)) if (!await run(conn, talk)) return false;
         return true;
+    }
+
+    public static bool UsesNpcLeagueFlags(ClientState conn, NpcCatalog.Npc npc)
+    {
+        foreach (var (owner, run) in NpcUsesLeagueFlags.Subscribers(conn))
+        {
+            bool answer = false;
+            GameEventOwners.Guard(owner, nameof(NpcUsesLeagueFlags), () => answer = run(conn, npc));
+            if (answer) return true;
+        }
+        return false;
     }
 
     public static async Task RunMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)

@@ -51,6 +51,7 @@ Stats `0x1435e7f88`, ObjectMagicProperties `0x1435b3740` (slot 17 → slot 20 `0
 | ObjectMagicProperties | 4 | **base magic properties first** (`0x142208700`, called with the reader still in `rdx`: u16 flags, rarity = low 3 bits, u8 `+0x7a`, sections behind flag bits 0x10/0x40/0x200/0x400/0x800 and, with bit3, 0x80/0x100/0x20), then the component's own u8 flags (bit1 → u16 flavour text key, bit2 → string) |
 | MinimapIcon | `00` | u8 flags (bit1 hidden/shown, bit0 → u16 icon override, bit3 → variant) |
 | InteractionAction | `00` | u8 flags (bit2 → u8 [+ u16 action]) |
+| StateMachine *(optional)* | `00 00` | only when the object's `.ot` appends `StateMachine` after `InteractionAction` (e.g. `Boat_AreaTransition_Animate`, which sets `no_highlight = true` and has 0 shared states and 0 timers); keeping the native type avoids the plain `AreaTransition` fallback's hover highlight |
 | tasks | `00` | |
 
 The Coast exit: `00 00 | 80010000 D9000000 00000000 0000 0000 | 00 | 00 02 D27A 00 | 00 00000000 00000000 00 | 0000 00 00 | 00 | 00 | 00`.
@@ -154,6 +155,8 @@ so after moving an area transition around, clear that cache before judging the m
 
 Other exits: an exit that is a `.tmd` record takes its model, rotation and height this way. The Twilight Strand gate is
 `transition_twilightstrand` (type `AreaTransitionMapMarker`) at tile cell (37.5, 45.5), grid (114.5, 306.5).
+A record whose virtual `.ao` is no file keeps the `.ao` it names (its handle `+0x38`, §7): The Sovereign's waypoint
+`DeepwaterHubBoat_waypoint` is placed with `Deepwater/Waypoint/waypoint.ao`.
 
 ## Open
 
@@ -306,6 +309,9 @@ placed tile's `.tmd` records). For records of AreaTransition, Waypoint or quest 
 | code table `0x142faa4d8` | 8 × 3 bytes T: a = [w·23 − x − 1, x, h·23 − y − 1, y]; gx = a[T1 + 2·T0] + ox, gy = a[(T0 == 0 ? 2 : 0) + T2] + oy |
 | angle | 2π − angle for codes ≥ 4, then + (code & 3) · π/2 (`0x1436ae110`), wrapped to [0, 2π] |
 | z | record z − height offset · 7.8125 |
+
+The `.ao` written is the record's handle `+0x38`: the virtual name, or the record's own `.ao` when the virtual one is
+no file (§5, §8's rule); a generated layout's objects (`AreaObjects`) take the same.
 
 The client spawns only its own doodads from these records; server types (AreaTransition, Waypoint …) fail its type
 filter, which is why nothing in the client ever creates them. The Frida trace `scripts/re/frida/trace-tile-records.js`
