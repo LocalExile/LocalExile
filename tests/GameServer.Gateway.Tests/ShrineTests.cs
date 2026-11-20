@@ -315,9 +315,11 @@ public sealed class ShrineTests
             Assert.Equal(23, monster.Effects[Stat.DamagePlusPct]);
             // The Acceleration aura adds 60% action speed; a 30% chill subtracts from that increase.
             encounterStats[Stat.ActionSpeedMinusPct] = -60;
+            monster.EncounterStats = encounterStats;   // the setter marks the monster's stats
             monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 10, 0, _ => 0, _ => 0, 1, 30);
             Assert.Equal(1.3, Game.MonsterActionFactor(monster, 0), 8);
             encounterStats[Stat.ActionSpeedCannotBeReducedBelowBase] = 1;
+            monster.EncounterStats = encounterStats;   // the setter marks the monster's stats
             Assert.Equal(1.3, Game.MonsterActionFactor(monster, 0), 8);
             monster.ReceivedActionFactor = .5; monster.ReceivedActionUntil = 10;
             Assert.Equal(1, Game.MonsterActionFactor(monster, 0), 8);

@@ -368,6 +368,7 @@ public class DormantMonsterTests
         using var reader = await accepting;
         var stream = writer.GetStream();
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+        conn.Session = new("restore-cells", stream, ciphers);
         bool openedSaves = false;
         try
         {
@@ -417,12 +418,13 @@ public class DormantMonsterTests
             var sent = new List<byte[]>();
             Program.Outgoing = (wire, bytes) =>
             {
-                if (ReferenceEquals(wire, peerCiphers)) sent.Add((byte[])bytes.Clone());
+                if (ReferenceEquals(wire.Session.Ciphers, peerCiphers)) sent.Add((byte[])bytes.Clone());
             };
             peer = new Player(new(1, "restore-cells", 300, 300, 100, 100, null, []), 1, 1)
             {
                 Instance = conn.Instance, Character = $"restore-peer-{Guid.NewGuid():N}", PlayerSent = true,
                 PlayerLife = 100, LockstepClient = true, LockstepFrame = (.99, 1.023),
+                Session = new("restore-peer", stream, peerCiphers),
             };
             conn.PlayerSent = true;
             Program.InGame.TryAdd(conn, 0);

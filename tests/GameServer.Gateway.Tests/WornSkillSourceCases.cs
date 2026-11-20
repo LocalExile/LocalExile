@@ -30,6 +30,8 @@ static class WornSkillSourceCases
             LeagueModule = new(new League("worn-test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
         conn.Clock.Stop();
+        // 1000 more of each attribute (and so for requirements): the socketed gems' requirements are met as well as the host's.
+        conn.God = true;
         try
         {
             var supportType = catalog.FindGem("Arrogance Support")!.Value;
@@ -77,6 +79,7 @@ static class WornSkillSourceCases
             Assert.True(supported.RequirementsMet);
             Assert.Contains(supported.Supports, s => s.Effect.Row == effect);
             Assert.Null(Game.GemSkillInstanceDisabled(conn, source.Effect, source.Id));
+            conn.God = false;
             conn.Experience = CharacterStats.ExperienceFor(1);
             conn.Pools = conn.Pools with { Level = 1, Strength = 1, Dexterity = 1, Intelligence = 1 };
             Assert.False(Game.SupportedSkill(conn, source.Id).RequirementsMet);

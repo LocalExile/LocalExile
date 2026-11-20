@@ -298,6 +298,7 @@ public class OpeningSceneTests
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
             reader.ReceiveTimeout = 5000;   // Bytes are already sent when a test reads: a missing one fails, not hangs.
+            Conn.Session = new("opening-scene-test", Stream, Ciphers);
         }
         public byte[] Read(int count)
         {

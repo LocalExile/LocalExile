@@ -41,6 +41,7 @@ public sealed class GroundStackPickupTests
     {
         using var f = new Fixture();
         using var wire = new PartyFollowerTests.Wire();
+        f.Conn.Session = new("gold-test", wire.Stream, wire.Ciphers);
         var gold = new WorldItemObject(100, 100, ItemCatalog.Create(Program.Items.Find(ItemDrops.GoldId)!) with { StackSize = 7 });
         uint id = f.Conn.Instance.Ground.Add(gold, f.Conn, shared: false);
         uint before = Game.PersonalStashOf(f.Conn).Gold;

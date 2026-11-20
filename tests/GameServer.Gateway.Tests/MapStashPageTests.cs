@@ -49,6 +49,7 @@ public class MapStashPageTests : IDisposable
         var items = PlayerInventories.For(account, catalog);
         conn.StashTabsSent.UnionWith([mapTab, next]);
         using var wire = new Wire();
+        conn.Session = new("stash-test", wire.Stream, wire.Ciphers);
         try
         {
             // Parent-tab drops must use a free cell and publish the child inventory, including the second drop.

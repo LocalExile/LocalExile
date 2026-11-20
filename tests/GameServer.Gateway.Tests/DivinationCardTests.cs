@@ -270,6 +270,7 @@ public sealed class DivinationCardTests
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
+            Conn.Session = new("test", Stream, Ciphers);
         }
         public void Dispose() { Conn.Closed = true; reader.Dispose(); writer.Dispose(); listener.Stop(); }
     }

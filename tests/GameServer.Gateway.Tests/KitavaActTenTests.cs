@@ -57,7 +57,7 @@ public sealed class KitavaActTenTests
         var previousOutgoing = Program.Outgoing;
         try
         {
-            Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, observer.Session.Ciphers)) shown.Add(bytes.ToArray()); };
+            Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player, observer)) shown.Add(bytes.ToArray()); };
             await Game.SyncInstanceMonsters(observer);
         }
         finally { Program.Outgoing = previousOutgoing; }

@@ -107,8 +107,8 @@ public sealed class CooldownAdmissionTests
         internal Fixture()
         {
             Saves.Open(path); Game.CombatLifetime = rules;
-            foreach (string attr in new[] { "strength", "dexterity", "intelligence" })
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(rules));
+            TestRequirements.Waive(Conn);
         }
         internal ushort[] Equip(byte row, params string[] names)
         {

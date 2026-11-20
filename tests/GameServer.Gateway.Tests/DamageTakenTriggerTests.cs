@@ -130,6 +130,7 @@ public class DamageTakenTriggerTests
         { CriticalRandom = new ZeroCritical(), Character = "Cwdt" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
           Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
           LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])) };
+        TestRequirements.Waive(conn);
         conn.Clock.Stop();
         try { run(conn); }
         finally { PlayerInventories.Forget(conn.Character!); lifetime.Stop(_ => { }); Game.CombatLifetime = oldLifetime; Program.SetGameLogic(old!); TestEnvironment.ReleaseSaves(path); }

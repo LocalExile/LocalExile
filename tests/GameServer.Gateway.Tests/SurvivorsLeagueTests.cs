@@ -159,6 +159,13 @@ public sealed class SurvivorsLeagueTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
         var gate = Program.SendGates.GetValue(ciphers, _ => new(1, 1));
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        using var writer = new System.Net.Sockets.TcpClient();
+        var accepting = listener.AcceptTcpClientAsync();
+        await writer.ConnectAsync(System.Net.IPAddress.Loopback, ((System.Net.IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader = await accepting;
+        conn.Session = new("survivors-test", writer.GetStream(), ciphers);
         try
         {
             var run = new SurvivorsRun();

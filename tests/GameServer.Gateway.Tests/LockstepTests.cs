@@ -379,6 +379,7 @@ public class LockstepTests : IDisposable
             await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             using var reader = await accepting;
             var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+            conn.Session = new("lockstep-test", writer.GetStream(), ciphers);
             var gate = Program.SendGates.GetValue(ciphers, _ => new(1, 1));
             Assert.True(gate.Wait(0));   // the frame end holds the send gate
             var starting = Game.LockstepAttackStart(conn, use, drowned, sword,

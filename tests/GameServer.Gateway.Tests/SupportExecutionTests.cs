@@ -17,6 +17,7 @@ public sealed class SupportExecutionTests
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
+        TestRequirements.Waive(conn);
         return conn;
     }
 

@@ -23,8 +23,9 @@ public class SkillBarOptionTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = SpellTotemExecutionTests.Connection(character);
         using var wire = new SpellTotemExecutionTests.Wire();
+        conn.Session = new("skill-bar-test", wire.Stream, wire.Ciphers);
         var packets = new List<byte[]>();
-        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, wire.Ciphers)) packets.Add(bytes.ToArray()); };
+        Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player, conn)) packets.Add(bytes.ToArray()); };
         var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
         try
         {

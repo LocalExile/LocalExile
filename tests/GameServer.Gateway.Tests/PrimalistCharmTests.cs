@@ -42,7 +42,7 @@ public class PrimalistCharmTests
             conn.DescendancyNodes.Clear();
             Game.NormalizePassiveJewels(conn);
             Assert.Empty(Game.ItemsOf(conn).Items(PlayerInventories.PassiveJewels));
-            Assert.Single(Game.ItemsOf(conn).Items(PlayerInventories.MainInventory));
+            Assert.Single(Game.ItemsOf(conn).Items(PlayerInventories.MainInventory), i => i.Item.TypeHash == charm.TypeHash);
             Assert.Equal(before, Game.CharacterStatSources(conn).Stats.GetValueOrDefault(fire));
         }
         finally

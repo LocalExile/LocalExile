@@ -29,6 +29,7 @@ public class StashTabReloadTests : IDisposable
             { Account = account, Character = account, League = "Standard" };
         uint inventory = stash.InventoryOf(0);
         using var wire = new Wire();
+        conn.Session = new("stash-test", wire.Stream, wire.Ciphers);
         try
         {
             // The panel shows tab 0, then tab 1, which unloads tab 0 (0xc1) and marks it not loaded in the tab list.
@@ -92,6 +93,7 @@ public class StashTabReloadTests : IDisposable
                 StashForcedTab = parent, StashForcedUntil = double.PositiveInfinity
             };
             using var wire = new Wire();
+            conn.Session = new("stash-test", wire.Stream, wire.Ciphers);
 
             // The initial window protects queued requests; a hidden Map page is a different family's control.
             foreach (ushort tab in new ushort[] { 0, 1, currencyTab, mapChild, parent })
@@ -177,6 +179,7 @@ public class StashTabReloadTests : IDisposable
             var conn = new Player(new(ushort.MaxValue, "UniqueRefreshTest", 128, 128, 32, 32, null, []), 0, 1)
                 { Account = account, Character = account, League = "Standard" };
             using var wire = new Wire();
+            conn.Session = new("stash-test", wire.Stream, wire.Ciphers);
             // Establish the known inventory by the actual child request, not by seeding StashTabsSent.
             await Game.SendStashTab(conn, (ushort)knownChild, InstanceStash.Personal);
             ExpectLoaded(wire, stash, knownChild, register: true);

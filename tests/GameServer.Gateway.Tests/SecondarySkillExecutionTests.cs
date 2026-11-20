@@ -26,7 +26,7 @@ public sealed class SecondarySkillExecutionTests
         var method=typeof(Game).GetMethod("PlacedDamageLocked",BindingFlags.Static|BindingFlags.NonPublic)!;
         var records=Activator.CreateInstance(method.GetParameters()[^1].ParameterType,
             BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,[f.Conn,null],null);
-        method.Invoke(null,["test",f.Stream,f.Ciphers,f.Conn,placed,1d,records]);
+        method.Invoke(null,[f.Conn,placed,1d,records]);
         Assert.Equal(900u,f.Conn.Monsters[901].Life);
         Assert.Equal(1000u,f.Conn.Monsters[900].Life);Assert.Equal(1000u,f.Conn.Monsters[902].Life);
         Assert.Equal(1000u,f.Conn.Monsters[903].Life);

@@ -60,7 +60,7 @@ public sealed class SummonVariantTests
             f.Conn.Monsters[999] = target; f.Conn.Monsters[998] = beside;
             var action = new GolemState.Action(nova, 999, target, (160, 100), 0, relic.Monster.ActionGeneration);
             typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!
-                .Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, relic, action, 0d]);
+                .Invoke(null, [f.Conn, relic, action, 0d]);
             Assert.Equal(conviction, target.Life < 100000);
             Assert.Equal(!conviction, beside.Life < 100000);
             typeof(Game).GetMethod("HolyRelicsOnHitLocked", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!

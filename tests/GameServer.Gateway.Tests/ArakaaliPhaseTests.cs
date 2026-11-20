@@ -204,7 +204,7 @@ public sealed class ArakaaliPhaseTests
         try
         {
             Program.Outgoing = (cipher, bytes) =>
-            { if (ReferenceEquals(cipher, sleepingWire.Ciphers)) shown.Add(bytes.ToArray()); };
+            { if (ReferenceEquals(cipher.Session.Ciphers, sleepingWire.Ciphers)) shown.Add(bytes.ToArray()); };
             await Game.KeepWakeZone(sleeping);
             Assert.Equal(1, sleeping.MonsterViews[id].ActorStance);
             var at = boss.Walk.Position(sleeping.Clock.Elapsed.TotalSeconds);

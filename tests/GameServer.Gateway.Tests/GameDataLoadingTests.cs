@@ -11,7 +11,10 @@ public sealed class GameDataLoadingTests
     [
         // A connection's own state, made the first time that connection needs it: hot reload adds such fields to
         // connections that are already open, which never ran a constructor that would set them.
-        ("src/GameServer.Gateway/Connection/Player.cs", "automaticNpcTalkRows"),
+        ("src/GameServer.Gateway/Player/Player.cs", "automaticNpcTalkRows"),
+        // An instance's or a lone player's frame driver, made when the area first needs it.
+        ("src/GameServer.Gateway/Connection/InstanceWorld.cs", "ref frames"),
+        ("src/GameServer.Gateway/Player/Player.PlayerUpdates.cs", "ref ownFrames"),
         ("src/GameServer.Gateway/Monster/GolemState.cs", "golems"),
         ("src/GameServer.Gateway/Monster/SummonCatalog.cs", "summons"),
         ("src/GameServer.Gateway/Monster/SummonCatalog.cs", "monsterPlaced"),

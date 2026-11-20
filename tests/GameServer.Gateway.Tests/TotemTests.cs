@@ -54,7 +54,7 @@ public sealed class TotemTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = new Player(new(1, "totem-runtime", 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = "TotemRuntime", Instance = new(), PlayerLife = 10000, PlayerMana = 10000, PlayerSent = true,
+            Character = "TotemRuntime", Session = new("totem-test", wire.Stream, wire.Ciphers), Instance = new(), PlayerLife = 10000, PlayerMana = 10000, PlayerSent = true,
             Experience = CharacterStats.ExperienceFor(100),
             Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("totem-test", "Standard", false, false), new HashSet<string>(["Game"])),

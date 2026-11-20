@@ -18,6 +18,7 @@ public sealed class SpellTotemExecutionTests
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
+        TestRequirements.Waive(conn);
         return conn;
     }
 
@@ -75,6 +76,7 @@ public sealed class SpellTotemExecutionTests
             Assert.True(Game.TotemPathAvailable(conn, skill, spirit.Effect));
             using (var spiritWire = new Wire())
             {
+                conn.Session = new("test", spiritWire.Stream, spiritWire.Ciphers);
                 var spiritSession = Game.ProjectilesFor(conn);
                 var spiritTotem = new TotemState.Totem(778, skill, (100, 100), 100, 100, null)
                 { Effect = spirit.Effect, SourceGem = spirit.Gem, SourceHost = spiritSource.Host, SourceItem = spiritSource.SourceGem };
@@ -94,6 +96,7 @@ public sealed class SpellTotemExecutionTests
             skill = Equip(conn, "SkillGemSpark", "SupportGemSpellTotem");
             conn.Clock.Start();
             using var wire = new Wire();
+            conn.Session = new("test", wire.Stream, wire.Ciphers);
             var session = Game.ProjectilesFor(conn);
             try
             {
@@ -129,6 +132,7 @@ public sealed class SpellTotemExecutionTests
         {
             var conn = Connection("SummonTotem" + Guid.NewGuid().ToString("N"));
             using var wire = new Wire();
+            conn.Session = new("test", wire.Stream, wire.Ciphers);
             var session = Game.ProjectilesFor(conn);
             try
             {

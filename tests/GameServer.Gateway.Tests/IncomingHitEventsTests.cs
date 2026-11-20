@@ -46,6 +46,8 @@ public sealed class IncomingHitEventsTests
                     Pools = new(100, 1000, 100, 0, 0, BlockChance: block ? 100 : 0, SpellBlockChance: block ? 100 : 0,
                         SpellSuppressionChance: 100),
                 };
+                using var hitWire = new PartyFollowerTests.Wire();
+                conn.Session = new("incoming-hit-test", hitWire.Stream, hitWire.Ciphers);
                 if (!synthetic) conn.Clock.Stop();
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 try

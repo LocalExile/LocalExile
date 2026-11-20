@@ -123,7 +123,7 @@ public sealed class HitSummonTests
                 var ability = ghost.Abilities.First(a => a.Effect is 9427 or 9428);
                 Assert.NotNull(ability.Projectile);
                 typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!
-                    .Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, ghost,
+                    .Invoke(null, [f.Conn, ghost,
                         new GolemState.Action(ability, 940, target, (140, 100), 1, ghost.Monster.ActionGeneration), 1d]);
                 var session = Game.ProjectilesFor(f.Conn);
                 session.AdvanceTo(ProjectileRuntime.Time(1));

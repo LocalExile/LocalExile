@@ -153,6 +153,8 @@ public class SacrificeSupportTests
                 LeagueModule = new(new League("test","Standard",false,false),new HashSet<string>(["Game"]))
             };
             Conn.Clock.Restart();
+            Conn.Session = new("test", Stream, Ciphers);
+            TestRequirements.Waive(Conn);
             ResetSession();
         }
         public void ResetSession()

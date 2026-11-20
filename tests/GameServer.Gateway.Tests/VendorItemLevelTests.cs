@@ -100,6 +100,8 @@ public class VendorItemLevelTests : IDisposable
         var catalog = new ItemCatalog("data"); var skills = new SkillCatalog(); var rolls = new ItemRolls(catalog);
         string name = "Vendor"+Guid.NewGuid().ToString("N");
         var items = PlayerInventories.For(name,catalog); var stash = AccountStash.For(name,catalog);
+        // A new character starts with three Scrolls of Wisdom: this test counts from none.
+        foreach (var starter in items.Items(PlayerInventories.MainInventory).ToArray()) items.Remove(PlayerInventories.MainInventory, starter.Id);
         var notes = new List<string>();
         VendorStock.Window Open(int level) => VendorStock.Open(name,"Standard","Metadata/NPC/Act1/Tarkleigh",level,
             catalog,rolls,skills,[],items.NewItemId,LeagueRules.Standard,false,notes,random:new Random(7401));

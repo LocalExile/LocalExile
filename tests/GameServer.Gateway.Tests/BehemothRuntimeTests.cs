@@ -33,7 +33,7 @@ public sealed class BehemothRuntimeTests
 
     static Player Connection(params string[] modules) => new(new(1, "behemoth", 300, 300, 100, 100, null, []), 1, 1)
     {
-        PlayerLife = 100, PlayerMana = 80,
+        PlayerLife = 100, PlayerMana = 80, Instance = new(),
         LeagueModule = new(new League("test", "Standard", false, false), modules.ToHashSet(StringComparer.OrdinalIgnoreCase)),
     };
 

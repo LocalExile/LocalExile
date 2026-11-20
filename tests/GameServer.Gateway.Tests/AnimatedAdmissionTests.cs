@@ -86,6 +86,7 @@ public sealed class AnimatedAdmissionTests
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             Conn.Clock.Start(); Conn.Summons.Restored = Conn.Golems.Restored = true;
+            TestRequirements.Waive(Conn);
             Item Gem(string name)
             {
                 var type = Program.Items.FindGem(name)!.Value;
@@ -101,6 +102,7 @@ public sealed class AnimatedAdmissionTests
             listener.Start(); var accept = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accept.GetAwaiter().GetResult();
+            Conn.Session = new("test", Stream, Ciphers);
             drain = Task.Run(async () => { try { var bytes = new byte[65536]; while (await reader.GetStream().ReadAsync(bytes) > 0) { } }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { } });
         }

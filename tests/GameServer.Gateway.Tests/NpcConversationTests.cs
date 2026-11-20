@@ -155,6 +155,7 @@ public sealed class NpcConversationTests
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             reader = accepting.GetAwaiter().GetResult();
+            Conn.Session = new("test", Stream, Ciphers);
         }
         /// <summary>The next <paramref name="count"/> bytes the server wrote, or null when it wrote nothing.</summary>
         public byte[]? Sent(int count)
