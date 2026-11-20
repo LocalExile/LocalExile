@@ -137,10 +137,10 @@ public static partial class Game
         // when the player picks a tab the others the panel doesn't show are unloaded (0xc1), and the tab list goes out
         // again with them marked not loaded, so the panel asks for them (0xc7) when shown again. Never during the first
         // open's two requests (the shown tab would go), and never the tabs with shop currency (PreloadsForPrices).
-        // A Unique collection shows its hidden categories too; keep that parent's registered children with it.
+        // The client caches a Unique Collection's category pages across tab changes. Its pages still refer to the
+        // registered inventories, even when another tab requests loading. Keep the collection and its categories.
         var unload = chosen && !forcedOpen
-            ? sent.Where(o => o != tab
-                && (stash.TabType(tab) != StashRules.Unique || stash.UniqueParent(o) != tab)
+            ? sent.Where(o => o != tab && stash.TabType(o) != StashRules.Unique
                 && (stash.IsGuild || !PreloadsForPrices(stash.TabType(o), stash.Inventory(o).Items, ItemsFor(conn)))).ToList()
             : [];
         foreach (int other in unload)
