@@ -45,9 +45,7 @@ public sealed partial class DeepwaterModule
         GameEvents.MessagesHandled.Add(id, async (conn, ids) =>
         {
             await DeepwaterCursedDucats.OnMessagesHandled(conn, ids);
-            await DeepwaterUpgrades.OnMessagesHandled(conn, ids);
             await DeepwaterProgression.OnMessagesHandled(module, conn, ids);
-            await DeepwaterFairgraves.OnMessagesHandled(conn, ids);
             if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.DeviceAfterReward) return;
             if (conn.NpcRewardOffer is not null)
             {
@@ -257,8 +255,7 @@ public sealed partial class DeepwaterModule
         await FourCharts(module, conn, live: true);
         await DeepwaterCursedDucats.SyncFlags(conn);
         await DeepwaterUpgrades.TryGrantHubSulphurPurifier(module, conn);
-        await DeepwaterUpgrades.SyncHeldQuestFlags(conn);
-        await DeepwaterVelka.SyncVelkaQuestFlags(conn);
+        await DeepwaterProgression.SyncQuestItemFlags(conn);
     }
 
     // ---- Valerie ----

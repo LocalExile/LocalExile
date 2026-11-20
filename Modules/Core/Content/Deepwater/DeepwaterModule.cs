@@ -159,6 +159,7 @@ public sealed partial class DeepwaterModule : IModule
         {
             await DeepwaterBuffs.Tick(module, conn);
             await DeepwaterUpgrades.TickAdrenaline(module, conn);
+            await DeepwaterProgression.TickQuestPickups(conn);
             await DeepwaterFairgraves.Tick(module, conn);
             await DeepwaterEncounters.Tick(module, conn);
             await TickDeck(conn);
@@ -183,7 +184,7 @@ public sealed partial class DeepwaterModule : IModule
                 || ground.Item.TypeHash == DeepwaterFairgraves.AllflameItemHash;
             if (!questPickup && RunOf(conn) is { } run && (run.Phase != DeepwaterRun.RunPhase.Ended || run.Failed))
                 DeepwaterDredge.Noted(conn, groundId, ground);
-            if (questPickup) await DeepwaterVelka.OnQuestItemPickup(module, conn, ground.Item);
+            if (questPickup) DeepwaterProgression.NoteQuestPickup(conn, groundId);
             if (!conn.HasQuestFlag(DeepwaterCharts.ChartFound) && DeepwaterCharts.IsChart(catalog, ground.Item))
             {
                 var (remote, stream, ciphers) = conn.Wire;
@@ -207,12 +208,13 @@ public sealed partial class DeepwaterModule : IModule
             _light.Forget(conn);
             DeepwaterBuffs.Forget(conn);
             DeepwaterUpgrades.ForgetAdrenaline(conn);
+            DeepwaterProgression.ForgetQuestPickups(conn);
             DeepwaterLanterns.ForgetAuto(conn);
             var state = _states.GetOrCreateValue(PlayerOf(conn));
-            if (conn.PendingTransfer is { New: false } transfer
-                && transfer.Area == conn.Layout.Hash
-                && (transfer.Instance == conn.InstanceNumber || transfer.Instance == 0))
-                state.SameInstanceReload = true;
+            if (conn.PendingTransfer is { } transfer)
+                state.SameInstanceReload = !transfer.New
+                    && transfer.Area == conn.Layout.Hash
+                    && (transfer.Instance == conn.InstanceNumber || transfer.Instance == 0);
             // Leaving a run any way but the Bathysphere ends it as a failure, except a same-instance reload (e.g., choosing a Bloodline).
             if (state.SameInstanceReload && conn.LeavingArea) return;
             state.SameInstanceReload = false;

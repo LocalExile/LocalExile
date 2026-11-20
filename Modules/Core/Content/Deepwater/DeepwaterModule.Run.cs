@@ -76,7 +76,7 @@ public sealed partial class DeepwaterModule
                 // and is not one of the run's (G: the tutorial's count starts at 6 with it already lit). Without an anchor
                 // the client allows no placement.
                 var start = board.Cells[0].Point("bathysphere") ?? board.Cells[0].Point("default") ?? (conn.Layout.SpawnX, conn.Layout.SpawnY);
-                first = DeepwaterLanterns.Add(conn, run, start.X, start.Y, counts: false);
+                first = DeepwaterLanterns.TryAdd(conn, run, start.X, start.Y, counts: false, out _, out _);
                 DeepwaterExtraction.Plan(conn, run, start, module.Log);
                 DeepwaterVelka.Plan(conn, run, module.Log);
                 _runs.Add(instance, run);
@@ -117,8 +117,7 @@ public sealed partial class DeepwaterModule
         }
         await DeepwaterExtraction.SyncFlags(conn, run);
         await DeepwaterCursedDucats.SyncFlags(conn);
-        await DeepwaterUpgrades.SyncHeldQuestFlags(conn);
-        await DeepwaterVelka.SyncVelkaQuestFlags(conn);
+        await DeepwaterProgression.SyncQuestItemFlags(conn);
     }
 
     /// <summary>What each cell of a Voyage adds on its own, precomputed once so the per-kill and per-spawn paths only index
@@ -163,7 +162,7 @@ public sealed partial class DeepwaterModule
                     await DeepwaterLanterns.SendCount(conn, run);
                     return true;
                 }
-                await PlaceLantern(module, conn, run, at, $"<= 0x02ca DeepwaterRules PlaceLantern cursor ({a.X}, {a.Y}) -> ({at.X}, {at.Y})", note);
+                await PlaceLantern(module, conn, run, at, $"<= 0x02ca DeepwaterRules PlaceLantern cursor ({a.X}, {a.Y}) -> ({at.X}, {at.Y})", note, manual: true);
                 return true;
             case DeepwaterRuleset.Op.SendItemsToSurface:
                 await DeepwaterExtraction.SendToSurface(module, conn, run);
@@ -177,11 +176,13 @@ public sealed partial class DeepwaterModule
         }
     }
 
-    async Task PlaceLantern(IModuleContext module, ClientState conn, DeepwaterRun run, (int X, int Y) at, string source, string note = "")
+    async Task PlaceLantern(IModuleContext module, ClientState conn, DeepwaterRun run, (int X, int Y) at, string source, string note = "", bool manual = false)
     {
-        var lantern = DeepwaterLanterns.Add(conn, run, at.X, at.Y, counts: true);
-        int placed, total;
-        lock (run.Gate) (placed, total) = (run.Placed, run.Total);
+        if (DeepwaterLanterns.TryAdd(conn, run, at.X, at.Y, counts: true, out int placed, out int total) is not { } lantern)
+        {
+            if (manual) await DeepwaterLanterns.SendCount(conn, run);
+            return;
+        }
         module.Log($"{PlayerOf(conn).Character} {source}: lantern {placed}/{total}{note}");
         foreach (var member in DeepwaterLoot.Members(conn))
         {
@@ -195,7 +196,7 @@ public sealed partial class DeepwaterModule
             var (remote, stream, ciphers) = conn.Wire;
             await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.FirstLanternPlaced]);
         }
-        if (placed >= total)
+        if (placed == total)
         {
             await DeepwaterUpgrades.GrantFinalLanternAdrenaline(module, conn);
             // A Chart's last lantern: the lanterns collapse and its Bathysphere can be used (QuestFlags 3562).
@@ -206,7 +207,7 @@ public sealed partial class DeepwaterModule
     async Task TickAutoLantern(IModuleContext module, ClientState conn, DeepwaterRun run)
     {
         if (DeepwaterLanterns.TryAutoLantern(conn, run, conn.Clock.Elapsed.TotalSeconds, out string note) is not { } at) return;
-        await PlaceLantern(module, conn, run, at, $"Auto-Lanterns -> ({at.X}, {at.Y})", note);
+        await PlaceLantern(module, conn, run, at, $"Auto-Lanterns -> ({at.X}, {at.Y})", note, manual: false);
     }
 
     // The Chart's collapse: every lantern shrinks, the Bathysphere's own one (the first) only to the floor radius.

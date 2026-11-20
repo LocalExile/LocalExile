@@ -356,17 +356,24 @@ public static class DeepwaterUpgrades
             if (antiquarianActive) continue;
 
             var state = AdrenalineHolders.GetValue(member, _ => new AdrenalineState());
+            bool alreadyActive;
+            lock (state) alreadyActive = state.BuffId != 0 && now < state.Until;
+            if (alreadyActive) continue; // already active; Adrenaline cannot be extended
+
+            ushort nextBuffId;
+            lock (member.Monsters) nextBuffId = member.NextBuff++;
+
             ushort buffId;
             ushort expiredOld = 0;
             lock (state)
             {
-                if (state.BuffId != 0 && now < state.Until) continue; // already active; Adrenaline cannot be extended
+                if (state.BuffId != 0 && now < state.Until) continue;
                 if (state.BuffId != 0)
                 {
                     expiredOld = state.BuffId;
                     Interlocked.Decrement(ref _adrenalineHeld);
                 }
-                buffId = member.NextBuff++;
+                buffId = nextBuffId;
                 state.BuffId = buffId;
                 state.Until = now + durationSeconds;
                 Interlocked.Increment(ref _adrenalineHeld);
@@ -421,7 +428,6 @@ public static class DeepwaterUpgrades
             state.Until = double.NegativeInfinity;
             Interlocked.Decrement(ref _adrenalineHeld);
         }
-        AdrenalineHolders.Remove(conn);
         if (conn.Closed || conn.LeavingArea) return;
         await global::Game.SendWorldRecord(PlayerOf(conn), PlayerId, InstanceEntities.RemoveBuff(PlayerId, ended),
             $"0x01c2 Allflame final-lantern Adrenaline ends ({why})");
@@ -433,15 +439,13 @@ public static class DeepwaterUpgrades
     public static void ForgetAdrenaline(ClientState conn)
     {
         if (Volatile.Read(ref _adrenalineHeld) == 0 || !AdrenalineHolders.TryGetValue(conn, out var state)) return;
-        bool had;
         lock (state)
         {
-            had = state.BuffId != 0;
+            if (state.BuffId == 0) return;
             state.BuffId = 0;
             state.Until = double.NegativeInfinity;
+            Interlocked.Decrement(ref _adrenalineHeld);
         }
-        if (had) Interlocked.Decrement(ref _adrenalineHeld);
-        AdrenalineHolders.Remove(conn);
     }
 
     static async Task SendAdrenalineStats(ClientState conn, string why)
@@ -493,11 +497,11 @@ public static class DeepwaterUpgrades
         var conn = roll.Conn;
 
         // Piece 1 (Deadcaller Bellows): special Chart room fallback if not yet obtained on first Chart completion.
-        if (!voyage && specialRoom && NeedsPiece(conn, 0) && CanDropPiece(conn, 0))
+        if (!voyage && specialRoom)
         {
             // G: 35% chance from special Chart room rare/unique kills.
             int chance = Setting(Piece1DropChanceSetting, 35, 0, 100);
-            if (chance > 0 && (chance >= 100 || Random.Shared.Next(100) < chance))
+            if (chance > 0 && (chance >= 100 || Random.Shared.Next(100) < chance) && CanDropPiece(conn, 0))
             {
                 roll.Items.Add(DeadcallerBellowsId);
                 module.Log($"{CharacterName(conn)}: {roll.Monster.Name} drops Deadcaller Bellows (special Chart room {roomId})");
@@ -505,36 +509,30 @@ public static class DeepwaterUpgrades
         }
 
         // Piece 3 (Spectral Infuser): Captainsbane (#10589) or Chart/Voyage rare/unique at area level >= 55.
-        if (NeedsPiece(conn, 2) && CanDropPiece(conn, 2))
+        bool captainsbane = roll.Monster.VarietyId.Equals(DeepwaterCursedDucats.CaptainsbaneVariety, StringComparison.Ordinal);
+        if (captainsbane || runLevel >= Piece3MinAreaLevel)
         {
-            bool captainsbane = roll.Monster.VarietyId.Equals(DeepwaterCursedDucats.CaptainsbaneVariety, StringComparison.Ordinal);
-            if (captainsbane || runLevel >= Piece3MinAreaLevel)
+            // G: guaranteed from Captainsbane; 25% chance on eligible level >= 55 rare/unique kills.
+            int chance = captainsbane ? 100 : Setting(Piece3DropChanceSetting, 25, 0, 100);
+            if (chance > 0 && (chance >= 100 || Random.Shared.Next(100) < chance) && CanDropPiece(conn, 2))
             {
-                // G: guaranteed from Captainsbane; 25% chance on eligible level >= 55 rare/unique kills.
-                int chance = captainsbane ? 100 : Setting(Piece3DropChanceSetting, 25, 0, 100);
-                if (chance > 0 && (chance >= 100 || Random.Shared.Next(100) < chance))
-                {
-                    roll.Items.Add(SpectralInfuserId);
-                    module.Log($"{CharacterName(conn)}: {roll.Monster.Name} drops Spectral Infuser"
-                        + (captainsbane ? " (Captainsbane)" : $" (level {runLevel})"));
-                }
+                roll.Items.Add(SpectralInfuserId);
+                module.Log($"{CharacterName(conn)}: {roll.Monster.Name} drops Spectral Infuser"
+                    + (captainsbane ? " (Captainsbane)" : $" (level {runLevel})"));
             }
         }
 
         // Piece 4 (Alchemical Exchange): rare Wriggling Horrors in Infested Bathyspheres (#21-22) or Voyage rare/unique at level >= 73.
-        if (NeedsPiece(conn, 3) && CanDropPiece(conn, 3))
+        bool bathysphereHorror = (roomId is 21 or 22) && IsWrigglingHorror(roll.Monster.VarietyId);
+        if (bathysphereHorror || (voyage && runLevel >= Piece4MinAreaLevel))
         {
-            bool bathysphereHorror = (roomId is 21 or 22) && IsWrigglingHorror(roll.Monster.VarietyId);
-            if (bathysphereHorror || (voyage && runLevel >= Piece4MinAreaLevel))
+            // G: guaranteed from rare Wriggling Horrors in Infested Bathyspheres; 25% on level >= 73 Voyage rare/unique kills.
+            int chance = bathysphereHorror ? 100 : Setting(Piece4DropChanceSetting, 25, 0, 100);
+            if (chance > 0 && (chance >= 100 || Random.Shared.Next(100) < chance) && CanDropPiece(conn, 3))
             {
-                // G: guaranteed from rare Wriggling Horrors in Infested Bathyspheres; 25% on level >= 73 Voyage rare/unique kills.
-                int chance = bathysphereHorror ? 100 : Setting(Piece4DropChanceSetting, 25, 0, 100);
-                if (chance > 0 && (chance >= 100 || Random.Shared.Next(100) < chance))
-                {
-                    roll.Items.Add(AlchemicalExchangeId);
-                    module.Log($"{CharacterName(conn)}: {roll.Monster.Name} drops Alchemical Exchange"
-                        + (bathysphereHorror ? $" (Infested Bathyspheres room {roomId})" : $" (Voyage level {runLevel})"));
-                }
+                roll.Items.Add(AlchemicalExchangeId);
+                module.Log($"{CharacterName(conn)}: {roll.Monster.Name} drops Alchemical Exchange"
+                    + (bathysphereHorror ? $" (Infested Bathyspheres room {roomId})" : $" (Voyage level {runLevel})"));
             }
         }
     }
@@ -634,57 +632,10 @@ public static class DeepwaterUpgrades
         varietyId.Equals(WrigglingHorrorBase, StringComparison.Ordinal)
         || varietyId.Equals(WrigglingHorrorBathysphere, StringComparison.Ordinal);
 
-    /// <summary>Syncs <c>QF 3563–3567</c> (<c>HaveDeepwaterUpgradeItem1..5</c>) to the upgrade pieces currently carried
-    /// across the player's inventories. Sends nothing when all flags already match.</summary>
-    public static async Task SyncHeldQuestFlags(ClientState conn)
-    {
-        if (conn.Closed || conn.LeavingArea) return;
-        var pieces = Pieces;
-        if (pieces.Count == 0) return;
-
-        uint carriedMask = 0;
-        var items = ItemsOf(conn);
-        foreach (var (_, it) in QuestItems.Carried(items))
-            if (PieceByHash(it.Item.TypeHash) is { Index: >= 0 and < 32 } piece)
-                carriedMask |= 1u << piece.Index;
-
-        List<string>? qfSet = null, qfClear = null;
-        for (int i = 0; i < pieces.Count; i++)
-        {
-            var piece = pieces[i];
-            bool want = (carriedMask & (1u << piece.Index)) != 0;
-            bool has = conn.HasQuestFlag(piece.QuestFlag);
-            if (want && !has) (qfSet ??= []).Add(piece.QuestFlag);
-            else if (!want && has) (qfClear ??= []).Add(piece.QuestFlag);
-        }
-
-        if (qfSet is null && qfClear is null) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (qfSet is not null) await SetQuestFlags(remote, stream, ciphers, conn, qfSet, on: true);
-        if (qfClear is not null) await SetQuestFlags(remote, stream, ciphers, conn, qfClear, on: false);
-    }
-
-    /// <summary><c>GameEvents.MessagesHandled</c>: syncs <c>QF 3563–3567</c> only on item-moving/reward/command opcodes
-    /// (0-alloc fast-exit on ordinary ticks/combat).</summary>
-    public static Task OnMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)
-    {
-        for (int i = 0; i < ids.Count; i++)
-            if (MayChangeUpgradePieces(ids[i])) return SyncHeldQuestFlags(conn);
-        return Task.CompletedTask;
-    }
-
-    static bool MayChangeUpgradePieces(ushort id) => id is
-        InstanceItems.PickUpItemId or
-        InstanceItems.PlaceItemId or
-        InstanceItems.DropItemId or
-        InstanceItems.ItemActionId or
-        InstanceItems.CollectionTakeId or
-        InstanceItems.CommandId or
-        InstanceNpcs.BuyId or
-        InstanceNpcs.CtrlBuyId or
-        InstanceNpcs.TakeAllRewardsId or
-        InstanceChat.ChatId
-        || QuestItems.MovesItems(id);
+    /// <summary>Syncs Deepwater quest-item flags (<c>QF 3563–3567</c>, <c>QF 3583</c>, <c>QF 3607</c>, <c>QF 3631</c>)
+    /// via <see cref="DeepwaterProgression.SyncQuestItemFlags"/>.</summary>
+    public static Task SyncHeldQuestFlags(ClientState conn) =>
+        DeepwaterProgression.SyncQuestItemFlags(conn);
 
     // ---- Vesper turn-in (NPCTalk#3920–3924) ----
 
@@ -720,6 +671,8 @@ public static class DeepwaterUpgrades
         return (total, toSet);
     }
 
+    sealed class AbortTurnInException : Exception;
+
     /// <summary><c>GameEvents.NpcOptionPicked</c> handler for Vesper's 5 ship upgrade turn-ins (<c>NPCTalk#3920–3924</c>).
     /// Returns <c>true</c> for unrelated options or after completing a valid turn-in (so Vesper's turn-in dialogue/audio
     /// still plays); returns <c>false</c> to refuse when the piece is missing or already turned in.</summary>
@@ -736,11 +689,7 @@ public static class DeepwaterUpgrades
         }
 
         var items = ItemsOf(conn);
-        (byte Row, InventoryItem Item)? carried = null;
-        foreach (var entry in QuestItems.Carried(items))
-        {
-            if (entry.Item.Item.TypeHash == piece.TypeHash) { carried = entry; break; }
-        }
+        var carried = DeepwaterProgression.FindCarriedQuestItem(conn, piece.TypeHash);
         if (carried is not { } held)
         {
             module.Log($"{player.Character} <= Vesper NPCTalk {talk.Row} \"{talk.Option}\": refused ({piece.Name} not carried)");
@@ -748,14 +697,33 @@ public static class DeepwaterUpgrades
             return false;
         }
 
-        bool removed = false;
-        Saves.Atomically(() =>
+        var stash = PersonalStashOf(conn);
+        int totalTurnedIn = 0;
+        List<int> flagsToSet = [];
+        bool clearHeldFlag = false;
+        bool committed = false;
+        try
         {
-            removed = items.Remove(held.Row, held.Item.Id) is not null;
-        });
-        if (!removed)
+            Saves.Atomically(() =>
+            {
+                if (stash.LeagueQuestFlags.Contains(piece.TurnInLeagueFlag))
+                    throw new AbortTurnInException();
+                if (items.Remove(held.Row, held.Item.Id) is null)
+                    throw new AbortTurnInException();
+                (totalTurnedIn, flagsToSet) = ComputeTurnInFlags(stash.LeagueQuestFlags.ToHashSet(), piece.Index);
+                if (flagsToSet.Count > 0)
+                    stash.ChangeLeagueQuestFlags(flagsToSet, true);
+                clearHeldFlag = !CarriesPiece(conn, piece);
+                if (clearHeldFlag)
+                    CharacterSaves.ChangeQuestFlags(player.Character, [piece.QuestFlag], false);
+            });
+            committed = true;
+        }
+        catch (AbortTurnInException) { }
+
+        if (!committed)
         {
-            module.Log($"{player.Character} <= Vesper NPCTalk {talk.Row} \"{talk.Option}\": refused ({piece.Name} disappeared)");
+            module.Log($"{player.Character} <= Vesper NPCTalk {talk.Row} \"{talk.Option}\": refused ({piece.Name} unavailable or already turned in)");
             return false;
         }
 
@@ -764,12 +732,8 @@ public static class DeepwaterUpgrades
             InstanceItems.InventoryChange(invId, items.NextRevision(held.Row), [held.Item.Id], []),
             $"0x00bf inventory {invId}: handed in {piece.Name} (item {held.Item.Id}) to Vesper");
 
-        HashSet<int> currentFlags;
-        lock (conn.Monsters) currentFlags = [.. conn.LeagueQuestFlags];
-        var (totalTurnedIn, flagsToSet) = ComputeTurnInFlags(currentFlags, piece.Index);
-
         var (remote, stream, ciphers) = conn.Wire;
-        if (!CarriesPiece(conn, piece) && conn.HasQuestFlag(piece.QuestFlag))
+        if (clearHeldFlag && conn.HasQuestFlag(piece.QuestFlag))
             await SetQuestFlags(remote, stream, ciphers, conn, [piece.QuestFlag], on: false);
         if (flagsToSet.Count > 0)
             await SetLeagueQuestFlags(remote, stream, ciphers, conn, flagsToSet, on: true);
@@ -1015,12 +979,8 @@ public static class DeepwaterUpgrades
         lock (conn.Monsters) return conn.LeagueQuestFlags.Contains(flag);
     }
 
-    static bool CarriesPiece(ClientState conn, UpgradePiece piece)
-    {
-        foreach (var (_, it) in QuestItems.Carried(ItemsOf(conn)))
-            if (it.Item.TypeHash == piece.TypeHash) return true;
-        return false;
-    }
+    static bool CarriesPiece(ClientState conn, UpgradePiece piece) =>
+        DeepwaterProgression.CarriesQuestItem(conn, piece.TypeHash);
 
     static bool IsOnGround(ClientState conn, uint typeHash) =>
         conn.Instance is { } inst && inst.Ground.All().Any(e => e.Item.Item.TypeHash == typeHash);

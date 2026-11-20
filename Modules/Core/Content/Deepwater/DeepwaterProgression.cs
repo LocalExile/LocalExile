@@ -96,7 +96,20 @@ internal static class DeepwaterProgression
 
     static readonly uint FairgravesAllflameHash = InstanceEntities.ObjectTypeHash(FairgravesAllflame);
     static readonly uint VelkaAllflameHash = InstanceEntities.ObjectTypeHash(VelkaAllflame);
+    static readonly uint TsoathaDucatHash = InstanceEntities.ObjectTypeHash(DeepwaterVelka.TsoathaDucatId);
     static readonly uint[] UpgradePieceHashes = [.. UpgradePieces.Select(InstanceEntities.ObjectTypeHash)];
+    static readonly byte[] QuestItemRows =
+    [
+        PlayerInventories.MainInventory,
+        PlayerInventories.ExpandedInventory,
+        PlayerInventories.Cursor,
+        DeepwaterExtraction.CollectionRow,
+    ];
+
+    // Pending ground quest-item pickups awaiting walk-up + bag insertion (0-alloc fast-exit on Tick when empty).
+    static readonly ConditionalWeakTable<ClientState, List<(uint GroundId, double Until)>> PendingQuestPickups = new();
+    static int _pendingQuestPickupCount;
+    const double QuestPickupWaitSeconds = 20;
 
     static readonly Lazy<StateMachineData?> CorpseBatteryStates = new(() =>
         ObjectTypes.All().Where(t => t.Type == CorpseBattery)
@@ -248,7 +261,7 @@ internal static class DeepwaterProgression
         if (HasLeagueFlag(conn, VesperFlameGivenLqf)) return null;
         if (HasLeagueFlag(conn, ValAllflameHeldSeenLqf) && HasLeagueFlag(conn, CraftingTutorialCompletedLqf))
             return ValerieAfterFairgraves;
-        if (HasLeagueFlag(conn, CraftingTutorialStartedLqf))
+        if (HasLeagueFlag(conn, CraftingTutorialStartedLqf) || HasLeagueFlag(conn, ValAllflameHeldSeenLqf))
             return ValerieCraftingTutorial;
         return null;
     }
@@ -502,7 +515,8 @@ internal static class DeepwaterProgression
         //    plus grant optional 2s VelkaFightableBuff (BuffDefinitions#2799) cue.
         if (talk.Row == 3911)
         {
-            ushort buff = conn.NextBuff++;
+            ushort buff;
+            lock (conn.Monsters) buff = conn.NextBuff++;
             var instance = conn.Instance;
             await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, VelkaFightableBuff),
                 $"0x01c1 VelkaFightableBuff ({VelkaFightableBuff}) from Vesper NPCTalk 3911");
@@ -690,23 +704,103 @@ internal static class DeepwaterProgression
 
     // ---- Quest-Item Flag Sync & MessagesHandled ----
 
-    /// <summary>Syncs Deepwater quest-item flags (<c>QF 3583</c>, <c>QF 3607</c>, and <c>QF 3563–3567</c>) from
-    /// <see cref="QuestItems.Carried"/>. Sends zero packets when nothing changed.</summary>
-    public static async Task SyncQuestItemFlags(ClientState conn)
+    /// <summary>Direct 4-row check (Main, Expanded, Cursor, Collection; zero LINQ) for a Deepwater quest item.</summary>
+    public static bool CarriesQuestItem(ClientState conn, uint typeHash) => FindCarriedQuestItem(conn, typeHash) is not null;
+
+    /// <summary>Finds the first carried copy of <paramref name="typeHash"/> across Main, Expanded, Cursor, and
+    /// Collection rows without scanning all 118 player inventories.</summary>
+    public static (byte Row, InventoryItem Item)? FindCarriedQuestItem(ClientState conn, uint typeHash)
     {
         var items = ItemsOf(conn);
-        bool hasAllflame = false, hasBossAllflame = false;
+        for (int r = 0; r < QuestItemRows.Length; r++)
+        {
+            byte row = QuestItemRows[r];
+            var list = items.Items(row);
+            for (int i = 0; i < list.Count; i++)
+                if (list[i].Item.TypeHash == typeHash) return (row, list[i]);
+        }
+        return null;
+    }
+
+    /// <summary>Notes a clicked Deepwater quest item on the ground so <see cref="TickQuestPickups"/> syncs its quest
+    /// flags once the pickup actually completes into inventory (never prematurely on cancelled walk or full bag).</summary>
+    public static void NoteQuestPickup(ClientState conn, uint groundId)
+    {
+        var list = PendingQuestPickups.GetValue(conn, _ => []);
+        double until = conn.Clock.Elapsed.TotalSeconds + QuestPickupWaitSeconds;
+        lock (list)
+        {
+            for (int i = 0; i < list.Count; i++)
+                if (list[i].GroundId == groundId) return;
+            list.Add((groundId, until));
+            Interlocked.Increment(ref _pendingQuestPickupCount);
+        }
+    }
+
+    /// <summary><c>GameEvents.Tick</c>: syncs Deepwater quest-item flags when a noted ground quest item disappears
+    /// (picked up). Zero allocations and O(1) volatile check when no quest pickup is in flight.</summary>
+    public static Task TickQuestPickups(ClientState conn)
+    {
+        if (Volatile.Read(ref _pendingQuestPickupCount) == 0 || !PendingQuestPickups.TryGetValue(conn, out var list))
+            return Task.CompletedTask;
+        if (conn.Closed || conn.LeavingArea || conn.Instance is not { } instance)
+            return Task.CompletedTask;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        bool sync = false;
+        lock (list)
+        {
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var (groundId, until) = list[i];
+                bool gone = instance.Ground.Get(groundId) is null;
+                if (gone || now > until)
+                {
+                    list.RemoveAt(i);
+                    Interlocked.Decrement(ref _pendingQuestPickupCount);
+                    if (gone) sync = true;
+                }
+            }
+        }
+        return sync ? SyncQuestItemFlags(conn) : Task.CompletedTask;
+    }
+
+    /// <summary><c>GameEvents.PlayerLeaving</c>: clears pending ground quest-item pickups for <paramref name="conn"/>.</summary>
+    public static void ForgetQuestPickups(ClientState conn)
+    {
+        if (Volatile.Read(ref _pendingQuestPickupCount) == 0 || !PendingQuestPickups.TryGetValue(conn, out var list))
+            return;
+        lock (list)
+        {
+            if (list.Count == 0) return;
+            Interlocked.Add(ref _pendingQuestPickupCount, -list.Count);
+            list.Clear();
+        }
+    }
+
+    /// <summary>Syncs Deepwater quest-item flags (<c>QF 3583</c>, <c>QF 3607</c>, <c>QF 3563–3567</c>, and
+    /// <c>QF 3631</c>) in a single direct loop over Main, Expanded, Cursor, and Collection rows (zero LINQ). Sends zero
+    /// packets when nothing changed.</summary>
+    public static async Task SyncQuestItemFlags(ClientState conn)
+    {
+        if (conn.Closed || conn.LeavingArea) return;
+        var items = ItemsOf(conn);
+        bool hasAllflame = false, hasBossAllflame = false, hasTsoathaDucat = false;
         int upgradeMask = 0;
 
-        foreach (var (_, it) in QuestItems.Carried(items))
+        for (int r = 0; r < QuestItemRows.Length; r++)
         {
-            uint h = it.Item.TypeHash;
-            if (h == FairgravesAllflameHash) hasAllflame = true;
-            else if (h == VelkaAllflameHash) hasBossAllflame = true;
-            else
+            var list = items.Items(QuestItemRows[r]);
+            for (int j = 0; j < list.Count; j++)
             {
-                for (int i = 0; i < UpgradePieceHashes.Length; i++)
-                    if (h == UpgradePieceHashes[i]) { upgradeMask |= 1 << i; break; }
+                uint h = list[j].Item.TypeHash;
+                if (h == FairgravesAllflameHash) hasAllflame = true;
+                else if (h == VelkaAllflameHash) hasBossAllflame = true;
+                else if (h == TsoathaDucatHash) hasTsoathaDucat = true;
+                else
+                {
+                    for (int i = 0; i < UpgradePieceHashes.Length; i++)
+                        if (h == UpgradePieceHashes[i]) { upgradeMask |= 1 << i; break; }
+                }
             }
         }
 
@@ -718,10 +812,12 @@ internal static class DeepwaterProgression
             else if (!want && cur) (clearQf ??= []).Add(flag);
         }
 
-        SyncQf(HaveAllflameFlag, hasAllflame);
-        SyncQf(HaveBossAllflameFlag, hasBossAllflame);
+        SyncQf(HaveAllflameFlag, hasAllflame && !HasLeagueFlag(conn, VesperFlameGivenLqf));
+        SyncQf(HaveBossAllflameFlag, hasBossAllflame && !HasLeagueFlag(conn, VelkaFlameGivenLqf));
+        SyncQf(DeepwaterVelka.HaveQuestDucat3Flag, hasTsoathaDucat);
         for (int i = 0; i < UpgradeHeldFlags.Length; i++)
-            SyncQf(UpgradeHeldFlags[i], (upgradeMask & (1 << i)) != 0);
+            SyncQf(UpgradeHeldFlags[i], (upgradeMask & (1 << i)) != 0
+                && !HasLeagueFlag(conn, DeepwaterUpgrades.TurnInLeagueFlags[i]));
 
         if (setQf is null && clearQf is null) return;
         var (remote, stream, ciphers) = conn.Wire;
@@ -757,6 +853,7 @@ internal static class DeepwaterProgression
         InstanceItems.PlaceItemId or
         InstanceItems.DropItemId or
         InstanceItems.ItemActionId or
+        InstanceItems.CollectionTakeId or
         InstanceItems.CommandId or
         InstanceNpcs.BuyId or
         InstanceNpcs.CtrlBuyId or

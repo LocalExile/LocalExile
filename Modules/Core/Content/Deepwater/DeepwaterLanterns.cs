@@ -67,13 +67,18 @@ internal static class DeepwaterLanterns
 
         int threshold = Math.Max(DeepwaterConstants.MinimumLanternRadius, DeepwaterConstants.BaseLanternRadius - AutoEdgeMargin);
         long thresholdSq = (long)threshold * threshold;
-        var anchors = run.Snapshot();
-        for (int i = 0; i < anchors.Length; i++)
+        DeepwaterRun.Lantern[] anchors;
+        lock (run.Gate)
         {
-            var l = anchors[i];
-            if (l.Radius(now) <= 0) continue;
-            long dx = player.X - l.X, dy = player.Y - l.Y;
-            if (dx * dx + dy * dy <= thresholdSq) return null;
+            if (run.Phase != DeepwaterRun.RunPhase.Exploring || run.Placed >= run.Total) return null;
+            for (int i = 0; i < run.Lanterns.Count; i++)
+            {
+                var l = run.Lanterns[i];
+                if (l.Radius(now) <= 0) continue;
+                long dx = player.X - l.X, dy = player.Y - l.Y;
+                if (dx * dx + dy * dy <= thresholdSq) return null;
+            }
+            anchors = [.. run.Lanterns];
         }
 
         gate.Value = now + AutoCooldownSeconds;
@@ -191,16 +196,23 @@ internal static class DeepwaterLanterns
             await PlayerOf(conn).Send(count, $"0x02c9 ruleset DeepwaterRules mode 2: lanterns {placed}/{total}");
     }
 
-    /// <summary>A new lantern of the run at (x, y): lit at full radius for good (task (1, 0, 1, 0)), a random drop animation
-    /// 1-3 (G: the .ot has three, which one the real server picked is unknown).</summary>
-    public static DeepwaterRun.Lantern Add(ClientState conn, DeepwaterRun run, int x, int y, bool counts)
+    /// <summary>Atomically adds a new lantern of the run at (x, y) under <c>run.Gate</c>, returning null if
+    /// <paramref name="counts"/> is true and the run is no longer exploring or has no lanterns left (prevents concurrent
+    /// manual + Auto-Lanterns races). Lit at full radius for good (task (1, 0, 1, 0)), random drop animation 1-3 (G).</summary>
+    public static DeepwaterRun.Lantern? TryAdd(ClientState conn, DeepwaterRun run, int x, int y, bool counts, out int placed, out int total)
     {
         lock (run.Gate)
         {
+            if (counts && (run.Phase != DeepwaterRun.RunPhase.Exploring || run.Placed >= run.Total))
+            {
+                (placed, total) = (run.Placed, run.Total);
+                return null;
+            }
             var lantern = new DeepwaterRun.Lantern(conn.TakeObjectId(), x, y, 1, 0, 1, 0, conn.Clock.Elapsed.TotalSeconds,
                 Random.Shared.Next(1, 4), run.Lanterns.Count);
             run.Lanterns.Add(lantern);
             if (counts) run.Placed++;
+            (placed, total) = (run.Placed, run.Total);
             return lantern;
         }
     }

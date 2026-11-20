@@ -1089,66 +1089,59 @@ public static class DeepwaterVelka
         if (dredgeDrops.Count > 0)
             await DeepwaterLoot.Drop(conn, dropAt.X, dropAt.Y, 4, "Velka, the Tide Witch", dredgeDrops);
 
-        // 2. First-kill quest drops (NOT Dredge: BossAllflameDeepwater, Forbidden Scripture, Ducat of Tsoatha's Gift).
-        var questDrops = new List<ItemDrops.Drop>();
+        // 2. First-kill quest drops (private per eligible member, NOT Dredge: BossAllflameDeepwater, Forbidden Scripture,
+        //    Ducat of Tsoatha's Gift).
         uint allflameHash = InstanceEntities.ObjectTypeHash(BossAllflameId);
         uint scriptureHash = InstanceEntities.ObjectTypeHash(ForbiddenScriptureId);
         uint ducatHash = InstanceEntities.ObjectTypeHash(TsoathaDucatId);
+        var allflameType = catalog.Find(BossAllflameId) is { Supported: true } af ? af : null;
+        var scriptureType = catalog.Find(ForbiddenScriptureId) is { Supported: true } sc ? sc : null;
+        var ducatType = catalog.Find(TsoathaDucatId) is { Supported: true } du ? du : null;
+        var allQuestNames = new List<string>();
 
-        int needAllflame = 0, needScripture = 0, needDucat = 0;
         foreach (var member in members)
         {
-            if (!HasLeagueFlag(member, VelkaFlameGivenLeagueFlag)
+            var memberDrops = new List<ItemDrops.Drop>(3);
+            if (allflameType is not null
+                && !HasLeagueFlag(member, VelkaFlameGivenLeagueFlag)
                 && !ClientHasQuestFlag(member, HaveBossAllflameFlag)
                 && !CarriesHash(member, allflameHash))
-                needAllflame++;
+                memberDrops.Add(new(ItemCatalog.Create(allflameType) with { ItemLevel = (byte)level }, allflameType));
 
-            if (!HasLeagueFlag(member, UpgradePiece5TurnedInLeagueFlag)
+            if (scriptureType is not null
+                && !HasLeagueFlag(member, UpgradePiece5TurnedInLeagueFlag)
                 && !ClientHasQuestFlag(member, HaveUpgradePiece5Flag)
                 && !CarriesHash(member, scriptureHash))
-                needScripture++;
+                memberDrops.Add(new(ItemCatalog.Create(scriptureType) with { ItemLevel = (byte)level }, scriptureType));
 
-            if (!ClientHasQuestFlag(member, HaveQuestDucat3Flag)
+            if (ducatType is not null
+                && !ClientHasQuestFlag(member, HaveQuestDucat3Flag)
                 && !CarriesHash(member, ducatHash))
-                needDucat++;
+                memberDrops.Add(new(ItemCatalog.Create(ducatType) with { ItemLevel = (byte)level }, ducatType));
+
+            if (memberDrops.Count == 0) continue;
+            await DropPrivateQuestItems(member, dropAt.X, dropAt.Y, memberDrops);
+            foreach (var d in memberDrops) allQuestNames.Add(d.Type.Name);
         }
 
-        if (needAllflame > 0 && catalog.Find(BossAllflameId) is { Supported: true } allflameType)
-            for (int i = 0; i < needAllflame; i++)
-                questDrops.Add(new(ItemCatalog.Create(allflameType) with { ItemLevel = (byte)level }, allflameType));
-
-        if (needScripture > 0 && catalog.Find(ForbiddenScriptureId) is { Supported: true } scriptureType)
-            for (int i = 0; i < needScripture; i++)
-                questDrops.Add(new(ItemCatalog.Create(scriptureType) with { ItemLevel = (byte)level }, scriptureType));
-
-        if (needDucat > 0 && catalog.Find(TsoathaDucatId) is { Supported: true } ducatType)
-            for (int i = 0; i < needDucat; i++)
-                questDrops.Add(new(ItemCatalog.Create(ducatType) with { ItemLevel = (byte)level }, ducatType));
-
-        if (questDrops.Count > 0)
-            await DropQuestItems(conn, dropAt.X, dropAt.Y, questDrops);
-
-        module.Log($"{CharacterName(conn)}: Velka drops: {string.Join(", ", dredgeDrops.Concat(questDrops).Select(d => d.Type.Name))}");
+        module.Log($"{CharacterName(conn)}: Velka drops: {string.Join(", ", dredgeDrops.Select(d => d.Type.Name).Concat(allQuestNames))}");
     }
 
-    static bool CarriesHash(ClientState conn, uint typeHash)
-    {
-        foreach (var (_, entry) in QuestItems.Carried(ItemsOf(conn)))
-            if (entry.Item.TypeHash == typeHash) return true;
-        return false;
-    }
+    static bool CarriesHash(ClientState conn, uint typeHash) =>
+        DeepwaterProgression.CarriesQuestItem(conn, typeHash);
 
-    static async Task DropQuestItems(ClientState conn, int x, int y, IReadOnlyList<ItemDrops.Drop> drops)
+    static async Task DropPrivateQuestItems(ClientState member, int x, int y, IReadOnlyList<ItemDrops.Drop> drops)
     {
-        if (!GameEvents.AllowsLoot(conn)) return;
-        var (remote, stream, ciphers) = conn.Wire;
+        if (!GameEvents.AllowsLoot(member)) return;
+        var (remote, stream, ciphers) = member.Wire;
         for (int i = 0; i < drops.Count; i++)
         {
             double angle = i * 2.399963229728653 + 0.7;
-            var at = conn.Layout.Near((x + (int)Math.Round(Math.Cos(angle) * 5), y + (int)Math.Round(Math.Sin(angle) * 5)));
+            var at = member.Layout.Near((x + (int)Math.Round(Math.Cos(angle) * 5), y + (int)Math.Round(Math.Sin(angle) * 5)));
             var ground = new WorldItemObject(at.X, at.Y, drops[i].Item);
-            uint id = conn.Instance.Ground.Add(ground, conn);
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
+            // Quest items stay private to each eligible player (matching DeepwaterFairgraves.DropAllflame).
+            uint id = member.Instance.Ground.Add(ground, member, shared: false);
+            await SendGroundItem(remote, stream, ciphers, member, id, ground,
                 $"Velka quest drop {drops[i].Type.Name}", justDropped: true);
         }
     }

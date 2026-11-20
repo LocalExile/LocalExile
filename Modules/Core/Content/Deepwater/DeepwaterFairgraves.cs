@@ -66,7 +66,8 @@ public static class DeepwaterFairgraves
         public float? BarrierZ;
         public string? BarrierModel;
         public bool Open;
-        public bool Defeated;
+        public bool KilledInInstance;
+        public bool CreatorAlreadyDone;
     }
 
     static readonly ConditionalWeakTable<InstanceState, FairgravesState> States = new();
@@ -80,14 +81,14 @@ public static class DeepwaterFairgraves
             Blocked: !open);
 
     /// <summary><c>GameEvents.AreaGenerated</c> handler for <c>1_1_9</c> in Allflame leagues: spawns <c>FlameBarrier1</c>
-    /// and <c>SkeletonBossFairgravesDeepwater</c> (unless the player already completed Fairgraves), or syncs the existing
-    /// instance barrier for late-joining / re-entering players. No-op outside <c>1_1_9</c> or on vanilla category 60
-    /// topologies that lack Deepwater Fairgraves placements.</summary>
+    /// and <c>SkeletonBossFairgravesDeepwater</c> (unless the entering character already has <c>QF 47</c>), or syncs the
+    /// existing instance barrier for late-joining / re-entering players. No-op outside <c>1_1_9</c> or on vanilla
+    /// category 60 topologies that lack Deepwater Fairgraves placements.</summary>
     public static async Task Enter(IModuleContext module, ClientState conn)
     {
         if (PlayerOf(conn).AreaId != ShipGraveyard || conn.Instance is not { } instance) return;
 
-        await SyncAllflameFlag(conn);
+        await DeepwaterProgression.SyncQuestItemFlags(conn);
 
         FairgravesState? state;
         bool created = false;
@@ -107,7 +108,8 @@ public static class DeepwaterFairgraves
                 // Only Deepwater category 59 topologies place these; vanilla a1q6 (category 60) exits here untouched.
                 if (bossAt is null && barrierAt is null) return;
 
-                alreadyDone = HasLeagueFlag(conn, FlameGivenLeagueFlag) || ClientHasQuestFlag(conn, KilledFairgravesFlag);
+                // Character-scoped QF 47 only (never league-wide LQF 1859), so 2nd+ characters still get a1q6 & QF 47.
+                alreadyDone = ClientHasQuestFlag(conn, KilledFairgravesFlag);
                 state = new FairgravesState
                 {
                     HasBossPoint = bossAt is not null,
@@ -121,23 +123,45 @@ public static class DeepwaterFairgraves
                     BarrierZ = barrierAt is not null && !float.IsNaN(barrierAt.Z) ? barrierAt.Z : null,
                     BarrierModel = barrierAt is not null && !string.IsNullOrEmpty(barrierAt.Model) ? barrierAt.Model : FlameBarrierModel,
                     Open = alreadyDone,
-                    Defeated = alreadyDone,
+                    KilledInInstance = false,
+                    CreatorAlreadyDone = alreadyDone,
                 };
                 States.Add(instance, state);
                 created = true;
             }
         }
 
-        bool open, defeated;
-        lock (state.Gate) (open, defeated) = (state.Open, state.Defeated);
+        bool spawnForJoiner = false;
+        bool open, killedInInstance, creatorAlreadyDone;
+        lock (state.Gate)
+        {
+            if (!created && state.CreatorAlreadyDone && !state.KilledInInstance && state.HasBossPoint
+                && state.FairgravesId == 0 && !ClientHasQuestFlag(conn, KilledFairgravesFlag))
+            {
+                // Instance was created by a character who already had QF 47, and a party member lacking QF 47 just joined.
+                state.CreatorAlreadyDone = false;
+                state.Open = false;
+                spawnForJoiner = true;
+            }
+            (open, killedInInstance, creatorAlreadyDone) = (state.Open, state.KilledInInstance, state.CreatorAlreadyDone);
+        }
 
         if (state.BarrierId != 0)
             await CreateBarrier(conn, state, open);
 
+        if (spawnForJoiner)
+        {
+            // Close the barrier for any players who were already inside with it open.
+            await CloseBarrierForOthers(conn, state);
+            await SpawnFairgraves(module, conn, state);
+            return;
+        }
+
         if (!created)
         {
             // Joining or re-entering an instance where Fairgraves already fell: recover Allflame if this player still needs it (G).
-            if (defeated && state.HasBossPoint && NeedsAllflameDrop(conn))
+            if ((killedInInstance || (creatorAlreadyDone && ClientHasQuestFlag(conn, KilledFairgravesFlag)))
+                && state.HasBossPoint && NeedsAllflameDrop(conn))
                 await DropAllflame(module, conn, state.BossX, state.BossY, AreaLevel(conn));
             return;
         }
@@ -146,14 +170,18 @@ public static class DeepwaterFairgraves
         {
             // G: if player killed Fairgraves previously (QF 47) but left without looting Allflame (#1536) and has not
             // turned it in (LQF 1859), drop a recovery copy so Q210 Order 4 cannot soft-lock.
-            if (state.HasBossPoint && ClientHasQuestFlag(conn, KilledFairgravesFlag) && NeedsAllflameDrop(conn))
+            if (state.HasBossPoint && NeedsAllflameDrop(conn))
                 await DropAllflame(module, conn, state.BossX, state.BossY, AreaLevel(conn));
             module.Log($"{CharacterName(conn)}: 1_1_9 Deepwater Fairgraves already defeated; FlameBarrier1 spawned open");
             return;
         }
 
         if (!state.HasBossPoint) return;
+        await SpawnFairgraves(module, conn, state);
+    }
 
+    static async Task SpawnFairgraves(IModuleContext module, ClientState conn, FairgravesState state)
+    {
         if (Monsters.Find(FairgravesVariety) is not { Supported: true } variety)
         {
             module.Log($"{CharacterName(conn)}: {FairgravesVariety} is not supported; opening FlameBarrier1");
@@ -179,6 +207,24 @@ public static class DeepwaterFairgraves
         module.Log($"{CharacterName(conn)}: spawned Deepwater Captain Fairgraves 0x{id:x} ({variety.Id}, TransitionStates={variety.TransitionStates}) at ({state.BossX}, {state.BossY}) level {level}");
     }
 
+    static async Task CloseBarrierForOthers(ClientState conn, FairgravesState state)
+    {
+        if (state.BarrierId == 0) return;
+        int transIndex = QuestObject.TransitionableIndex(BarrierComponents());
+        foreach (var member in DeepwaterLoot.Members(conn))
+        {
+            if (ReferenceEquals(member, conn)) continue;
+            member.SetBlocker(state.BarrierId, state.BarrierX, state.BarrierY, BarrierBlockSize);
+            if (transIndex >= 0)
+                await global::Game.SendWorldRecord(PlayerOf(member), state.BarrierId,
+                    InstanceEntities.TransitionableUpdate(state.BarrierId, (byte)transIndex, BarrierClosedState),
+                    $"0x02bc FlameBarrier1 0x{state.BarrierId:x} closes (state {BarrierClosedState})");
+            await global::Game.SendWorldRecord(PlayerOf(member), state.BarrierId,
+                InstanceEntities.BlockageUpdate(state.BarrierId, true),
+                $"0x01c6 FlameBarrier1 0x{state.BarrierId:x} blocked");
+        }
+    }
+
     /// <summary><c>GameEvents.Tick</c> handler: sets <c>LQF 1856</c> (<c>AllflameQuestFairgravesSeen</c>) when the
     /// player approaches within <see cref="ApproachRange"/> cells of Deepwater Fairgraves in <c>1_1_9</c>. Zero
     /// allocations outside <c>1_1_9</c> or once seen/defeated.</summary>
@@ -190,7 +236,7 @@ public static class DeepwaterFairgraves
         int bx, by;
         lock (state.Gate)
         {
-            if (state.Defeated || state.FairgravesId == 0) return;
+            if (state.KilledInInstance || state.FairgravesId == 0) return;
             bossId = state.FairgravesId;
             bx = state.BossX;
             by = state.BossY;
@@ -226,11 +272,11 @@ public static class DeepwaterFairgraves
 
         lock (state.Gate)
         {
-            if (state.Defeated) return;
+            if (state.KilledInInstance) return;
             bool match = (state.FairgravesId != 0 && kill.Monster.ObjectId == state.FairgravesId)
                 || kill.Monster.VarietyId.Equals(FairgravesVariety, StringComparison.Ordinal);
             if (!match) return;
-            state.Defeated = true;
+            state.KilledInInstance = true;
             state.Open = true;
         }
 
@@ -264,41 +310,9 @@ public static class DeepwaterFairgraves
         module.Log($"{CharacterName(kill.Conn)}: defeated Deepwater Captain Fairgraves; {KilledFairgravesFlag} set, FlameBarrier1 opened");
     }
 
-    /// <summary>Syncs <c>QF 3583</c> (<c>HaveDeepwaterAllflame</c>) to whether the player carries
-    /// <see cref="AllflameItemId"/> (and has not turned it in via <c>LQF 1859</c>). Sends nothing when already in sync.</summary>
-    public static async Task SyncAllflameFlag(ClientState conn)
-    {
-        if (conn.Closed || conn.LeavingArea) return;
-        bool want = !HasLeagueFlag(conn, FlameGivenLeagueFlag) && CarriesAllflame(conn);
-        bool has = conn.HasQuestFlag(HaveAllflameFlag);
-        if (want == has) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        await SetQuestFlags(remote, stream, ciphers, conn, [HaveAllflameFlag], on: want);
-    }
-
-    /// <summary><c>GameEvents.MessagesHandled</c> hook: keeps <c>QF 3583</c> synced when the player picks up, drops,
-    /// moves, or destroys <see cref="AllflameItemId"/> (0-alloc no-op on ticks/combat).</summary>
-    public static Task OnMessagesHandled(ClientState conn, IReadOnlyList<ushort> ids)
-    {
-        for (int i = 0; i < ids.Count; i++)
-        {
-            ushort id = ids[i];
-            if (id is InstanceItems.PickUpItemId or InstanceItems.PlaceItemId or InstanceItems.DropItemId
-                or InstanceItems.CommandId or InstanceTransfer.UseSkillOnObjectId or InstanceChat.ChatId
-                || QuestItems.MovesItems(id))
-                return SyncAllflameFlag(conn);
-        }
-        return Task.CompletedTask;
-    }
-
-    /// <summary>Whether the player currently carries <see cref="AllflameItemId"/> in any inventory or cursor.</summary>
-    public static bool CarriesAllflame(ClientState conn)
-    {
-        uint hash = AllflameItemHash;
-        foreach (var (_, it) in QuestItems.Carried(ItemsOf(conn)))
-            if (it.Item.TypeHash == hash) return true;
-        return false;
-    }
+    /// <summary>Whether the player currently carries <see cref="AllflameItemId"/> in Main, Expanded, Cursor, or Collection.</summary>
+    public static bool CarriesAllflame(ClientState conn) =>
+        DeepwaterProgression.CarriesQuestItem(conn, AllflameItemHash);
 
     static bool NeedsAllflameDrop(ClientState conn) =>
         !HasLeagueFlag(conn, FlameGivenLeagueFlag)
