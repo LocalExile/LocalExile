@@ -6,7 +6,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest, what is left: Crop Rotation's tier upgrades, Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting; the
+Harvest, what is left: Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting; the
 client questions (the Extractor/Irrigator state sequence after a crop starts and where seeds sit), and Oshabi's soul tree and boss state sequence captured live (the order of the three colours after
 Sacred, random here, and whether a Root Wall's TriggerableBlockage is sent blocked); AtlasNode 158 `OshabiBoss`'s
 completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasProgress never completes it); opening
