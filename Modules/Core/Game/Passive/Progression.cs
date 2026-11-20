@@ -1829,23 +1829,36 @@ public static partial class Game
     {
         bool socketed = false;
         bool changed = false;
+        string? refusal = null;
         lock (conn.Monsters)
         {
             socketed = ClusterJewelSocketed(conn);
-            if (socketed && node <= MaxClusterNodeId)
+            if (!socketed) refusal = "no cluster jewel socketed";
+            else if (node > MaxClusterNodeId) refusal = "not a cluster node id";
+            else
             {
                 bool willChange = allocate ? !conn.ClusterPassives.Contains(node) : conn.ClusterPassives.Contains(node);
-                IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
-                    ? CaptureGemSourceRowsLocked(conn) : [];
-                changed = allocate ? conn.ClusterPassives.Add(node) : conn.ClusterPassives.Remove(node);
-                if (changed) CharacterSaves.SetClusterPassives(CharacterName(conn), conn.ClusterPassives);
-                if (changed) CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                if (allocate && willChange)
+                {
+                    var (points, _, nodes, _) = PassiveState(conn);
+                    int unspent = points + PassivesFor(conn).PointsGranted(nodes) + AscendancyOrdinaryPoints(conn)
+                        - nodes.Count - conn.ClusterPassives.Count;
+                    if (unspent <= 0) refusal = "no passive skill points remaining";
+                    else if (conn.ClusterPassives.Count >= ClusterNodeBudget(conn)) refusal = "cluster jewel passive budget reached";
+                }
+                if (refusal is null)
+                {
+                    IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
+                        ? CaptureGemSourceRowsLocked(conn) : [];
+                    changed = allocate ? conn.ClusterPassives.Add(node) : conn.ClusterPassives.Remove(node);
+                    if (changed) CharacterSaves.SetClusterPassives(CharacterName(conn), conn.ClusterPassives);
+                    if (changed) CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                }
             }
         }
-        if (!socketed || node > MaxClusterNodeId)
+        if (refusal is not null)
         {
-            Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: " +
-                $"{(socketed ? "not a cluster node id" : "no large cluster jewel socketed")}");
+            Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: {refusal}");
             await SendPassives(remote, stream, ciphers, conn);
             return;
         }

@@ -67,16 +67,20 @@ public static partial class Game
                 string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? conn.Stance : null;
                 string effectId = StanceCatalog.IsSource(effect)
                     ? StanceCatalog.RuntimeEffectId(effect, conn.Stance) : selected;
+                bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisualsForGem(conn, gem.Gem, effectId, hasSource);
                 var candidate = new AuraCatalog.Aura(gem.Id, gem.Effect, effectId, gem.Name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance),
                     reservation.ManaFlat, reservation.ManaPercent,
                     LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
                     Level: supported.Level, Quality: supported.Quality,
-                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SourceBuff: hasSource ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
-                    IsHerald: IsHeraldAura(effectId));
+                    IsHerald: IsHeraldAura(effectId),
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }
@@ -124,6 +128,12 @@ public static partial class Game
     public static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         conn.PlayerSent = true;
+        if (conn.Layout.Hash == StashCatalog.MenagerieHub)
+        {
+            bool visited;
+            lock (conn.Monsters) visited = conn.LeagueQuestFlags.Contains(Quests.League.VisitedMenagerie);
+            if (!visited) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [Quests.League.VisitedMenagerie]);
+        }
         await StartGracePeriod(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
@@ -427,7 +437,7 @@ public static partial class Game
             life = (int)Math.Min(cost, int.MaxValue);
             cost = 0;
         }
-        else if (Lifetap.ConvertsCostToLife(own))
+        else if (Lifetap.ConvertsCostToLife(own) || Lifetap.ConvertsCostToLife(player))
         {
             // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
             // therefore zero: the two conversions do not stack into 140%.

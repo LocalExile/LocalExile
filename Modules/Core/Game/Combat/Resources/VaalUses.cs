@@ -47,9 +47,10 @@ public static partial class Game
                 Get("base_rage_cost_efficiency_+%"), free));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
         uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(conn, id).GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
-        // Lifetap turns the whole upfront cost into Life.
+        // Lifetap and Blood Magic turn the whole upfront Mana cost into Life.
         uint life = 0;
-        if (!free && Lifetap.ConvertsCostToLife(gem.Stats))
+        if (!free && (GolemStat(player, "keystone_blood_magic") != 0
+            || Lifetap.ConvertsCostToLife(gem.Stats) || Lifetap.ConvertsCostToLife(player)))
         {
             life = mana;
             mana = 0;

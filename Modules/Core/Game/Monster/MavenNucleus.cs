@@ -69,7 +69,11 @@ public static partial class Game
                     // client linked it to entity 0 (0x141a2bbb0, live 2026-11-05). His DominusLightningSlam is the swing.
                     || id.Contains("Bond", StringComparison.Ordinal)
                     || id.Contains("Mark", StringComparison.Ordinal)
-                    || id.Contains("Souls", StringComparison.Ordinal))) continue;
+                    || id.Contains("Souls", StringComparison.Ordinal)
+                    // Corpse-utility spells deal no direct hit damage and require a corpse target the ordinary AI does
+                    // not supply (e.g. Stygian Revenant's RevenantReviveUndead, Avian Retch's BirdmanConsumeCorpse).
+                    || id.Contains("Revive", StringComparison.Ordinal)
+                    || id.Contains("ConsumeCorpse", StringComparison.Ordinal))) continue;
                 if (!(skills.IsAttack(effect) || skills.IsSpell(effect) || skills.IsProjectile(effect))) continue;
                 if (Shot(skills, effect) is not null) return effect;
                 fallback ??= effect;

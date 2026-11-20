@@ -157,18 +157,21 @@ public sealed class ItemCatalog
 
     public ItemCatalog() : this("data") { }
 
-    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows)> _currencyUses;
+    readonly Lazy<(Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes)> _currencyUses;
 
     /// <summary>CurrencyItems.Action for this base, or null when the row is not a currency / has no action. New chisels
     /// and Vaal variants are picked up from the table instead of an Id list.</summary>
     public string? CurrencyAction(BaseType t) =>
         _currencyUses.Value.Actions.TryGetValue(t.Row, out string? action) && action.Length > 0 ? action : null;
 
-    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels).</summary>
+    /// <summary>AlternateQualityTypes row whose Item column is this currency (Cartographer / Maven map chisels and jewellery catalysts).</summary>
     public byte? AlternateQualityOf(BaseType currency) =>
         _currencyUses.Value.QualityByItem.TryGetValue(currency.Row, out byte row) ? row : null;
 
-    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows) LoadCurrencyUses(string folder)
+    /// <summary>AlternateQualityTypes rows for jewellery catalysts (every row with a ModEffectStat: Turbulent..Unstable, Sinistral, Dextral).</summary>
+    public IReadOnlyList<byte> JewelleryCatalystTypes => _currencyUses.Value.CatalystTypes;
+
+    static (Dictionary<int, string> Actions, Dictionary<int, byte> QualityByItem, int QualityRows, byte[] CatalystTypes) LoadCurrencyUses(string folder)
     {
         var actions = new Dictionary<int, string>();
         if (ClientTables.Has("CurrencyItems"))
@@ -180,6 +183,7 @@ public sealed class ItemCatalog
                     actions.TryAdd(b, action);
         }
         var quality = new Dictionary<int, byte>();
+        var catalysts = new List<byte>();
         int rows = 0;
         if (ClientTables.Has("AlternateQualityTypes"))
         {
@@ -189,11 +193,13 @@ public sealed class ItemCatalog
             {
                 if (r.IntOrNull("Item") is int item)
                     quality.TryAdd(item, row);
+                if (r.IntOrNull("ModEffectStat") is not null)
+                    catalysts.Add(row);
                 row++;
                 rows++;
             }
         }
-        return (actions, quality, rows);
+        return (actions, quality, rows, [.. catalysts]);
     }
 
     public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;

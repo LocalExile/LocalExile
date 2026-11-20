@@ -24,6 +24,7 @@ public sealed class StashRules
         DeliriumItems = 15;
 
     readonly Dictionary<uint, HashSet<int>> _affinities = [];        // item type HASH32 → affinities
+    readonly HashSet<uint> _questItems = [];                         // quest items that may never enter any stash tab
     readonly Dictionary<int, HashSet<byte>> _heldBy = [];             // affinity → StashType rows
     readonly Dictionary<byte, Dictionary<uint, int>> _slots = [];     // StashType row → item type → slot
     readonly Dictionary<uint, ushort> _currencyTabStack = [];  // CurrencyItems.CurrencyTab_StackSize; else SlotStack
@@ -91,8 +92,11 @@ public sealed class StashRules
     /// </summary>
     public static bool NotShown(byte tabType) => tabType is Map or Unique or Breach or Ultimatum;
 
+    /// <summary>Whether this item type is a quest item (QuestItem class or Quest component) that cannot be stashed.</summary>
+    public bool IsQuestItem(uint itemType) => _questItems.Contains(itemType);
+
     public bool Holds(byte tabType, uint itemType) =>
-        !NotShown(tabType) && (IsGrid(tabType) || !Loaded
+        !_questItems.Contains(itemType) && !NotShown(tabType) && (IsGrid(tabType) || !Loaded
             || (_affinities.TryGetValue(itemType, out var a) && a.Any(x => _heldBy.TryGetValue(x, out var t) && t.Contains(tabType))));
 
     /// <summary>Whether the tab type gives each item type its own slot.</summary>
@@ -117,6 +121,9 @@ public sealed class StashRules
         string[] needed = ["StashTabAffinities", "StashTabAffinityByBaseItemType", "StashtabAffinityByItemClassCategory", "ItemClasses",
             "CurrencyStashTabLayout", "EssenceStashTabLayout", "FragmentStashTabLayout", "DelveStashTabLayout", "BlightStashTabLayout",
             "DeliriumStashTabLayout", "DivinationCardStashTabLayout", "Mods"];
+        foreach (var r in rows)
+            if (r.Class == "QuestItem" || r.Components.Contains("Quest"))
+                rules._questItems.Add(r.Hash);
         if (rows.Count == 0 || needed.Any(n => !ClientTables.Has(n))) return rules;
         var byId = rows.GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First().Hash);
         uint? HashOfRow(int row) => row >= 0 && row < rows.Count ? rows[row].Hash : null;

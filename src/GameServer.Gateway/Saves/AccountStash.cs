@@ -551,6 +551,8 @@ public sealed partial class AccountStash
     (int X, int Y)? CellIn(TabState t, Item item, int x, int y, out string why)
     {
         why = "";
+        if (item.Components.Contains("Quest") || _rules.IsQuestItem(item.TypeHash))
+        { why = "quest items cannot be stored in the stash"; return null; }
         if (t.Saved.UniqueCategory != 0)
         {
             // A map tab's page (AccountStash.Map) takes a map at the first free cell; every other hidden child is a

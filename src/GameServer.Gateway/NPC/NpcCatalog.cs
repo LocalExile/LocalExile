@@ -56,12 +56,22 @@ public sealed class NpcCatalog
         /// <summary>NPCTalk column 15: league quest flags the row marks as heard. Later rows need them in column 16
         /// (Kirac's "The Elderslayers" needs 998 from "Brother"; "Elder Reward" needs 994 from "The Elder").</summary>
         public IReadOnlyList<int> HeardLeagueFlags { get; init; } = [];
+        /// <summary>NPCTalk column 16: league quest flags required for this row to be available.</summary>
+        public IReadOnlyList<int> RequiredLeagueFlags { get; init; } = [];
+        /// <summary>NPCTalk column 18: league quest flags that exclude this row.</summary>
+        public IReadOnlyList<int> ExcludedLeagueFlags { get; init; } = [];
+        /// <summary>NPCTalk column 17: league quest flag set when this row is chosen (null for 1/NEVER_SET or 0x777/none).</summary>
+        public int? StartLeagueFlag { get; init; }
+        /// <summary>NPCTalk column 19: league quest flag set when this row's talk finishes (null for 1/NEVER_SET or 0x777/none).</summary>
+        public int? FinishLeagueFlag { get; init; }
         public string? StartFlag { get; init; }
         public string? FinishFlag { get; init; }
         public int? RewardOffer { get; init; }
         /// <summary>The row's second script (NPCTalk Script2).</summary>
         public string Script2 { get; init; } = "";
         public bool Available(IReadOnlySet<string> flags) => RequiredFlags.All(flags.Contains) && !ExcludedFlags.Any(flags.Contains);
+        public bool Available(IReadOnlySet<string> flags, IReadOnlySet<int>? leagueFlags) =>
+            Available(flags) && (leagueFlags is null || RequiredLeagueFlags.All(leagueFlags.Contains) && !ExcludedLeagueFlags.Any(leagueFlags.Contains));
 
         // A call names one flag or several: Eramir's "Bandit Amulets" (NPCTalk 95) has
         // SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets").
@@ -134,11 +144,14 @@ public sealed class NpcCatalog
     static readonly Dictionary<ushort, Placement[]> Towns = new()
     {
         // The Azurite Mine Encampment (Delve_Hub, HASH16 0x8b9b): Niko by the waypoint (333, 402) and the arrival
-        // (330, 420); our own cell (2026-10-21). The hideout Niko's row: the hub's own (DelveMinerHub) lists no Sell Items.
-        [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHideout", 342, 410, 4.0f)],
-        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30). The hideout
-        // Einhar's row: EinharMenagerie has no .ot in the GGPK, and the client drew it without a model.
-        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
+        // (330, 420); our own cell (2026-10-21). DelveMinerHub lists View Subterranean Chart, Flares and Dynamite
+        // (row 1754, completing delve2), Fractured Walls, Sell Items (row 1788) and Identify Items (row 1800).
+        [StashCatalog.DelveHub] = [new("Metadata/NPC/League/Delve/DelveMinerHub", 342, 410, 4.0f)],
+        // The Menagerie (Menagerie_Hub): Einhar placed live with /npc_place Einhar 495 485 290 (2026-10-30).
+        // EinharMenagerie has no .ot of its own (Metadata/NPC/NPC), so pass the room line's model (entrance.arm) so he
+        // renders with Einhar's model while keeping the Menagerie's own NPCTalk rows ("The Blood Altar", row 1600).
+        [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharMenagerie", 495, 485, 290 * MathF.PI / 180,
+            Model: "Metadata/NPC/League/Bestiary/Einhar.ao")],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
         // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
         // live with /npc_place.
@@ -336,6 +349,8 @@ public sealed class NpcCatalog
             int category = Int("Category");
             int OptionalInt(string name) => (r.IntOrNull(name) ?? -1);
             string[] FlagList(string name) => [.. r.Ints(name).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])];
+            int[] LeagueFlagList(string name) => [.. r.Ints(name).Where(i => i is > 0 and < 0x777)];
+            int? LeagueFlag(int value) => value is > 1 and < 0x777 ? value : null;
             talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.Text("DialogueOption") ?? "",
                 category >= 0 && category < names.Count ? names[category] : "", r.Text("Script") ?? "",
                 [.. r.Ints("NPCTextAudioKeys")])
@@ -353,7 +368,11 @@ public sealed class NpcCatalog
                     && r.BoolOrNull("__col14") == false
                     && r.BoolOrNull("__col20") == false,
                 RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
-                HeardLeagueFlags = [.. r.Ints("__col15").Where(i => i is > 0 and < 0x777)],
+                HeardLeagueFlags = LeagueFlagList("__col15"),
+                RequiredLeagueFlags = LeagueFlagList("__col16"),
+                ExcludedLeagueFlags = LeagueFlagList("__col18"),
+                StartLeagueFlag = LeagueFlag(OptionalInt("__col17")),
+                FinishLeagueFlag = LeagueFlag(OptionalInt("__col19")),
                 StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
                 RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
                 Script2 = r.TextOrNull("Script2") ?? "",

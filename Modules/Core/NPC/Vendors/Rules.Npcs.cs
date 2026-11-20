@@ -31,7 +31,7 @@ static partial class VendorsRules
         if (data.TakenFlag is { } taken) takenFlags.Add(taken);
         if (quest is not null) takenFlags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>());
         if (takenFlags.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, takenFlags);
-        conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.TalkingTo = 0;
+        conn.InNpcTalk = false; conn.NpcFinishFlag = null; conn.NpcFinishLeagueFlag = null; conn.TalkingTo = 0;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 quest reward claimed: dialogue ended");
     }
 }

@@ -22,6 +22,8 @@ public static class GameDataFiles
         ("UniqueStashLayout", "unique item names and artwork"),
         ("VillageUniqueDisenchantValues", "unique drop weights"),
         ("PassiveJewelSlots", "ordinary passive tree jewel sockets"),
+        ("PassiveTreeExpansionJewels", "cluster jewel templates, passive ranges and socket layouts"),
+        ("PassiveTreeExpansionSkills", "cluster jewel small-passive themes and notable pools"),
         ("ModType", "vendor affix sale-price categories"),
         ("Essences", "essence crafting and class-specific guaranteed modifiers"),
         ("CraftingBenchOptions", "crafting bench recipes, unlocks and costs"),
