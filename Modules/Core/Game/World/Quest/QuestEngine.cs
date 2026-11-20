@@ -352,7 +352,7 @@ public static partial class Game
         var notes = new List<string>();
         var placed = new QuestObjectTypes.AreaPlacements(area, conn.Seed, notes);
         var doors = PlacedQuestDoors(conn, placed);
-        lock (conn.QuestNpcs) conn.QuestNpcs.AddRange([.. QuestNpcCandidates(remote, conn, placed), .. AppearedBefore(conn)]);
+        lock (conn.QuestNpcs) conn.QuestNpcs.AddRange([.. QuestNpcCandidates(remote, conn, placed), .. AppearedBefore(conn, placed)]);
         await UpdateQuestNpcs(remote, stream, ciphers, conn, "entering the area");
         var nearSpawns = QuestsOf(conn).NearSpawns(area);
         if (chests.Count + near.Count + blockers.Count + questObjects.Count + nearSpawns.Count + doors.Count == 0) return;

@@ -138,6 +138,9 @@ public static partial class Quests
     {
         /// <summary>Advance the newly created NPC once to release its paused entrance animation.</summary>
         public bool AdvanceOnAppearance { get; init; }
+        /// <summary>Room/tile object where the NPC stands on a later visit to a fresh instance while the kill flag is
+        /// set and <see cref="GoneWith"/> is not (when no death site is remembered in this instance).</summary>
+        public string? AtObject { get; init; }
     }
     /// <summary>A dialogue row of the NPC with this option text hands in every carried copy of the item, setting its
     /// remove_flag in the same save, for rows whose own flags do not (Hargan's "Victario's Holdfasts" takes each Platinum
@@ -235,8 +238,8 @@ public static partial class Quests
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
         public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false,
-            bool advanceOnAppearance = false) =>
-            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance };
+            bool advanceOnAppearance = false, string? atObject = null) =>
+            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance, AtObject = atObject };
         public static Rule HandIn(string npc, string option, string item, int? row = null) => new HandInRule(npc, option, item) { Row = row };
         public static Rule TalkRow(int row, params string[] flags) => new TalkRowRule(row, flags);
         public static Rule Portal(string area, string atObject, string to, string type) => new PortalRule(area, atObject, to, type);
