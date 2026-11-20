@@ -92,7 +92,7 @@ public static class CrucibleRemnants
             Rarity = ItemRarity.Rare,
         };
         var rolled = rolls.Roll(blank, ItemRarity.Rare, random);
-        if (uber && rolls.AddAffix(rolled, 4, random) is { } extra)
+        if (uber && rolls.AddAffix(rolled, (4, 3), random) is { } extra)
             rolled = extra;
         return rolled with
         {

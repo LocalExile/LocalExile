@@ -52,14 +52,26 @@ public sealed class CrucibleModule : IModule
         GameEvents.Packet(InstanceCrucible.CombineRequestId).Add(id, CrucibleForgeOfTheTitans.HandleCombine);
         GameEvents.Packet(InstanceCrucible.UniqueForgeRequestId).Add(id, CrucibleForgeOfTheTitans.HandleUniqueForge);
 
-        // 9. In-zone Crucible Forge: native CrucibleChannel skill (0x5f29) + Forge stats & proximity/waves.
+        // 9. In-zone Crucible Forge: native CrucibleChannel skill (0x1f29) + Forge stats & proximity/waves.
         GameEvents.Stats.Add(id, CrucibleEncounter.OnStats);
         GameEvents.GrantedSkills.Add(id, CrucibleEncounter.GrantedSkills);
         GameEvents.SkillBarBuilding.Add(id, CrucibleEncounter.OnSkillBarBuilding);
         GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(id, (conn, bytes) =>
-            CrucibleEncounter.HandleChannelSkill(conn, InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan()).SkillId));
+        {
+            var use = InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan());
+            return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, use.Slot, use.Flags);
+        });
         GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(id, (conn, bytes) =>
-            CrucibleEncounter.HandleChannelSkill(conn, InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan()).SkillId));
+        {
+            var use = InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan());
+            return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, use.Sequence, use.Flags);
+        });
+        GameEvents.Packet(InstanceProtocol.ChannelUpdateId).Add(id, (conn, _) =>
+            CrucibleEncounter.HandleChannelUpdate(conn));
+        GameEvents.Packet(InstanceProtocol.ChannelUpdateAltId).Add(id, (conn, _) =>
+            CrucibleEncounter.HandleChannelUpdate(conn));
+        GameEvents.Packet(InstanceProtocol.ChannelEndId).Add(id, (conn, _) =>
+            CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate));
 
         // 10. Area generation, world object interaction, ticks, kills, leaving, and drops.
         GameEvents.AreaGenerated.Add(id, async conn =>
@@ -70,7 +82,7 @@ public sealed class CrucibleModule : IModule
 
         GameEvents.ObjectUse.Add(id, async (conn, use, requestedAt) =>
             await CrucibleForgeOfTheTitans.UseObject(conn, use, requestedAt)
-            || await CrucibleEncounter.UseObject(conn, use, requestedAt));
+            || await CrucibleEncounter.UseObject(conn, use, requestedAt, choices.ExperienceMultiplier, choices.GeodeDropRate));
 
         GameEvents.Tick.Add(id, (conn, dt) =>
             CrucibleEncounter.Tick(conn, dt, choices.ExperienceMultiplier, choices.GeodeDropRate));

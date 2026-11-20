@@ -110,7 +110,7 @@ public static class CrucibleTreeEngine
         var bits = CrucibleTreeTopology.BitsInOrder(masks.Layout);
         var usedFamilies = new HashSet<int>();
         var usedSkillIds = new HashSet<string>(StringComparer.Ordinal);
-        var nodes = new List<WeaponPassiveTreeNode>(bits.Count);
+        var rolledByBit = new Dictionary<int, WeaponPassiveTreeNode>(bits.Count);
 
         // Optional guaranteed SellBonus slot (in col 2 or 3, i.e., 1-based column 3 or 4).
         int sellBit = -1;
@@ -120,6 +120,7 @@ public static class CrucibleTreeEngine
             if (col34Bits.Count > 0) sellBit = col34Bits[random.Next(col34Bits.Count)];
         }
 
+        ushort filledLayout = masks.Layout;
         foreach (int bit in bits)
         {
             var (col, _) = CrucibleTreeTopology.Coords(bit);
@@ -138,13 +139,19 @@ public static class CrucibleTreeEngine
                 usedSkillIds.Add(chosen.Skill.Id);
                 foreach (int fam in chosen.Mod.Families) usedFamilies.Add(fam);
                 var rolled = chosen.Mod.Roll(ModSection.Implicit, random);
-                nodes.Add(new WeaponPassiveTreeNode(chosen.Mod.Hash, rolled.Values));
+                rolledByBit[bit] = new WeaponPassiveTreeNode(chosen.Mod.Hash, rolled.Values);
             }
             else
             {
-                nodes.Add(new WeaponPassiveTreeNode(0, []));
+                // Prune unfillable slot instead of emitting invalid ModHash = 0.
+                filledLayout &= (ushort)~(1 << bit);
             }
         }
+
+        masks = CrucibleTreeTopology.Normalize(filledLayout, masks.LeftParents, masks.RightParents);
+        var finalBits = CrucibleTreeTopology.BitsInOrder(masks.Layout);
+        var nodes = new List<WeaponPassiveTreeNode>(finalBits.Count);
+        foreach (int bit in finalBits) nodes.Add(rolledByBit[bit]);
 
         ushort allocation = 0;
         if (autoAllocateRoot && initialExperience >= (uint)balance.Bar1 && (masks.Layout & 1) != 0)
@@ -554,13 +561,19 @@ public static class CrucibleTreeEngine
             }
         }
 
-        // Assemble final ascending-bit-order mod list, mutations list, and preserved valid allocations.
+        // Assemble final ascending-bit-order mod list (pruning any null slot so ModHash=0 is never emitted),
+        // mutations list, and preserved valid allocations.
+        ushort validLayout = clean.Layout;
+        foreach (int b in CrucibleTreeTopology.BitsInOrder(clean.Layout))
+            if (slotNode[b] is null) validLayout &= (ushort)~(1 << b);
+        clean = CrucibleTreeTopology.Normalize(validLayout, clean.LeftParents, clean.RightParents);
+
         var finalBits = CrucibleTreeTopology.BitsInOrder(clean.Layout);
         var finalNodes = new List<WeaponPassiveTreeNode>(finalBits.Count);
         var mutations = new List<InstanceCrucible.NodeMutation>();
         foreach (int b in finalBits)
         {
-            finalNodes.Add(slotNode[b] ?? new WeaponPassiveTreeNode(0, []));
+            finalNodes.Add(slotNode[b]!);
             if (slotMut[b] != InstanceCrucible.NodeMutationFlags.None)
             {
                 var (c, r) = CrucibleTreeTopology.Coords(b);

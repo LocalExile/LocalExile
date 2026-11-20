@@ -43,8 +43,20 @@ public static class CrucibleForgeOfTheTitans
         public HashSet<uint> SpawnedMonsters = [];
     }
 
+    sealed class CombineRollbackException : Exception;
+
+    sealed record DropBuckets(
+        IReadOnlyList<ItemCatalog.BaseType> Melee,
+        IReadOnlyList<ItemCatalog.BaseType> Ranged,
+        IReadOnlyList<ItemCatalog.BaseType> Shields);
+
+    static readonly HashSet<int> MeleeClassRows = [6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 32, 56, 57];
+    static readonly HashSet<int> RangedClassRows = [8, 13];
+    const int ShieldClassRow = 26;
+
     static readonly ConditionalWeakTable<InstanceState, ForgeAreaState> Areas = new();
     static readonly ConditionalWeakTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly ConditionalWeakTable<ItemCatalog, DropBuckets> CatalogBuckets = new();
 
     public static void Clear()
     {
@@ -354,30 +366,51 @@ public static class CrucibleForgeOfTheTitans
                 topItem.Item, botItem.Item, botType, catalog, RollsFor(conn), UniquesFor(conn), area.CombineMods, Random.Shared);
             mutations = muts;
 
-            bool committed = Saves.Atomically(() =>
+            bool committed = false;
+            try
             {
-                // Destroy top item.
-                InventoryItem? removedTop = topTab is int tt
-                    ? stash.Take(tt, topItem.Id)
-                    : items.Remove(topRow, topItem.Id);
-                if (removedTop is null) return false;
+                committed = Saves.Atomically(() =>
+                {
+                    // Destroy top item.
+                    InventoryItem? removedTop = topTab is int tt
+                        ? stash.Take(tt, topItem.Id)
+                        : items.Remove(topRow, topItem.Id);
+                    if (removedTop is null) return false;
 
-                // Update bottom item in place.
-                if (botTab is int bt)
-                {
-                    var old = stash.Take(bt, botItem.Id);
-                    if (old is null) return false;
-                    var placed = stash.Place(bt, old.X, old.Y, old with { Item = combined }, ShapeOf, out _);
-                    if (placed is not var (p, _)) return false;
-                    updatedBottom = p;
-                }
-                else
-                {
-                    updatedBottom = items.Change(botRow, botItem.Id, _ => combined);
-                    if (updatedBottom is null) return false;
-                }
-                return true;
-            });
+                    // Update bottom item in place; on failure, restore in-memory top item and throw to roll back SQLite.
+                    if (botTab is int bt)
+                    {
+                        var old = stash.Take(bt, botItem.Id);
+                        if (old is null)
+                        {
+                            RestoreItem(items, stash, topTab, topRow, removedTop);
+                            throw new CombineRollbackException();
+                        }
+                        var placed = stash.Place(bt, old.X, old.Y, old with { Item = combined }, ShapeOf, out _);
+                        if (placed is not var (p, _))
+                        {
+                            stash.Place(bt, old.X, old.Y, old, ShapeOf, out _);
+                            RestoreItem(items, stash, topTab, topRow, removedTop);
+                            throw new CombineRollbackException();
+                        }
+                        updatedBottom = p;
+                    }
+                    else
+                    {
+                        updatedBottom = items.Change(botRow, botItem.Id, _ => combined);
+                        if (updatedBottom is null)
+                        {
+                            RestoreItem(items, stash, topTab, topRow, removedTop);
+                            throw new CombineRollbackException();
+                        }
+                    }
+                    return true;
+                });
+            }
+            catch (CombineRollbackException)
+            {
+                committed = false;
+            }
 
             if (!committed || updatedBottom is null) return true;
             area.CombiningUsed = true;
@@ -528,12 +561,13 @@ public static class CrucibleForgeOfTheTitans
         if (oreChance > 0 && rng.Next(100) < oreChance)
             drop.Stacks.Add((CrucibleTables.MagmaticOreId, 1));
 
+        var buckets = BucketsFor(catalog);
         TryDropTreeWeapon(drop, catalog, rng, mods.Get("map_crucible_rare_unique_monster_drop_melee_weapon_with_tree_%_chance"),
-            CrucibleTreeEngine.WeaponCategory.OneHand, area.Level);
+            buckets.Melee, area.Level);
         TryDropTreeWeapon(drop, catalog, rng, mods.Get("map_crucible_rare_unique_monster_drop_ranged_weapon_with_tree_%_chance"),
-            CrucibleTreeEngine.WeaponCategory.TwoHand, area.Level);
+            buckets.Ranged, area.Level);
         TryDropTreeWeapon(drop, catalog, rng, mods.Get("map_crucible_rare_unique_monster_drop_shield_with_tree_%_chance"),
-            CrucibleTreeEngine.WeaponCategory.Shield, area.Level);
+            buckets.Shields, area.Level);
 
         if (drop.Monster.Rarity == MonsterRarity.Unique)
         {
@@ -556,18 +590,43 @@ public static class CrucibleForgeOfTheTitans
         }
     }
 
+    static void RestoreItem(PlayerInventories items, AccountStash stash, int? tab, byte row, InventoryItem item)
+    {
+        if (tab is int t) stash.Place(t, item.X, item.Y, item, ShapeOf, out _);
+        else items.Put(row, item);
+    }
+
+    static DropBuckets BucketsFor(ItemCatalog catalog) =>
+        CatalogBuckets.GetValue(catalog, c =>
+        {
+            var melee = new List<ItemCatalog.BaseType>();
+            var ranged = new List<ItemCatalog.BaseType>();
+            var shields = new List<ItemCatalog.BaseType>();
+            foreach (var t in c.All)
+            {
+                if (!t.Supported || !t.Components.Contains("Mods")) continue;
+                if (MeleeClassRows.Contains(t.ClassRow)) melee.Add(t);
+                else if (RangedClassRows.Contains(t.ClassRow)) ranged.Add(t);
+                else if (t.ClassRow == ShieldClassRow) shields.Add(t);
+            }
+            return new DropBuckets(melee, ranged, shields);
+        });
+
     static void TryDropTreeWeapon(
         DropRoll drop, ItemCatalog catalog, Random rng, int chance,
-        CrucibleTreeEngine.WeaponCategory category, int areaLevel)
+        IReadOnlyList<ItemCatalog.BaseType> bucket, int areaLevel)
     {
-        if (chance <= 0 || rng.Next(100) >= chance) return;
-        var candidates = catalog.All
-            .Where(t => t.Supported && t.Components.Contains("Mods") && t.DropLevel <= areaLevel
-                && CrucibleTreeEngine.CategoryOf(ItemCatalog.Create(t), t, catalog.Mods) == category)
-            .ToList();
-        if (candidates.Count == 0) return;
+        if (chance <= 0 || rng.Next(100) >= chance || bucket.Count == 0) return;
+        int eligibleCount = 0;
+        ItemCatalog.BaseType? chosen = null;
+        foreach (var t in bucket)
+        {
+            if (t.DropLevel > areaLevel) continue;
+            eligibleCount++;
+            if (rng.Next(eligibleCount) == 0) chosen = t;
+        }
+        if (chosen is null) return;
 
-        var chosen = candidates[rng.Next(candidates.Count)];
         var item = RollsFor(drop.Conn).Roll(ItemCatalog.Create(chosen) with { ItemLevel = (byte)Math.Clamp(areaLevel, 1, 100) },
             ItemRarity.Rare, rng);
         var tree = CrucibleTreeEngine.GenerateTree(item, chosen, catalog.Mods, rng);
