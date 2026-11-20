@@ -8,9 +8,39 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceCrucible
 {
-    /// <summary>Rulesets.dat row 137 (0x89, CrucibleRules) and row 140 (0x8c, CrucibleMapRules) for S→C 0x1f.</summary>
+    /// <summary>Rulesets.dat row 137 (0x89, CrucibleRules) and row 140 (0x8c, CrucibleMapRules) for S→C 0x1f / 0x02c9.</summary>
     public const byte CrucibleRulesetRow = 0x89;
     public const byte CrucibleMapRulesetRow = 0x8c;
+
+    /// <summary>ActiveSkills row 1815 (<c>crucible_channel</c>, ActionTypes 1163 <c>CrucibleChannel</c>) HASH16.</summary>
+    public const ushort CrucibleChannelSkillHash = 0x5f29;
+
+    // ---- S→C 0x02c9 (CrucibleRules 0x89 sub-messages, 0x141682b90, LE payload) ------------------------------------------
+
+    /// <summary>Sub-message 0x00: player entered the Crucible Forge zone (inZone = 1; plays CruciblePopup / shows KB/M popup).</summary>
+    public static byte[] ForgeEnterZone() => InstanceProtocol.RulesetMessage(CrucibleRulesetRow, [0x00]);
+
+    /// <summary>Sub-message 0x01: player left the Crucible Forge zone (inZone = 0; plays CruciblePopupFade / hides popup).</summary>
+    public static byte[] ForgeLeaveZone() => InstanceProtocol.RulesetMessage(CrucibleRulesetRow, [0x01]);
+
+    /// <summary>Sub-message 0x02: lock the selected weapon at the forge (weaponLocked = 1; hides Back button).</summary>
+    public static byte[] ForgeLockWeapon() => InstanceProtocol.RulesetMessage(CrucibleRulesetRow, [0x02]);
+
+    /// <summary>Sub-message 0x03 + f32 LE charge (0.0..1.0): updates CrucibleDifficulty bar, CrucibleChannel action and CrucibleThreat shader.</summary>
+    public static byte[] ForgeCharge(float charge) =>
+        InstanceProtocol.RulesetMessage(CrucibleRulesetRow, new BlobWriter().U8(0x03).F32(charge).ToArray());
+
+    /// <summary>Sub-message 0x04 + u8 active: plays CrucibleChannelStart+Loop (true) or CrucibleChannelEnd (false).</summary>
+    public static byte[] ForgeChannelling(bool active) =>
+        InstanceProtocol.RulesetMessage(CrucibleRulesetRow, [0x04, (byte)(active ? 1 : 0)]);
+
+    /// <summary>Sub-message 0x05 + u8 state: updates forge FMOD state and threat fade (state == 2 closes gamepad popup; >= 3 decays fade).</summary>
+    public static byte[] ForgeState(byte state) =>
+        InstanceProtocol.RulesetMessage(CrucibleRulesetRow, [0x05, state]);
+
+    /// <summary>Sub-message 0x06 + u32 LE forgeEntityId: opens the gamepad Forge popup bound to the forge entity.</summary>
+    public static byte[] ForgeOpenGamepadPopup(uint forgeEntityId) =>
+        InstanceProtocol.RulesetMessage(CrucibleRulesetRow, new BlobWriter().U8(0x06).U32(forgeEntityId).ToArray());
 
     /// <summary>S→C 0x7b kind 0x4b argument 1 modes (CrucibleAddWeaponTreeToItemCraftingWindow, 0x1403d6fd0).</summary>
     public const uint AntiqueForgeMode = 0;

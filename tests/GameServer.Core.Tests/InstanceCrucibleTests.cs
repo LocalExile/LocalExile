@@ -161,5 +161,21 @@ public class InstanceCrucibleTests
         var withZone = new QuestObject(10, 20, crucibleDevice) { StateMachine = new([0, 0, 0], 0) }.Blob();
         var withoutZone = new QuestObject(10, 20, crucibleDevice[..^1]) { StateMachine = new([0, 0, 0], 0) }.Blob();
         Assert.Equal(withoutZone, withZone);
+
+        // S→C 0x02c9 RulesetMessage framing + all 7 CrucibleRules (0x89) sub-messages (LE payloads).
+        Assert.Equal("02C9890100", Convert.ToHexString(InstanceCrucible.ForgeEnterZone()));
+        Assert.Equal("02C9890101", Convert.ToHexString(InstanceCrucible.ForgeLeaveZone()));
+        Assert.Equal("02C9890102", Convert.ToHexString(InstanceCrucible.ForgeLockWeapon()));
+        Assert.Equal("02C98905030000003F", Convert.ToHexString(InstanceCrucible.ForgeCharge(0.5f)));
+        Assert.Equal("02C989020401", Convert.ToHexString(InstanceCrucible.ForgeChannelling(true)));
+        Assert.Equal("02C989020400", Convert.ToHexString(InstanceCrucible.ForgeChannelling(false)));
+        Assert.Equal("02C989020502", Convert.ToHexString(InstanceCrucible.ForgeState(2)));
+        Assert.Equal("02C989050678563412", Convert.ToHexString(InstanceCrucible.ForgeOpenGamepadPopup(0x12345678)));
+
+        // Multi-byte CompactUInt payload length (128 bytes -> 0x80 0x80) and > 0xFFFF guard.
+        byte[] longMsg = InstanceProtocol.RulesetMessage(InstanceCrucible.CrucibleMapRulesetRow, new byte[128]);
+        Assert.Equal(2 + 1 + 2 + 128, longMsg.Length);
+        Assert.Equal("02C98C8080", Convert.ToHexString(longMsg, 0, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InstanceProtocol.RulesetMessage(0x89, new byte[65536]));
     }
 }
