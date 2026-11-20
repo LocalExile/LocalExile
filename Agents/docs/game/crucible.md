@@ -24,7 +24,7 @@ notable removal made by GGG when Crucible left core in 3.22:
 Because clicking a weapon inside `SelectPage` sends nothing on 3.29.3c (and `CrucibleDevice.ot` sets
 `Targetable { targetable = false; no_highlight = true; }` on KB/M), the in-zone Crucible Forge uses native visuals,
 audio, and `CrucibleRules` `0x02c9` state together with server-driven weapon/branch selection and channeling (via the
-native `crucible_channel` skill `ActiveSkills` 1815 / `0x5f29` and an interactable Forge trigger at the encounter).
+native `crucible_channel` skill `ActiveSkills` 1815 / action `0x5f29` masked to `0x1f29` and an interactable Forge trigger at the encounter).
 
 ## Wire Formats (3.29.3c Addresses)
 
