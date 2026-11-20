@@ -263,7 +263,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0190 | `0x1435cb150` / `0x141f98850` | 12 |  | `0x140123640` |  |
 | 0x0191 | `0x1435cb310` / `0x141f98a00` | 8 | instance 0x1cc, instance 0x25c, instance 0x26d | `0x140123640` |  |
 | 0x0192 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |
-| 0x0193 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011ecb0` |  |
+| 0x0193 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14011ecb0` | u32 BE target object id: retarget an active held/channelled action onto an object |
 | 0x0195 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x142166660` |  |
 | 0x0196 | `0x1435ca200` / `0x141f99160` | 4 | generic (14 S→C ids) | `0x142166800` |  |
 | 0x0197 | `0x1435ca2c0` / `0x141f98f90` | 10 | generic (7 S→C ids) | `0x1421664c0` |  |

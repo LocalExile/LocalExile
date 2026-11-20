@@ -671,6 +671,8 @@ public static partial class Game
             }
             else if (id == InstanceProtocol.ChannelEndId)
                 ChannelReleased(conn, conn.ClockAt(readAt));
+            else if (id == InstanceProtocol.RetargetActionId)
+                await RetargetAction(remote, stream, ciphers, conn, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
             {
                 // The weapon swap: the hands' rows and the other set's trade their items (the client shows the active set in
