@@ -122,7 +122,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
   spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
   Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
-  (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  (Endless Tide, Demonic Power map-instance boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
   `Game.MapModsOf`.
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 

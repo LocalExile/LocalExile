@@ -268,28 +268,180 @@ public sealed class BeyondTests
             MapBeyond.Experience(naturalXp);
             Assert.Equal(1000u, naturalXp.Experience);
 
-            // Demonic Power: killing K'Tash, Ghorr and Beidat grants their 60 s buffs (stats + Ghorr 10% less damage taken) and expires after 60 s.
+            // Demonic Power (3.29): killing K'Tash, Ghorr and Beidat grants their Magnificence buffs for the rest of
+            // the map instance (no fixed 60 s timer, CancelOnDeath = 0, cleared when leaving to hideout / another map,
+            // restored on re-entering the same map instance for the same character only).
             foreach (var faction in BeyondCatalog.All)
             {
                 var boss = owner.Conn.Monsters.Values.First(m => m.Variety?.Id == faction.BossVariety);
                 boss.Dead = true;
                 MapBeyond.Kill(new(owner.Conn, boss, faction.BossVariety, spot));
             }
-            var buffStats = MapBeyond.PlayerStats(owner.Conn, []);
-            Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_fire")]);
-            Assert.Equal(40, buffStats[(uint)Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
-            Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_lightning")]);
-            Assert.Equal(-15, buffStats[(uint)Key("action_speed_-%")]);
-            Assert.Equal(90, MapBeyond.IncomingDamage(owner.Conn, 100));
+            void AssertAllBossBuffs(ClientState c)
+            {
+                var buffStats = MapBeyond.PlayerStats(c, []);
+                Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_fire")]);
+                Assert.Equal(40, buffStats[(uint)Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
+                Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_lightning")]);
+                Assert.Equal(-15, buffStats[(uint)Key("action_speed_-%")]);
+                Assert.Equal(90, MapBeyond.IncomingDamage(c, 100));
+            }
+            AssertAllBossBuffs(owner.Conn);
 
+            // Persists past 60 s and across player death in the same map instance.
             await MapBeyond.Tick(owner.Conn, 0.25);
-            await MapBeyond.Tick(owner.Conn, 60.0);
+            await MapBeyond.Tick(owner.Conn, 120.0);
+            AssertAllBossBuffs(owner.Conn);
+            owner.Conn.PlayerLife = 0;
+            await MapBeyond.Tick(owner.Conn, 5.0);
+            AssertAllBossBuffs(owner.Conn);
+
+            // Leaving the map clears the leaving connection's active buffs; hideout / another area has none.
+            string ownerChar = owner.Conn.Character!;
+            MapBeyond.Leave(owner.Conn);
             Assert.Empty(MapBeyond.PlayerStats(owner.Conn, []));
             Assert.Equal(100, MapBeyond.IncomingDamage(owner.Conn, 100));
+
+            await using var inHideout = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed, ownerChar);
+            await MapBeyond.Enter(inHideout.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(inHideout.Conn, []));
+            Assert.Equal(100, MapBeyond.IncomingDamage(inHideout.Conn, 100));
+
+            // Re-entering the same map instance restores all three Magnificence buffs; another character does not get them.
+            await using var returned = await ScarabEncounterTests.Wire.Open(instance, layout, seed, ownerChar);
+            await MapBeyond.Enter(returned.Conn);
+            AssertAllBossBuffs(returned.Conn);
+
+            await using var guest = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+            await MapBeyond.Enter(guest.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(guest.Conn, []));
+            Assert.Equal(100, MapBeyond.IncomingDamage(guest.Conn, 100));
+            PlayerInventories.Forget(guest.Conn.Character!);
         }
         finally
         {
             PlayerInventories.Forget(owner.Conn.Character!);
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
+    public async Task Demonic_power_boss_buffs_persist_for_map_instance_across_hideout_round_trips_and_death()
+    {
+        Assert.Equal(3, BeyondCatalog.All.Count);
+        uint Key(string stat) => Program.Stats.Key(stat)!.Value;
+        var atlas = new Dictionary<uint, int>
+        {
+            [Key("map_beyond_boss_grants_special_buff_on_death")] = 1,
+        };
+        var mods = new MapMods(new Dictionary<string, int> { ["map_beyond_rules"] = 1 });
+        var layout = new AreaLayout(1, "MapWorldsStrand", 200, 200, 50, 50, (_, _) => true, []);
+        var instance = new InstanceState();
+        instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1, false));
+        instance.OpenedWith(new("BeyondOwner", new(layout.Hash, layout.Id, "Strand", 3) { Level = 70 }, mods));
+
+        TestEnvironment.OpenOwnSaves("beyond-demonic-power");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var previousOutgoing = Program.Outgoing;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+
+        var sentAddBuffs = new List<(ushort Row, byte Flags)>();
+        Program.Outgoing = (_, bytes) =>
+        {
+            if (bytes.Length >= 23 && bytes[0] == (byte)(InstanceEntities.AddBuffId >> 8)
+                && bytes[1] == (byte)(InstanceEntities.AddBuffId & 0xff))
+            {
+                ushort row = (ushort)(bytes[14] << 8 | bytes[15]);
+                sentAddBuffs.Add((row, bytes[22]));
+            }
+            previousOutgoing?.Invoke(_, bytes);
+        };
+
+        await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053);
+        string ownerChar = owner.Conn.Character!;
+        try
+        {
+            void AssertAllBossBuffs(ClientState c)
+            {
+                var buffStats = MapBeyond.PlayerStats(c, []);
+                Assert.Equal(100, buffStats[Key("physical_damage_%_to_add_as_fire")]);
+                Assert.Equal(40, buffStats[Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
+                Assert.Equal(100, buffStats[Key("physical_damage_%_to_add_as_lightning")]);
+                Assert.Equal(-15, buffStats[Key("action_speed_-%")]);
+                Assert.Equal(90, MapBeyond.IncomingDamage(c, 100));
+            }
+
+            // Kill K'Tash, Ghorr and Beidat -> gain all 3 Magnificence buffs with infinite duration (flags bit1 == 0).
+            foreach (var faction in BeyondCatalog.All)
+            {
+                var boss = new SpawnedMonster(faction.Id, new(50, 50, 10), 40, 80, 100)
+                {
+                    Rarity = MonsterRarity.Unique,
+                    Dead = true,
+                };
+                MapBeyond.Kill(new(owner.Conn, boss, faction.BossVariety, (50, 50)));
+            }
+            AssertAllBossBuffs(owner.Conn);
+            await MapBeyond.Tick(owner.Conn, 0.25);
+
+            var expectedRows = BeyondCatalog.All.Select(f => f.BossBuffRow).Order().ToArray();
+            Assert.Equal(expectedRows, sentAddBuffs.Select(b => b.Row).Order().ToArray());
+            Assert.All(sentAddBuffs, b => Assert.Equal(0, b.Flags & 0x02));
+
+            // No fixed 60 s expiry and no cancellation on player death (CancelOnDeath = 0 in 3.29 BuffDefinitions).
+            await MapBeyond.Tick(owner.Conn, 120.0);
+            AssertAllBossBuffs(owner.Conn);
+            owner.Conn.PlayerLife = 0;
+            await MapBeyond.Tick(owner.Conn, 5.0);
+            AssertAllBossBuffs(owner.Conn);
+
+            // Leaving to hideout clears active buffs on the leaving connection; hideout / other maps do not grant them.
+            MapBeyond.Leave(owner.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(owner.Conn, []));
+            Assert.Equal(100, MapBeyond.IncomingDamage(owner.Conn, 100));
+
+            sentAddBuffs.Clear();
+            await using var inHideout = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, 0x7053, ownerChar);
+            await MapBeyond.Enter(inHideout.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(inHideout.Conn, []));
+            Assert.Equal(100, MapBeyond.IncomingDamage(inHideout.Conn, 100));
+            Assert.Empty(sentAddBuffs);
+
+            // Re-entering the same map instance restores all 3 Magnificence buffs with infinite duration.
+            await using var returned = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053, ownerChar);
+            await MapBeyond.Enter(returned.Conn);
+            AssertAllBossBuffs(returned.Conn);
+            Assert.Equal(expectedRows, sentAddBuffs.Select(b => b.Row).Order().ToArray());
+            Assert.All(sentAddBuffs, b => Assert.Equal(0, b.Flags & 0x02));
+
+            // Restoring from ContentState alone (after a hot-reload) also brings all 3 buffs back.
+            sentAddBuffs.Clear();
+            var reloadedInstance = new InstanceState();
+            reloadedInstance.ContentState["Beyond/boss-buffs"] = instance.ContentState["Beyond/boss-buffs"];
+            await using var afterReload = await ScarabEncounterTests.Wire.Open(reloadedInstance, layout, 0x7053, ownerChar);
+            await MapBeyond.Enter(afterReload.Conn);
+            AssertAllBossBuffs(afterReload.Conn);
+            Assert.Equal(expectedRows, sentAddBuffs.Select(b => b.Row).Order().ToArray());
+
+            // Another character entering the same map instance does not receive the killer's Demonic Power buffs.
+            sentAddBuffs.Clear();
+            await using var guest = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053);
+            await MapBeyond.Enter(guest.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(guest.Conn, []));
+            Assert.Equal(100, MapBeyond.IncomingDamage(guest.Conn, 100));
+            Assert.Empty(sentAddBuffs);
+            PlayerInventories.Forget(guest.Conn.Character!);
+        }
+        finally
+        {
+            PlayerInventories.Forget(ownerChar);
+            Program.Outgoing = previousOutgoing;
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
