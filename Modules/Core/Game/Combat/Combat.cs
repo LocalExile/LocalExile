@@ -1321,7 +1321,7 @@ public static partial class Game
                 if (SupportedChannelSeconds(conn, skillId) is not double interval)
                 { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return false; }
                 conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + interval;
-                _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action);
+                _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action, to);
             }
         }
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
@@ -1769,6 +1769,8 @@ public static partial class Game
         if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
         // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
+        // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
+        if (IsSnipe(gem.Effect)) return Task.CompletedTask;
         bool cryExerted;
         lock (conn.Monsters) cryExerted = ConsumeIntimidatingCryExertLocked(conn,
             channelGeneration is null && IntimidatingCryCanExert(conn, skillId, gem.Effect));
@@ -1909,7 +1911,8 @@ public static partial class Game
     public const double ChannelSilenceSeconds = 1.0;
 
     public static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action,
+        (int X, int Y) initialAim = default)
     {
         int generation = conn.ChannelGeneration;
         double channelStarted = conn.Clock.Elapsed.TotalSeconds;
@@ -1917,18 +1920,30 @@ public static partial class Game
         // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
         // while this channel's cast ticks only build the orb's stages.
         uint orbEffect = 0;
+        bool snipe = IsSnipe(gem.Effect);
         try
         {
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(remote, stream, ciphers, conn, skillId, gem, action);
+            else if (snipe)
+                await SnipeStart(remote, stream, ciphers, conn, skillId, gem, action, initialAim);
             // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
             const string overheatStat = "support_overheat_ailment_damage_+%_final_per_3_fortification_consumed";
             int overheatPerThree = Stats.Key(overheatStat) is uint overheatKey
                 ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(overheatKey) : 0;
             while (true)
             {
+                if (!Running()) return;
                 double wait = conn.NextChannelHitAt - conn.Clock.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
+                if (wait > 0)
+                {
+                    if (snipe)
+                    {
+                        try { await Task.Delay(TimeSpan.FromSeconds(wait), SnipeWaitToken(conn, generation, action)); }
+                        catch (OperationCanceledException) { }
+                    }
+                    else await Task.Delay(TimeSpan.FromSeconds(wait));
+                }
                 await WhilePaused(conn);
                 if (!Running()) return;
                 double now = conn.Clock.Elapsed.TotalSeconds;
@@ -1972,6 +1987,12 @@ public static partial class Game
                     await WinterOrbPresentStages(remote, stream, ciphers, conn);
                     continue;
                 }
+                if (snipe)
+                {
+                    SnipeStageStep(conn, generation, action);
+                    await SnipePresentStages(remote, stream, ciphers, conn);
+                    continue;
+                }
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at,
                     immediate: true, sequence: conn.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
@@ -1986,6 +2007,7 @@ public static partial class Game
             // duration they leave runs out, and death or an area change retires it with the connection. It has no object
             // of its own to remove: the client draws the orb from the stage buff.
             if (orbEffect != 0) WinterOrbRelease(conn, generation, action);
+            if (snipe) await SnipeRelease(remote, stream, ciphers, conn, generation, action);
         }
     }
 
@@ -2002,6 +2024,7 @@ public static partial class Game
     public static void ChannelAimedAt(ClientState conn, int x, int y, double at)
     {
         AimChannelTriggers(conn, (x, y));
+        SnipeAimedAt(conn, (x, y));
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 
@@ -2019,6 +2042,7 @@ public static partial class Game
             conn.ChannelSkill = 0;
             conn.ChannelGeneration++;
         }
+        SnipeWakeChannel(conn);
     }
 
     public static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)
@@ -2030,6 +2054,7 @@ public static partial class Game
                 // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
                 // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
                 && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                    || IsSnipeChannelling(conn, skill)
                     || conn.PaidChannel is { } paid && paid.Skill == skill
                         && SkillsFor(conn).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                     || conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds);

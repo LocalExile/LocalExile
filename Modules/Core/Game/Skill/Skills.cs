@@ -1225,7 +1225,8 @@ public static partial class Game
             return "this curse is triggered by Bane";
         if (TravelSkillsExceptDashDisabled(conn, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
-            && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
+            && !TriggeredSpellExecutable(conn, skillId, gem)
+            && !SnipeTriggeredAttackExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
                 ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)

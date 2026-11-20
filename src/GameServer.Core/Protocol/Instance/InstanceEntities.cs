@@ -688,6 +688,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
     public byte AttachFlags { get; init; }
 
+    /// <summary>Sets Positioned flags1 0x08 with value 1 (→ +0x1e6 bit 0x40, as <see cref="PetObject"/> writes it) so
+    /// the client's object collision test (0x141e65ae0) skips this actor and walkers pass through it.</summary>
+    public bool NonBlocking { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -723,8 +727,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
             switch (c)
             {
                 // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player, plus flags1 0x08 + 1
+                // when NonBlocking so the client's collision test skips this actor.
+                case "Positioned":
+                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(NonBlocking ? (byte)0x0a : (byte)0x02).U8(0).U8(1);
+                    if (NonBlocking) w.U8(1);
+                    break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod

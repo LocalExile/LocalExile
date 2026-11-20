@@ -42,7 +42,7 @@ public static partial class Game
             && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || AuraCatalog.Supported(g.EffectId)
+                || g.EffectId == SnipeEffect || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
     }
 
@@ -92,11 +92,16 @@ public static partial class Game
         var candidates = new List<GemSupports.Candidate>();
         foreach (var p in places.Where(p => p.ItemId == selected.Place.ItemId
             && GemSupports.LinkGroup(host, p.Socket) == group && GemRequirementsUnmetAt(conn, p.Gem, requirements) is null))
-            if (ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: true } gem)
+            if (ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { } gem)
             {
                 var variant = gem.Variant(p.Gem.GemVariant);
-                foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
-                    candidates.Add(new(effect, EffectiveGemLevel(conn, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
+                if (gem.IsSupport)
+                    foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
+                        candidates.Add(new(effect, EffectiveGemLevel(conn, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
+                            Quality(p.Socket, p.Gem), p.Socket));
+                else if (variant.Effect2 >= 0
+                    && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect })
+                    candidates.Add(new(variant.Effect2, EffectiveGemLevel(conn, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
@@ -497,6 +502,9 @@ public static partial class Game
                 && Stats.Key("chain_hook_and_shield_charge_attack_speed_+%_per_10_rampage_stacks") is uint rampageSpeed
                 && stats.GetValueOrDefault(rampageSpeed) is int perTen and > 0)
                 stats[final] += conn.Rampage.Current.Stacks / 10 * perTen;
+            if (IsSnipe(gem.Effect) && Stats.Key("snipe_attack_speed_+%") is uint snipeSpeed
+                && stats.GetValueOrDefault(snipeSpeed) is int snipeInc and not 0)
+                stats[final] += snipeInc;
         }
         if (proxy && Stats.Key("main_hand_attack_speed_+%") is uint proxySpeed)
             stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get("totem_skill_attack_speed_+%")

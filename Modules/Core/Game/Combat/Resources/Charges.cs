@@ -299,7 +299,7 @@ public static partial class Game
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect)
-        => SkillsFor(conn).IsWarcry(effect) && UseWarcry(remote, stream, ciphers, conn, effect, SupportedSkill(conn, skillId).Stats);
+        => SkillsFor(conn).IsWarcry(effect) && UseWarcry(remote, stream, ciphers, conn, effect, SupportedSkill(conn, skillId).Stats, skillId);
 
     const int InfiniteWarcryPower = 999999;
 
@@ -313,7 +313,7 @@ public static partial class Game
     }
 
     public static bool UseWarcry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int effect,
-        IReadOnlyDictionary<uint, int> own)
+        IReadOnlyDictionary<uint, int> own, ushort skillId = 0)
     {
         if (!SkillsFor(conn).IsWarcry(effect)) return false;
         bool enduring = SkillsFor(conn).EffectId(effect) == "EnduringCry";
@@ -354,6 +354,8 @@ public static partial class Game
                     lock (conn.Monsters)
                         if (conn.ProjectileActive(epoch) && conn.PlayerLife > 0)
                             ApplyIntimidatingCryLocked(conn, own, CharacterPlayerStats(conn), now);
+                if (skillId != 0 && IsGeneralsCry(conn, effect))
+                    await GeneralsCryReleased(remote, stream, ciphers, conn, skillId, here, radius, epoch);
                 await WarcryReleased(remote, stream, ciphers, conn, here, radius, epoch);
                 return;
             }
