@@ -926,8 +926,8 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     /// arrow sends 3, keeping the bone's rotation so the arrow follows aux_projectile_attach.</summary>
     public byte AttachFlags { get; init; }
 
-    /// <summary>Animated flags override: bit0 the .ao path, bit2 the attachment, bit3 the native default animation
-    /// (the rain rig uses 0x09; zero computes 1, or 5 with a parent).</summary>
+    /// <summary>Additional Animated flags: bit0 (.ao path) is always set, bit2 (0x04) is set whenever
+    /// <see cref="Parent"/> is non-zero, and bit3 (0x08) writes the native default animation (the rain rig uses 0x09).</summary>
     public byte AnimatedFlags { get; init; }
 
     /// <summary>Positioned flags0 0x04's two fields: the native skill/action animation row and its time value
@@ -946,16 +946,19 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         bool scaled = Scale != 1;
         w.U8(0).U8(0);                                              // object flags, base data entry count
         w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
-        if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native animation fields
+        // Positioned (0x141e323f0) reads flags0 0x20 (scale + x/y stretch) before flags0 0x04 (fixed height / native fields).
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
+        if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native fields
         w.U8(0).U8(1);
-        w.U8(AnimatedFlags != 0 ? AnimatedFlags : Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated
-        // Bit 3 makes the client read the animation's id, a second word and its speed after the path (the official
-        // rain rig's 12 bytes: id, 0, 1.0); without them the read runs past the blob and crashes the client.
-        if ((AnimatedFlags & 8) != 0) w.U32(AnimationId).U32(0).F32(1);
+        // Animated (0x141e5afd0) reads bit0 (.ao path), then bit2 (0x04 bone attachment), then bit3 (0x08 animation id/0/speed).
+        byte animatedFlags = (byte)(AnimatedFlags | 0x01 | (Parent != 0 ? 0x04 : 0));
+        w.U8(animatedFlags).WStr32(AnimatedObject);
         if (Parent != 0)
             w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
                 .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
+        // Bit 3 makes the client read the animation's id, a second word and its speed after the path (the official
+        // rain rig's 12 bytes: id, 0, 1.0); without them the read runs past the blob and crashes the client.
+        if ((animatedFlags & 8) != 0) w.U32(AnimationId).U32(0).F32(1);
         w.U8(0);                                                    // tasks
         return w.ToArray();
     }

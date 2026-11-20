@@ -1,5 +1,3 @@
-using GameServer.Core.Protocol.Login;
-
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
@@ -74,17 +72,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
                 case "Chest": w.U8((byte)(Opened ? 1 : 0)).U8(0).U8(0); break;
-                case "Stats":
-                    w.U8(0).U32(0).U32(0);
-                    var stats = new LoginWriter();
-                    InstanceProtocol.CompactUInt(stats, (uint)Stats.Count);
-                    foreach (var (key, value) in Stats)
-                    {
-                        InstanceProtocol.CompactUInt(stats, key);
-                        InstanceProtocol.CompactInt(stats, value);
-                    }
-                    foreach (byte b in stats.ToArray()) w.U8(b);
-                    break;
+                case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
                 case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
                 case "ObjectMagicProperties":

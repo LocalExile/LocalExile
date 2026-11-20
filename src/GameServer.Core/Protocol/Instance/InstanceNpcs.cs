@@ -295,18 +295,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 case "NPC": w.U8(1).U8(0xff); break;
                 case "MinimapIcon": w.U8(0); break;
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
-                case "StateMachine":
-                    var sm = StateMachine!;
-                    w.U8((byte)sm.SharedStates.Count).U8((byte)sm.SharedTimers);
-                    foreach (int v in sm.SharedStates)
-                    {
-                        var lw = new LoginWriter();
-                        InstanceProtocol.CompactInt(lw, v);
-                        foreach (byte b in lw.ToArray()) w.U8(b);
-                        w.U8(0);
-                    }
-                    for (int i = 0; i < sm.SharedTimers; i++) w.U32(0).U8(0);
-                    break;
+                case "StateMachine": StateMachine!.Write(w); break;
                 // BaseEvents: no data.
             }
         }

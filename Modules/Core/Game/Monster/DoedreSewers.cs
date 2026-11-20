@@ -23,6 +23,7 @@ public static class DoedreSewers
         public double Dps, NextStack;
     }
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
+    public static byte[] HazardAnimation(uint objectId, uint clip) => InstanceProtocol.AnimationUpdate(objectId, 0, clip, 1);
     public static StateMachineData? StartStates(MonsterCatalog.Variety v) => IsBoss(v)
         ? v.StateMachine?.Set("disable_life_bar", 1).Set("boss_life_bar", 0) : null;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
@@ -429,17 +430,16 @@ public static class DoedreSewers
                 await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.CreateObject(h.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(h.At.X, h.At.Y, model).Blob()), null);
                 await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.EnterWakeZone(h.Id), null);
             }
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.AnimationUpdate(h.Id, AnimatedIndex(h), h.Kind is 3 or 5 ? h.Loop ? 2u : 1u : 0u, 1), null);
+            await Send(w.Remote, w.Stream, w.Ciphers, HazardAnimation(h.Id, h.Kind is 3 or 5 ? h.Loop ? 2u : 1u : 0u), null);
         }
         static string LiquidType(Hazard h) => Objects + (h.Kind == 5 ? "DoedreSewersPipeLiquid" : "DoedreSewersCauldronLiquid")
             + (h.Model.Contains("_red.") ? "Red" : h.Model.Contains("_purple.") ? "Purple" : h.Model.Contains("_green.") ? "Green" : "Neutral");
-        static byte AnimatedIndex(Hazard h) => h.Kind is 3 or 5 && QuestObjectTypes.Find(LiquidType(h)) is { } info ? (byte)info.Components.ToList().IndexOf("Animated") : (byte)0;
         async Task Hazards(ClientState c, double now)
         {
             foreach (var liquid in hazards.Where(h => h.Kind is 3 or 5 && !h.Loop && now >= h.Moved + 3).ToArray())
             {
                 hazards[hazards.IndexOf(liquid)] = liquid with { Loop = true };
-                await All(InstanceProtocol.AnimationUpdate(liquid.Id, AnimatedIndex(liquid), 2, 1));
+                await All(HazardAnimation(liquid.Id, 2));
             }
             foreach (var h in hazards.Where(h => h.Ends <= now).ToArray())
             {
@@ -520,7 +520,7 @@ public static class DoedreSewers
         {
             foreach (var h in hazards.ToArray())
             {
-                if (drainLiquid && h.Kind is 3 or 5) { await All(InstanceProtocol.AnimationUpdate(h.Id, AnimatedIndex(h), 0, 1)); continue; }
+                if (drainLiquid && h.Kind is 3 or 5) { await All(HazardAnimation(h.Id, 0)); continue; }
                 await All(InstanceProtocol.RemoveObject(h.Id)); hazards.Remove(h);
             }
             foreach (uint add in adds)
