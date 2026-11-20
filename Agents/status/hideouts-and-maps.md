@@ -139,7 +139,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Harvest module fills 3-4 pairs of crops (Extractor, Irrigator, Pole, Storage Tank, 23 seeds by colour and tier);
   one click hatches the seed monsters and withers the other crop of the pair; they drop Wild/Vivid/Primal lifeforce.
   The `atlas_harvest_*` passives (including Crop Rotation via `atlas_keystone_crop_rotation`: all Tier 1 on spawn and
-  per-seed tier upgrades on idle crops of other colours at crop completion, with automated coverage; live check pending),
+  per-seed tier upgrades on idle crops of other colours at crop completion),
   the three Harvest scarabs and the Idols' same stats apply, all read from
   `Game.MapModsOf`, except Nature's Favour (lucky Horticrafting outcomes), the Harvest-scarab weighting
   (`map_harvest_scarab_more_likely_%`) and Refiner's Bargain's crops (its monsters drop no lifeforce and nothing else).

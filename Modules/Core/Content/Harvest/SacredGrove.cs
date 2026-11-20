@@ -56,7 +56,7 @@ public static class SacredGrove
         public List<GroveCrops.SeedCount> Seeds { get; set; } = [];
         public uint Extractor { get; set; }
         public uint Irrigator { get; set; }
-        /// <summary>The seed objects, one per seed, in the order of <see cref="Seeds"/> expanded.</summary>
+        /// <summary>The seed objects, one per seed; each holds its own seed row (Crop Rotation changes some).</summary>
         public List<uint> SeedObjects { get; set; } = [];
         public Phase Phase { get; set; }
         public List<uint> Monsters { get; set; } = [];
@@ -280,8 +280,7 @@ public static class SacredGrove
                 var seeds = crop.Seeds.ToList();
                 var extractor = Add(ExtractorType, e, ("colour", crop.Colour), ("active", 1));
                 var irrigator = Add(IrrigatorType, i, ("colour", crop.Colour), ("plot_colour", crop.Colour));
-                extractor.Seeds = [.. seeds];
-                irrigator.Seeds = [.. seeds];
+                extractor.Seeds = irrigator.Seeds = seeds;
                 var state = new CropState
                 {
                     Site = crop.Site, Slot = crop.Slot, Colour = crop.Colour, Seeds = seeds,
@@ -366,15 +365,10 @@ public static class SacredGrove
 
     static bool Blocks(GroveObject o) => o.Type != SeedType || o.States.GetValueOrDefault("hatched") == 0 && o.States.GetValueOrDefault("withered") == 0;
 
-    static async Task Present(ClientState conn, GroveObject o, bool replace = false)
+    static async Task Present(ClientState conn, GroveObject o)
     {
         var shown = Presented.GetOrCreateValue(conn);
-        if (!replace && shown.Contains(o.Id) || Describe(o) is not var (quest, _)) return;
-        if (shown.Contains(o.Id))
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SendWorldRemoval(remote, stream, ciphers, conn, o.Id, null);
-        }
+        if (shown.Contains(o.Id) || Describe(o) is not var (quest, _)) return;
         byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
         await SendWorldCreate(conn, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
             wake: true, awaitBirth: false);
@@ -402,17 +396,20 @@ public static class SacredGrove
         }
         GroveObject[] objects;
         await area.Gate.WaitAsync();
-        // Copies with their states and seeds taken under the gate: a crop starting or completing meanwhile mutates them.
+        // Copies with their states taken under the gate: a crop starting meanwhile adds state keys (SetStates). A seed
+        // list is replaced whole, never changed in place, so the copy shares it.
         try
         {
             objects = [.. grove.Objects.Values.Select(o => new GroveObject
-                { Id = o.Id, Type = o.Type, X = o.X, Y = o.Y, Rotation = o.Rotation, Model = o.Model, States = new(o.States), Seeds = [.. o.Seeds] })];
+                { Id = o.Id, Type = o.Type, X = o.X, Y = o.Y, Rotation = o.Rotation, Model = o.Model, States = new(o.States), Seeds = o.Seeds })];
         }
         finally { area.Gate.Release(); }
         foreach (var o in objects) await Present(conn, o);
     }
 
-    static List<GroveObject> ApplyStates(Grove grove, IEnumerable<(uint Id, string Name, int Value)> changes)
+    // Sets states on grove objects, keeps the grove, and sends each changed object's StateMachine (0x2bc) to every
+    // member that has it.
+    static async Task SetStates(ClientState conn, Grove grove, IEnumerable<(uint Id, string Name, int Value)> changes)
     {
         var changed = new List<GroveObject>();
         foreach (var (id, name, value) in changes)
@@ -421,11 +418,7 @@ public static class SacredGrove
                 o.States[name] = value;
                 if (!changed.Contains(o)) changed.Add(o);
             }
-        return changed;
-    }
-
-    static async Task SendStates(ClientState conn, IReadOnlyList<GroveObject> changed, IReadOnlySet<uint>? skipSend = null)
-    {
+        Keep(conn, grove);
         foreach (var member in Members(conn))
         {
             var shown = Presented.GetOrCreateValue(member);
@@ -434,17 +427,13 @@ public static class SacredGrove
             {
                 if (Describe(o) is not var (quest, type)) continue;
                 if (!Blocks(o)) member.RemoveBlocker(o.Id);
-                if (!shown.Contains(o.Id) || skipSend?.Contains(o.Id) == true) continue;
+                if (!shown.Contains(o.Id)) continue;
                 int index = type.Components.ToList().IndexOf("StateMachine");
                 await SendWorldRecord(remote, stream, ciphers, member, o.Id,
                     InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
             }
         }
     }
-
-    // Sets states on grove objects and sends each changed object's StateMachine (0x2bc) to every member that has it.
-    static Task SetStates(ClientState conn, Grove grove, IEnumerable<(uint Id, string Name, int Value)> changes) =>
-        SendStates(conn, ApplyStates(grove, changes));
 
     /// <summary>A click on a crop (its Extractor or its Irrigator): walk up, then start it, unless another crop runs.</summary>
     public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -529,7 +518,6 @@ public static class SacredGrove
             else withered = $", site {pair.Site}.{pair.Slot} kept (not-wither chance {area.Stats.NotWitherChance}%)";
         }
         changes.AddRange(crop.SeedObjects.Select(id => (id, "hatched", 1)));
-        Keep(conn, grove);
         Console.WriteLine($"[harvest] {CharacterName(conn)} started site {crop.Site}.{crop.Slot} colour {crop.Colour}{withered}");
         await SetStates(conn, grove, changes);
 
@@ -559,7 +547,9 @@ public static class SacredGrove
                 spawned++;
             }
         }
-        Keep(conn, grove);
+        // MonsterSeed.ot: hatched 1 is the infusion (the crop started), 2 the hatch itself, which ends the infusion effect
+        // and plays the colour's hatch effect.
+        await SetStates(conn, grove, crop.SeedObjects.Select(id => (id, "hatched", 2)));
         Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot}: {spawned} monsters hatched"
             + (unsupported > 0 ? $", {unsupported} seeds of unsupported varieties" : ""));
     }
@@ -592,6 +582,7 @@ public static class SacredGrove
         finally { area.Gate.Release(); }
     }
 
+    // Under the area's gate.
     static async Task Complete(ClientState conn, Area area, Grove grove, CropState crop)
     {
         var tables = HarvestTables.Current;
@@ -599,36 +590,56 @@ public static class SacredGrove
         var changes = new List<(uint, string, int)> { (crop.Extractor, "current_state", 4) };
         foreach (var other in grove.Crops.Where(c => c != crop))
             changes.AddRange([(other.Extractor, "in_combat", 0), (other.Irrigator, "in_combat", 0)]);
-        var upgraded = new List<GroveObject>();
-        if (area.Stats.CropRotation && !grove.MemoryLine && !area.Stats.BigHarvest && !area.Stats.MixedColours
-            && tables.Level(grove.Level) is { } values)
+        // Crop Rotation. A changed crop's Extractor and Irrigator and its changed seed objects are created again: a seed's
+        // model is part of its creation, and HarvestWorldObject's 0x2bc reader (its creation reader) sets a count per seed
+        // row and never drops a row, so a row that left the crop would stay on its label as "0 x" (live 2026-11-20).
+        var regrown = new List<GroveObject>();
+        if (area.Stats.CropRotation && !grove.MemoryLine && tables.Level(grove.Level) is { } values)
             foreach (var other in grove.Crops.Where(c => c.Phase == Phase.Idle && c.Colour != crop.Colour))
             {
                 if (GroveCrops.Upgrade(area.Random, tables, values, other.Colour, other.Seeds, area.Stats.FaridunChance) is not { } seeds) continue;
                 other.Seeds = seeds;
-                var extractor = grove.Objects[other.Extractor];
-                var irrigator = grove.Objects[other.Irrigator];
-                extractor.Seeds = [.. seeds];
-                irrigator.Seeds = [.. seeds];
-                upgraded.AddRange([extractor, irrigator]);
-                var rows = Expand(seeds).ToList();
-                for (int s = 0; s < other.SeedObjects.Count && s < rows.Count; s++)
+                foreach (uint id in (uint[])[other.Extractor, other.Irrigator])
                 {
-                    var seed = grove.Objects[other.SeedObjects[s]];
-                    if (seed.Seeds is [{ } old] && old.Row == rows[s]) continue;
-                    seed.Seeds = [new(rows[s], 1)];
-                    seed.Model = tables.Seeds[rows[s]].Model;
-                    upgraded.Add(seed);
+                    grove.Objects[id].Seeds = seeds;
+                    regrown.Add(grove.Objects[id]);
+                }
+                // Every seed object keeps its seed while the new list still has one of it; the others take what is left.
+                var left = seeds.ToDictionary(s => s.Row, s => s.Count);
+                var changed = new List<GroveObject>();
+                foreach (uint id in other.SeedObjects)
+                {
+                    var seed = grove.Objects[id];
+                    if (seed.Seeds is [{ } own] && left.GetValueOrDefault(own.Row) > 0) left[own.Row]--;
+                    else changed.Add(seed);
+                }
+                var spare = new Queue<int>(Expand(seeds.Select(s => s with { Count = left[s.Row] })));
+                foreach (var seed in changed)
+                {
+                    if (!spare.TryDequeue(out int row)) break;
+                    seed.Seeds = [new(row, 1)];
+                    seed.Model = tables.Seeds[row].Model;
+                    regrown.Add(seed);
                 }
             }
-        var changed = ApplyStates(grove, changes);
-        Keep(conn, grove);
         Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot} complete"
-            + (upgraded.Count > 0 ? $"; {upgraded.Count} objects upgraded" : ""));
-        var replaced = upgraded.Count > 0 ? upgraded.Select(o => o.Id).ToHashSet() : null;
-        await SendStates(conn, changed, replaced);
+            + (regrown.Count > 0 ? $"; Crop Rotation changed {regrown.Count} objects" : ""));
+        await SetStates(conn, grove, changes);
+        if (regrown.Count == 0) return;
         foreach (var member in Members(conn))
-            foreach (var o in upgraded)
-                if (Presented.GetOrCreateValue(member).Contains(o.Id)) await Present(member, o, replace: true);
+        {
+            var shown = Presented.GetOrCreateValue(member);
+            var (remote, stream, ciphers) = member.Wire;
+            var again = regrown.Where(o => shown.Contains(o.Id)).ToList();
+            // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
+            // this tick for a frame per object.
+            await Task.WhenAll(again.Select(o => SendWorldRemoval(remote, stream, ciphers, member, o.Id, null)));
+            if (member.Closed || member.LeavingArea) continue;
+            foreach (var o in again)
+            {
+                shown.Remove(o.Id);
+                await Present(member, o);
+            }
+        }
     }
 }

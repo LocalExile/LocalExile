@@ -192,11 +192,11 @@ public sealed class HarvestCropRotationTests
         foreach (var same in sameColourIdle)
             Assert.Equal(beforeByExtractor[same.Extractor], after.Crops.Single(c => c.Extractor == same.Extractor).Seeds);
 
-        // Idle crops of other colours upgrade; Extractor, Irrigator, and SeedObjects stay in lockstep.
+        // Idle crops of other colours upgrade; the Extractor, the Irrigator and the seed objects hold the same seeds.
         var upgradedCrops = otherColourIdle.Select(c => after.Crops.Single(a => a.Extractor == c.Extractor))
             .Where(a => !a.Seeds.SequenceEqual(beforeByExtractor[a.Extractor])).ToList();
         Assert.NotEmpty(upgradedCrops);
-        var upgradedObjectIds = new HashSet<uint>();
+        var recreated = new HashSet<uint>();
         foreach (var up in upgradedCrops)
         {
             Assert.Equal(GroveCrops.SeedsPerCrop, up.Seeds.Sum(s => s.Count));
@@ -205,36 +205,30 @@ public sealed class HarvestCropRotationTests
             Assert.Equal(up.Seeds, after.Objects[up.Irrigator].Seeds);
             Assert.Equal(0, after.Objects[up.Extractor].States["in_combat"]);
             Assert.Equal(0, after.Objects[up.Irrigator].States["in_combat"]);
-            upgradedObjectIds.Add(up.Extractor);
-            upgradedObjectIds.Add(up.Irrigator);
-            var expanded = up.Seeds.SelectMany(s => Enumerable.Repeat(s.Row, s.Count)).ToList();
-            Assert.Equal(expanded.Count, up.SeedObjects.Count);
-            for (int i = 0; i < expanded.Count; i++)
-            {
-                var seedObj = after.Objects[up.SeedObjects[i]];
-                Assert.Equal([new GroveCrops.SeedCount(expanded[i], 1)], seedObj.Seeds);
-                Assert.Equal(tables.Seeds[expanded[i]].Model, seedObj.Model);
-                if (beforeSeedRows[seedObj.Id] != expanded[i]) upgradedObjectIds.Add(seedObj.Id);
-            }
+            var rows = up.SeedObjects.Select(id => after.Objects[id].Seeds.Single().Row).ToList();
+            Assert.Equal(up.Seeds.SelectMany(s => Enumerable.Repeat(s.Row, s.Count)).Order(), rows.Order());
+            Assert.All(up.SeedObjects, id => Assert.Equal(tables.Seeds[after.Objects[id].Seeds.Single().Row].Model, after.Objects[id].Model));
+            // Only the seeds that rose change: every other seed object keeps its seed.
+            var changed = up.SeedObjects.Where(id => beforeSeedRows[id] != after.Objects[id].Seeds.Single().Row).ToList();
+            Assert.Equal(up.Seeds.Sum(s => Math.Max(0, s.Count - beforeByExtractor[up.Extractor].Where(b => b.Row == s.Row).Sum(b => b.Count))),
+                changed.Count);
+            recreated.UnionWith([up.Extractor, up.Irrigator, .. changed]);
         }
 
-        // Wire packets: completed Extractor gets 0x2bc; every upgraded object gets 0x2bd -> 0x2bb (+0x1a9) and NO redundant 0x2bc.
+        // Wire: the completed Extractor gets 0x2bc; exactly the changed crops' Extractors and Irrigators and the changed
+        // seed objects are removed (0x2bd) and created again (0x2bb) with their new seeds.
         Assert.Contains(tickPackets, p => p.Id == InstanceEntities.ComponentUpdateId && p.EntityId == doneCrop.Extractor);
-        foreach (uint id in upgradedObjectIds)
+        Assert.Equal(recreated, tickPackets.Where(p => p.Id == InstanceProtocol.RemoveObjectId).Select(p => p.EntityId).ToHashSet());
+        foreach (uint id in recreated)
         {
             int removeAt = tickPackets.FindIndex(p => p.Id == InstanceProtocol.RemoveObjectId && p.EntityId == id);
-            int createAt = tickPackets.FindIndex(p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == id);
-            Assert.True(removeAt >= 0 && createAt > removeAt, $"object 0x{id:x} must be removed before re-create");
-            Assert.DoesNotContain(tickPackets, p => p.Id == InstanceEntities.ComponentUpdateId && p.EntityId == id);
+            int created = tickPackets.FindIndex(p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == id);
+            Assert.True(created > removeAt, $"object 0x{id:x} must be removed before it is created again");
+            Assert.Equal(BlobOf(after.Objects[id]), tickPackets[created].Blob);
         }
-        foreach (var same in sameColourIdle)
-            Assert.DoesNotContain(tickPackets, p => p.Id == InstanceProtocol.RemoveObjectId && p.EntityId == same.Extractor);
 
-        // Verify the re-created upgraded Extractor blob carries the exact updated HarvestWorldObject seed list.
         var sampleUp = upgradedCrops[0];
         var expectedBlob = BlobOf(after.Objects[sampleUp.Extractor]);
-        var sentCreate = tickPackets.Single(p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == sampleUp.Extractor);
-        Assert.Equal(expectedBlob, sentCreate.Blob);
 
         // Simulated module reload / re-entry: fresh InstanceState with persisted ContentState restores the upgraded objects.
         var reloadedInstance = new InstanceState();

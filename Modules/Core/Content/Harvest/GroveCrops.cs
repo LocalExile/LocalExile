@@ -69,8 +69,7 @@ public static class GroveCrops
     /// Tier 3 and Tier 2 roll counts with it (a guess).</summary>
     public static int[] Tiers(Random random, HarvestTables.LevelValues level, HarvestStats stats, int seeds = SeedsPerCrop)
     {
-        if (stats.CropRotation && !stats.BigHarvest && !stats.MixedColours)
-            return [0, seeds, 0, 0, 0];
+        if (stats.CropRotation) return [0, seeds, 0, 0, 0];
         var tiers = new int[5];
         int Rolls(int rolls) => seeds == SeedsPerCrop ? rolls : (int)Math.Round((double)rolls * seeds / SeedsPerCrop);
         double t4 = level.Tier4 / 10000.0 * Math.Max(0, 1 + stats.Tier4ChanceIncrease / 100.0) + stats.Tier4FlatChance / 100.0;
