@@ -93,7 +93,7 @@ public static partial class Game
                     {
                         monster.Dead = true;
                         monster.LastHitBy = Conn;
-                        CollectVaalSoulAtDeathLocked(Conn, monster);
+                        CommitMonsterDeathLocked(Conn, monster);
                         Enqueue(() => DotKilled(remote, stream, ciphers, Conn, id, monster));
                     }
                 }

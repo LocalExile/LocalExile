@@ -82,6 +82,7 @@ public static partial class MapTorment
         public readonly HashSet<uint> SpiritMonsters = [];
         public readonly HashSet<uint> Checked = [];
         public readonly ConcurrentQueue<Payout> Payouts = new();
+        public readonly ConcurrentQueue<MartyrDeath> MartyrDeaths = new();
         public int Version;
         public bool MarksChanged;
     }
@@ -289,7 +290,9 @@ public static partial class MapTorment
         await area.Gate.WaitAsync();
         try
         {
-            if (area.Spirits is null || conn.Closed || conn.LeavingArea) return;
+            if (conn.Closed || conn.LeavingArea) return;
+            while (area.MartyrDeaths.TryDequeue(out var death)) await PresentMartyr(conn, death);
+            if (area.Spirits is null) return;
             await PayOut(conn, area);
             await Present(conn, area);
             if (IsMonsterRunner(conn)) await Drive(conn, area, Math.Clamp(seconds, 0, 1));

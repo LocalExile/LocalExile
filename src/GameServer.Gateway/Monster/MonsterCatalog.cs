@@ -191,6 +191,10 @@ public sealed class MonsterCatalog(string folder = "data")
     public int? BaseDamage(int level) =>
         _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? (int)Math.Round(t.Levels[level - 1].Damage) : null;
 
+    /// <summary>DefaultMonsterStats.MonsterLife at this level, before the variety, type and rarity adjust it.</summary>
+    public int? DefaultLife(int level) =>
+        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].MonsterLife : null;
+
     /// <summary>A monster's accuracy at this level: DefaultMonsterStats `Accuracy`.</summary>
     public int? BaseAccuracy(int level) =>
         _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Accuracy : null;

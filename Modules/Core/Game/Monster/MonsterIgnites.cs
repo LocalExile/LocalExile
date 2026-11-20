@@ -294,7 +294,7 @@ public static partial class Game
                 if (m.Life == 0)
                 {
                     m.Dead = true;
-                    CollectVaalSoulAtDeathLocked(conn, m);
+                    CommitMonsterDeathLocked(conn, m);
                     set.Clear(burnt: true);
                     if (set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
                 }

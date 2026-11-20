@@ -582,7 +582,7 @@ public static partial class Game
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
                 if (ElementalOverloadCritLocked(conn, SkillCatalog.FirstSkillId, null, player, critical) is { } eoBuff)
                     ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, "elemental overload (default attack)");
-                if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
+                if (life == 0) { m.Aggro = false; m.Dead = true; CommitMonsterDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
                     blind: BlindHitInput.Capture(player), attackGains: AttackAilmentGains.Capture(player, attack: true));
@@ -2907,10 +2907,18 @@ public static partial class Game
             conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
             conn.RecentEvents.Record(StatConditions.HitEnemy, m.PlayerHitAt);
         }
-        if (m.Life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
+        if (m.Life == 0) { m.Aggro = false; m.Dead = true; CommitMonsterDeathLocked(conn, m); }
         TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: m.Life == 0, allyAt);
         if (allyAt is null && damage > 0 && !conn.Reservations.Secondary) ReservationHitLocked(conn, m);
         return new(m.Life, starts);
+    }
+
+    // The lethal mutation holds the shared Monsters lock. The dying monster's own effects still fire when the
+    // damage-over-time owner has left. A Vaal soul belongs only to a present owner.
+    internal static void CommitMonsterDeathLocked(ClientState conn, SpawnedMonster monster, bool awardSoul = true)
+    {
+        if (awardSoul) CollectVaalSoulAtDeathLocked(conn, monster);
+        MapTorment.MartyrDiedLocked(conn, monster);
     }
 
     public static Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,

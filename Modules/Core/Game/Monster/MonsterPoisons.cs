@@ -119,7 +119,7 @@ public static partial class Game
                     if (m.Life == 0)
                     {
                         m.Dead = true;
-                        CollectVaalSoulAtDeathLocked(conn, m);
+                        CommitMonsterDeathLocked(conn, m);
                         m.Poisons.ClearAtDeath(now, poisonDeath: true);
                     }
                     hits.Add((id, m, m.Life, damage));

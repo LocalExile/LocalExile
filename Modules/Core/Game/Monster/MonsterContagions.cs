@@ -236,7 +236,7 @@ static partial class Game
                     {
                         m.Dead = true;
                         m.LastHitBy = owner;
-                        if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
+                        CommitMonsterDeathLocked(owner ?? conn, m, awardSoul: owner is not null);
                         // Its own damage killed it partway through the tick: what affected it then spreads, with the
                         // time it had left then (also when this tick ended it).
                         dot.Died(fraction);
