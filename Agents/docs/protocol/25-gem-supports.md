@@ -316,5 +316,18 @@ Other generic triggers remain unavailable.
 Queued triggers retain stable source gem identity and the support configuration. XP/lock edits retain identity;
 actual gem swaps or changed levels/links cancel queued work. Reused skill IDs alone are insufficient identity. Pause freezes pending work without erasing the counter.
 Triggered roots use server projectile objects because there is no local input action to predict them.
+Such an object plays its rig's impact clip where it stops (`projectile_clips`, Fireball's `fireball_explode`) and stays
+for the clip's length; removed at once it showed no explosion, which the client plays itself for its own cast.
+A server effect object (`PermanentServerEffect`) does not start its `.ao`'s `default_animation`: Toxic Rain's pod stood
+still and its shoot-up art drew nothing until a clip was sent (Animated bit 3 at creation, or `0x1b2`; live 2026-11-17).
+Clip indices are the rig's (`.amd`) order, which is by name:
+`rain_of_spores/pods/rig.amd` grow_fast_01 0, grow_slow_01 1, grow_slow_explode_01..03 2-4 (966 ms; `BloomPod.ot` plays
+1 when the pod is made and one of 2-4 on its transition, and every skin's pod extends that type);
+`ground_effects_v2/caustic_arrow_ground/rig.amd` fadein 0 (366 ms, the default), fadeout 1 (1500 ms), loop 2;
+`Microtransactions/spell/poison_arrow/rig.amd` cloudbegone 0 (2083 ms), cloudemerge 1 (833 ms), cloudstuff 2.
+GroundEffects names a ground's loop (`__col8`) and end clip (`EndEffect`); `__col1` is its art variation, which a skill
+effect sets through `ground_caustic_art_variation` (Caustic Arrow's own is 2, Celestial 7, Oblivion 13).
+The falling arrow of a rain skill is one clip, index 0, that reaches the ground part-way in: `spore_drop.ao` at 0.224 s,
+`rain_of_arrows/rig.ao` (no default animation) at 0.218 s, `blast_rain/arrow_drop.ao` at its contact, 0.333 s.
 The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
 Native targeting, visual parity and threshold timing require client verification.

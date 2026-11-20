@@ -124,6 +124,7 @@ Nothing yet.
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
+  Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
   Cast on Melee Kill releases linked spells on a linked melee attack's kill; it is not yet checked in the client.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
