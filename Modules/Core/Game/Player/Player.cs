@@ -67,16 +67,20 @@ public static partial class Game
                 string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? conn.Stance : null;
                 string effectId = StanceCatalog.IsSource(effect)
                     ? StanceCatalog.RuntimeEffectId(effect, conn.Stance) : selected;
+                bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisualsForGem(conn, gem.Gem, effectId, hasSource);
                 var candidate = new AuraCatalog.Aura(gem.Id, gem.Effect, effectId, gem.Name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance),
                     reservation.ManaFlat, reservation.ManaPercent,
                     LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
                     Level: supported.Level, Quality: supported.Quality,
-                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SourceBuff: hasSource ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
-                    IsHerald: IsHeraldAura(effectId));
+                    IsHerald: IsHeraldAura(effectId),
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }

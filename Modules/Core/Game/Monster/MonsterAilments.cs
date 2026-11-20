@@ -412,7 +412,9 @@ public static partial class Game
                 foreach (var (kind, removed, added, magnitude) in a.Present(now))
                 {
                     if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now),
+                        AilmentArtVisual(conn, kind switch { Kind.Chill => "chill", Kind.Freeze => "freeze", _ => "shock" })),
+                        $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
                 }
             }
             double action = MonsterActionFactor(m, now, freeze: false);
@@ -477,10 +479,11 @@ public static partial class Game
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
-    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
+    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0, ushort? visual = null) =>
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
-            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
+            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null,
+            visual: visual);
     public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,

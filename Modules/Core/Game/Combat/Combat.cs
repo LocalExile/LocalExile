@@ -1632,14 +1632,18 @@ public static partial class Game
                 var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
                 var context = ReservationContext(conn, skillId);
                 string? stance = AuraCatalog.IsStance(effectId) ? conn.Stance : null;
+                bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisuals(conn, skillId, effectId, hasSource);
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance), reservation.ManaFlat, reservation.ManaPercent,
                     Level: level, Quality: quality, LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
-                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SourceBuff: hasSource ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant,
                     SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId));
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
                 var proposedAuras = conn.Auras.Values.Append(aura).ToArray();
                 long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, proposedAuras)
                     + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
@@ -1680,10 +1684,11 @@ public static partial class Game
         }
         if (aura.SourceBuff is ushort source)
             yield return InstanceEntities.AddBuff(PlayerId, source, aura.BuffRow, PlayerId, aura.SkillId,
-                auraSource: true, displayState: 0);
+                auraSource: true, displayState: 0, visual: aura.SourceVisual);
         yield return InstanceEntities.AddBuff(PlayerId, aura.Buff, aura.BuffRow, PlayerId, aura.SkillId,
             u68: BitConverter.SingleToUInt32Bits((float)duration),
-            activeSkill: Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null);
+            activeSkill: Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null,
+            visual: aura.BuffVisual);
     }
 
     public static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
