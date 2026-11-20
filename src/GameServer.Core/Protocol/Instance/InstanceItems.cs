@@ -119,6 +119,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>Mods flag bit 10: a vestigial item, which the client excludes from currency modification.</summary>
     public bool Vestigial { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
+    /// <summary>Mods flag bit 7 (0x0080): weapon/shield passive skill tree (0x1424bd880 / 0x1424bdb90).</summary>
+    public WeaponPassiveTreeState? WeaponPassiveTree { get; init; }
 
     /// <summary>Hinekora's Lock: the item is in the foreseeing state. Sent as the Mods component's flag bit 8
     /// (0x0100); the client reads it at item +0x2c0 and shows the purple glow and the Lock tooltip text.</summary>
@@ -221,10 +223,12 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // properties 0x142208700 (MagicProperties), u8, u8.
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
-                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)
-                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
+                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (WeaponPassiveTree is not null ? 0x80 : 0)
+                            | (Foreseeing ? 0x100 : 0) | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
                     if (RelicStyle is byte relic) w.U8(relic);
-                    MagicProperties(w); w.U8(MemoryStrands).U8(Intangibility);
+                    MagicProperties(w);
+                    WeaponPassiveTree?.Write(w);
+                    w.U8(MemoryStrands).U8(Intangibility);
                     break;
                 case "Quality": w.U8(AlternateQualityType is null ? Quality : (byte)0); break; // 0x1424b5720
                 // The transformed original uses an unframed ordinary item payload.

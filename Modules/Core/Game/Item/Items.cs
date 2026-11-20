@@ -1332,7 +1332,9 @@ public static partial class Game
             // Rows the Id list above does not name, by their CurrencyItems.Action (CurrencyEffects.TryAction): the map
             // chisels (add_map_alt_quality, Cartographer's and the Maven's ones) and any future row with that action.
             _ => type is not null && CurrencyEffects.TryAction(ItemsFor(conn), RollsFor(conn), target, type, random,
-                    out var byAction, UniquesFor(conn).RollsOf(target)) ? byAction : null,
+                    out var byAction, UniquesFor(conn).RollsOf(target))
+                ? byAction
+                : type is not null ? GameEvents.RunCurrencyApply(conn, target, type, random) : null,
         };
     }
 

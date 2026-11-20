@@ -147,6 +147,19 @@ public sealed class StatSheet(ClientState conn)
     public IReadOnlyDictionary<string, int> Added => _added;
 }
 
+/// <summary>A vendor sell-window quote (<see cref="GameEvents.VendorQuote"/>): subscribers may inspect the offered items
+/// and add or adjust rewards and recipe names before they are placed in the vendor's offer grid.</summary>
+public sealed class VendorSaleQuote(ClientState conn, IReadOnlyList<GameServer.Core.Protocol.Instance.InventoryItem> offered,
+    List<GameServer.Core.Protocol.Instance.Item> rewards, List<string> recipes, bool basicSale = false)
+{
+    public ClientState Conn { get; } = conn;
+    public IPlayer Player => Program.PlayerOf(Conn);
+    public IReadOnlyList<GameServer.Core.Protocol.Instance.InventoryItem> Offered { get; } = offered;
+    public List<GameServer.Core.Protocol.Instance.Item> Rewards { get; } = rewards;
+    public List<string> Recipes { get; } = recipes;
+    public bool BasicSale { get; } = basicSale;
+}
+
 /// <summary>The official league whose Currency Exchange prices are traded at.</summary>
 public enum ExchangeRatesLeague
 {

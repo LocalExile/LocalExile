@@ -40,7 +40,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public IReadOnlyList<(byte SeedRow, byte Count)> HarvestSeeds { get; init => field = Owned.List(value); } = [];
 
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
-        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine", "HarvestWorldObject"];
+        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine", "HarvestWorldObject", "ControlZone"];
 
     /// <summary>Whether <see cref="Blob"/> can write a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components) =>
@@ -101,7 +101,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                     w.U8((byte)HarvestSeeds.Count);
                     foreach (var (row, count) in HarvestSeeds) w.U8(row).U8(count);
                     break;
-                // BaseEvents: no data.
+                // BaseEvents and ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c): no data.
             }
         }
         w.U8(0);            // tasks
