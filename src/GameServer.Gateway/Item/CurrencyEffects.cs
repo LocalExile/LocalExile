@@ -410,7 +410,7 @@ public static class CurrencyEffects
     public const string GlassblowersBauble = "Metadata/Items/Currency/CurrencyFlaskQuality";
 
     public static Item? Glassblower(Item item, Random? random = null) =>
-        AddQuality(item, "Flask", QualityGain(item, random ?? Random.Shared));
+        AddQuality(item, item.Components.Contains("Tincture") ? "Tincture" : "Flask", QualityGain(item, random ?? Random.Shared));
 
     public const string FracturingOrb = "Metadata/Items/Currency/CurrencyFractureRare";
 

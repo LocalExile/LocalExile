@@ -107,20 +107,24 @@ public static partial class Game
     /// chill, the Intimidate or Unnerve on it at <paramref name="now"/>; without a time those do not count). Blocking is rolled before
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
-    public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0);
+    public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN,
+        bool ignorePhysicalReduction = false)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction);
 
     public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now)
-        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now));
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction: false);
 
-    static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now, int additionalTakenPct)
+    static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        int additionalTakenPct, bool ignorePhysicalReduction = false)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
         if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
-        double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
+        int physReduction = e.PhysicalReduction - CrushReduction(m, now);
+        if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
@@ -138,8 +142,9 @@ public static partial class Game
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, m.TakenFromPlayer.Physical) / 100.0)
             * (1 + e["physical_damage_taken_+%"] / 100.0);
-        // Its fire, cold and lightning damage taken (Izaro's statues' buffs) on those parts.
-        double typed = mitigated[DamageType.Fire].Min * e["fire_damage_taken_+%"] + mitigated[DamageType.Cold].Min * e["cold_damage_taken_+%"]
+        // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
+        double typed = mitigated[DamageType.Fire].Min * (e["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now))
+            + mitigated[DamageType.Cold].Min * e["cold_damage_taken_+%"]
             + mitigated[DamageType.Lightning].Min * e["lightning_damage_taken_+%"];
         return (int)Math.Round((total - elementalDamage) * factor + elementalDamage * elementalFactor + withered
             + physicalTaken * factor * (physicalFactor - 1) + typed / 100.0 * elementalFactor);
@@ -217,7 +222,7 @@ public static partial class Game
         double increasedTaken = type switch
         {
             DamageType.Physical => (double)m.Effects["physical_damage_taken_+%"] + MaimedPhysicalTaken(m, now),
-            DamageType.Fire => m.Effects["fire_damage_taken_+%"],
+            DamageType.Fire => (double)m.Effects["fire_damage_taken_+%"] + CoveredInAshFireTaken(m, now),
             DamageType.Cold => m.Effects["cold_damage_taken_+%"],
             DamageType.Lightning => m.Effects["lightning_damage_taken_+%"],
             _ => 0,

@@ -169,6 +169,7 @@ public static partial class Game
         sources = WithAvatarOfFire(conn, sources);
         sources = WithHerEmbrace(conn, sources);
         sources = WithElusive(conn, sources);
+        sources = WithTinctures(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);
@@ -1386,7 +1387,8 @@ public static partial class Game
             + (weapons.Dagger ? Get("dagger_critical_strike_multiplier_+") + Get("critical_strike_multiplier_with_dagger_+") : 0)
             + (weapons.Wand ? Get("wand_critical_strike_multiplier_+") : 0)
             + (weapons.Bow ? Get("bow_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_bow") : 0)
-            + (weapons.Staff ? Get("staff_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_staff") : 0);
+            + (weapons.Staff ? Get("staff_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_staff") : 0)
+            + (Get("tincture_applied") != 0 ? Get("critical_strike_multiplier_+_with_tinctured_weapons") : 0);
         int spellCriticalMultiplier = Get("base_critical_strike_multiplier_+")
             + Get("base_spell_critical_strike_multiplier_+") + Get("spell_critical_strike_multiplier_+");
         // Overwhelm's per-nearby-enemy multiplier joins the generic one (client 0x14276e1f0), for attacks and spells.

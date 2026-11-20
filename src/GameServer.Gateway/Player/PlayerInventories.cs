@@ -465,7 +465,7 @@ public sealed partial class PlayerInventories
         9 => itemClass == "Boots",
         10 => itemClass == "Belt",
         MapDevice => global::MapDevice.AcceptsClass(itemClass),
-        Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical",
+        Flask => itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical" or "Tincture",
         _ => true,
     };
 

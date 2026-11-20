@@ -112,11 +112,13 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public Item? Augment(Item item, Random random) =>
         item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffix(item, 1, random) : null;
 
+    static bool IsMagicOnly(Item item) => item.Components.Contains("Flask") || item.Components.Contains("Tincture");
+
     /// <summary>Regal Orb's validated magic-to-rare upgrade: the magic affixes stay, one more comes from the rare
-    /// pool (at most three of each side), and a rare name is drawn. Flasks are magic-only and cannot become rare.</summary>
+    /// pool (at most three of each side), and a rare name is drawn. Flasks and tinctures are magic-only and cannot become rare.</summary>
     public Item? Regal(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Magic || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
+        if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random) is not { } added ? null
             : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
@@ -132,30 +134,30 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return Roll(item, ItemRarity.Magic, random, respectMetamods: true) with { Identified = true };
     }
 
-    /// <summary>Alchemy's validated normal-to-rare upgrade: 4-6 weighted affixes and a rare name. Flasks are
-    /// magic-only and cannot become rare.</summary>
+    /// <summary>Alchemy's validated normal-to-rare upgrade: 4-6 weighted affixes and a rare name. Flasks and tinctures
+    /// are magic-only and cannot become rare.</summary>
     public Item? Alchemy(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Normal || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
+        if (item.Rarity != ItemRarity.Normal || IsMagicOnly(item) || !TryModifiable(item, out var type) ||
             Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random) with { Identified = true };
     }
 
     /// <summary>Exalted Orb's validated rare addition: the affixes and name stay and one more weighted affix is
-    /// added within the base's rare limits. Flasks are magic-only and cannot be rare.</summary>
+    /// added within the base's rare limits. Flasks and tinctures are magic-only and cannot be rare.</summary>
     public Item? Exalted(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type))
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random);
     }
 
     /// <summary>Chaos Orb's validated rare reroll: every unprotected explicit affix is replaced by 4-6 new weighted
-    /// ones, a new rare name is drawn, and metamod-protected affixes stay. Flasks are magic-only and cannot be
+    /// ones, a new rare name is drawn, and metamod-protected affixes stay. Flasks and tinctures are magic-only and cannot be
     /// rare.</summary>
     public Item? Chaos(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type) ||
             Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
     }
@@ -165,7 +167,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// one suffix magic, else rare). Implicits and other lists stay.</summary>
     public Item? StripExplicits(Item item)
     {
-        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out _)) return null;
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out _)) return null;
         var fractured = item.FracturedIndexes();
         var kept = item.Mods.Where((m, i) => m.Section != ModSection.Explicit || fractured.Contains(i)).ToArray();
         var sides = fractured.Select(i => catalog.Mods.ByHash(item.Mods[i].Hash)?.GenerationType).ToArray();

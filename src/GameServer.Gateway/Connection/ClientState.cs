@@ -322,6 +322,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
     public ushort CrushBuff;
+    // Covered in Ash by his hits (Wildfire Phloem, etc.) until when: 20% less movement speed and 20% increased fire
+    // damage taken, shown with BuffDefinitions 807 (cover_in_ash).
+    public double CoveredInAshUntil = double.NegativeInfinity, CoveredInAshShownUntil;
+    public ushort CoveredInAshBuff;
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
@@ -1009,6 +1013,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public Flasks.Effects FlaskEffects { get; } = new();
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
     public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
+    /// <summary>The tinctures active/lingering on the flask belt, with shared Mana Burn / Weeping Wounds and cooldown.</summary>
+    public Tinctures.Effects TinctureEffects { get; } = new();
     /// <summary>Life, mana and hybrid flasks' "during effect" mods while their recovery runs.</summary>
     public UtilityFlasks.RecoveryDuringEffects RecoveryFlaskStats { get; } = new();
     /// <summary>Ignited corpses consumed since the flask-charge loop last paid them (Cinderswallow Urn's recharge).</summary>

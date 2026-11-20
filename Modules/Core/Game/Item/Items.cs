@@ -103,7 +103,11 @@ public static partial class Game
         }
         foreach (var (packet, label) in equipmentOutputs) await Send(remote, stream, ciphers, packet, label);
         if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+            await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        }
         if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
     }
 
@@ -791,6 +795,11 @@ public static partial class Game
         if (!CurrentGameWork) return;
         var items = ItemsOf(conn);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
+        if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } tinctureType && ItemsFor(conn).TinctureOf(tinctureType) is { } tincture)
+        {
+            await UseTincture(remote, stream, ciphers, conn, slot, flask, tinctureType, tincture);
+            return;
+        }
         if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } utilityType && ItemsFor(conn).UtilityFlaskOf(utilityType) is { } utility)
         {
             await UseUtilityFlask(remote, stream, ciphers, conn, slot, flask, utilityType, utility);
@@ -820,11 +829,14 @@ public static partial class Game
         bool canRecover, copyLife;
         FlaskRecovery.Use r;
         ResourceEffectsState recoveryOwner;
+        int adjacentEffect = AdjacentTinctureFlaskEffect(conn, (byte)slot, Get, AreaTime(conn));
+        Func<string, int> flaskCharacter = adjacentEffect == 0 ? Get
+            : name => name == "flask_effect_+%" ? Get(name) + adjacentEffect : Get(name);
         lock (conn.Monsters)
         {
             recoveryOwner = ResourceEffectsOf(conn);
             r = FlaskRecovery.For(use, flask.Item, local,
-                name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+                name => flaskCharacter(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
             canRecover = Flasks.CanRecover(use, conn.PlayerLife, LifeCap(conn), conn.PlayerMana, (uint)UnreservedMana(conn))
                 || copyLife && conn.PlayerLife < LifeCap(conn)
@@ -857,7 +869,7 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
+            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local, during));
     }
@@ -1444,6 +1456,8 @@ public static partial class Game
                 if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
             }
         }
+        if (targetTab is null && targetRow == PlayerInventories.Flask)
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
@@ -1538,7 +1552,11 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (done.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+            await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        }
         if (done.Row == PlayerInventories.PassiveJewels)
             await SendPassiveJewelStats(remote, stream, ciphers, conn);
     }
@@ -1645,7 +1663,11 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (done.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+            await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        }
         if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
     }
 

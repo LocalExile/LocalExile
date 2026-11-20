@@ -288,7 +288,24 @@ public static partial class Game
             * (type == DamageType.Physical
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
-        int Attacker(string name) => Player(name) + PanelStats.Of(name, Skill);
+        bool tinctureWeapon = !spell && Player("tincture_applied") != 0;
+        int Attacker(string name)
+        {
+            int value = Player(name) + PanelStats.Of(name, Skill);
+            if (!tinctureWeapon) return value;
+            return name switch
+            {
+                "chance_to_freeze_%" => value + Player("chance_to_freeze_%_with_tinctured_weapons"),
+                "chance_to_shock_%" => value + Player("chance_to_shock_%_with_tinctured_weapons"),
+                "virtual_chill_effect_+%" => value + Player("chill_effect_+%_with_tinctured_weapons"),
+                "virtual_shock_effect_+%" => value + Player("shock_effect_+%_with_tinctured_weapons"),
+                "virtual_chill_duration_+%" or "virtual_freeze_duration_+%" or "virtual_shock_duration_+%" =>
+                    value + Player("elemental_ailment_duration_+%_with_tinctured_weapons"),
+                "all_damage_can_freeze" => value | Player("all_damage_with_tinctured_weapons_can_freeze"),
+                "all_damage_can_shock" => value | Player("all_damage_with_tinctured_weapons_can_shock"),
+                _ => value,
+            };
+        }
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
@@ -419,7 +436,8 @@ public static partial class Game
             // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
             // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
             var movement = MaimedMovementFactor(m, now);
-            if (trap != 1) movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
+            double lessMove = trap * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
+            if (lessMove != 1) movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
             double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
                 * movement.Factor;
             if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
