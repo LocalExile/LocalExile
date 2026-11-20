@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Modding;
 
 
 // The Gateway's repeatable in-process measurements (Agents/docs/dev/performance.md), run from the repository root:
@@ -27,6 +28,13 @@ static class PerfBenchMain
         var lifetime = new ModuleLifetime("Game");
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        // Its systems in each area's world (stats, AI, ailments, movement) and its stat hand-over, as its Load gives them.
+        if (args.FirstOrDefault() is not ("catalogue" or "single"))
+        {
+            var context = new PerfModuleContext(lifetime);
+            AreaSetup.Load(context);
+            Game.LoadStats(context);
+        }
         try
         {
             switch (args.FirstOrDefault() ?? "")
@@ -40,7 +48,8 @@ static class PerfBenchMain
                 case "sweep": await PerfBench.Area_sweep(); break;
                 case "stats": PerfBench.Player_stat_builds(); break;
                 case "pause": await PerfBench.Pause_and_resume(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats|pause"); return 2;
+                case "rf": await PerfBench.Righteous_fire_toggles(); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats|pause|rf"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -131,17 +140,40 @@ static class PerfBench
     static Player Player(AreaLayout layout, uint seed, Wire wire)
     {
         EnsureSaves();
+        // Game_PERF_CHARACTER (with Game_PERF_SAVES, a copy of a characters.db): that saved character, its class, level,
+        // passives and gear, loaded as a login does (Game.LoadProgress), in its league.
+        var saved = SavedCharacter();
         var conn = new Player(layout, 1, seed)
         {
-            Character = "PerfBench" + Guid.NewGuid().ToString("N"), ClassRow = 1, PlayerSent = true, Instance = new(),
+            Character = saved?.Name ?? "PerfBench" + Guid.NewGuid().ToString("N"), ClassRow = saved?.ClassRow ?? 1,
+            League = saved?.League, PlayerSent = true, Instance = new(),
             Session = new("perf", wire.Stream, wire.Ciphers),
         };
         Program.ConnectionMetrics.Add(new ConnectionCiphers(new byte[64], false), conn.Performance);
+        if (saved is { } character)
+        {
+            Game.LoadProgress(conn, character.Level);
+            conn.PlayerLife = conn.Pools.Life;
+            conn.PlayerMana = conn.Pools.Mana;
+            return conn;
+        }
         // Nothing the monsters do ends the measurement: a large life pool, and no death screen.
         conn.Pools = Game.PoolsFor(conn, 40) with { Life = 100_000_000, Mana = 1000 };
         conn.PlayerLife = conn.Pools.Life;
         conn.PlayerMana = 1000;
         return conn;
+    }
+
+    static (string Name, int ClassRow, int Level, string League)? SavedCharacter()
+    {
+        if (Environment.GetEnvironmentVariable("Game_PERF_CHARACTER") is not { Length: > 0 } name) return null;
+        return Saves.Db.Read(() =>
+        {
+            using var cmd = Saves.Db.Command("select class, level, league from account_characters where name = @n", ("@n", name));
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) throw new InvalidOperationException($"no character {name} in the save copy");
+            return (name, Program.Skills.RowOfClass(r.GetInt32(0)), r.GetInt32(1), r.GetString(2));
+        });
     }
 
     static Task PopulateArea(Wire wire, Player conn) => Game.PopulateArea(conn);
@@ -174,6 +206,8 @@ static class PerfBench
     {
         if (_saves != null) return;
         _saves = Path.Combine(Path.GetTempPath(), $"localexile-perf-{Guid.NewGuid():N}.db");
+        // A copy of a real save database (Game_PERF_SAVES): the run writes to its own copy of the copy.
+        if (Environment.GetEnvironmentVariable("Game_PERF_SAVES") is { Length: > 0 } from) File.Copy(from, _saves);
         Saves.Open(_saves);
     }
 
@@ -541,6 +575,79 @@ static class PerfBench
 
     // The busy instance paused (the Escape menu, Game.SetPaused) for 10 s and resumed: the area's frames a second before
     // and after. A frame driver that replays the paused time runs far more than 30 a second after the resume.
+    // Righteous Fire turned on and off in the busy instance, a second apart, as a player toggles it: the longest wait for
+    // a frame around each toggle (the first is the area's first use of the skill).
+    public static async Task Righteous_fire_toggles()
+    {
+        var (wire, conn, _) = await BusyInstance();
+        using var __ = wire;
+        // Level 90 for the gem's level requirement; god mode for its attributes and for life the crowd cannot take. A saved
+        // character (Game_PERF_CHARACTER) keeps its level and gear, with its own Righteous Fire.
+        conn.God = true;
+        if (Environment.GetEnvironmentVariable("Game_PERF_CHARACTER") is not { Length: > 0 })
+        {
+            conn.Experience = CharacterStats.ExperienceFor(90);
+            WearRighteousFire(conn);
+        }
+        var jitStart = System.Runtime.JitInfo.GetCompilationTime();
+        long methodsStart = System.Runtime.JitInfo.GetCompiledMethodCount();
+        var area = StartArea(conn);
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        Record("rf", "JIT time in the area's first 4 s", (System.Runtime.JitInfo.GetCompilationTime() - jitStart).TotalMilliseconds, "ms");
+        Record("rf", "methods compiled in the area's first 4 s", System.Runtime.JitInfo.GetCompiledMethodCount() - methodsStart, "");
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        var rf = Game.GemSkillEffects(conn).First(g => g.Name.Contains("Righteous Fire"));
+        double LongestGap(Func<Task> toggle)
+        {
+            double longest = 0, lastAt = 0;
+            long last = conn.Frames.Frame;
+            var clock = Stopwatch.StartNew();
+            var running = Task.Run(toggle);
+            while (clock.Elapsed.TotalSeconds < 1)
+            {
+                Thread.Sleep(2);
+                long frame = conn.Frames.Frame;
+                double at = clock.Elapsed.TotalMilliseconds;
+                if (frame != last) { longest = Math.Max(longest, at - lastAt); (last, lastAt) = (frame, at); }
+            }
+            running.GetAwaiter().GetResult();
+            return Math.Max(longest, clock.Elapsed.TotalMilliseconds - lastAt);
+        }
+        for (int i = 1; i <= 4; i++)
+        {
+            var jitBefore = System.Runtime.JitInfo.GetCompilationTime();
+            long methodsBefore = System.Runtime.JitInfo.GetCompiledMethodCount();
+            double activation = 0;
+            Record("rf", $"longest frame gap, turned on ({i})", LongestGap(async () =>
+            {
+                long started = Stopwatch.GetTimestamp();
+                await Game.ActivateRighteousFire(conn, rf.Id, rf.Effect, rf.Level, rf.Quality, rf.Gem);
+                activation = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            }), "ms");
+            Record("rf", $"its activation call ({i})", activation, "ms");
+            Record("rf", $"JIT time in that second ({i})", (System.Runtime.JitInfo.GetCompilationTime() - jitBefore).TotalMilliseconds, "ms");
+            Record("rf", $"methods compiled in that second ({i})", System.Runtime.JitInfo.GetCompiledMethodCount() - methodsBefore, "");
+            if (conn.RighteousFire is null) throw new InvalidOperationException("Righteous Fire did not turn on");
+            Record("rf", $"longest frame gap, turned off ({i})", LongestGap(() => Game.EndRighteousFire(conn, "perf")), "ms");
+        }
+        lock (conn.Monsters) conn.Closed = true;
+        await area;
+    }
+
+    // A robe with a level 1 Righteous Fire gem worn; the character does not meet the gem's requirements, so it is exempt,
+    // as one of the modules the player's league lists (only those are asked).
+    static void WearRighteousFire(Player conn)
+    {
+        var items = Game.ItemsFor(conn);
+        var (gemType, variant) = items.FindGem("Righteous Fire") ?? throw new InvalidOperationException("no Righteous Fire gem");
+        var created = ItemCatalog.Create(gemType) with { GemExperience = items.Gem(gemType)!.ExperienceFor(1), GemVariant = variant.Index };
+        var inventories = Game.ItemsOf(conn);
+        uint robe = inventories.NewItemId();
+        inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(robe, 0, 0,
+            ItemCatalog.Create(items.Find("Simple Robe")!) with { Sockets = [new ItemSocket(SocketColour.Red, created)] }));
+        GameEvents.RequirementExemptions.Add(Program.ModulesFor(conn).First(), c => ReferenceEquals(c, conn) ? [robe] : []);
+    }
+
     public static async Task Pause_and_resume()
     {
         var (wire, conn, _) = await BusyInstance();
@@ -548,18 +655,7 @@ static class PerfBench
         // 10,000 more life: the crowd kills the character in about 15 s, and a death's frame is not the resume's.
         conn.God = true;
         // A robe with a Righteous Fire gem worn (Game_PERF_RF=0: none). The skill itself is not turned on here.
-        if (Environment.GetEnvironmentVariable("Game_PERF_RF") != "0")
-        {
-            var items = Game.ItemsFor(conn);
-            var (gemType, variant) = items.FindGem("Righteous Fire") ?? throw new InvalidOperationException("no Righteous Fire gem");
-            var created = ItemCatalog.Create(gemType) with { GemExperience = items.Gem(gemType)!.ExperienceFor(1), GemVariant = variant.Index };
-            var inventories = Game.ItemsOf(conn);
-            uint robe = inventories.NewItemId();
-            inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(robe, 0, 0,
-                ItemCatalog.Create(items.Find("Simple Robe")!) with { Sockets = [new ItemSocket(SocketColour.Red, created)] }));
-            // The character does not meet the gem's requirements: exempt, as the Game module (the player's league lists it).
-            GameEvents.RequirementExemptions.Add("Game", c => ReferenceEquals(c, conn) ? [robe] : []);
-        }
+        if (Environment.GetEnvironmentVariable("Game_PERF_RF") != "0") WearRighteousFire(conn);
         var area = StartArea(conn);
         await Task.Delay(TimeSpan.FromSeconds(5));
         long FramesIn(double seconds)
@@ -774,3 +870,16 @@ sealed class AllocationSampler : System.Diagnostics.Tracing.EventListener
     public IEnumerable<(string Type, double Kb)> Top(int n) =>
         bytes.OrderByDescending(p => p.Value).Take(n).Select(p => (p.Key.Length > 46 ? p.Key[^46..] : p.Key, p.Value / 1024.0));
 }
+
+// The Game module's context as the Gateway's module host gives it (ModHost.Context), for the parts of its Load PerfBench runs.
+sealed class PerfModuleContext(IModuleLifetime lifetime) : IModuleContext
+{
+    public ModManifest Manifest { get; } = new("Game", "1.0.0", ModKind.Feature, [], "bin/game.dll");
+    public IModuleLifetime Lifetime => lifetime;
+    public string Folder => "Modules/Core/Game";
+    public void Log(string message) => Console.WriteLine($"[modules] Game: {message}");
+    public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+    public T Settings<T>() => throw new NotSupportedException();
+    public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+}
+
