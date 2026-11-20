@@ -88,18 +88,20 @@ public static partial class Game
                 || skills.IsProjectile(effect) && !skills.IsMelee(effect)
                 || skills.IsSpell(effect) && !skills.IsMelee(effect));
 
-        public static SkillCatalog.MonsterProjectileInfo? Shot(SkillCatalog skills, int effect)
+        public static SkillCatalog.MonsterProjectileInfo? Shot(SkillCatalog skills, int effect) =>
+            skills.MonsterProjectile(effect) ?? MavenShot(skills.EffectId(effect));
+
+        public static SkillCatalog.MonsterProjectileInfo? Shot(SkillCatalog skills, int effect, int actorLevel) =>
+            skills.MonsterProjectile(effect, actorLevel) ?? MavenShot(skills.EffectId(effect));
+
+        static SkillCatalog.MonsterProjectileInfo? MavenShot(string? effect) => effect switch
         {
-            if (skills.MonsterProjectile(effect) is { } mortar) return mortar;
-            return skills.EffectId(effect) switch
-            {
-                "MavenProjectile" => Named("MavenProjectile", 2250),
-                "MavenBrainProjectileBlastMPS" => Named("MavenBrainProjectileBlast", 750),
-                "MavenBrainLargeProjectileBarrageMPS" => Named("MavenBrainLargeProjectileBarrage", 300),
-                "MavenBrainSmallProjectileBarrage" => Named("MavenBrainSmallProjectileBarrage", 750),
-                _ => null,
-            };
-        }
+            "MavenProjectile" => Named("MavenProjectile", 2250),
+            "MavenBrainProjectileBlastMPS" => Named("MavenBrainProjectileBlast", 750),
+            "MavenBrainLargeProjectileBarrageMPS" => Named("MavenBrainLargeProjectileBarrage", 300),
+            "MavenBrainSmallProjectileBarrage" => Named("MavenBrainSmallProjectileBarrage", 750),
+            _ => null,
+        };
 
         static SkillCatalog.MonsterProjectileInfo Named(string id, int speed) =>
             new($"Metadata/Projectiles/{id}", speed, false, 1) { AnimationKey = "SpellProjectile" };

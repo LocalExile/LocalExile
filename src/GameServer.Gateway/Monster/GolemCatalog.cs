@@ -41,7 +41,7 @@ public sealed class GolemCatalog(string folder = "data")
             var candidates = rows[set];
             var row = candidates.LastOrDefault(r => r.Int("PlayerLevelReq") <= actorLevel, candidates[0]);
             int level = row.Int("GemLevel");
-            var stats = skills.EffectStats(effect, level).ToDictionary(p => p.Item1, p => p.Item2);
+            var stats = skills.MonsterEffectStats(effect, actorLevel).ToDictionary(p => p.Item1, p => p.Item2);
             var definition = sets[set];
             double effectiveness = (basis + increment * (actorLevel - 1)) * definition.Real("BaseEffectiveness")
                 * Math.Pow(1 + definition.Real("IncrementalEffectiveness"), actorLevel - 1);

@@ -189,7 +189,8 @@ public static partial class Game
         int Own(string name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
-            var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
+            var (statLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
+            var timing = catalog.MonsterActionTiming(effect, level);
             if (effect == 306)
             {
                 foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
@@ -210,7 +211,7 @@ public static partial class Game
             if (!spell && catalog.IsMelee(effect))
                 speed *= (multistrike ? Math.Max(.01, 1 + Own("support_multiple_attacks_melee_attack_speed_+%_final") / 100d) : 1)
                     * Math.Max(.01, 1 + Own("support_melee_physical_attack_speed_+%_final") / 100d);
-            if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
+            if (!spell) speed *= Math.Max(.01, 1 + timing.AttackSpeedMultiplier / 100.0);
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
             if (spell)
@@ -233,7 +234,7 @@ public static partial class Game
             }
             if (shieldChaos > 0 && damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
             {
-                double added = shieldChaos * AddedEffectiveness(conn, effect, skillLevel);
+                double added = shieldChaos * AddedEffectiveness(conn, effect, statLevel);
                 damage = damage.Add(DamageType.Chaos, new(added, added));
             }
             // Flat damage augments an existing hit; it must not turn movement, auras or DoTs into attacks.
@@ -303,15 +304,15 @@ public static partial class Game
                 * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
             var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
-            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
+            var projectile = catalog.MonsterProjectile(effect, level, includeWeaponAttacks: true);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
             if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
                 projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
-            double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
+            double cd = timing.CooldownMs / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
-            var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, catalog.CooldownUses(effect, skillLevel)),
+            var ability = new GolemState.Ability(effect, skill, id, attack, raw, radius, cd, Math.Max(1, timing.StoredUses),
                 Math.Clamp(contact?.Fraction ?? .5, .05, 1), projectile, crit);
             result.Add(ability);
             int AilmentStat(string name) => mods[name] + Raw(name) + (name == "critical_ailment_dot_multiplier_+" ? 50 : 0);
@@ -349,7 +350,6 @@ public static partial class Game
         var result = new List<GrantedSkill>();
         foreach (var ability in abilities)
         {
-            var row = GolemData.Skill(SkillsFor(conn), ability.Effect, level);
             var stats = new Dictionary<uint, int>(ability.Stats);
             foreach (var (key, value) in ability.Attack.InPlaceSkillStats()) stats[key] = value;
             foreach (var (type, range) in ability.Attack.Damage.Components)
@@ -358,7 +358,7 @@ public static partial class Game
                 if (Stats.Key($"{kind}_minimum_base_{slug}_damage") is uint min) stats[min] = (int)range.Min;
                 if (Stats.Key($"{kind}_maximum_base_{slug}_damage") is uint max) stats[max] = (int)range.Max;
             }
-            if (SkillsFor(conn).FindByRow(ability.Skill, ability.Effect, row.Level, [.. stats.Select(p => (p.Key, p.Value))]) is { } skill)
+            if (SkillsFor(conn).FindMonsterSkill(ability.Skill, ability.Effect, level, [.. stats.Select(p => (p.Key, p.Value))]) is { } skill)
                 result.Add(skill);
         }
         return result;

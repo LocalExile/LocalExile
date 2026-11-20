@@ -59,15 +59,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A skill with its effect's additional stat sets: each set's per-level row at this level (the closest one
     /// otherwise) and its stats (implicit 1s, constants, then the level's stats). Null when a set has no row at all: a
     /// record without it would make the client misread it.</summary>
-    GrantedSkill? WithExtraSets(GrantedSkill skill, Tables t, int effectRow, int level)
+    GrantedSkill? WithExtraSets(GrantedSkill skill, Tables t, int effectRow, int level, bool byActorLevel = false)
     {
         // Both Find paths use catalog identity and raw stored uses, never effective cost or current souls.
-        skill = skill with { VaalResourcesEnabled = VaalBudget(effectRow, level) is not null };
+        skill = skill with { VaalResourcesEnabled = VaalBudgetAt(t, effectRow, (int)skill.EffectsPerLevelRow) is not null };
         if (!_extraSets.Value.TryGetValue(effectRow, out var sets)) return skill;
         var extra = new List<(uint, IReadOnlyList<(uint, int)>)>();
         foreach (int set in sets)
         {
-            int row = PickLevel(t.StatSetsPerLevel, set, level);
+            int row = PickLevel(t.StatSetsPerLevel, set, level, byActorLevel);
             if (row < 0) return null;
             var stats = new Dictionary<uint, int>();
             if (set >= 0 && set < t.StatSetBase.Count)
@@ -111,7 +111,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// thousandths, times the gem's quality, rounded toward zero (the wiki: rounded down;
     /// the 16 negative values are unverified). No modifiers yet: the base values are the final ones.
     /// </summary>
-    public IReadOnlyList<(uint, int)> EffectStats(int effectRow, int level, int quality = 0)
+    public IReadOnlyList<(uint, int)> EffectStats(int effectRow, int level, int quality = 0) =>
+        EffectStats(effectRow, level, quality, byActorLevel: false);
+
+    public IReadOnlyList<(uint, int)> MonsterEffectStats(int effectRow, int actorLevel) =>
+        EffectStats(effectRow, actorLevel, 0, byActorLevel: true);
+
+    IReadOnlyList<(uint, int)> EffectStats(int effectRow, int level, int quality, bool byActorLevel)
     {
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.Effects.Count) return [];
         var e = t.Effects[effectRow];
@@ -123,10 +129,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             foreach (int s in implicits) stats[(uint)s + 1] = 1;
             foreach (var (s, v) in constants) { stats[(uint)s + 1] = v; constant.Add((uint)s + 1); }
         }
-        int gesspl = PickLevel(t.StatSetsPerLevel, e.StatSet, level);
+        int gesspl = PickLevel(t.StatSetsPerLevel, e.StatSet, level, byActorLevel);
         // A per-level stat that is also a constant adds to it (Righteous Fire: radius 18 + 0 at level 1, + 5 at level 20).
         if (gesspl >= 0) foreach (var (s, v) in t.StatSetLevelStats[gesspl]) stats[(uint)s + 1] = (constant.Contains((uint)s + 1) ? stats[(uint)s + 1] : 0) + v;
-        int gepl = PickLevel(t.PerLevel, effectRow, level);
+        int gepl = PickLevel(t.PerLevel, effectRow, level, byActorLevel);
         if (e.CastTime > 0)
         {
             Put("base_spell_cast_time_ms", e.CastTime);
@@ -459,7 +465,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A GrantedEffectsPerLevel row's GrantedEffects row and level, or null.</summary>
     public (int Effect, int Level)? EffectsPerLevel(int row) =>
-        _tables.Value is { } t && row >= 0 && row < t.PerLevel.Count ? t.PerLevel[row] : null;
+        _tables.Value is { } t && row >= 0 && row < t.PerLevel.Count ? (t.PerLevel[row].Key, t.PerLevel[row].Level) : null;
 
     /// <summary>A GrantedEffects row by its Id, or -1.</summary>
     public int EffectRow(string effectId) =>
@@ -503,12 +509,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>Null for non-Vaal skills or missing/invalid catalog references. Never substitutes GE/GEPL identity.</summary>
     public VaalDefinition? VaalBudget(int effectRow, int level)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.ActiveSkills.Count
-            || t.ActiveSkills[effectRow] is not int active || active < 0) return null;
-        int row = PickLevel(t.PerLevel, effectRow, level);
-        return row >= 0 && t.VaalSouls[row] >= 0 && t.VaalStoredUses[row] > 0
-            ? new((uint)active, t.VaalSouls[row], t.VaalStoredUses[row]) : null;
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.ActiveSkills.Count) return null;
+        return VaalBudgetAt(t, effectRow, PickLevel(t.PerLevel, effectRow, level));
     }
+
+    static VaalDefinition? VaalBudgetAt(Tables t, int effect, int row) =>
+        row >= 0 && t.ActiveSkills[effect] is int active and >= 0 && t.VaalSouls[row] >= 0 && t.VaalStoredUses[row] > 0
+            ? new((uint)active, t.VaalSouls[row], t.VaalStoredUses[row]) : null;
 
     public int SoulGainPreventionMs(int effect, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.SoulPrevention[row] : 0;
@@ -528,6 +535,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// it has none.</summary>
     public int CooldownMs(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int gepl and >= 0 ? t.Cooldowns[gepl].Ms : 0;
+
+    public (int CooldownMs, int StoredUses, int AttackSpeedMultiplier) MonsterActionTiming(int effectRow, int actorLevel)
+    {
+        if (_tables.Value is not { } t) return default;
+        int row = PickLevel(t.PerLevel, effectRow, actorLevel, byActorLevel: true);
+        return row < 0 ? default : (t.Cooldowns[row].Ms, t.Cooldowns[row].Uses, t.AttackSpeedMultipliers[row]);
+    }
 
     public int CooldownUses(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
@@ -1098,12 +1112,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public MonsterProjectileInfo? MonsterProjectile(int effectRow) => MonsterProjectile(effectRow, includeWeaponAttacks: false);
 
     /// <summary>Also reads weapon projectile metadata when the caller explicitly enables those attacks.</summary>
-    public MonsterProjectileInfo? MonsterProjectile(int effectRow, bool includeWeaponAttacks)
+    public MonsterProjectileInfo? MonsterProjectile(int effectRow, bool includeWeaponAttacks) =>
+        MonsterProjectile(effectRow, includeWeaponAttacks, actorLevel: null);
+
+    public MonsterProjectileInfo? MonsterProjectile(int effectRow, int actorLevel, bool includeWeaponAttacks = false) =>
+        MonsterProjectile(effectRow, includeWeaponAttacks, actorLevel);
+
+    MonsterProjectileInfo? MonsterProjectile(int effectRow, bool includeWeaponAttacks, int? actorLevel)
     {
         var projectiles = includeWeaponAttacks ? WeaponMonsterProjectiles : MonsterProjectiles;
         if (!projectiles.TryGetValue(effectRow, out var projectile)) return null;
-        // Constants of the skill's stat set, so level 1 reads them.
-        var stats = EffectStats(effectRow, 1);
+        var stats = actorLevel is int level ? MonsterEffectStats(effectRow, level) : EffectStats(effectRow, 1);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
@@ -1127,11 +1146,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
     {
-        var stats = EffectStats(effectRow, level);
+        var stats = MonsterEffectStats(effectRow, level);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.Value.TryGetValue(minion, out int variety)) return null;
         return new(variety, Math.Max(1, Get("number_of_monsters_to_summon")), Get("summon_specific_monsters_in_front_offset"),
-            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
+            Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, MonsterActionTiming(effectRow, level).CooldownMs / 1000.0);
     }
 
     // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
@@ -1234,28 +1253,31 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     }
 
-    // The highest level at or below `level` among rows with this key, else the lowest; -1 when none.
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<(int Key, int Level)>, Dictionary<int, int[]>> RowsByKey = new();
+    // A monster earns its grant and each stat-set row at that row's PlayerLevelReq.
+    readonly record struct LevelRow(int Key, int Level, int RequiredLevel);
 
-    private static int PickLevel(List<(int Key, int Level)> rows, int key, int level)
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<LevelRow>, Dictionary<int, int[]>> RowsByKey = new();
+
+    private static int PickLevel(List<LevelRow> rows, int key, int level, bool byActorLevel = false)
     {
-        int best = -1, bestLevel = int.MinValue, low = -1, lowLevel = int.MaxValue;
-        // The per-level tables are loaded once and never change: index their rows by key instead of scanning them all
-        // (the combat paths pick levels many times per stat calculation). Same rows, same order, same answer.
-        var index = RowsByKey.GetValue(rows, r =>
+        var index = RowsByKey.GetValue(rows, table => table.Select((row, i) => (row.Key, row.Level, Index: i))
+            .GroupBy(r => r.Key).ToDictionary(g => g.Key, g => g.OrderBy(r => r.Level).Select(r => r.Index).ToArray()));
+        if (!index.TryGetValue(key, out var ranks)) return -1;
+        if (byActorLevel)
         {
-            var byKey = new Dictionary<int, int[]>();
-            foreach (var g in r.Select((row, i) => (row.Key, i)).GroupBy(x => x.Key)) byKey[g.Key] = [.. g.Select(x => x.i)];
-            return byKey;
-        });
-        if (!index.TryGetValue(key, out var indices)) return -1;
-        foreach (int i in indices)
-        {
-            int l = rows[i].Level;
-            if (l <= level && l > bestLevel) (best, bestLevel) = (i, l);
-            if (l < lowLevel) (low, lowLevel) = (i, l);
+            // A few effects lower the character requirement at a higher rank.
+            for (int i = ranks.Length - 1; i >= 0; i--)
+                if (rows[ranks[i]].RequiredLevel <= level) return ranks[i];
+            return ranks[0];
         }
-        return best >= 0 ? best : low;
+        int lo = 0, hi = ranks.Length - 1;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) / 2;
+            if (rows[ranks[mid]].Level <= level) lo = mid;
+            else hi = mid - 1;
+        }
+        return ranks[lo];
     }
 
     /// <summary>A GrantedEffects row's cast time in ms (CastTime; 0 unknown).</summary>
@@ -1268,24 +1290,30 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             return effect == "PlayerMelee" && level == 1 ? new GrantedSkill(id, 4474, 4430, stats) : null;
         int effectRow = EffectRow(effect);
         if (effectRow < 0 || effectRow >= t.StatSets.Count) return null;
-        int gepl = t.PerLevel.FindIndex(r => r.Effect == effectRow && r.Level == level);
-        int gesspl = t.StatSetsPerLevel.FindIndex(r => r.StatSet == t.StatSets[effectRow] && r.Level == level);
+        int gepl = t.PerLevel.FindIndex(r => r.Key == effectRow && r.Level == level);
+        int gesspl = t.StatSetsPerLevel.FindIndex(r => r.Key == t.StatSets[effectRow] && r.Level == level);
         return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
             { CooldownBypassType = (byte)t.Cooldowns[gepl].Bypass }, t, effectRow, level);
     }
 
     /// <summary>
-    /// A GrantedEffects row at a level, for monsters: their effects have per-level rows only for some levels (Hungry
-    /// Corpse's Melee only level 1), so the highest GEPL level at or below <paramref name="level"/> (else the lowest), and
-    /// the effect's StatSet1 at that level the same way. Null without the tables or rows.
+    /// A granted effect at an explicit skill rank. Each table supplies its highest rank at or below
+    /// <paramref name="level"/>, or its lowest rank when none qualifies.
     /// </summary>
-    public GrantedSkill? FindByRow(ushort id, int effectRow, int level, IReadOnlyList<(uint, int)>? stats = null)
+    public GrantedSkill? FindByRow(ushort id, int effectRow, int level, IReadOnlyList<(uint, int)>? stats = null) =>
+        FindByRow(id, effectRow, level, stats, byActorLevel: false);
+
+    /// <summary>The monster's grant and each stat set can reach their next rank at different actor levels.</summary>
+    public GrantedSkill? FindMonsterSkill(ushort id, int effectRow, int actorLevel, IReadOnlyList<(uint, int)>? stats = null) =>
+        FindByRow(id, effectRow, actorLevel, stats, byActorLevel: true);
+
+    GrantedSkill? FindByRow(ushort id, int effectRow, int level, IReadOnlyList<(uint, int)>? stats, bool byActorLevel)
     {
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || t.StatSets[effectRow] < 0) return null;
-        int statSet = t.StatSets[effectRow];
-        int gepl = PickLevel(t.PerLevel, effectRow, level), gesspl = PickLevel(t.StatSetsPerLevel, statSet, level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
-            { CooldownBypassType = (byte)t.Cooldowns[gepl].Bypass }, t, effectRow, level);
+        int grant = PickLevel(t.PerLevel, effectRow, level, byActorLevel);
+        int statSet = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level, byActorLevel);
+        return grant < 0 || statSet < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)grant, (uint)statSet, stats, (uint)t.Cooldowns[grant].Ms)
+            { CooldownBypassType = (byte)t.Cooldowns[grant].Bypass }, t, effectRow, level, byActorLevel);
     }
 
     /// <summary>The player's default skills: the default attack, with the class's unarmed weapon stats.</summary>
@@ -1497,9 +1525,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Cooldowns: per GEPL row its Cooldown (ms), StoredUses, CooldownBypassType and Group, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
-        List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
+        List<LevelRow> PerLevel, List<LevelRow> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
-        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
+        List<(int, int)[]> StatSetLevelStats, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
@@ -1513,8 +1541,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         // table before.
         Dictionary<int, (int GemLevel, int PlayerLevelReq)[]>? _levelReqsBySet;
         public (int GemLevel, int PlayerLevelReq)[] LevelReqsOf(int statSet) =>
-            LazyInitializer.EnsureInitialized(ref _levelReqsBySet, () => GemLevelReqs.GroupBy(r => r.StatSet)
-                .ToDictionary(g => g.Key, g => g.Select(r => (r.GemLevel, r.PlayerLevelReq)).ToArray()))
+            LazyInitializer.EnsureInitialized(ref _levelReqsBySet, () => StatSetsPerLevel.Where(r => r.RequiredLevel >= 0).GroupBy(r => r.Key)
+                .ToDictionary(g => g.Key, g => g.Select(r => (r.Level, r.RequiredLevel)).ToArray()))
                 .GetValueOrDefault(statSet, []);
 
         public static Tables? Load(string folder)
@@ -1555,7 +1583,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 foreach (var r in ClientTables.Table("GrantedEffectStatSets"))
                     baseStats.Add((Ints(r, "ImplicitStats"), Pairs(Ints(r, "ConstantStats"), Ints(r, "ConstantStatsValues"))));
             }
-            var perLevel = new List<(int, int)>();
+            var perLevel = new List<LevelRow>();
             var mana = new List<int>();
             var life = new List<int>();
             var es = new List<int>();
@@ -1570,7 +1598,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var attackSpeedMultipliers = new List<int>();
             foreach (var r in p)
             {
-                perLevel.Add((Int(r, "GrantedEffect"), Int(r, "Level")));
+                perLevel.Add(new(Int(r, "GrantedEffect"), Int(r, "Level"), Int(r, "PlayerLevelReq")));
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
                 int i = Array.IndexOf(types, 0);
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
@@ -1598,15 +1626,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 foreach (var r in ClientTables.Table("GrantedEffectQualityStats"))
                     quality.TryAdd(Int(r, "GrantedEffectsKey"), Pairs(Ints(r, "StatsKeys"), Ints(r, "StatsValuesPermille")));
             }
-            var setLevels = new List<(int, int)>();
+            var setLevels = new List<LevelRow>();
             var effectiveness = new List<int>();
             var damageCoefficients = new List<(int Base, int Added)>();
             var spellCritChances = new List<int?>();
             var levelStats = new List<(int, int)[]>();
-            var levelReqs = new List<(int, int, int)>();
             foreach (var r in s)
             {
-                setLevels.Add((Int(r, "StatSet"), Int(r, "GemLevel")));
+                setLevels.Add(new(Int(r, "StatSet"), Int(r, "GemLevel"), Int(r, "PlayerLevelReq")));
                 // PoB Export/Scripts/skills.lua: raw / 10000 + 1. Zero is 100%, negatives are real reductions.
                 effectiveness.Add(r.IntOrNull("DamageEffectiveness") is int offset
                     ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
@@ -1615,9 +1642,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
-                if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
-            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
+            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute, damageCoefficients, es);
 

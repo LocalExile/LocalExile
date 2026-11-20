@@ -31,16 +31,18 @@ public static partial class Game
 
     // Native projectile actions read final counts from the actor record. The raw base/additional stats alone do
     // not emit a shot. Keep simulated mortars on their own publication path.
-    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack) =>
+        MonsterActionSkillStats(conn, effect, attack, attack.Ranged || attack.Projectile is not null ? SkillsFor(conn).EffectStats(effect, level) : []);
+
+    internal static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, MonsterAttack attack, IReadOnlyList<(uint, int)> raw)
     {
         var catalog = SkillsFor(conn);
         IReadOnlyList<(uint, int)> Art(IReadOnlyList<(uint, int)> stats) =>
             catalog.ArtVariation(effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint key
                 && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
-        if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
+        if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(attack, raw));
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
         if (!attack.Ranged) return own;
-        var raw = catalog.EffectStats(effect, level);
         int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
@@ -52,7 +54,10 @@ public static partial class Game
         return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
     }
 
-    public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack) =>
+        MonsterProjectileSkillStats(attack, SkillsFor(conn).EffectStats(effect, level));
+
+    internal static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(MonsterAttack attack, IReadOnlyList<(uint, int)> raw)
     {
         var own = attack.InPlaceSkillStats();
         // A mortar attack is the client's own: its action fires only with a count on the record and draws the MonsterMortar
@@ -65,7 +70,7 @@ public static partial class Game
                 (StatKeys.VirtualTotalProjectiles, mortar.Count), (StatKeys.VirtualTotalArrows, mortar.Count)];
         var taken = own.Select(s => s.Item1).ToHashSet();
         foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
-        return [.. SkillsFor(conn).EffectStats(effect, level).Where(s => !taken.Contains(s.Item1)), .. own];
+        return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
     }
 
     /// <summary>The sequence of a monster's actions (0x1ab); the client's clip selector is seeded with it.</summary>
@@ -91,7 +96,7 @@ public static partial class Game
         SkillCatalog.MonsterProjectileInfo projectile, ushort sequence = MonsterActionSequence)
     {
         var catalog = SkillsFor(conn);
-        var stats = catalog.EffectStats(effect, level);
+        var stats = catalog.MonsterEffectStats(effect, level);
         bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
         var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
         if (clip is null) return null;
@@ -305,16 +310,16 @@ public static partial class Game
         // instant contact until their projectile is known (SkillCatalog.MonsterProjectile). Its release time and point
         // come from the clip the client plays for it (MonsterReleaseFor). MavenProjectile and the Nucleus barrages are
         // monster_projectile_spell rows (not mortars): MavenNucleus.Shot names their Projectiles.dat art.
-        var projectile = rangedAttack ? MavenNucleus.Shot(catalog, effect) : null;
-        if (friendly && owned is not null && rangedAttack) projectile ??= catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
+        var projectile = rangedAttack ? MavenNucleus.Shot(catalog, effect, level) : null;
+        if (friendly && owned is not null && rangedAttack) projectile ??= catalog.MonsterProjectile(effect, level, includeWeaponAttacks: true);
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
         var summon = variety.GrantedEffects is [int summonEffect, ..] ? catalog.MonsterSummon(summonEffect, level) : null;
         // A monster whose effect is a spell (the King's Death Effigy, fetish hazards) needs cast-time stats,
         // not the melee attack duration; the client crashed in its cast-duration path when the actor record carried only
         // attack stats (0xc0000005, live 2026-10-31).
-        bool spell = effect >= 0 && catalog.EffectStats(effect, level)
-            .Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
+        var effectStats = catalog.MonsterEffectStats(effect, level);
+        bool spell = effectStats.Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
         // A ranged attack reaches its variety's MaximumAttackDistance (a Sand Spitter's 30): the monster walks up to that
         // before it shoots, as GGG's do. A ranged spell (the Maven's and the Nucleus' barrages) and a summoner keep the
         // aggro range they were given with the map affixes; the attack distance of such a variety is its melee fallback.
@@ -342,15 +347,15 @@ public static partial class Game
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         }, mods.Effects);
         var skill = effect >= 0
-            ? catalog.FindByRow(attack.SkillId, effect, level,
-                MonsterActionSkillStats(conn, effect, level, attack)) : null;
+            ? catalog.FindMonsterSkill(attack.SkillId, effect, level,
+                MonsterActionSkillStats(conn, effect, attack, effectStats)) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights). A scripted
         // encounter drives its own phases: the built-in stage would heal it and fight the controller for its actions.
         var stage = scripted || atlas ? null : BossFights.For(variety.Id);
         // Its stats as the attack's (skill_is_non_pathing above all, and the stage's own time): without them the client sent
         // the action through its pathing step, played nothing and kept the monster in it (live 2026-10-21).
         var stageSkill = skill is not null && stage is not null
-            ? SkillsFor(conn).FindByRow(StageSkillId, stage.SkillEffect, level, WithBehaviourVariation(conn, stage.SkillEffect,
+            ? catalog.FindMonsterSkill(StageSkillId, stage.SkillEffect, level, WithBehaviourVariation(conn, stage.SkillEffect,
                 (attack with { SkillId = StageSkillId, Seconds = stage.CastSeconds }).InPlaceSkillStats()))
             : null;
         // The King in the Mists needs its whole granted-effect list on the actor, not only the default attack: each 0x1ab

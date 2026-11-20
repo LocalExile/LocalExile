@@ -157,8 +157,8 @@ public static class KingInMists
             // so its GeometryChannel: without it the 0x400e channel crashed the client (SkillCatalog.BehaviourVariation).
             var stats = use.Projectile is null
                 ? WithBehaviourVariation(conn, effect, use.SkillStats())
-                : MonsterProjectileSkillStats(conn, effect, level, use);
-            if (Game.SkillsFor(conn).FindByRow(id, effect, level, stats) is { } skill) list.Add(skill);
+                : MonsterProjectileSkillStats(use, Game.SkillsFor(conn).MonsterEffectStats(effect, level));
+            if (Game.SkillsFor(conn).FindMonsterSkill(id, effect, level, stats) is { } skill) list.Add(skill);
         }
         if (IsBoss2(variety))
         {
@@ -224,7 +224,7 @@ public static class KingInMists
             ushort id = (ushort)(FetishRatSkill + i);
             // The fetish's granted effects are spells: they need their own cast-time stats, not the attack duration.
             var stats = WithBehaviourVariation(conn, FetishEffects[i], (attack with { Spell = true }).SkillStats());
-            if (Game.SkillsFor(conn).FindByRow(id, FetishEffects[i], level, stats) is { } skill) list.Add(skill);
+            if (Game.SkillsFor(conn).FindMonsterSkill(id, FetishEffects[i], level, stats) is { } skill) list.Add(skill);
         }
         return list;
     }

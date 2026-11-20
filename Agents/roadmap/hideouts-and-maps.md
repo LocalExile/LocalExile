@@ -68,7 +68,8 @@ bench.
 - **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: remaining scarab engines, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
-  Torment spirits' and Grips' own granted skills (#1129). Observe the Martyr's death explosion, animated weapon contacts and
+  Torment spirits' and Grips' own granted skills (#1129), including the Arsonist's first Firestorm cast, its target and repeat timing.
+  Observe the Martyr's death explosion, animated weapon contacts and
   the party's death and corpse removal displays in the client (#1182);
   verify possessed monsters' action timing (#1177) and
   the host's life bar and size when leaving, claiming or re-entering a Massive shrine's radius (#1178, #1179) in the client;

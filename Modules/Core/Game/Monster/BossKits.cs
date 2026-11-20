@@ -94,8 +94,7 @@ public static class BossKits
         if (defaultEffect >= 0 && effects.Contains(defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
         foreach (int effect in effects)
         {
-            int effectLevel = catalog.MaxLevelAt(effect, level);
-            double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
+            double cooldown = catalog.MonsterActionTiming(effect, level).CooldownMs / 1000d;
             ushort id = (ushort)(0x4000 + kit.Count);
             MonsterAttack attack;
             if (kit.Count == 0 && defaultAttack is not null) attack = defaultAttack with { SkillId = id };
@@ -146,9 +145,9 @@ public static class BossKits
         for (int i = 0; i < kit.Count; i++)
         {
             var entry = kit[i];
-            int effectLevel = catalog.MaxLevelAt(entry.Effect, level);
-            var stats = MonsterActionSkillStats(conn, entry.Effect, effectLevel, entry.Attack);
-            if (catalog.FindByRow((ushort)(0x4000 + i), entry.Effect, effectLevel, stats) is { } granted) skills.Add(granted);
+            var raw = catalog.MonsterEffectStats(entry.Effect, level);
+            var stats = MonsterActionSkillStats(conn, entry.Effect, entry.Attack, raw);
+            if (catalog.FindMonsterSkill((ushort)(0x4000 + i), entry.Effect, level, stats) is { } granted) skills.Add(granted);
         }
         return skills;
     }
@@ -182,7 +181,7 @@ public static class BossKits
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
-        var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
+        var projectile = ranged ? MavenNucleus.Shot(catalog, effect, actorLevel) : null;
         var summon = catalog.MonsterSummon(effect, actorLevel);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
