@@ -637,6 +637,9 @@ public static partial class Game
         var gem = capturedGem ?? SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        foreach (uint input in SkillsFor(conn).DamageIncreaseInputs(gem.Effect))
+            if (stats.TryGetValue(input, out int increased))
+                stats[StatKeys.DamagePct] = stats.GetValueOrDefault(StatKeys.DamagePct) + increased;
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;

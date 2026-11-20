@@ -216,8 +216,8 @@ public sealed class AreaSpellTimingTests
         long release = ProjectileRuntime.Time(Game.CastMs(conn, nova.Effect, nova.Id)!.Value / 1000d
             * Game.Animations.SpellAreaRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
         long gap = ProjectileRuntime.QuantaPerSecond / 10;
-        SpawnedMonster At(int x) =>
-            conn.Monsters[(uint)x] = new("nova witness", new(x, 100, 0), 0, 0, 1100) { Hostile = true };
+        SpawnedMonster At(int x, uint life = 1100) =>
+            conn.Monsters[(uint)x] = new("nova witness", new(x, 100, 0), 0, 0, life) { Hostile = true };
         Task Cast() => Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, nova.Id,
             (100, 100), (500, 100), conn.ActionInterruptionGeneration);
 
@@ -294,6 +294,23 @@ public sealed class AreaSpellTimingTests
         Assert.True(conn.Monsters[shared].FlinchUntil > Game.ProjectileWorldTime(conn));
         var flinch = InstanceProtocol.ActorAnimation(shared, .35f, PlayerHitRecovery.TakeHitAnimation);
         Assert.Single(observed, bytes => bytes.SequenceEqual(flinch));
+
+        // Flat lightning keeps the possible rolls for +40%, +100% and a duplicated modifier disjoint.
+        conn.PlayerStats[Program.Stats.Key("spell_minimum_added_lightning_damage")!.Value] = 1000;
+        conn.PlayerStats[Program.Stats.Key("spell_maximum_added_lightning_damage")!.Value] = 1000;
+        var basis = Game.SupportedHitFor(conn, nova.Id, suppress: false, area: true)[DamageType.Lightning];
+        conn.PlayerStats[Program.Stats.Key("shock_nova_damage_+%")!.Value] = 40;
+        conn.PlayerStats[Program.Stats.Key("shock_nova_ring_damage_+%")!.Value] = 60;
+        var ringTarget = At(540, 20_000);
+        var discTarget = At(501, 20_000);
+        contact = session.Runtime.Now + release;
+        cast = Cast();
+        session.AdvanceTo(contact);
+        Assert.InRange(ringTarget.MaxLife - ringTarget.Life, (uint)Math.Floor(basis.Min * 2), (uint)Math.Ceiling(basis.Max * 2));
+        Assert.Equal(discTarget.MaxLife, discTarget.Life);
+        session.AdvanceTo(contact + gap);
+        await cast;
+        Assert.InRange(discTarget.MaxLife - discTarget.Life, (uint)Math.Floor(basis.Min * 1.4), (uint)Math.Ceiling(basis.Max * 1.4));
     }
 
     static async Task VortexDetonatesSelectedBolts()

@@ -419,6 +419,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public string? EffectId(int effectRow) =>
         _tables.Value?.EffectIds.GetValueOrDefault(effectRow);
 
+    /// <summary>The stat keys this effect's ActiveSkills row maps to increased damage.</summary>
+    public ReadOnlySpan<uint> DamageIncreaseInputs(int effectRow) =>
+        _tables.Value is { } t && (uint)effectRow < (uint)t.ActiveSkills.Count && t.ActiveSkills[effectRow] is int active
+            ? t.DamageIncreaseInputs[active] : [];
+
     /// <summary>Whether a GrantedEffects row is a support, from its actual row (not its translated name).</summary>
     public bool IsSupportEffect(int effectRow) => _supportEffects.Value.Contains(effectRow);
 
@@ -1501,7 +1506,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
-        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
+        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, uint[][] DamageIncreaseInputs,
+        List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
         List<int> EsCost)
@@ -1530,10 +1536,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var effects = new Dictionary<string, (int, int)>();
             var statSets = new List<int>();
             var effectInfo = new List<(int, int, bool)>();
-            int activeCount = 0;
-            if (ClientTables.Has("ActiveSkills"))
+            var activeRows = ClientTables.TableOrEmpty("ActiveSkills");
+            var damageInputs = new uint[activeRows.Count][];
+            for (int i = 0; i < activeRows.Count; i++)
             {
-                activeCount = ClientTables.Table("ActiveSkills").Count;
+                var active = activeRows[i];
+                var inputs = active.Ints("Input_StatKeys");
+                var outputs = active.Ints("Output_StatKeys");
+                if (inputs.Length != outputs.Length)
+                    throw new InvalidDataException($"ActiveSkills row {i} has {inputs.Length} stat inputs and {outputs.Length} outputs.");
+                damageInputs[i] = [.. inputs.Where((_, index) => outputs[index] == StatKeys.DamagePct - 1)
+                    .Select(input => checked((uint)input + 1))];
             }
             var activeSkills = new List<int?>();
             int row = 0;
@@ -1542,7 +1555,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 string? id = r.Text("Id");
                 int statSet = Int(r, "StatSet1");
                 int activeRow = Int(r, "ActiveSkill");
-                activeSkills.Add(activeRow >= 0 && activeRow < activeCount ? activeRow : null);
+                activeSkills.Add(activeRow >= 0 && activeRow < activeRows.Count ? activeRow : null);
                 if (id is not null) effects.TryAdd(id, (row, statSet));
                 statSets.Add(statSet);
                 effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime")),
@@ -1621,7 +1634,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
-                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
+                vaalSouls, vaalStoredUses, activeSkills, damageInputs, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute, damageCoefficients, es);
 
             static int Coefficient(int? offset) => offset is int value

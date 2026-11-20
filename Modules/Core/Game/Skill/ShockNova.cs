@@ -32,7 +32,7 @@ public static partial class Game
     {
         int Get(string name) => GolemStat(stats, name);
         int scale = ShockNovaScale(stats, repeat);
-        int increase = Get("shock_nova_damage_+%") + (ring ? Get("shock_nova_ring_damage_+%") : 0);
+        int increase = ring ? Get("shock_nova_ring_damage_+%") : 0;
         int shock = ring ? Get("shock_nova_ring_chance_to_shock_+%") : 0;
         if (increase != 0 || shock != 0)
         {

@@ -29,6 +29,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Power of Purpose (#291). Docs: [Power of Purpose](../docs/game/power-of-purpose.md).
 - The default attack, and weapons whose requirements are not met leaving the hands.
   Docs: [11](../docs/protocol/11-skills.md) §4 and §10a.
+- Supported skill hits and their damage rows include the skill-specific increased damage mapped by their active
+  skill, including helmet enchants on attacks and spells. [20](../docs/protocol/20-damage.md#2-hit-pipeline)
 - Combat timing: stationary attacks, wand bolts, monster flinches and the monster planner.
   Docs: [11](../docs/protocol/11-skills.md) §4–6.
 - Impale. Docs: [20](../docs/protocol/20-damage.md) §3a, [11](../docs/protocol/11-skills.md) §14.

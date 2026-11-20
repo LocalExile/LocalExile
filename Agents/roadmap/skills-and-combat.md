@@ -64,6 +64,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   conditional damage and support/modifier scope; check equipment UI refresh live.
   Attack base/added coefficients are separate; negative weapon conditions, remaining weapon families,
   skill-specific added inputs and native checks stay in #368.
+  Verify skill-specific increased damage on the native panel across helmet swaps and check standalone
+  damage-over-time executors separately. [#1181](https://github.com/LocalExile/LocalExile/issues/1181)
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
