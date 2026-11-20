@@ -1134,9 +1134,14 @@ crafting checks read it ("input_is_corrupted" at `0x141d6c4f4`, `test byte ptr [
 it and is saved with the item. A corrupted item takes no currency but a Scroll of Wisdom (there is no corrupted
 currency yet), and nothing removes corruption.
 
-`CurrencyCorrupt`, same handler (0x71, 0x72 with Shift). A server rule, not the official one: `CurrencyEffects.Vaal`
-delegates to `ItemRolls.Vaal`, which takes a modifiable weapon, armour piece or jewellery (ring, amulet, belt) that is
-not unique, corrupted or mirrored, and always corrupts it.
+`CurrencyCorrupt`, same handler (0x71, 0x72 with Shift). For gems, the server chooses one of four outcomes with equal
+weight: corruption alone, one level up or down, 1–10 quality up or down (bounded to 0–23), or conversion to a
+matching Vaal variant. `SkillGems.VaalVariant_BaseItemTypesKey` links the base, and the Vaal variant's second
+granted effect identifies the original skill. A conversion with no matching variant only corrupts the gem.
+Experience `-1` represents one level above the normal cap.
+
+For equipment, `ItemRolls.Vaal` uses a local outcome table for a modifiable weapon, armour piece or jewellery
+(ring, amulet, belt) that is neither unique, corrupted nor mirrored.
 A normal or magic item becomes rare with 4-6 new affixes and a rare name. A rare item has 1, 2, 3 or 4 random affixes
 replaced (20% each), 5 (10%) or all of them rerolled (10%: 4-6, new name) (`ItemRolls.ReplaceAffixes`: the replaced
 ones come back through `AddAffix`, at most three of each kind, so the count stays).
