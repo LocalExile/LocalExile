@@ -84,6 +84,7 @@ public static partial class Game
         {
             conn.InNpcTalk = true;
             conn.NpcFinishFlag = page.FinishFlag;
+            conn.NpcFinishLeagueFlag = GameEvents.UsesNpcLeagueFlags(conn, npc.Npc) ? page.FinishLeagueFlag : null;
             conn.NpcTalkScript = EndsWithScript(page) ? page : null;
             await ApplyQuestConversationStart(remote, stream, ciphers, conn, npcId, npc, page, applyRowRules: false);
             await Send(remote, stream, ciphers, InstanceNpcs.Talk(npcId, (byte)page.Index),
@@ -94,6 +95,7 @@ public static partial class Game
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         conn.NpcTalkScript = null;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), $"0x0084 object 0: {npc.Npc.Name}'s dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
         if (talk.OpensScreen is { } screen)

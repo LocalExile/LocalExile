@@ -44,14 +44,19 @@ sealed class Act1 : Act
         [
             // a1q1 "Enemy at the Gate": Hillock before Lioneye's Watch (12-quests.md §6). Coming near him sets SeenHillock
             // ("Kill Hillock"); his death levels the character to 2 (QuestStates: "… and levelled up"), takes down the force
-            // wall (town_entrance_exclude.arm's Tutorial_Blocker_3) and opens the gate. Tarkleigh's "Hillock Reward" is offer 0.
+            // wall (town_entrance_exclude.arm's Tutorial_Blocker_3), transitions Doorman to open the gate and unlocks the exit.
+            // Tutorial_Blocker_1 and Tutorial_Blocker_2 gate the opening beach and support gem chest while tutorials are active.
+            // Tarkleigh's "Hillock Reward" is offer 0.
             new Quest("a1q1")
             {
                 On.Seen(Strand, Act1Monsters.Hillock, "a1q1-SeenHillock"),
                 On.Killed(Strand, Act1Monsters.Hillock, "a1q1-KilledHillock"),
                 On.LevelUp(Strand, Act1Monsters.Hillock, 2),
                 On.Exit(Strand, LioneyesWatch, "a1q1-KilledHillock"),
-                On.Wall(Strand, "Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3", "a1q1-KilledHillock"),
+                On.Wall(Strand, TutorialObjects.Blocker1, TutorialObjects.SkillGemTutorialFlag),
+                On.Wall(Strand, TutorialObjects.Blocker2, TutorialObjects.SupportGemTutorialFlag),
+                On.Wall(Strand, TutorialObjects.Blocker3, "a1q1-KilledHillock"),
+                On.Object(Strand, TutorialObjects.Doorman, "a1q1-KilledHillock"),
             },
             // a1q5 "Mercy Mission" (§7): Hailrake drops the Medicine Chest; its .it holds a1q5-HaveMedicineChest while carried
             // and goes with a1q5-NessaCongratulated, the flag of Nessa's "The Medicine Chest", which takes it (hand-in).

@@ -529,14 +529,22 @@ public static class AreaPopulation
             centres.Add(c);
             plans.Add((c, PickPack(packs, rng)));
         }
-        // Rarity per pack: rare (one rare member), magic (all members) or normal; at least MinRares rares.
-        var rarities = plans.Select(_ => RollRarity(rng.Next(100))).ToList();
-        for (int i = 0; rarities.Count(r => r == MonsterRarity.Rare) < Math.Min(MinRares, plans.Count) && i < 100; i++)
-            rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
-        Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
-        Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
+        bool strand = area.AreaId == TutorialObjects.Strand;
+        List<MonsterRarity> rarities;
+        if (strand)
+            // The Twilight Strand (1_1_1) spawns only normal scattered packs; Hillock is its sole non-normal monster.
+            rarities = [.. Enumerable.Repeat(MonsterRarity.Normal, plans.Count)];
+        else
+        {
+            // Rarity per pack: rare (one rare member), magic (all members) or normal; at least MinRares rares.
+            rarities = plans.Select(_ => RollRarity(rng.Next(100))).ToList();
+            for (int i = 0; rarities.Count(r => r == MonsterRarity.Rare) < Math.Min(MinRares, plans.Count) && i < 100; i++)
+                rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
+            Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
+            Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
+        }
         int scatteredStart = spawns.Count;
-        int memberBudget = area.AreaId == TutorialObjects.Strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
+        int memberBudget = strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
         int placedPacks = 0;
         for (int i = 0; i < plans.Count && spawns.Count - scatteredStart < memberBudget; i++)
         {

@@ -639,7 +639,7 @@ public static partial class Quests
     /// epilogue flag the client requires before an Atlas map can be activated: until earned it is one of
     /// <see cref="EndgameOnly"/>.</summary>
     public static readonly string[] EveryCharacter = ["HideoutUnlocked", "HideoutJukeboxEnabled", "CanEditHideout", "MapDeviceActive",
-        CompletedAllTutorials, ThisIsMyHideout, EndGameAvailable];
+        ThisIsMyHideout, EndGameAvailable];
 
     /// <summary>
     /// Of <see cref="EveryCharacter"/>, the flags given for the endgame only, until the character earns them (Kitava's
@@ -659,10 +659,14 @@ public static partial class Quests
     /// <summary>QuestFlags row 717, sent only while the player is in a hideout (Program.PlayerQuestFlags).</summary>
     public const string ThisIsMyHideout = "ThisIsMyHideout";
 
-    /// <summary>QuestFlags row 367: the tutorials are done, as on an account that has played before. Quest states that
-    /// teach (a1q1 after Hillock: "Open the Passive Skill Screen …", FlagsMissing 280/367) give way to the next step
-    /// ("Enter through the gate for a reward").</summary>
+    /// <summary>QuestFlags row 367 (Tutorial.dat row 17 AllTutorials): the tutorials are skipped or disabled. Quest states
+    /// that teach (a1q1 after Hillock: "Open the Passive Skill Screen …", FlagsMissing 280/367) give way to the next step
+    /// ("Enter through the gate for a reward"), and the HUD "Skip All Tutorials" button and Options checkbox check it.</summary>
     public const string CompletedAllTutorials = "CompletedAllTutorials";
+
+    /// <summary>QuestFlags row 713 (Tutorial.dat row 77 HidePopups): suppresses Help Panel article popup notifications
+    /// (checked at 0x140a901ec, 0x140a910e3, 0x140a916e1, 0x140a917e5, 0x140a92dca).</summary>
+    public const string TutorialPanelHideArticlePopups = "TutorialPanelHideArticlePopups";
 
     /// <summary>CharacterStartQuestState/QuestStates EpilogueAtlasDemo flag: without it the client refuses to activate an
     /// Atlas map ("You do not have the required Quest State to access this area"; live 2026-10-29).</summary>
@@ -745,4 +749,46 @@ public static partial class Quests
         var wanted = rows.ToHashSet();
         return TableRows.Value.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
     }
+
+    sealed record TutorialCatalog(IReadOnlyDictionary<byte, string> ByRow, IReadOnlyList<string> AllFlags);
+
+    static readonly Lazy<TutorialCatalog> Tutorials = new(() =>
+    {
+        try
+        {
+            var table = ClientTables.TableOrNull("Tutorial");
+            if (table is null) return new(new Dictionary<byte, string>(), [CompletedAllTutorials, TutorialPanelHideArticlePopups]);
+            var flagNames = TableRows.Value.ToDictionary(kv => kv.Value, kv => kv.Key);
+            var byRow = new Dictionary<byte, string>();
+            var allFlags = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var r in table)
+            {
+                if (r.Index < 0 || r.Index > byte.MaxValue) continue;
+                if (r.IntOrNull("QuestFlagComplete") is not int flagRow || !flagNames.TryGetValue(flagRow, out string? flag)) continue;
+                byRow[(byte)r.Index] = flag;
+                // Rows without a UIFile are the tutorial completion flags (0..18) and HidePopups (77); rows with a UIFile
+                // are Help Panel articles (23..76, ArticleRead*), which stay unread individually when tutorials are skipped.
+                if (string.IsNullOrEmpty(r.TextOrNull("UIFile")) && seen.Add(flag))
+                    allFlags.Add(flag);
+            }
+            if (seen.Add(CompletedAllTutorials)) allFlags.Add(CompletedAllTutorials);
+            if (seen.Add(TutorialPanelHideArticlePopups)) allFlags.Add(TutorialPanelHideArticlePopups);
+            return new(byRow, allFlags);
+        }
+        catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            Console.WriteLine($"[gateway] Tutorial: {ex.Message}");
+            return new(new Dictionary<byte, string>(), [CompletedAllTutorials, TutorialPanelHideArticlePopups]);
+        }
+    });
+
+    /// <summary>The QuestFlags.dat Id of a Tutorial.dat row's QuestFlagComplete column, or null when the row is out of
+    /// range (such as the client's null-article sentinel 0x4e at 0x140a91c4f) or has no completion flag.</summary>
+    public static string? TutorialFlag(byte row) => Tutorials.Value.ByRow.GetValueOrDefault(row);
+
+    /// <summary>Every tutorial completion flag from Tutorial.dat (rows 0..18, including CompletedSkillGemTutorial and
+    /// CompletedAllTutorials) plus TutorialPanelHideArticlePopups (row 77): set together when skipping or disabling all
+    /// tutorials (C→S 0x020a row 17 AllTutorials).</summary>
+    public static IReadOnlyList<string> AllTutorialFlags => Tutorials.Value.AllFlags;
 }

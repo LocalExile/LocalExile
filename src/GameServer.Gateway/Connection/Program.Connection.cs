@@ -155,18 +155,30 @@ public partial class Program
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
                 var moduleHeader = GameEvents.RunAreaHeader(conn);
-                areaLevel = moduleHeader?.Level ?? areaLevel;
+                byte headerLevel = moduleHeader?.Level ?? areaLevel;
+                bool levelChanged = headerLevel > 0 && headerLevel != areaLevel;
+                areaLevel = headerLevel;
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
                 // A module's own extra data (Delve's) takes the place of the plugin states: the instance and the server's
                 // level drop them too, so both sides build the level without them.
+                bool droppedPluginStates = false;
                 if (pluginStates.Count > 0 && moduleHeader?.Terrain is not null)
                 {
                     Console.WriteLine($"[gateway] {remote} {layout.Id}: the module's extra data is sent in place of the terrain plugin states");
                     instance.DropTerrainPluginStates();
                     ServerLevels.PlayWithoutPluginStates(layout.Id, seed);
                     pluginStates = [];
+                    droppedPluginStates = true;
+                }
+                // Refresh conn.Layout when AreaHeader dropped plugin states or changed the area level sent in 0x1d,
+                // so the server's layout matches what the client builds.
+                if (droppedPluginStates || levelChanged)
+                {
+                    if (levelChanged) ServerLevels.PlayAtLevel(layout.Id, seed, areaLevel);
+                    layout = AreaLayouts.For(areaHash, seed);
+                    conn.Use(layout);
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
