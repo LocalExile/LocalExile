@@ -119,6 +119,7 @@ public static partial class Game
 
     public static void TickEssenceAurasLocked(ClientState conn, double now)
     {
+        if (conn.Closed) return;
         RefreshEssenceAuraSourcesLocked(conn);
         var state = EssenceAuraExposures.GetOrCreateValue(conn);
         double seconds = double.IsNaN(state.MinionLast) ? 0 : Math.Max(0, now - state.MinionLast);
