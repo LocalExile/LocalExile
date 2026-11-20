@@ -517,6 +517,11 @@ public static partial class Game
             }
             else if (id == InstanceEntities.PanelToggleId)
                 Console.WriteLine($"[gateway] {remote} <= 0x0123 panel {(bytes[2] != 0 ? "opened" : "closed")}");
+            else if (id == InstanceEntities.CancelBuffId)
+            {
+                uint raw = InstanceEntities.ReadCancelBuff(bytes);
+                if (raw <= ushort.MaxValue) await GameEvents.RunBuffCancel(conn, (ushort)raw);
+            }
             else if (id == InstanceItems.DropItemId)
                 await DropItem(remote, stream, ciphers, conn);
             else if (id == InstanceItems.CommandId)

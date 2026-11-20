@@ -42,7 +42,7 @@ public sealed class IdolsModule : IModule
             GameEvents.Drops.Add(id, roll =>
             {
                 var conn = roll.Conn;
-                if (roll.Cancel || MapRunOf(conn) is null) return;
+                if (roll.Cancel || MapRunOf(conn) is not { Atlas: true }) return;
                 if (IdolRules.Drop(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), roll.Monster.Level, roll.Monster.Rarity, choices.DropRate, Random.Shared) is { } idol)
                     roll.Made.Add(idol);
             });

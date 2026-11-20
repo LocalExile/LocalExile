@@ -845,11 +845,21 @@ public static class AreaPopulation
         if (!File.Exists(capture) && level is null) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], [], []); }
         // Which rooms the client placed, and where: the generated layout's, or the recorder's <area>_seed<seed>.rooms.json.
         bool placementsKnown = level is not null || File.Exists(Path.Combine(walkability, $"{areaId}_seed{seed}.rooms.json"));
-        var placed = new HashSet<(string, int, int)>();
+        // Per lower-case model: the cells a doodad of it is placed on, and the cells within FitTolerance of one (a fit's
+        // test is one lookup: a generated Voyage tests ~30 million doodad positions).
+        var placed = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
+        var near = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
         var byModel = new Dictionary<string, List<(int X, int Y)>>(StringComparer.OrdinalIgnoreCase);
+        static long Cell(int x, int y) => ((long)x << 32) | (uint)y;
         void Add(string model, int x, int y)
         {
-            if (!placed.Add((model.ToLowerInvariant(), x, y))) return;
+            string key = model.ToLowerInvariant();
+            if (!placed.TryGetValue(key, out var cells)) { placed[key] = cells = []; near[key] = []; }
+            if (!cells.Add(Cell(x, y))) return;
+            var around = near[key];
+            for (int dy = -FitTolerance; dy <= FitTolerance; dy++)
+                for (int dx = -FitTolerance; dx <= FitTolerance; dx++)
+                    around.Add(Cell(x + dx, y + dy));
             if (!byModel.TryGetValue(model, out var list)) byModel[model] = list = [];
             list.Add((x, y));
         }
@@ -869,13 +879,6 @@ public static class AreaPopulation
         {
             notes.Add($"{capture}: {ex.Message}");
             return ([], [], []);
-        }
-        bool Near(string model, int x, int y)
-        {
-            for (int dy = -FitTolerance; dy <= FitTolerance; dy++)
-                for (int dx = -FitTolerance; dx <= FitTolerance; dx++)
-                    if (placed.Contains((model.ToLowerInvariant(), x + dx, y + dy))) return true;
-            return false;
         }
         var points = new List<RoomPoint>();
         var objects = new List<RoomObject>();
@@ -897,15 +900,24 @@ public static class AreaPopulation
             var plain = room.Doodads.Where(d => d.Type is null).ToList();
             var seen = plain.Where(d => byModel.ContainsKey(d.Model)).ToList();
             var origins = new List<(int X, int Y)>();
-            foreach (var c in seen.Count == 0 ? [] : byModel[seen.MinBy(d => byModel[d.Model].Count).Model])
+            var anchor = seen.Count == 0 ? default : seen.MinBy(d => byModel[d.Model].Count);
+            // Each plain doodad's cells near a placed doodad of its model (null: none placed), and the hits a placement needs.
+            var nearOf = plain.Select(d => near.GetValueOrDefault(d.Model.ToLowerInvariant())).ToArray();
+            int need = Math.Max(4, (int)Math.Ceiling(FitShare * plain.Count));
+            foreach (var c in seen.Count == 0 || nearOf.Count(n => n is not null) < need ? [] : byModel[anchor.Model])
                 foreach (var (a, b, cc, dd) in Turns)
                 {
                     // grid = origin + M · local, M = [[a, b], [cc, dd]]
-                    var anchor = seen.MinBy(d => byModel[d.Model].Count);
                     int ox = c.X - (int)Math.Round(a * anchor.X + b * anchor.Y), oy = c.Y - (int)Math.Round(cc * anchor.X + dd * anchor.Y);
                     (int X, int Y) At(float lx, float ly) => (ox + (int)Math.Round(a * lx + b * ly), oy + (int)Math.Round(cc * lx + dd * ly));
-                    int hits = plain.Count(d => At(d.X, d.Y) is var g && Near(d.Model, g.X, g.Y));
-                    if (hits < Math.Max(4, (int)Math.Ceiling(FitShare * plain.Count))) continue;
+                    // Given up once it can no longer reach the share; only a kept placement's count is printed.
+                    int hits = 0, misses = 0;
+                    for (int i = 0; i < plain.Count && misses <= plain.Count - need; i++)
+                    {
+                        var g = At(plain[i].X, plain[i].Y);
+                        if (nearOf[i]?.Contains(Cell(g.X, g.Y)) == true) hits++; else misses++;
+                    }
+                    if (hits < need) continue;
                     if (origins.Any(o => Math.Abs(o.X - ox) <= 3 && Math.Abs(o.Y - oy) <= 3)) continue;
                     origins.Add((ox, oy));
                     foreach (var p in room.Points)

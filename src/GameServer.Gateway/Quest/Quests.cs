@@ -685,6 +685,9 @@ public static partial class Quests
         public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296,
             UnlockedMapDevice = 350;
 
+        /// <summary>The client's number of league quest flags (ids 1 to 0x776); a table's league flag column uses 1911 for none.</summary>
+        public const int Count = 0x776;
+
         /// <summary>Kirac's Purchase Items (NPCTalk column 16): the client hides the buy option without it.</summary>
         public const int UsedMapDevice = 348;
 
@@ -695,8 +698,8 @@ public static partial class Quests
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
         /// VillageKingsmarchUnlocked, HeistVisitedHub, ChayulaLeagueAreaUnlocked, AncestralHallsOfDeadUnlocked,
-        /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140aa7530).</summary>
-        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
+        /// NecropolisAreaUnlocked (0x140aa7530).</summary>
+        public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
             DelveEncounterComplete, .. WorldPanelPins];

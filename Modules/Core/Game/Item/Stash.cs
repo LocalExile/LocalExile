@@ -50,7 +50,7 @@ public static partial class Game
             scene is not null ? "stash" : null);
         // The supplied towns and hideouts also get a guild stash, except in SSF.
         if (additional is null && HideoutCatalog.ByArea(conn.Layout.Hash) is null
-            && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or AreaLayouts.LioneyesWatch
+            && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or StashCatalog.DeepwaterHub or AreaLayouts.LioneyesWatch
                 or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6 or StashCatalog.OriathDocks)) return;
         var townGuild = scene is null ? additional?.Guild ?? StashCatalog.GuildIn(conn.Layout.Hash) : null;
         if (townGuild is { } offset && StashCatalog.FromArrival(conn.Layout.Hash))

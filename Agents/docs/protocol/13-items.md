@@ -42,10 +42,16 @@ everything is little-endian (memcpy):
 
 ```
 u32  type hash (BaseItemTypes HASH32)
-u16  flags            bits 0-8 → item +0x28..+0x2f (bit 4 also to the ctor 0x1421f2880); bit 9 → u64 follows
+u16  flags            bit 0 → +0x28, 1 → +0x29, 2 → +0x2a, 3 → +0x2b, 4 the ctor 0x1421f2880, 5 → +0x2d, 6 → +0x2c,
+                      7 → +0x2e, 8 → +0x2f; bit 9 → u64 follows (Item.HeaderFlags)
 ...  each component's data, in the type's order: vtable slot 5 (+0x28) reads, slot 4 (+0x20) writes
 u16  only for the four type hashes in 0x1421f2800 (0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6)
 ```
+
+The header flags the client acts on: bit 1 (`+0x29`) keeps the item out of every inventory but InventoryIdKey 0 and
+0x41 (main and the Allflame capsule's), and 0x41 takes only items with it (`0x141d65f80`); with bit 1, bit 2 (`+0x2a`)
+shows the tooltip's second marker, the Deepwater contraband symbol (`0x140c998a0`); bit 3 (`+0x2b`) is refused in every
+inventory. The Allflame's Dredge items carry 0x0006.
 
 Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` (`0x1400f1180`) carry nothing:
 
@@ -54,6 +60,7 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 | Base | `0x1435eabe0` | `0x1421ed330` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 the influences (§2f) |
 | Mods | `0x1435ea350` | `0x1421e6050` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (§2f: bit1 mirrored, bit2 split, bit4 relic, bit5 synthesised, bit6 incubator u16 u16 u8 and then bit4's u8, bit7 → 0x1c8 record `0x1424bdb90`), base magic properties `0x142208700` (rarity, identified, mod lists: §2a), u8, u8 |
 | Quality | `0x143645898` | `0x1424b5720` | u8 |
+| DeepwaterChart | | `0x1424bbe90` | u8 +0x30 the Area Level (tooltip, icon "L"), u8 +0x31 the rotation (quarter turns of the room's connection mask, the DeepwaterPlugin cell orientation `0x141fbeda0`; the component copy does not copy it), u8 +0x20 a DeepwaterRooms row, the chart's room (its name in the tooltip); a row past the end (`0xff`) crashes the client when it draws the chart |
 | Charges | `0x1436445f8` | `0x1424a3f80` | signed compact (`0x141e4c7e0`) |
 | Stack | `0x14363f6e8` | `0x1423fb5f0` | u16 stack size (§4a) |
 | SkillGem | `0x143641ec0` | `0x1424755d0` | i32 experience (-1: one level over the cap), u32 +0x3c the variant, u8 +0x10 flags (bit 2: level locked), u16 +0x40 |
