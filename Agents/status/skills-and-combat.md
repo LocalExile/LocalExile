@@ -106,8 +106,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Skill area and duration scaling: the player's increased area counted once at every area site, type-scoped area,
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §12.
-- Lifetap Support. Docs: [25](../docs/protocol/25-gem-supports.md).
-- Blood Magic. Docs: [25](../docs/protocol/25-gem-supports.md).
+- Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
+  so the client spends Life only. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
   Docs: [20](../docs/protocol/20-damage.md).
@@ -202,15 +202,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) §10h.
-- Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
+  (including Fire Trap proxy stats, detonation aim, burning-enemy bonus, throw clamping, and lockstep timing).
+  Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Predator targeting and Feeding Frenzy buffs; aggressive/defensive ranges remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem. Docs: [11](../docs/protocol/11-skills.md) §10g.
-- Holy Flame Totem places without channelling on its owner and fires piercing bolts. Consecrated ground remains open.
+- Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem, with
+  published totem limits/range/duration and placement timing in lockstep. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Holy Flame Totem places without channelling on its owner, creates Consecrated Ground, and fires piercing bolts.
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.

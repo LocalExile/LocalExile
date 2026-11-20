@@ -53,7 +53,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/quest_flag`.
   Kills, sightings, room objects come near, exits, cleared areas, quest chests, room NPCs, NPCs that turn into
   monsters, second forms and mirrored blockers are rules; quest items (their `.it` Quest flags: held, picked up,
-  handed in, removed, used), dialogue flags and scripts, session flags and the rewards come from the client's data.
+  handed in, removed, used), dialogue flags and scripts (including `NPCTalk` league quest flags for `hideout1`,
+  `delve2`, and `bestiary2`), session flags and the rewards come from the client's data.
   Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
@@ -101,9 +102,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
-  Every quest object, chest and NPC the rules name is placed at seed 1. Helena's rescue uses her visible state 2
-  on the kill and on re-entry; her asset's last state hides her. Sin's first appearance after Innocence advances
-  the paused entrance to state 2, while a return starts in the completed pose.
+  Every quest object, chest and NPC the rules name is placed at seed 1.
+  Helena's rescue uses her visible state 2 on the kill and on re-entry; Act 2 town Helena is gated on
+  `a2q6-HelenaInTown` (with town-entry recovery for older saves) so Greust offers his reward.
+  Sin's first appearance after Innocence advances the paused entrance to state 2, restores at `ArenaMiddle` in fresh
+  instances until `a5q6-QuestReceived`, and `SinOssuary` spawns transitioned/visible.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
