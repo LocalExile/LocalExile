@@ -53,9 +53,9 @@ public static partial class Game
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
-        int additionalCritical = 0)
+        int additionalCritical = 0, MonsterModEffects? sourceEffects = null)
     {
-        var e = m.Effects;
+        var e = sourceEffects ?? m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
         int chance = e.CriticalChance + additionalCritical;
         critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;

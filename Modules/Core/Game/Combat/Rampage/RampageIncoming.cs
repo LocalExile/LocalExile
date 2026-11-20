@@ -14,10 +14,10 @@ public static partial class Game
     }
 
     internal static (bool Critical, DamagePacket Taken) HitRampageWeaponLocked(SpawnedMonster attacker,
-        SpawnedMonster weapon, DamagePacket damage, bool attack, double now)
+        SpawnedMonster weapon, DamagePacket damage, bool attack, double now, MonsterModEffects? sourceEffects = null)
     {
         var rolled = MonsterModHit(attacker, damage.Roll(Random.Shared), weapon.Life, weapon.MaxLife,
-            Random.Shared, out bool critical, now: now).Scale(SappedDamageFactor(attacker, now));
+            Random.Shared, out bool critical, now: now, sourceEffects: sourceEffects).Scale(SappedDamageFactor(attacker, now));
         var (loss, _) = MonsterDamage(weapon, rolled, critical, attack, default, default, out var taken);
         weapon.Life = (uint)Math.Max(0, (long)weapon.Life - loss);
         if (weapon.Life == 0) weapon.Dead = true;

@@ -52,7 +52,7 @@ public static partial class MapTorment
         double fire = defaultLife * (double)stats[Stats.Key("suicide_explosion_%_of_default_monster_life_to_deal_as_fire")!.Value] / 100;
         var effects = source.Plus("damage_+%", source["fire_damage_+%"] + source["elemental_damage_+%"] + source["area_damage_+%"]);
         var attack = new MonsterAttack(skill.Id, 0, radius, effects.Hit(DamagePacket.Of(DamageType.Fire, fire, fire)))
-            { Spell = true, IncludesTemporaryDamage = true };
+            { Spell = true, SourceEffects = source };
         double now = ProjectileWorldTime(conn);
         var at = monster.Walk.Position(now);
         var area = Of(conn) ?? Areas.GetValue(conn.Instance, _ => new());
@@ -128,7 +128,7 @@ public static partial class MapTorment
             foreach (var weapon in v.Weapons)
             {
                 if (weapon.Monster.Dead || weapon.Monster.Life == 0 || !weapon.Current(p)) continue;
-                var (critical, taken) = HitRampageWeaponLocked(monster, weapon.Monster, death.Attack.Damage, attack: false, now);
+                var (critical, taken) = HitRampageWeaponLocked(monster, weapon.Monster, death.Attack.Damage, attack: false, now, death.Attack.SourceEffects);
                 weapon.Hit = InstanceProtocol.ActionHit(monster.ObjectId, 0xffff, weapon.Actor.Id,
                     flags: MonsterHitFlags(blocked: false, critical), code: HitCode(taken),
                     angle: HitAngle(weapon.At.X - death.At.X, weapon.At.Y - death.At.Y));
