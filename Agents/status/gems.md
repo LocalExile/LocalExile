@@ -77,7 +77,8 @@ Nothing yet.
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
   Locus throws spread their mines across a 100° arc at a minimum radius of 20 cells. Templars release the same
   cells in reverse order. Terrain limits each landing. Locus mines aim at their owner's current cell on each detonation.
-  Inside three metres they stay armed. Detonate Mines checks that distance before starting its cooldown.
+  Locus reduces the supported attack's projectile count after additions, including split and cluster conversions.
+  Inside three metres the mines stay armed. Detonate Mines checks that distance before starting its cooldown.
   Ordinary mines can still detonate under the player.
   Flight and arming times, other multi-throw patterns and the charges' critical bonuses remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records

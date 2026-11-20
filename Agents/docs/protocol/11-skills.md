@@ -2964,6 +2964,11 @@ at the thrower. Both stop at a projectile-blocking cell. A single mine keeps the
 The 3.29.3c gem stat `support_locus_mine_mines_always_target_your_location` gives a Locus mine the owner's location
 as its target. The Gateway samples that cell for each detonation and uses it for both the mine's action and the skill's
 aim. Power Siphon still selects its own visible enemies from the mine.
+The 3.29.3c total-projectile and total-arrow callbacks truncate after applying the skill and Locus final percentages
+to the base plus additions. Arrow split clamps before subtracting the original arrow. Wand split and Kinetic Blast
+of Clustering subtract the original shot before clamping. The cluster count starts at the gem's blast count plus one.
+See [count inputs](../re/projectiles/count-stat-inputs.md#4-total-counts-4b4b4b4c) and
+[split conversions](../re/projectiles/continuation-stat-inputs.md#3-arrow-split-raw-branch-and-projectile-count-conversion).
 Locus Mine Support stores `support_locus_mine_cannot_detonate_mines_within_X_units = 30` on its mines (3.29.3c).
 The 3.29.3c gem text bars detonation within three metres of the owner. The Gateway includes the boundary in this radius
 and uses the owner's current cell for the Actor availability bit, admission and detonation. A mine that is too close

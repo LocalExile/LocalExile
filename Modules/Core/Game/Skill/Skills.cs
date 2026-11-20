@@ -959,7 +959,7 @@ public static partial class Game
                 stats[aura] = VaalSoulInput(conn, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(conn, playerStats, own, stats);
-            ApplyProjectilePanelStats(effect, stats);
+            ApplyProjectilePanelStats(effect, stats, stats, projectileAttack && ArrowsFor(conn, effect));
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(conn, id, stats);
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.
