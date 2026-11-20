@@ -135,7 +135,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ground Slam's forward wave gains more damage near the player. Volcanic Fissure hits along its path and launches
   landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback.
+- Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Warcry release and cooldowns. Docs: [11](../docs/protocol/11-skills.md) §10i.
 - Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) §10d.

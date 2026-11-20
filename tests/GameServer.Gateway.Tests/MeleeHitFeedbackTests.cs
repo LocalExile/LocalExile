@@ -36,6 +36,33 @@ public sealed class MeleeHitFeedbackTests
     }
 
     [Fact]
+    public void Heavy_strike_uses_its_actor_stance_clip_instead_of_the_default_attack()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        var conn = new ClientState(f.Conn.Layout, 1, 1)
+        {
+            Character = f.Conn.Character, Pools = f.Conn.Pools,
+            ClassRow = Program.Skills.RowOfClass(1), PlayerLife = f.Conn.PlayerLife,
+            Experience = f.Conn.Experience, LeagueModule = f.Conn.LeagueModule,
+        };
+        var items = Game.ItemsOf(conn);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+        var weapon = ItemCatalog.Create(Program.Items.Find("Driftwood Maul")!);
+        items.Put(PlayerInventories.Weapon1, new(1, 0, 0, weapon));
+
+        int effect = Program.Skills.EffectRow("HeavyStrike");
+        double delay = Game.GemAttackContactDelay(conn, effect, .6, out var clip, out double fraction);
+        Assert.Equal("bash1_maul", clip);
+        Assert.Equal(799d / 1166, fraction, 6);
+        Assert.Equal(AttackTiming.ContactDelay(.6, fraction, 0), delay, 6);
+        var contacts = new AnimationContacts();
+        var maul = new WeaponProfile(Shield: false, DualWield: false, Staff: false, Bow: false,
+            DualClaws: false, TwoHand: true, Melee: true, TwoHandMelee: true, Mace: true);
+        Assert.NotEqual(contacts.AttackContact("Metadata/Characters/Str/Str.ao", maul), fraction);
+        Assert.Null(contacts.ActAttackContact("Metadata/Characters/Str/Str.ao", maul, "GlacialHammer"));
+    }
+
+    [Fact]
     public async Task Golem_minion_and_reservation_hits_emit_immediate_typed_action_hit_feedback()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-hit-feedback-{Guid.NewGuid():N}.db");

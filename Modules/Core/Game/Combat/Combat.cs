@@ -138,7 +138,8 @@ public static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
-    // A gem melee attack's contact: the skill's own rig clip when the data has one (Ground Slam's groundslam_maul, 0.633
+    // A gem melee attack's contact: the exact clip from ACT for Heavy Strike, then the skill's own rig clip
+    // when the data has one (Ground Slam's groundslam_maul, 0.633
     // of the attack), else the class's attack1 keyframe (AttackContactDelay: 0.692 for the Str rig's attack1_maul, the
     // default attack's own swing). The clip is taken to stretch to the attack time, as the client plays it, so the
     // server's hit lands where the client's weapon visually hits. clip/fraction come back for the sweep's log.
@@ -151,7 +152,9 @@ public static partial class Game
         // Sweep's Animation row (173) and its sweep_maul, whose contact is 350 of 1375 ms; without it the hit fell back
         // to attack1's 0.69 and landed long after the swing (live 2026-11-09).
         if (SkillsFor(conn).EffectId(effect) is { } effectId
-            && (Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId))
+            && ((effectId == "HeavyStrike"
+                    ? Animations.ActAttackContact(ao, weapon, effectId) : null)
+                ?? Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId))
                 ?? (TransfiguredBase(effectId) is { } baseId ? Animations.SkillAttackContact(ao, weapon, SkillClipName(baseId)) : null)) is { } found)
         {
             (clip, fraction) = (found.Name, found.Contact);
