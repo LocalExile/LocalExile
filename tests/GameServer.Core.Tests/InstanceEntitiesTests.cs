@@ -594,7 +594,7 @@ public class InstanceEntitiesTests
     public void Area_transition_with_a_tile_object_model_rotation_and_height()
     {
         // Live 2026-10-17: the Coast exit with the tile's arch (.tmd record beachencampment_v01_01_area_transition2):
-        // Positioned rotation float, flags0 bit2 = fixed height (u32 steps of 7.8125, float z), Animated bit0 + .ao path.
+        // Positioned rotation float, flags0 bit2 = fixed height (i32 -z/7.8125 marker, float z), Animated bit0 + .ao path.
         const string model = "Metadata/Terrain/Beach/Town_v2/beachencampment_v01_01_area_transition2.ao";
         byte[] b = new AreaTransitionObject(GridX: 388, GridY: 230, DestinationHash16: 0x7ad2, Model: model,
             Rotation: MathF.PI / 2, Height: -351.04f) { InTown = true }.Blob();
@@ -602,10 +602,30 @@ public class InstanceEntitiesTests
         Assert.StartsWith(
             "00" + "00" +
             "84010000" + "E6000000" + "DB0FC93F" + "0000" + "04" + "00" +   // Positioned (388, 230), 90°, flags0 0x04
-            "D3FFFFFF" + "1F85AFC3" +                                        // height -45 steps, z -351.04
+            "2D000000" + "1F85AFC3" +                                        // marker +45 (-z/7.8125), z -351.04
             "01" + "49000000" + Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(model)) +
             "00" + "02" + "D27A" + "00", hex);                               // AreaTransition as before
         Assert.Equal(41 + 8 + 4 + model.Length * 2, b.Length);
+    }
+
+    [Fact]
+    public void Positioned_fixed_height_marker_uses_negative_world_z_steps_across_all_objects()
+    {
+        const float z = -117.1875f; // 15 steps above sea level -> marker = +15, float z = -117.1875
+        const int expectedMarker = 15;
+        static void AssertFixedHeight(byte[] blob, int markerOffset)
+        {
+            Assert.Equal(expectedMarker, BitConverter.ToInt32(blob, markerOffset));
+            Assert.Equal(z, BitConverter.ToSingle(blob, markerOffset + 4));
+        }
+
+        // Object header (2) + Positioned x/y/rot/team/f0/f1 (16) = offset 18.
+        AssertFixedHeight(new AreaTransitionObject(10, 20, 0x7ad2, Height: z).Blob(), 18);
+        AssertFixedHeight(new WaypointObject(10, 20, Height: z).Blob(), 18);
+        AssertFixedHeight(new QuestObject(10, 20, ["Positioned"], Height: z).Blob(), 18);
+        AssertFixedHeight(new ShrineObject(10, 20, Height: z).Blob(), 18);
+        AssertFixedHeight(new NpcObject(10, 20, NpcObject.BaseComponents, Height: z).Blob(), 18);
+        AssertFixedHeight(new ProjectileObject("Metadata/Projectiles/BurningArrow", 10, 20, Height: -15).Blob(), 18);
     }
 
     [Fact]

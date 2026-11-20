@@ -132,14 +132,16 @@ static partial class Sirus
                         damage = g.ShieldPool.Damage(damage, bypass: false, now);
                         PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Sirus ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life,
+                            DeathKind: g.Monster.Life == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal));
                         if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                     }
-                    return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
+                    return lifeBefore == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife,
+                        u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);
                 }
             });
             if (shieldChanged) await SendPlayerEnergyShield(w.Remote, w.Stream, w.Ciphers, p);
-            if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "[Sirus] ground damage");
+            if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "[Sirus] ground damage", deathKind: InstanceProtocol.DeathKindDegen);
         }
     }
 }

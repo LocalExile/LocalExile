@@ -173,7 +173,7 @@ public sealed record WaypointObject(int GridX, int GridY, string? Model = null, 
         w.U8(0).U8(0);                                                              // object flags, base data entry count
         // Positioned as an area transition's: x, y, rotation, u16, flags0 (0x04: the record's fixed height), flags1.
         w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0);
-        if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+        if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
         if (Model is null) w.U8(0); else w.U8(1).WStr32(Model);                    // Animated
         Hideout?.Write(w);                                                          // HideoutDoodad, in a hideout only
         w.U8(0);                                                                    // MinimapIcon flags

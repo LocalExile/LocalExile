@@ -46,6 +46,19 @@ public class InstanceProtocolTests
     public void Enter_area_minimal_form()
     {
         Assert.Equal("0021" + "0000" + "0000" + "0000" + "0000" + "000000" + "00" + "00", Convert.ToHexString(InstanceProtocol.EnterArea()));
+        // +0x7e carries the world frame length in ms (dispatcher case 10 -> 0x141648b50 -> world +0x11c).
+        Assert.Equal("0021" + "0000" + "0000" + "0000" + "0000" + "000000" + "21" + "00",
+            Convert.ToHexString(InstanceProtocol.EnterArea(frameMs: 33)));
+    }
+
+    [Fact]
+    public void Life_update_carries_degen_death_kind_in_u2c()
+    {
+        byte[] normal = InstanceProtocol.LifeUpdate(0x3000, 0, u2c: InstanceProtocol.DeathKindNormal);
+        byte[] degen = InstanceProtocol.LifeUpdate(0x3000, 0, u2c: InstanceProtocol.DeathKindDegen);
+        Assert.Equal(InstanceProtocol.DeathKindNormal, normal[^1]);
+        Assert.Equal(InstanceProtocol.DeathKindDegen, degen[^1]);
+        Assert.Equal(normal[..^1], degen[..^1]);
     }
 
     [Fact]

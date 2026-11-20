@@ -319,7 +319,7 @@ public static partial class Game
                     m.Poisons.Buff = null;
                 }
             }
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life, u2c: life == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
             if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
         }

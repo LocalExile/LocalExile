@@ -31,16 +31,17 @@ public static class InstanceProtocol
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
-    /// (u32, u32), wstr, 24 flag bits, u8 +0x7e, u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler
-    /// (0x14215d6d0) needs the local player entity (0x22 + 0x2bb) to exist already.
+    /// (u32, u32), wstr, 24 flag bits, u8 +0x7e (world frame length in ms, passed to <c>0x141648b50</c> → world +0x11c),
+    /// u8 bits (+0x7b/+0x7c/+0x7d), the rest empty or zero. Its handler (0x14215d6d0) needs the local player entity
+    /// (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
-    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false)
+    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false, byte frameMs = 0)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
-        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(0).U8(0).ToArray();
+        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
@@ -376,12 +377,17 @@ public static class InstanceProtocol
 
     public const ushort LifeUpdateId = 0x1b1;
 
+    /// <summary>S→C 0x1b1 <c>u2c</c> death kind: 0 plays the ordinary death animation (Animation row 6), while 1, 3 and 4
+    /// select <c>DeathFromDegen</c> (Animation row 0x77, <c>0x141e9c200</c>).</summary>
+    public const byte DeathKindNormal = 0, DeathKindDegen = 1;
+
     /// <summary>
     /// S→C 0x1b1 (world group, class 0x1435e8258, read 0x141fe6fb0; world handler 0x14218ddf0 → the object's Life
     /// component): object header, u32 current (+0x20), u32 reserved (+0x24), u8 pool (+0x28: 0 life, 1 mana, 2 energy
-    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c), all big-endian. 0x141e70550 stores the
-    /// values in the pool. For the life pool the handler also calls the Life component's death slot (vtable +0xe8, with
-    /// the +0x2c byte) when life drops from ≥ 1 to &lt; 1, and its revive slot (+0x100) on the way back.
+    /// shield), u16 (+0x2a → pool +0x14, probably reserved percent), u8 (+0x2c death kind: <see cref="DeathKindNormal"/>
+    /// or <see cref="DeathKindDegen"/>), all big-endian. 0x141e70550 stores the values in the pool. For the life pool the
+    /// handler also calls the Life component's death slot (vtable +0xe8, with the +0x2c byte) when life drops from ≥ 1 to
+    /// &lt; 1, and its revive slot (+0x100) on the way back.
     /// </summary>
     public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0,
         uint orderKey = 0, ushort checkpoint = 0) =>
