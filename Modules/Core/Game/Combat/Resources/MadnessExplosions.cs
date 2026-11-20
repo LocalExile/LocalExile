@@ -110,6 +110,8 @@ public static partial class Game
                 }
             }
             finally { conn.Reservations.Secondary = previousSecondary; }
+            // The Martyr's own action removes its host after the killing hit reaches the observers.
+            if (MapTorment.HoldsCorpseLocked(conn, corpse)) continue;
             corpse.CorpseConsumed = true;
             conn.Monsters.Remove(corpseId);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(corpseId), "Madness explosion consumes corpse",
