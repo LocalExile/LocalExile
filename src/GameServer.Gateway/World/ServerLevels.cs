@@ -153,6 +153,19 @@ public static class ServerLevels
         }
     }
 
+    /// <summary>(area, seed) is played at <paramref name="areaLevel"/> (a module's AreaHeader.Level override):
+    /// updates the recorded level so <see cref="For(string, uint)"/> matches what 0x1d sends.</summary>
+    public static void PlayAtLevel(string areaId, uint seed, int areaLevel)
+    {
+        if (areaLevel <= 0) return;
+        lock (Gate)
+        {
+            PlayedLevels[(areaId, seed)] = areaLevel;
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played))
+                PlayedContexts[(areaId, seed)] = played with { Level = areaLevel };
+        }
+    }
+
     static int CategoryOf(string areaId, uint seed) => PlayedCategories.GetValueOrDefault((areaId, seed), LeagueCategory.None);
 
     /// <summary>The area level (area, seed) is generated at: <paramref name="areaLevel"/> when given (above 0), else the
