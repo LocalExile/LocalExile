@@ -62,7 +62,7 @@ public static class InstanceStash
     /// Loaded (flag bit 9, +0x3e bit 1): the contents are known; S→C 0xc8 sets it.</summary>
     public sealed record Tab(ushort Index, string Name, uint Inventory, byte Type, byte R, byte G, byte B,
         TabFlags Flags = TabFlags.None, ushort Position = 0, ushort Parent = 0xffff, uint Affinities = 0, bool Loaded = false,
-        string Id = "", uint U2c = 0, ulong HiddenKey = 0);
+        string Id = "", uint U2c = 0, ulong HiddenKey = 0, bool Hidden = false);
 
     /// <summary>A tab record (0x141d50880): u32 BE inventory id (+0x28), u32 BE (+0x2c, copied to the panel tab's +0x30),
     /// wstr name (+0x08), str id (+0x48), u16 BE position (+0x38), two flag bytes (+0x3d, +0x3e), u16 BE parent (+0x3a),
@@ -71,11 +71,12 @@ public static class InstanceStash
     {
         var flags = t.Flags & ~(TabFlags.Hidden | TabFlags.HasByte | TabFlags.Affinities);
         if (t.Affinities != 0) flags |= TabFlags.Affinities;
-        if (t.HiddenKey != 0) flags |= TabFlags.Hidden;
+        bool hidden = t.HiddenKey != 0 || t.Hidden;
+        if (hidden) flags |= TabFlags.Hidden;
         w.U32(t.Inventory).U32(t.U2c).WStr(t.Name);
         StrNarrow(w, t.Id);
         w.U16(t.Position).U8((byte)flags).U8((byte)(t.Loaded ? 0x02 : 0)).U16(t.Parent).U8(t.R).U8(t.G).U8(t.B).U8(t.Type);
-        if (t.HiddenKey != 0) w.Bytes(BitConverter.GetBytes(t.HiddenKey));
+        if (hidden) w.Bytes(BitConverter.GetBytes(t.HiddenKey));
         // The affinity bitset is copied raw (memcpy to +0x3f), so it goes little-endian.
         if (t.Affinities != 0) w.U8((byte)t.Affinities).U8((byte)(t.Affinities >> 8)).U8((byte)(t.Affinities >> 16)).U8((byte)(t.Affinities >> 24));
         return w;
@@ -162,8 +163,18 @@ public static class InstanceStash
     }
 
     /// <summary>C→S 0xd1 (7 bytes, vtable 0x1435cabd0, write 0x141f9d680; 0x14216dd20): a tab into a folder. u16 BE tab,
-    /// u16 BE folder (0xffff: out of it), u8 kind.</summary>
+    /// u16 BE folder (0xffff: out of it; the tab's own index: into a new folder), u8 kind.</summary>
     public const int MoveTabLength = 7;
+
+    public static (byte Kind, ushort Tab, ushort Folder) ReadMoveTab(ReadOnlySpan<byte> m) =>
+        (m[6], (ushort)(m[2] << 8 | m[3]), (ushort)(m[4] << 8 | m[5]));
+
+    /// <summary>C→S 0xd2 (5 bytes, the class of 0xc7; sent by the folder settings' "Delete Folder", 0x14025c5c0, after it
+    /// cleared the folder from the tabs in it on its own side): u16 BE folder tab, u8 kind.</summary>
+    public const ushort DeleteFolderId = 0xd2;
+    public const int DeleteFolderLength = 5;
+
+    public static (byte Kind, ushort Folder) ReadDeleteFolder(ReadOnlySpan<byte> m) => (m[4], (ushort)(m[2] << 8 | m[3]));
 
     public const ushort MoveToTabId = 0xe0, TakeFromTabId = 0xe3;
 
