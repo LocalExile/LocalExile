@@ -745,8 +745,24 @@ public static partial class Game
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
                 await TakeFromStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, all: move.Bulk != 0);
             }
-            else if (id == InstanceStash.MoveTabId)
-                Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash tab into a folder (not handled): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceStash.MoveTabId && bytes.Length >= InstanceStash.MoveTabLength)
+            {
+                // A tab into a folder, out of one, or (its own index as the folder) into a new one; the list goes out again.
+                var (kind, tab, folder) = InstanceStash.ReadMoveTab(bytes);
+                if (kind == InstanceStash.Guild && conn.Ssf) continue;
+                int? done = (kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn)).MoveToFolder(tab, folder);
+                Console.WriteLine($"[gateway] {remote} <= 0x00d1 stash {kind} tab {tab} into folder {(folder == ushort.MaxValue ? "none" : folder == tab ? "(new)" : folder)}: " +
+                    (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
+                await SendTabListAgain(remote, stream, ciphers, conn, kind);
+            }
+            else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
+            {
+                var (kind, folder) = InstanceStash.ReadDeleteFolder(bytes);
+                if (kind == InstanceStash.Guild && conn.Ssf) continue;
+                bool done = (kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn)).DeleteFolder(folder);
+                Console.WriteLine($"[gateway] {remote} <= 0x00d2 stash {kind} folder {folder} deleted: {(done ? "its tabs moved out" : "refused")}");
+                await SendTabListAgain(remote, stream, ciphers, conn, kind);
+            }
             else if (id == InstanceNpcs.OptionId)
                 await ChooseNpcOption(remote, stream, ciphers, conn, InstanceNpcs.ReadOption(bytes));
             else if (id == InstanceHideouts.SelectId)
