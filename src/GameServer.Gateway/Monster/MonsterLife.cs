@@ -33,9 +33,15 @@ public sealed partial class SpawnedMonster
         uint maximum = MaximumFrom(next);
         if (maximum == MaxLife) return;
         var fraction = CurrentFraction();
-        lifeFraction = fraction;
-        Life = Project(fraction, maximum);
         MaxLife = maximum;
+        SetLifeFromPool(fraction.Life, fraction.Maximum);
+    }
+
+    /// <summary>Set the remaining share of an encounter's pool in the monster's current maximum, under the Monsters lock.</summary>
+    public void SetLifeFromPool(uint remaining, uint maximum)
+    {
+        lifeFraction = (remaining, maximum);
+        Life = Project((remaining, maximum), MaxLife);
     }
 
     /// <summary>Absolute remaining life with the modifiers kept by the instance, before any change of party.</summary>

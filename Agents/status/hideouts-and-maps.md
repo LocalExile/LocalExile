@@ -124,9 +124,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   `Game.MapModsOf`.
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 
-- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with wave summoning and permyriad life loss
-  on wave kills, King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
-  (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and composed Atlas/Idol map stats.
+- CoreLeagues spawns Harbingers in maps (#1157). Their invulnerable avatars summon waves and lose a share of their life
+  per wave kill, including inside a Massive shrine. Maps support King Harbingers with helper avatars, Empowered Obelisks,
+  all 11 active 3.29 currency shards (full-stack conversion and full-orb upgrades), all four Harbinger scarabs,
+  and composed Atlas/Idol map stats.
   Not yet: the Harbingers', helpers' and obelisks' own skills (they stand still), The Beachhead unique map portal
   encounter and Harbinger unique piece assembly.
 

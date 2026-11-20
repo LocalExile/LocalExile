@@ -3,6 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
+using GameServer.Modules.Shrines;
 
 namespace GameServer.Gateway.Tests;
 
@@ -197,12 +198,36 @@ public sealed class HarbingerTests
             Assert.NotEmpty(normal.Minions);
 
             uint startLife = normal.Life;
+            ShrineRegistry.RegisterDefaults();
+            var massive = ShrineCatalog.Find("Massive")!;
+            var shrine = new ShrineInstance { Definition = massive, At = (normal.X, normal.Y), Before = ShrineRegistry.Before(massive) };
+            var ctx = new ShrineContext(owner.Conn, 0);
+            var avatar = owner.Conn.Monsters[normal.Monster];
+            foreach (var effect in shrine.Before) await effect.OnNearbyMonsterEnter(ctx, shrine, normal.Monster);
+            Assert.Equal((16_000u, 16_000u), (avatar.Life, avatar.MaxLife));
             uint firstMinion = normal.Minions[0];
             var firstBody = owner.Conn.Monsters[firstMinion];
             lock (owner.Conn.Monsters) { firstBody.Life = 0; firstBody.Dead = true; }
-            MapHarbinger.Kill(new(owner.Conn, firstBody, firstBody.Variety!.Id, (normal.X, normal.Y)));
-            await MapHarbinger.Tick(owner.Conn, 0.25);
-            Assert.True(Encounters()[normal.Index].Life < startLife, "Killing a summoned minion must reduce Harbinger life");
+            var wire = owner.Conn.Wire;
+            var sent = new List<byte[]>();
+            var previousOutput = Program.Outgoing;
+            try
+            {
+                Program.Outgoing = (cipher, packet) => { if (cipher == wire.Ciphers) sent.Add(packet.ToArray()); };
+                MapHarbinger.Kill(new(owner.Conn, firstBody, firstBody.Variety!.Id, (normal.X, normal.Y)));
+                await MapHarbinger.Tick(owner.Conn, 0.25);
+                await Game.SyncInstanceMonsters(wire.Remote, wire.Stream, wire.Ciphers, owner.Conn);
+            }
+            finally { Program.Outgoing = previousOutput; }
+            uint remaining = Encounters()[normal.Index].Life;
+            Assert.True(remaining < startLife, "Killing a summoned minion must reduce Harbinger life");
+            Assert.Equal((uint)Math.Ceiling((double)remaining * avatar.MaxLife / startLife), avatar.Life);
+            byte[] records = [.. sent.SelectMany(packet => packet)];
+            int maximumAt = records.AsSpan().IndexOf(InstanceEntities.StatsUpdate(normal.Monster, Game.MonsterLifeAndScale(avatar)));
+            int lifeAt = records.AsSpan().IndexOf(InstanceProtocol.LifeUpdate(normal.Monster, avatar.Life));
+            Assert.True(maximumAt >= 0 && lifeAt > maximumAt);
+            foreach (var effect in shrine.Before) await effect.OnNearbyMonsterLeave(ctx, shrine, normal.Monster);
+            Assert.Equal((remaining, startLife), (avatar.Life, avatar.MaxLife));
 
             int groundBeforeDefeat = instance.Ground.All().Count();
             for (int guard = 0; guard < 120 && Encounters()[normal.Index].State != MapHarbinger.HarbingerState.Defeated; guard++)

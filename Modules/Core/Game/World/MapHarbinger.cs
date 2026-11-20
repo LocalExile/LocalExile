@@ -688,26 +688,26 @@ public static class MapHarbinger
             {
                 if (conn.Monsters.TryGetValue(h.Monster, out var body))
                 {
-                    body.Life = h.Life;
+                    body.SetLifeFromPool(h.Life, HarbingerMaxLife);
                     if (h.Life == 0) { body.Dead = true; ++body.ActionGeneration; }
                 }
             }
 
+            // Shared monster sync presents a living avatar's current maximum before its life on each awake view.
+            // A defeated avatar is removed this tick, before the next shared sync.
+            if (h.Life != 0) continue;
             foreach (var viewer in Members(conn))
             {
-                bool visible;
-                lock (viewer.Monsters) visible = viewer.MonsterViews.ContainsKey(h.Monster);
-                if (visible)
+                lock (viewer.Monsters)
+                    if (!viewer.MonsterViews.ContainsKey(h.Monster)) continue;
+                await SendWorldRecord(viewer, h.Monster, () =>
                 {
-                    var vw = viewer.Wire;
-                    await SendWorldRecord(vw.Remote, vw.Stream, vw.Ciphers, viewer, h.Monster,
-                        InstanceProtocol.LifeUpdate(h.Monster, h.Life),
-                        h.Life == 0 ? $"harbinger {h.Index} defeated" : null);
-                }
+                    lock (viewer.Monsters)
+                        return viewer.MonsterViews.ContainsKey(h.Monster) && !viewer.AsleepMonsters.Contains(h.Monster)
+                            ? InstanceProtocol.LifeUpdate(h.Monster, 0) : null;
+                }, $"harbinger {h.Index} defeated");
             }
-
-            if (h.Life == 0)
-                await DefeatHarbinger(killer, area, h);
+            await DefeatHarbinger(killer, area, h);
         }
 
         if (changed) Keep(conn, area);
