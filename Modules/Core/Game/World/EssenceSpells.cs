@@ -34,7 +34,7 @@ public static partial class MapEssences
     /// <summary>One special spell a released rare casts: its daemon effect, what it does (cold/fire/lightning resistance
     /// pulse, chaos degen pulse, or grab), the daemon variety whose action plays the pulse nova, the resistance value /
     /// chaos dps / duration from the skill's stats at the rare's level, and its repeat cooldown.</summary>
-    sealed record SpecialSpell(int Effect, string Kind, string Daemon, int Value, double Dps, double Duration, double Cooldown);
+    sealed record SpecialSpell(int Effect, string Kind, string Daemon, int Value, double Dps, double Duration, double Cooldown, int Tier);
 
     sealed class CastState
     {
@@ -82,8 +82,9 @@ public static partial class MapEssences
             double cooldown = Math.Max(Math.Max(0, skills.CooldownMs(pulse, effectLevel) / 1000.0), skills.CastMs(pulse) / 1000.0);
             // The visual: the daemon's projectile nova if it has one (the Creeping Frost circle), else the pulse itself.
             int visual = daemon.Effects.FirstOrDefault(e => e != pulse && IsProjectileNova(skills, e), pulse);
+            int tier = MapEssenceCatalog.Find(row)?.Tier ?? 7;
             list.Add(new(visual, kind, daemon.Daemon, value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
-                Get("base_skill_effect_duration") / 1000.0, cooldown));
+                Get("base_skill_effect_duration") / 1000.0, cooldown, tier));
         }
         return list;
     }
@@ -209,6 +210,13 @@ public static partial class MapEssences
             void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
             Set("active_skill_area_of_effect_radius", radius);
             Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
+        }
+        else if (Stats.Key("number_of_additional_projectiles") is uint projKey)
+        {
+            // The nova's projectile count scales with the essence tier (the tier-7 observation is the maximum); monster
+            // and map extra-projectile modifiers add on top through the ordinary mod path.
+            int total = ScaledSpellCount(spell.Effect, spell.Tier, Get("number_of_additional_projectiles") + 1);
+            stats[projKey] = Math.Max(0, total - 1);
         }
         if (catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;

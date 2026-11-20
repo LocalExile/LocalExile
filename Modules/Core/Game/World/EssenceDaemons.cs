@@ -42,6 +42,7 @@ public static partial class MapEssences
         foreach (int row in essences)
         {
             if (DaemonEffects(row) is not { } daemon) continue;
+            int tier = MapEssenceCatalog.Find(row)?.Tier ?? 7;
             foreach (int effect in daemon.Effects)
             {
                 if (!seen.Add(effect)) continue;
@@ -50,6 +51,9 @@ public static partial class MapEssences
                 ushort id = (ushort)(0x4000 + kit.Count);
                 var attack = BossKits.AttackFor(conn, variety, level, effect, id);
                 if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
+                // The summon count scales with the essence tier (the tier-7 observation is the maximum).
+                if (attack.Summon is { } summon)
+                    attack = attack with { Summon = summon with { Count = ScaledSpellCount(effect, tier, summon.Count) } };
                 kit.Add(new(effect, attack, Math.Max(0, cooldown)));
             }
         }
