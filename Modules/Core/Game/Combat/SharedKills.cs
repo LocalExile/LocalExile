@@ -50,6 +50,7 @@ public static partial class Game
             {
                 if (HardcoreProgressBlocked(other)) return;
                 await SetQuestFlags(remote, stream, ciphers, other, QuestsOf(other).OnMonsterKilled(other.Layout.Id, variety.Id));
+                await CharacterVoiceLines.GrantKillFlags(other, other.Layout.Id, variety.Id);
                 // The kill's quest items: each player gets their own (none for one who has it or is past that quest).
                 await DropQuestItemsForKill(remote, stream, ciphers, other, variety.Id, at, $"{m.Label} (party kill)");
                 if (!m.NoRewards && Monsters.BaseExperience(variety, m.Level) is int baseXp)

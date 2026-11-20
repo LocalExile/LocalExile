@@ -316,6 +316,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x141e89be0` | Fn | flag set reader (u16 n × (u8 block, u64 bits)); Player +0x1b8 quest flags, +0x1d0 |
 | `0x14012ae40` | Fn | flag set test `(set, bit)` |
 | `0x141e85520` | Fn | Player component update reader (0x2bc): u16 flags, 0x02 quest flags, 0x08 league quest flags, 0x10 Hideouts keys, 0x200 9 bytes, 0x01 experience |
+| `0x140108c80` | Fn | `CharacterAudioController` area-entry baseline: checks `WorldAreas.StartQuestFlags` against `0x2bb` Player flags and snapshots the bitset (`+0xe1`) |
+| `0x14010bd30` | Fn | `CharacterAudioController` QuestFlags update listener (vtable `0x143027020` +0x10): diffs `0x2bc` quest flags against `+0xe1` and plays the first matching `CharacterAudioEvents` row |
+| `0x14010c960` / `0x14010cad0` | Fn | `CharacterAudioController::PlayEvent` by UTF-16 `Id` (client-local triggers) / by `CharacterAudioEvents` row (applies `+0x18` delay ms, `+0x1c` cooldown ms via `0x140145d10`) |
+| `0x14012b660` | Fn | `Data/CharacterAudioEvents.dat` table getter (0x52-byte rows) |
+| `0x140d52f70` / `0x14015f040` | Fn | `InGameState` vtable `0x1431f66b0` `+0xf8` / `+0x100`: forward to `CharacterAudioController` (`+0x268`) `0x14010cad0` / `0x14010c960` |
+| `0x140d5b2f0` | Fn | `InGameState::OnPlayerLevelUp` (vtable `0x1431f6458` +0x08): formats `"LevelUp" + level` and plays matching `CharacterAudioEvents` row |
 | `0x141e1fbb0` | Fn | HideoutDoodad reader: u32 MTX hash, u8 variation, u8 flag, only when the object's data +0x14e is set (in hideouts) |
 
 ## Hideouts ([21](21-hideouts.md))

@@ -366,16 +366,29 @@ public static class InstanceEntities
     /// <summary>
     /// The player's experience (0x2bc to the Player component, reader <c>0x141e85520</c>): u16 flags, bit0 = u32 experience,
     /// which goes through the same setter as creation (<c>0x141e85da0</c>): the level is derived again from it and, when
-    /// it changed, the component's level-change handler (vtable +0x108) runs. The other flags stay off.
+    /// it changed, the component's level-change handler (vtable +0x108) runs and <c>InGameState::OnPlayerLevelUp</c>
+    /// (<c>0x140d5b2f0</c>, vtable <c>0x1431f6458</c> +0x08) automatically plays matching <c>CharacterAudioEvents</c> rows
+    /// (<c>LevelUp&lt;N&gt;</c>: 2, 3, 5, 10, 15, 20, 30, 50, 70, 90). The other flags stay off.
     /// </summary>
     public static byte[] PlayerExperienceUpdate(uint playerId, uint experience) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(1).U32(experience).ToArray());
 
     /// <summary>
-    /// The player's quest flags (0x2bc to the Player component, reader 0x141e85520): u16 flags, bit1 (0x02) = the whole
+    /// The player's quest flags (0x2bc to the Player component, reader <c>0x141e85520</c>): u16 flags, bit1 (0x02) = the whole
     /// quest-flag set again (<see cref="PlayerObject.WriteFlagSet"/>, QuestFlags.dat rows). The World panel shows an area's
-    /// pin only when the area's access flags (WorldAreas +0x54) are all set (0x14077ecf0). Bit3 (0x08) would replace the
+    /// pin only when the area's access flags (WorldAreas +0x54) are all set (<c>0x14077ecf0</c>). Bit3 (0x08) would replace the
     /// second set (+0x1d0), bit9 (0x200) the 9 raw bytes (+0x1e8).
+    /// <para>
+    /// <b>Player voice lines (3.29.3c verified):</b> there is no dedicated S→C <c>CharacterAudioEvents</c> packet (S→C
+    /// <c>0x1c7</c> is <c>NPCTextAudio</c>, S→C <c>0x1c8</c> is <c>NPCConversations</c>). Instead, updating quest flags
+    /// notifies <c>CharacterAudioController</c> (<c>0x14010bd30</c>, vtable <c>0x143027020</c> +0x10), which diffs the
+    /// bitset against the baseline snapshotted on player creation (<c>0x140108c80</c>), scans <c>Data/CharacterAudioEvents.dat</c>
+    /// (<c>0x14012b660</c>, 0x52-byte rows), and plays the <b>first</b> row whose <c>Event</c> (<c>QuestFlags</c> row)
+    /// transitioned 0 → 1 via <c>0x14010cad0</c> (using row +0x18 delay ms and +0x1c cooldown ms; skipped if
+    /// <c>IsPVPOnlyCharacter</c> HASH32 <c>0x24270667</c> is set). Because <c>0x140108c80</c> snapshots the <c>0x2bb</c>
+    /// creation flags, a new area's <c>StartQuestFlags</c> (<c>Visited-*</c>) must arrive in <c>0x2bc</c> after <c>0x2bb</c>
+    /// for <c>Enter*</c> voice lines to play.
+    /// </para>
     /// </summary>
     public static byte[] PlayerQuestFlagsUpdate(uint playerId, IEnumerable<int> questFlags)
     {

@@ -25,6 +25,7 @@ public sealed class GameModule : IModule, IDisposable
             Rules.GolemData.Warm();
             AreaPopulation.Warm();
             _ = HideoutCatalog.Hideouts;
+            _ = CharacterAudioCatalog.Default.Value;
         }
         catch (Exception e) when (e is IOException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or KeyNotFoundException or InvalidOperationException)
         {
@@ -165,6 +166,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.GrantedSkillExecutable.Add(id, (_, effectId) => Rules.IsBrandsurgeEffect(effectId));
         GameEvents.Kill.Add(id, Rules.BrandOnMonsterKill);
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
+        GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
+        GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
     }
 }
 

@@ -839,13 +839,20 @@ public static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint, but {conn.Layout.Id} seed {conn.Seed} has no captured waypoint " +
                             $"(run live.ps1 -Walkmaps): spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY}){(conn.Layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
                     Sirus.ConfigureArrival(conn);
-                    RecordVisit(conn);
                     // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
                     if (LabyrinthTrials.For(conn.Layout.Id) is not null && !conn.HasQuestFlag(Quests.LabyrinthQuestReceived))
                         await SetQuestFlags(remote, stream, ciphers, conn, [Quests.LabyrinthQuestReceived]);
                     await SendPlayer(remote, stream, ciphers, conn);
                     await PlayerEnteredArea(remote, stream, ciphers, conn);
+                    // Record the area visit after 0x2bb PlayerObject is sent: the client's CharacterAudioController
+                    // (0x140108c80) snapshots the 0x2bb quest flags as its baseline, so the new area's StartQuestFlags
+                    // (Visited-*) must transition 0 -> 1 in a subsequent 0x2bc update (sent by SendWaypoints below, or
+                    // directly when the waypoint table is absent) for Enter* character voice lines to play once on first entry.
+                    bool newlyVisited = RecordVisit(conn);
                     await SendWaypoints(remote, stream, ciphers, conn);
+                    if (newlyVisited && WaypointCatalog.Areas.Entries.Count == 0)
+                        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x02bc player quest flags (area visit)",
+                            atGate: () => QuestFlagPresentation(conn));
                     uint gold = PersonalStashOf(conn).Gold;
                     await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (account, {conn.League ?? "Standard"})");
                     // The worn cosmetics (S→C 0x1f3): the client's worn table starts empty with every instance connection.
