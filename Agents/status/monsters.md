@@ -7,9 +7,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Ordinary melee with resolved clip metadata follows native timing ([11](../docs/protocol/11-skills.md) §6).
 - Monsters belong to the area instance: re-entering it finds the living ones where they were, with their damage, and
-  the dead stay dead. Ordinary attacks, boss kits and raised or restored spectres select the grant and each stat set
-  by the monster's level. Boss mortar counts use that level when the server releases the projectiles. A new instance
-  gets fresh packs.
+  the dead stay dead; a new instance gets fresh packs.
   Code: `InstanceStore.cs`, `PopulateArea`, Gateway.
   Docs: [14](../docs/protocol/14-monster-packs.md) §2.
 - Monsters: `/spawn_mob <row, Id or name>[@level] [friendly] [rarity] [name]`, `/mobs`, `/despawn`, `/mob_walk`,
@@ -167,6 +165,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §6.
 
 ## Partly working
+
+- Gateway checks cover the grant and each stat set at the actor's level for ordinary monsters, boss kits and raised or
+  restored spectres. Boss mortars use the same level for their projectile counts. The client visuals still need a run.
 
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 

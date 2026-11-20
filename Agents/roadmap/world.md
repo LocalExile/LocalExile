@@ -113,7 +113,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   boss, and the Exquisite ones of Valdo's maps roll the Vaalsmithed prefixes, daemons that cast a Vaal skill
   (`ChestDaemonVaal*`: Spark, Flameblast, Firestorm, Caustic Arrow, Blade Vortex, Thrown Weapon, Volcanic Fissure).
 - **Start:** the Exquisite Vaal Vessels of Valdo's map mod as `MapStrongboxes` boxes; then each Vaal daemon, as the
-  strongbox spell daemons are (`StrongboxDaemonSpells.cs`).
+  strongbox spell daemons are (`StrongboxDaemonSpells.cs`). Check the level-70 Ice Nova and Firestorm box spell
+  visuals in the client against the actor records from opening those boxes.
 - **Done when:** Valdo's Exquisite Vaal Vessels spawn and their Vaalsmithed prefixes act.
 
 ### The Labyrinth

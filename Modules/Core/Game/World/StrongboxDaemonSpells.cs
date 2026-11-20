@@ -109,7 +109,8 @@ public static partial class MapStrongboxes
             if (row < 0) return;
             // The skill at the area level: its level row, and its damage scaled by the monster skill effectiveness for the
             // actor's level (GolemData.Skill, as a monster's own skills are).
-            var native = GolemData.Skill(catalog, row, AreaLevel(conn));
+            int actorLevel = AreaLevel(conn);
+            var native = GolemData.Skill(catalog, row, actorLevel);
             int level = native.Level;
             var stats = native.Stats;
             DamagePacket Hit(string prefix) => Packet(stats, prefix).Scale(native.Multiplier);
@@ -120,8 +121,8 @@ public static partial class MapStrongboxes
             radius = (int)Math.Round(radius * Math.Max(0, 1 + Get("active_skill_area_of_effect_radius_+%_final") / 100.0));
             var random = new Random(seed);
             var at = (box.X, box.Y);
-            uint shown = await Show(conn, daemon, row, at);
-            Console.WriteLine($"[map-content] strongbox 0x{box.Id:x} {mod}: {skill} level {level} (area {AreaLevel(conn)}), radius {radius}, " +
+            uint shown = await Show(conn, daemon, row, actorLevel, stats, at);
+            Console.WriteLine($"[map-content] strongbox 0x{box.Id:x} {mod}: {skill} level {level} (area {actorLevel}), radius {radius}, " +
                 $"cast {cast:0.##} s, hit {Hit("spell")} / {Hit("secondary")}");
             await Task.Delay(TimeSpan.FromSeconds(cast));
             if (conn.Closed || conn.LeavingArea) return;
@@ -191,17 +192,18 @@ public static partial class MapStrongboxes
     }
 
     /// <summary>The daemon at the box, sending its skill's action so the client plays it; 0 when it cannot be created.</summary>
-    static async Task<uint> Show(ClientState conn, string daemon, int effect, (int X, int Y) at)
+    static async Task<uint> Show(ClientState conn, string daemon, int effect, int actorLevel,
+        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at)
     {
         var catalog = SkillsFor(conn);
         if (Monsters.Find(daemon) is not { Supported: true } variety || catalog.ActionHash(effect) is not ushort hash) return 0;
         ushort skillId = (ushort)(hash & 0x3fff);
-        var stats = catalog.EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
+        var stats = new Dictionary<uint, int>(nativeStats);
         var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(effect) / 1000.0), DefaultRadius, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-        if (catalog.FindByRow(skillId, effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
+        if (catalog.FindMonsterSkill(skillId, effect, actorLevel, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)actorLevel, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
             owned: (_, m) =>
             {

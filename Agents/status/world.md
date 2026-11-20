@@ -121,7 +121,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
   (each daemon sends its skill; the server applies its hit, ailment or ground at the area level; live: Ice Nova,
   Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
-  waves and guard the box, Revive raises the dead near it. Gems with experience drop at a random level up to 20;
+  waves and guard the box, Revive raises the dead near it. In a level-70 Gateway run the Ice Nova daemon sent rank 25
+  and the Firestorm daemon sent its single rank. Their visual effects at those ranks still need a client run.
+  Gems with experience drop at a random level up to 20;
   Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
   Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
   "Vaal Vessels"). Currency changes a closed
