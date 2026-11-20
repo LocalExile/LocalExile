@@ -82,7 +82,7 @@ public static partial class MapTorment
         public readonly HashSet<uint> SpiritMonsters = [];
         public readonly HashSet<uint> Checked = [];
         public readonly ConcurrentQueue<Payout> Payouts = new();
-        public readonly ConcurrentQueue<MartyrDeath> MartyrDeaths = new();
+        public readonly Dictionary<uint, MartyrDeath> MartyrDeaths = [];
         public int Version;
         public bool MarksChanged;
     }
@@ -291,7 +291,7 @@ public static partial class MapTorment
         try
         {
             if (conn.Closed || conn.LeavingArea) return;
-            while (area.MartyrDeaths.TryDequeue(out var death)) await PresentMartyr(conn, death);
+            await FinishAbandonedMartyrs(conn, area);
             if (area.Spirits is null) return;
             await PayOut(conn, area);
             await Present(conn, area);
@@ -619,12 +619,14 @@ public static partial class MapTorment
             if (conn.Monsters.Remove(id, out var m)) { m.Dead = true; m.Life = 0; ++m.ActionGeneration; }
             conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
         }
+        var removals = new List<Task>();
         foreach (var p in Members(conn))
         {
             bool shown;
             lock (p.Monsters) { shown = p.MonsterViews.Remove(id); p.AsleepMonsters.Remove(id); }
-            if (shown) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, $"[torment] 0x{id:x} removed: {why}"); }
+            if (shown) { var w = p.Wire; removals.Add(SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, $"[torment] 0x{id:x} removed: {why}")); }
         }
+        await Task.WhenAll(removals);
     }
 
     /// <summary>Per kill: a touched or possessed monster's more items from the map

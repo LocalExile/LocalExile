@@ -107,6 +107,14 @@ public static partial class Game
     public static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
         bool playerKill = true)
     {
+        CommitProjectileKillRewards(session, id, monster, at, random, playerKill);
+        bool martyr;
+        lock (session.Conn.Monsters) martyr = MapTorment.ResolveMartyrLocked(session.Conn, monster);
+        if (martyr) session.Enqueue(() => MapTorment.PresentMartyr(session.Conn, monster));
+    }
+
+    static void CommitProjectileKillRewards(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random, bool playerKill)
+    {
         var conn = session.Conn;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
         bool destroyCorpse;

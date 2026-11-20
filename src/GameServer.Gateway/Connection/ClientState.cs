@@ -54,6 +54,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>The damage packet already includes this monster's encounter and temporary stats at contact.</summary>
+    public bool IncludesTemporaryDamage { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
     /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
     public bool DualWielding { get; init; }

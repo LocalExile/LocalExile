@@ -83,7 +83,11 @@ public static partial class Game
         }
     }
 
-    public static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
+    public static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false) =>
+        GolemTakeHitLocked(conn, g, attacker, source, attack, now, area, null);
+
+    internal static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source,
+        MonsterAttack attack, double now, bool area, List<(uint Id, SpawnedMonster Target, byte[] Packet)>? sourceHits)
     {
         if (!GolemCurrent(conn, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (GolemIgnoresDots(g)) return false;
@@ -153,9 +157,11 @@ public static partial class Game
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
+        var hitPacket = InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
             flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
-            angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, g.Id, m, WorldId: attacker));
+            angle: HitAngle(to.X - from.X, to.Y - from.Y));
+        if (sourceHits is null) conn.Minions.OutputQueue.Add(new(hitPacket, null, g.Id, m, WorldId: attacker));
+        else sourceHits.Add((g.Id, m, hitPacket));
         conn.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
         if (m.Life == 0) GolemDieLocked(conn, g, now);
         else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)

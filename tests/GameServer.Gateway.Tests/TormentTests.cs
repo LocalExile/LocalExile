@@ -221,6 +221,10 @@ public sealed class TormentTests
 
             // The native radius is 15 plus the player's one-cell body. Each death takes its targets at contact,
             // including a restored host killed before the next encounter tick.
+            c.Experience = CharacterStats.ExperienceFor(c.Pools.Level);
+            CharacterSaves.SetExperience(c.Character!, c.Experience);
+            await Game.SendCharacterStats(wire.Remote, wire.Stream, wire.Ciphers, c, "Martyr contact");
+            c.PlayerLife = c.PlayerMaxLife;
             foreach (var (dying, distance) in new[] { (restoredId, 16), (hostId, 17) })
             {
                 var victim = c.Monsters[dying];
@@ -232,11 +236,11 @@ public sealed class TormentTests
                     Assert.NotNull(Game.ApplyMonsterHitLocked(c, victim, checked((int)victim.Life)));
                     Assert.Null(Game.ApplyMonsterHitLocked(c, victim, 1));
                 }
-                uint atDeath = c.PlayerLife;
-                Assert.Equal(distance == 16, atDeath < lifeBefore);
                 Assert.True(victim.CorpseConsumed);
                 c.Walk.Teleport(at.X + (distance == 16 ? 17 : 16), at.Y, c.Clock.Elapsed.TotalSeconds);
-                MapTorment.Kill(new(c, victim, zombie.Id, at));
+                await Game.MonsterKilled(wire.Remote, wire.Stream, wire.Ciphers, c, dying, victim);
+                uint atDeath = c.PlayerLife;
+                Assert.Equal(distance == 16, atDeath < lifeBefore);
                 await MapTorment.Tick(c, .25);
                 Assert.Equal(atDeath, c.PlayerLife);
                 Assert.False(c.Monsters.ContainsKey(dying));
