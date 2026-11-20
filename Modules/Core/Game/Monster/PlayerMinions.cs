@@ -65,7 +65,11 @@ public static partial class Game
         }
         await TickBeastCompanions(remote, stream, ciphers, conn, now, rules);
         if (!Current()) return;
-        lock (conn.Monsters) MinionUtilityTick(conn, now);
+        lock (conn.Monsters)
+        {
+            MinionUtilityTick(conn, now);
+            TickEssenceAurasLocked(conn, now);
+        }
         await GolemsTick(remote, stream, ciphers, conn, now);
         if (!Current()) return;
         await SummonsTick(remote, stream, ciphers, conn, now);
