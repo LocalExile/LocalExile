@@ -184,6 +184,7 @@ public static partial class MapEssences
         // The essence pulses' player debuffs/degen expire on their own timer, and the released rares cast their ready
         // special spells (pulses/grab) alongside their ordinary AI. Runs before the release/dirty work below.
         TickEffects(conn);
+        TickBuffs(conn);
         await CastSpecialSpells(conn);
         // Crystal Resonance: apply pending inherited essences to the map boss once it exists (it may be held back far
         // from the player until approached); a cheap check, the Monsters scan runs only while something is pending.
