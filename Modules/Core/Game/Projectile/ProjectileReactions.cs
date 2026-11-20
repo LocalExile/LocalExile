@@ -197,6 +197,7 @@ public static partial class Game
     {
         var conn = session.Conn;
         if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
+            || BossMods.GivesNoItems(monster.Variety) || monster.Variety?.Id == TutorialObjects.Zombie
             || !GameEvents.AllowsLoot(conn)) return;
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;
