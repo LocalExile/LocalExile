@@ -15,7 +15,11 @@ public sealed class VendorsModule : IModule
     public void Load(IModuleContext module)
     {
         DivinationFeature.Load(module);
-        GameEvents.NpcTalk.Add(module.Manifest.Id, (conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
+        GameEvents.NpcTalk.Add(module.Manifest.Id, async (conn, id, npc) =>
+        {
+            conn.Shop = null;
+            return await BeginLillyGemIntroduction(conn, id, npc);
+        });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
             (conn, args) => RefreshKirac(conn));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
@@ -41,6 +45,7 @@ public sealed class VendorsModule : IModule
         });
         GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, async conn =>
         {
+            await FinishLillyGemIntroduction(conn);
             conn.Shop = null;
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);

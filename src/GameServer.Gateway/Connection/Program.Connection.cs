@@ -280,17 +280,23 @@ public partial class Program
             try
             {
                 // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
+                bool saved = true;
                 try
                 {
                     if (!left.BuildFinalized) Logic.Save(left, prepared);
                 }
                 catch (Exception e)
                 {
+                    saved = false;
                     Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
                 }
                 // What follows must run whatever the rules do, or the player stays in the instance.
                 try { if (!left.BuildFinalized) Logic.Left(left); }
                 catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
+                // The character has left the game with its save written (not an area change, whose next connection holds
+                // it already). It is still listed in game here, so a login of it waits on Ended below. Not for a
+                // connection that never loaded it (a refused login): another one may still hold the character.
+                if (saved && prepared && !left.TransferAccepted) await GameEvents.RunCharacterAtRest(left);
                 left.Instance.RemovePlayer(left.PeerId);
                 if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
                 ForgetCommands(left);

@@ -104,12 +104,7 @@ static partial class Sirus
                             * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
                         double earned = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.DotCarry[slot];
                         int damage = (int)Math.Min(int.MaxValue, Math.Floor(earned)); e.DotCarry[slot] = earned - damage;
-                        bool chaosBypasses = type == DamageType.Chaos && Get("chaos_damage_does_not_bypass_energy_shield") == 0
-                            && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-                            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
-                                && (long)p.PlayerLife * 100 > (long)p.PlayerMaxLife * LowLifeThresholdPct(stats))
-                            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0
-                                && (long)p.PlayerMana * 2 > p.Pools.Mana);
+                        bool chaosBypasses = type == DamageType.Chaos && ChaosDamageBypassesEnergyShield(p, stats);
                         lifeDamage += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
                             : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
                     }
