@@ -274,8 +274,9 @@ public partial class Program
                 try { if (!left.BuildFinalized) Logic.Left(left); }
                 catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
                 // The character has left the game with its save written (not an area change, whose next connection holds
-                // it already). It is still listed in game here, so a login of it waits on Ended below.
-                if (saved && !left.TransferAccepted) await GameEvents.RunCharacterAtRest(left);
+                // it already). It is still listed in game here, so a login of it waits on Ended below. Not for a
+                // connection that never loaded it (a refused login): another one may still hold the character.
+                if (saved && prepared && !left.TransferAccepted) await GameEvents.RunCharacterAtRest(left);
                 left.Instance.RemovePlayer(left.PeerId);
                 if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
                 ForgetCommands(left);

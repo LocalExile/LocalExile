@@ -187,7 +187,8 @@ public static class GameEvents
 
     /// <summary>The character has left the game (a logout, a disconnect; not an area change) and its save is written:
     /// nothing of that connection writes it again, and a login of the character waits for the subscribers before it
-    /// reads it. The place to replace a character's save. Not run when the last save failed.</summary>
+    /// reads it. The place to replace a character's save. Not run when the last save failed, or for a connection that never
+    /// loaded the character (a refused login).</summary>
     public static readonly GameEvent<Func<ClientState, Task>> CharacterAtRest = new();
 
     /// <summary>The player's hideout is being furnished: place stations here.</summary>
@@ -285,7 +286,7 @@ public static class GameEvents
 
     public static async Task RunCharacterAtRest(ClientState conn)
     {
-        foreach (var (owner, run) in CharacterAtRest.Subscribers(conn)) await GameEventOwners.Guard(owner, "character at rest", () => run(conn));
+        foreach (var (owner, run) in CharacterAtRest.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(CharacterAtRest),() => run(conn));
     }
 
     public static async Task RunHideoutReady(ClientState conn)
