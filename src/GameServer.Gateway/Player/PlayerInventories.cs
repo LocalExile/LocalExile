@@ -163,6 +163,51 @@ public sealed partial class PlayerInventories
     public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
         PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
 
+    /// <summary>The single item that placing the held item at (<paramref name="x"/>, <paramref name="y"/>) in
+    /// <paramref name="row"/> would swap out onto the cursor, or null when nothing (or more than one item) is in the way,
+    /// or when the move would merge into a stack or split one off.</summary>
+    public InventoryItem? DisplacedByPlace(byte row, int x, int y, Func<Item, Shape?> shapeOf, bool one = false)
+    {
+        lock (_lock) return DisplacedByPlaceLocked(row, x, y, shapeOf, one);
+    }
+
+    /// <summary>The single item that clicking the held item onto <paramref name="itemId"/> in <paramref name="row"/>
+    /// would swap out onto the cursor, or null when it would not swap a single item.</summary>
+    public InventoryItem? DisplacedByMerge(byte row, uint itemId, Func<Item, Shape?> shapeOf, bool one = false)
+    {
+        lock (_lock)
+        {
+            if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) return null;
+            if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) return null;
+            if (ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } target) return null;
+            return DisplacedByPlaceLocked(row, target.X, target.Y, shapeOf, one && cursor[0].Item.StackSize > 1);
+        }
+    }
+
+    InventoryItem? DisplacedByPlaceLocked(byte row, int x, int y, Func<Item, Shape?> shapeOf, bool one)
+    {
+        if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) return null;
+        var cursor = ItemsIn(Cursor);
+        if (cursor.Count == 0) return null;
+        var held = cursor[0];
+        if (one && held.Item.StackSize > 1) return null;
+        if (shapeOf(held.Item) is not { } shape) return null;
+        if ((row == 3 || row == 15) && OneHand.Contains(shape.Class) && (!_items.TryGetValue((byte)(row - 1), out var main) || main.Count == 0))
+            row = (byte)(row - 1);
+        var slot = InstanceInventories.PlayerDefaults[row];
+        List<InventoryItem> inTheWay;
+        if (slot.SingleItem)
+            inTheWay = [.. ItemsIn(row)];
+        else
+        {
+            if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) return null;
+            inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
+        }
+        if (inTheWay is not [var under]) return null;
+        if (under.Item.TypeHash == held.Item.TypeHash && shape.MaxStack > 1 && under.Item.StackSize < shape.MaxStack) return null;
+        return under;
+    }
+
     Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
         InventoryItem? incoming = null, bool preview = false)
     {

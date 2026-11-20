@@ -41,12 +41,15 @@ public static class IdolRules
     });
 
     /// <summary>Why this Idol may not join the ones placed, or null: a unique Idol is limited to its
-    /// UniqueMapRelicLimits count (one of each).</summary>
-    public static string? LimitRefusal(PlayerInventories items, Item idol)
+    /// UniqueMapRelicLimits count (one of each). When <paramref name="replaced"/> is the item being swapped out of the
+    /// Idol inventory onto the cursor, it is not counted toward the limit.</summary>
+    public static string? LimitRefusal(PlayerInventories items, Item idol, InventoryItem? replaced = null)
     {
         if (idol.Rarity != ItemRarity.Unique || idol.NameWords.Count == 0
             || !UniqueLimits.Value.TryGetValue(idol.NameWords[0], out int limit)) return null;
-        int placed = items.Items(Row).Count(i => i.Item.Rarity == ItemRarity.Unique && i.Item.NameWords.Contains(idol.NameWords[0]));
+        int placed = items.Items(Row).Count(i =>
+            (replaced is null || i.Id != replaced.Id)
+            && i.Item.Rarity == ItemRarity.Unique && i.Item.NameWords.Contains(idol.NameWords[0]));
         return placed >= limit ? $"this unique Idol is limited to {limit}" : null;
     }
 

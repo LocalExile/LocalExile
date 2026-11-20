@@ -24,10 +24,10 @@ public sealed class IdolsModule : IModule
                 Stats.Key(IdolRules.LeagueStat) is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
         GameEvents.InventorySlot.Add(id, (_, slot) =>
             slot.Row == IdolRules.Row ? slot with { Kind = IdolRules.PanelKind } : null);
-        GameEvents.InventoryRefusal.Add(id, (conn, row, item) =>
-            row != IdolRules.Row ? null
-            : !IdolRules.IsIdol(ItemsFor(conn).ByHash(item.TypeHash)) ? "only Idols go in the Idol inventory"
-            : IdolRules.LimitRefusal(ItemsOf(conn), item));
+        GameEvents.InventoryPlacementRefusal.Add(id, p =>
+            p.Row != IdolRules.Row ? null
+            : !IdolRules.IsIdol(ItemsFor(p.Conn).ByHash(p.Item.TypeHash)) ? "only Idols go in the Idol inventory"
+            : IdolRules.LimitRefusal(ItemsOf(p.Conn), p.Item, p.Replaced));
         GameEvents.MapOpening.Add(id, request =>
         {
             if (request.Campaign || request.Opening is not { } opening) return;

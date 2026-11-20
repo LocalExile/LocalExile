@@ -66,6 +66,14 @@ public sealed class GambleWindow
 /// what a purchase gives (null: nothing is bought) and the tab it is in.</summary>
 public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Random, GameServer.Core.Protocol.Instance.Item?> Roll, string Tab = "Gamble");
 
+/// <summary>An item about to be placed into an inventory row (<see cref="GameEvents.InventoryPlacementRefusal"/>):
+/// <paramref name="Replaced"/> is the single item that will be swapped onto the cursor, or null when none is displaced.</summary>
+public sealed record InventoryPlacement(ClientState Conn, byte Row, GameServer.Core.Protocol.Instance.Item Item,
+    GameServer.Core.Protocol.Instance.InventoryItem? Replaced)
+{
+    public IPlayer Player => Program.PlayerOf(Conn);
+}
+
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
 public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets)
 {
