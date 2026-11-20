@@ -394,6 +394,7 @@ public static partial class Game
         ProliferateIgnitesLocked(conn, now, packets);
         foreach (var (id, m) in conn.Monsters)
         {
+            BearTrapChangesLocked(conn, id, m, now, packets);
             // A knockback is presented before the ailment-idle skip: an idle monster still moves.
             if (m.KnockbackPending is (int kx, int ky))
             {
@@ -403,10 +404,11 @@ public static partial class Game
             }
             var a = m.Ailments;
             double vines = ToxicWalkFactor(m);
+            double trap = BearTrapWalkFactor(m, now);
             if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
             bool elementalIdle = a.IdleAt(now) && now >= m.ReceivedActionUntil;
             bool lowLifeMove = MonsterOnLowLife(m) && m.Effects["movement_velocity_+%_when_on_low_life"] != 0;
-            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
+            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) continue;
             if (!elementalIdle)
             {
@@ -417,8 +419,10 @@ public static partial class Game
                 }
             }
             double action = MonsterActionFactor(m, now, freeze: false);
-            // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed.
+            // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
+            // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
             var movement = MaimedMovementFactor(m, now);
+            if (trap != 1) movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
             double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
                 * movement.Factor;
             if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
@@ -447,7 +451,7 @@ public static partial class Game
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
             }
             bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
-                || lowLifeMove;
+                || lowLifeMove || trap != 1;
             bool maimShown = m.MaimedMovementShown;
             bool movementChanged = maimed
                 ? !maimShown || movement.Pct != m.MaimedMovementShownPct

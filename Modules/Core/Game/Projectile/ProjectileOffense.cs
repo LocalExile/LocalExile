@@ -41,6 +41,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SkillCriticalRoll? CriticalRoll { get; init; }
     /// <summary>Released by the player's own totem: its kills are the player's own device's (OwnedKills).</summary>
     public bool FromTotem { get; init; }
+    /// <summary>Thrown by a trap or mine: Bear Trap's damage taken from traps and mines applies (MonsterTakesTrapOrMineHit).</summary>
+    public bool FromTrapOrMine { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<string, int>? WeaponLocal { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
