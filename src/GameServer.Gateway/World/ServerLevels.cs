@@ -97,6 +97,7 @@ public static class ServerLevels
     // The terrain plugin states an (area, seed) is played with (0x1d extra data, InstanceEvents.TerrainPluginStates): the
     // client's plugin builds its part of the level from them. Part of the cache key (StatsKey).
     static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<ushort, byte[]>> PlayedPluginStates = new();
+    static readonly ConcurrentDictionary<(string Area, uint Seed), string> PlayedStatsKeys = new();
     static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats, int Category, string States)> PlayedContexts = new();
     static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
 
@@ -125,13 +126,21 @@ public static class ServerLevels
     /// (LabyrinthDay), so the day's seed is part of it and a new day generates the room again.</summary>
     static string CacheArea(string areaId, LabyrinthNodeKey? node) => node is null ? areaId : $"{areaId}@lab{node.Seed}";
 
-    /// <summary>The cache key's part for the area stats and league category (area, seed) is played with: none without
-    /// stats and at category 60.</summary>
-    static string StatsKey(string areaId, uint seed) =>
-        (PlayedStats.TryGetValue((areaId, seed), out var stats) && stats.Count > 0
-            ? "#" + string.Join(",", stats.OrderBy(s => s.Key).Select(s => $"{s.Key}={s.Value}")) : "")
-        + (CategoryOf(areaId, seed) is var category and not LeagueCategory.None ? $"@c{category}" : "")
-        + (PluginStatesOf(areaId, seed) is { } states ? "~p" + StatesKey(states) : "");
+    /// <summary>The cache key's part for the area stats, league category and terrain plugin states (area, seed) is
+    /// played with: precomputed when the seed is reserved or updated so <see cref="For(string, uint, int)"/> does not
+    /// re-sort stats or re-hash plugin states on every lookup.</summary>
+    static string StatsKey(string areaId, uint seed) => PlayedStatsKeys.GetValueOrDefault((areaId, seed), "");
+
+    static string FormatStatsKey(string statsKey, int category, string statesKey) =>
+        (statsKey.Length > 0 ? "#" + statsKey : "")
+        + (category != LeagueCategory.None ? $"@c{category}" : "")
+        + (statesKey.Length > 0 ? "~p" + statesKey : "");
+
+    static void StoreStatsKey(string areaId, uint seed, string fullKey)
+    {
+        if (fullKey.Length > 0) PlayedStatsKeys[(areaId, seed)] = fullKey;
+        else PlayedStatsKeys.TryRemove((areaId, seed), out _);
+    }
 
     /// <summary>The terrain plugin states (area, seed) is played with, null for none.</summary>
     public static IReadOnlyDictionary<ushort, byte[]>? PluginStatesOf(string areaId, uint seed) =>
@@ -149,7 +158,12 @@ public static class ServerLevels
         lock (Gate)
         {
             PlayedPluginStates.TryRemove((areaId, seed), out _);
-            if (PlayedContexts.TryGetValue((areaId, seed), out var played)) PlayedContexts[(areaId, seed)] = played with { States = "" };
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played))
+            {
+                PlayedContexts[(areaId, seed)] = played with { States = "" };
+                StoreStatsKey(areaId, seed, FormatStatsKey(played.Stats, played.Category, ""));
+            }
+            else PlayedStatsKeys.TryRemove((areaId, seed), out _);
         }
     }
 
@@ -338,6 +352,7 @@ public static class ServerLevels
                 PlayedCategories[(areaId, candidate)] = category;
                 PlayedLevels[(areaId, candidate)] = level;
                 PlayedStats[(areaId, candidate)] = snapshot;
+                StoreStatsKey(areaId, candidate, FormatStatsKey(statsKey, category, statesKey));
                 return candidate;
             }
             seed = Reserve(seed);

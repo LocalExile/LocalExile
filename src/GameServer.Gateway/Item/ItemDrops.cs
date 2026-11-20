@@ -310,6 +310,13 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     static bool MapExtra(string setting, double quantity, Random rng) =>
         rng.NextDouble() < Math.Clamp(SystemSettings.Default.Get(setting), 0, 100) / 100.0 * quantity;
 
+    /// <summary>A weighted currency drop using this instance's resolved, DropDataProvider-backed currency pool
+    /// (respecting <c>drop_currency_weights.drop_level</c>).</summary>
+    public Drop? CurrencyDrop(int level, Random rng) =>
+        PickCurrency(_pools.Value.Currency, level, rng) is { } picked
+            ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked)
+            : null;
+
     /// <summary>A drop event's stackable items combined into stacks of their type's maximum, as the game drops currency:
     /// a monster's two Orb of Alteration rolls become one stack of two, and a total past the type's maximum becomes
     /// several stacks (a divine orb's maximum is ten, so twenty-one become 10, 10 and 1). Everything else keeps one
@@ -317,23 +324,90 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     public static IReadOnlyList<Drop> Stacked(IEnumerable<Drop> drops)
     {
         var result = new List<Drop>();
-        var groups = new Dictionary<string, (Drop Drop, int Total)>(StringComparer.Ordinal);
-        var order = new List<string>();
+        var groups = new Dictionary<StackKey, (Drop Drop, int Total)>();
+        var order = new List<StackKey>();
         foreach (var drop in drops)
         {
             if (drop.Type.MaxStack <= 1) { result.Add(drop); continue; }
             // The type and the item without its count: two rolls of one currency are the same item whatever their stack.
-            string key = Convert.ToBase64String((drop.Item with { StackSize = 1 }).Payload());
+            var key = StackKey.For(drop.Item);
             if (groups.TryGetValue(key, out var group)) groups[key] = (group.Drop, group.Total + drop.Item.StackSize);
             else { groups[key] = (drop, drop.Item.StackSize); order.Add(key); }
         }
-        foreach (string key in order)
+        foreach (var key in order)
         {
             var (first, total) = groups[key];
             for (int left = total; left > 0; left -= first.Type.MaxStack)
                 result.Add(new Drop(first.Item with { StackSize = (ushort)Math.Min(left, first.Type.MaxStack) }, first.Type));
         }
         return result;
+    }
+
+    readonly struct StackKey : IEquatable<StackKey>
+    {
+        readonly uint _typeHash;
+        readonly ushort _headerFlags, _visualIdentity;
+        readonly byte _flags, _quality;
+        readonly byte[]? _payload;
+        readonly int _hash;
+
+        StackKey(uint typeHash, ushort headerFlags, ushort visualIdentity, byte flags, byte quality, byte[]? payload, int hash)
+        {
+            _typeHash = typeHash;
+            _headerFlags = headerFlags;
+            _visualIdentity = visualIdentity;
+            _flags = flags;
+            _quality = quality;
+            _payload = payload;
+            _hash = hash;
+        }
+
+        public static StackKey For(Item item)
+        {
+            if (IsPlainStackable(item, out bool hasQuality))
+            {
+                ushort header = (ushort)(item.HeaderFlags & 0x01ff);
+                byte flags = (byte)((item.Corrupted ? 0x80 : 0) | (hasQuality ? 0x40 : 0) | ((byte)item.Influences & 0x3f));
+                byte quality = hasQuality && item.AlternateQualityType is null ? item.Quality : (byte)0;
+                int hash = HashCode.Combine(item.TypeHash, header, item.VisualIdentity, flags, quality);
+                return new StackKey(item.TypeHash, header, item.VisualIdentity, flags, quality, null, hash);
+            }
+            byte[] payload = (item with { StackSize = 1 }).Payload();
+            uint fnv = 2166136261u;
+            for (int i = 0; i < payload.Length; i++) fnv = (fnv ^ payload[i]) * 16777619u;
+            return new StackKey(item.TypeHash, 0, 0, 0, 0, payload, (int)fnv);
+        }
+
+        static bool IsPlainStackable(Item item, out bool hasQuality)
+        {
+            hasQuality = false;
+            bool hasBase = false;
+            if (item.Price.Count > 0 || item.SkinTransferSource is not null) return false;
+            var components = item.Components;
+            for (int i = 0; i < components.Count; i++)
+            {
+                string c = components[i];
+                if (c == "Base") { hasBase = true; continue; }
+                if (c == "Stack" || Item.NoData.Contains(c)) continue;
+                if (c == "Quality") { hasQuality = true; continue; }
+                return false;
+            }
+            return hasBase;
+        }
+
+        public bool Equals(StackKey other)
+        {
+            if (_payload is null && other._payload is null)
+                return _typeHash == other._typeHash && _headerFlags == other._headerFlags
+                    && _visualIdentity == other._visualIdentity && _flags == other._flags
+                    && _quality == other._quality;
+            if (_payload is not null && other._payload is not null)
+                return _payload.AsSpan().SequenceEqual(other._payload);
+            return false;
+        }
+
+        public override bool Equals(object? obj) => obj is StackKey other && Equals(other);
+        public override int GetHashCode() => _hash;
     }
 
     /// <summary>The gold item (ItemClasses "Gold"): on the ground a pile of <see cref="Item.StackSize"/> gold, which a pickup

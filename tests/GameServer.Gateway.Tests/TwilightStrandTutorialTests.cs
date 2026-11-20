@@ -24,6 +24,21 @@ public class TwilightStrandTutorialTests
         Assert.DoesNotContain(level1Drops, d => d.Item.Rarity == ItemRarity.Unique
             && ItemModStats.LevelRequirement(d.Item, d.Type.DropLevel, items.Mods) > 1);
 
+        var wisdom = items.Find("Metadata/Items/Currency/CurrencyIdentification")!;
+        var stacked = ItemDrops.Stacked([
+            new(ItemCatalog.Create(wisdom) with { StackSize = 3 }, wisdom),
+            new(ItemCatalog.Create(wisdom) with { StackSize = 5 }, wisdom),
+            new(ItemCatalog.Create(wisdom) with { StackSize = 2, Corrupted = true }, wisdom),
+        ]);
+        Assert.Equal(2, stacked.Count);
+        Assert.Equal((ushort)8, stacked[0].Item.StackSize);
+        Assert.False(stacked[0].Item.Corrupted);
+        Assert.Equal((ushort)2, stacked[1].Item.StackSize);
+        Assert.True(stacked[1].Item.Corrupted);
+        var cur = drops.CurrencyDrop(1, rng);
+        Assert.NotNull(cur);
+        Assert.True(cur.Type.DropLevel <= 1);
+
         var pack = new PackCatalog.Pack(0, "Act1-ZombieDrownedStrand", 2, 3, 0, 0, [], [(5, 1)], new Dictionary<int, int>());
         var strand = new PackCatalog.AreaPacks(TutorialObjects.Strand, 1, [(pack, 100)], new Dictionary<string, PackCatalog.Pack>(), []);
         bool Field(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
