@@ -20,14 +20,23 @@ public static class InstanceRulesets
         return w.ToArray();
     }
 
-    /// <summary>The length of a C→S 0x2ca at the start of <paramref name="m"/>, or null while it is cut off.</summary>
-    public static int? ActionLength(ReadOnlySpan<byte> m)
+    /// <summary>The length of a C→S 0x2ca at the start of <paramref name="m"/>, or null while it is cut off (or invalid).</summary>
+    public static int? ActionLength(ReadOnlySpan<byte> m) =>
+        MeasureActionLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    /// <summary>Measures a C→S 0x2ca ruleset action (writer 0x141fa7c10 / reader 0x141fa7ca0, payload cap 0xffff).</summary>
+    internal static WireMeasure MeasureActionLength(ReadOnlySpan<byte> m, out int length)
     {
-        if (m.Length < 4) return null;
+        length = 0;
+        if (m.Length < 4) return WireMeasure.Incomplete;
         int lengthBytes = CompactUIntLength(m[3]);
-        if (m.Length < 3 + lengthBytes) return null;
-        long total = 3L + lengthBytes + CompactUInt(m[3..]);
-        return total > int.MaxValue ? int.MaxValue : (int)total;
+        if (m.Length < 3 + lengthBytes) return WireMeasure.Incomplete;
+        uint payloadLen = CompactUInt(m[3..]);
+        if (payloadLen > ushort.MaxValue) return WireMeasure.Invalid;
+        int total = 3 + lengthBytes + (int)payloadLen;
+        if (m.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
     }
 
     /// <summary>C→S 0x2ca: the Rulesets row and the action's bytes.</summary>
