@@ -385,7 +385,7 @@ public sealed class NpcCatalog
                     && col17 == 0x777 && col19 == 0x777,
                 AutomaticLeagueContextSupported = nonLeagueAutoContext
                     && (col17 == 0x777 || col17 is > 1 and <= Quests.League.Count)
-                    && (col19 == 0x777 || col19 is >= 1 and <= Quests.League.Count),
+                    && (col19 == 0x777 || col19 is > 1 and <= Quests.League.Count),
                 RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
                 HeardLeagueFlags = [.. r.Ints("__col15").Where(i => i is > 0 and < 0x777)],
                 StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),

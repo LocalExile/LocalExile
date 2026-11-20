@@ -401,7 +401,7 @@ public static class ServerLevels
         catch (Exception ex)
         {
             Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} level {areaLevel} not generated ({ex.GetType().Name}: {ex.Message.Split('\n')[0]})");
-            Errors[(CacheArea(areaId, node), seed, areaLevel)] = ex.ToString();
+            Errors[(CacheArea(areaId, node) + StatsKey(areaId, seed), seed, areaLevel)] = ex.ToString();
             return null;
         }
     }

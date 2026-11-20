@@ -107,22 +107,24 @@ internal static class DeepwaterLocker
         InventoryItem? left = null;
         Saves.Atomically(() =>
         {
-            int count = it.Item.StackSize;
+            var live = items.Items(from).FirstOrDefault(i => i.Id == it.Id);
+            if (live is null) return;
+            int count = live.Item.StackSize;
             if (shape.MaxStack > 1)
-                foreach (var stack in items.Items(LockerRow).Where(s => s.Item.TypeHash == it.Item.TypeHash && s.Item.StackSize < shape.MaxStack
+                foreach (var stack in items.Items(LockerRow).Where(s => s.Item.TypeHash == live.Item.TypeHash && s.Item.StackSize < shape.MaxStack
                     && region.Holds(s.X, s.Y, shape.Width, shape.Height)).ToList())
                 {
                     if (count == 0) break;
                     int put = Math.Min(count, shape.MaxStack - stack.Item.StackSize);
                     if (items.SetStackSize(LockerRow, stack.Id, stack.Item.StackSize + put) is { } grown) { changed.Add(grown); count -= put; }
                 }
-            if (count > 0 && FreeCell(items, region, shape) is { } cell && items.Remove(from, it.Id) is { } taken)
+            if (count > 0 && FreeCell(items, region, shape) is { } cell && items.Remove(from, live.Id) is { } taken)
             {
                 placed = items.Put(LockerRow, taken with { X = cell.X, Y = cell.Y, Item = taken.Item with { StackSize = (ushort)count } });
                 emptied = true;
             }
-            else if (count == 0) emptied = items.Remove(from, it.Id) is not null;
-            else if (count < it.Item.StackSize) left = items.SetStackSize(from, it.Id, count);
+            else if (count == 0) emptied = items.Remove(from, live.Id) is not null;
+            else if (count < live.Item.StackSize) left = items.SetStackSize(from, live.Id, count);
         });
         if (changed.Count == 0 && placed is null) return false;
         var player = PlayerOf(conn);

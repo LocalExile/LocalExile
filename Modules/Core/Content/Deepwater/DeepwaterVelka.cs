@@ -693,9 +693,11 @@ public static class DeepwaterVelka
         }
 
         var (remote, stream, ciphers) = conn.Wire;
+        var bossMods = (run.CellMods is { } cm && a.Cell.Index < cm.Length ? cm[a.Cell.Index] : null)
+            ?? run.RunMods ?? DeepwaterMonsters.ModsFor(run.Level, null);
         uint id = await SpawnMonster(remote, stream, ciphers, conn, cressieVariety, (byte)Math.Clamp(run.Level, 1, 100),
             MonsterRarity.Unique, a.RightPool.X, a.RightPool.Y, log: true, alone: false, unrisen: false,
-            rotation: a.PreFight.Rotation, extraMods: run.RunMods ?? DeepwaterMonsters.ModsFor(run.Level, null),
+            rotation: a.PreFight.Rotation, extraMods: bossMods,
             owned: (_, m) => m.Aggro = true, placement: MonsterPlacement.Established, instanceOwned: true);
         if (id == 0) return;
 
@@ -767,9 +769,11 @@ public static class DeepwaterVelka
 
         var spawnAt = conn.Layout.Near(a.Centre);
         var (remote, stream, ciphers) = conn.Wire;
+        var bossMods = (run.CellMods is { } cm && a.Cell.Index < cm.Length ? cm[a.Cell.Index] : null)
+            ?? run.RunMods ?? DeepwaterMonsters.ModsFor(run.Level, null);
         uint id = await SpawnMonster(remote, stream, ciphers, conn, velkaVariety, (byte)Math.Clamp(run.Level, 1, 100),
             MonsterRarity.Unique, spawnAt.X, spawnAt.Y, log: true, alone: false, unrisen: false,
-            extraMods: run.RunMods ?? DeepwaterMonsters.ModsFor(run.Level, null),
+            extraMods: bossMods,
             owned: (_, m) => m.Aggro = true, placement: MonsterPlacement.Proposed, instanceOwned: true);
         if (id == 0) return;
 
@@ -781,7 +785,8 @@ public static class DeepwaterVelka
 
     static async Task StepDismounting(IModuleContext module, ClientState conn, DeepwaterRun run, ArenaState a, double now)
     {
-        if (a.VelkaId == 0) await SpawnVelka(module, conn, run, a, enrageAtOnce: false, now);
+        if (a.VelkaId == 0 && !a.VelkaDead) await SpawnVelka(module, conn, run, a, enrageAtOnce: false, now);
+        if (a.VelkaId == 0 && !a.VelkaDead) return;
         if (now < a.DismountEndsAt) return;
         lock (conn.Monsters)
         {
@@ -1076,7 +1081,7 @@ public static class DeepwaterVelka
         if (CreateVelkaUnique(uniques, catalog, uniqueName, random) is { } uniqueItem
             && catalog.ByHash(uniqueItem.TypeHash) is { } uniqueBase)
         {
-            dredgeDrops.Add(new(uniqueItem, uniqueBase));
+            dredgeDrops.Add(new(uniqueItem with { ItemLevel = (byte)Math.Clamp(level + 2, 1, 100), Identified = false }, uniqueBase));
         }
         else module.Log($"{CharacterName(conn)}: Velka unique '{uniqueName}' could not be created");
 
@@ -1116,7 +1121,7 @@ public static class DeepwaterVelka
 
             if (ducatType is not null
                 && !ClientHasQuestFlag(member, HaveQuestDucat3Flag)
-                && !CarriesHash(member, ducatHash))
+                && !DeepwaterCursedDucats.Carries(member, ducatHash))
                 memberDrops.Add(new(ItemCatalog.Create(ducatType) with { ItemLevel = (byte)level }, ducatType));
 
             if (memberDrops.Count == 0) continue;
@@ -1204,14 +1209,15 @@ public static class DeepwaterVelka
         int altarReach = Math.Max(0, StationaryCollision.Resolve(DescensionObjectType).Size);
         if (!TryBeginObjectWalk(conn, requestedAt, a.Altar.X, a.Altar.Y, altarReach, out var walk)) return true;
         {
-            var (action, now, here, _, arrive) = walk;
+            var (action, now, here, stop, arrive) = walk;
             if (!use.Started)
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
                     InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, a.Altar.X, a.Altar.Y,
                         use.SkillId, use.Sequence, use.Flags, targetObjectId: a.Altar.Id), null,
                     still: () => PlayerActionCurrent(conn, action));
             if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
-            if (PlayerActionCurrent(conn, action))
+            if (PlayerActionCurrent(conn, action) && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
+                && !run.Failed && a.AltarEnabled && PlayerWalk.InWalkUpRange(stop, (a.Altar.X, a.Altar.Y), altarReach))
             {
                 byte row = Descendancies.Find(BloodlineId)?.Index ?? BloodlineRow;
                 await OpenDescendancySelector(remote, stream, ciphers, conn, row);

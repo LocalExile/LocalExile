@@ -183,6 +183,7 @@ public sealed class QuestRewardCatalog
         var carriedTypes = reclaimable
             ? QuestItems.Carried(inventory).Select(c => c.Item.Item.TypeHash).ToHashSet()
             : null;
+        int eligible = 0;
 
         foreach (var (offerItemId, reward, quest) in rewards)
         {
@@ -190,7 +191,8 @@ public sealed class QuestRewardCatalog
             {
                 if (carriedTypes!.Contains(reward.TypeHash)) continue;
             }
-            else if (takenFlag is null && Taken(null, quest, saved.Contains)) continue;
+            else if (takenFlag is null && (!league || quest is not null) && Taken(null, quest, saved.Contains)) continue;
+            eligible++;
 
             byte dest;
             if (inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf))
@@ -220,9 +222,10 @@ public sealed class QuestRewardCatalog
         }
 
         if (claimedIds.Count == 0) return null;
-        if (league) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
-        if (takenFlag is not null && saved.Add(takenFlag)) granted.Add(takenFlag);
+        bool allClaimed = claimedIds.Count == eligible;
+        if (league && (reclaimable || allClaimed)) leagueFlags!.ChangeLeagueQuestFlags([leagueFlag!.Value], true);
+        if (takenFlag is not null && (reclaimable || allClaimed) && saved.Add(takenFlag)) granted.Add(takenFlag);
         if (granted.Count > 0) CharacterSaves.ChangeQuestFlags(character, granted, true);
-        return new ClaimAllResult(removedMain, addedMain, removedExpanded, addedExpanded, claimedIds, granted, league);
+        return new ClaimAllResult(removedMain, addedMain, removedExpanded, addedExpanded, claimedIds, granted, league && (reclaimable || allClaimed));
     });
 }

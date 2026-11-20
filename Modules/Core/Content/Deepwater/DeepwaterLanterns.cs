@@ -43,6 +43,9 @@ internal static class DeepwaterLanterns
     /// <summary>Clears any cached Auto-Lanterns cooldown when a connection leaves an area.</summary>
     public static void ForgetAuto(ClientState conn) => AutoCooldowns.Remove(conn);
 
+    /// <summary>Clears cached Auto-Lanterns state on module unload.</summary>
+    internal static void ClearCache() => AutoCooldowns.Clear();
+
     /// <summary>Server-side Auto-Lanterns (<c>LQF 1841</c>): when enabled, on a <c>0.5 s</c> cooldown while exploring,
     /// places a lantern automatically as the controller approaches the edge of light (<c>BaseLanternRadius − 20</c>),
     /// outside the deck and Velka's boss arena. Zero allocations when <c>LQF 1841</c> is off.</summary>

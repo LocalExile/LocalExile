@@ -67,6 +67,7 @@ internal sealed class DeepwaterRun
     readonly DeepwaterBoard _board = null!;
     /// <summary>The character who holds the lanterns (QuestFlags 3550): the one whose entry made the run.</summary>
     public required string Controller { get; init; }
+    public bool OwnerEntered { get; set; }
     public RunPhase Phase { get; set; } = RunPhase.Exploring;
     public readonly List<Lantern> Lanterns = [];
     /// <summary>Lanterns placed by the player (the first, free one is not counted).</summary>

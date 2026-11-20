@@ -449,7 +449,7 @@ public static class DeepwaterDucats
     static Item? ApplyUkatoa(ItemCatalog catalog, ItemRolls rolls, Item target, ItemCatalog.BaseType targetType, Random random)
     {
         if (targetType.Class != "Amulet" || target.Rarity == ItemRarity.Unique) return null;
-        if (target.Influences != ItemInfluence.None || rolls.HasEldritchImplicit(target)) return null;
+        if (target.Influences != ItemInfluence.None || target.Synthesised || rolls.HasEldritchImplicit(target)) return null;
         if (!target.Mods.Any(m => m.Section == ModSection.Implicit)) return null;
         if (ItemModStats.LocalValue(target, catalog.Mods, ImmutableImplicitStat) != 0) return null;
 

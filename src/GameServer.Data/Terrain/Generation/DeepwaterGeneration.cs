@@ -87,7 +87,11 @@ public sealed class DeepwaterGeneration
     /// <summary>A DeepwaterRooms row's connection mask (+0x10, DeepwaterConnectionStrings 1/2/4/8) turned by the cell's
     /// orientation as <c>0x141f34ee0</c> does: rotated right by the orientation in four bits. Bit 4 opens to the cell at
     /// x + 1, bit 2 to the cell at y + 1.</summary>
-    public static int Connections(int mask, int orientation) => ((mask << ((4 - orientation) & 31)) | (mask >> (orientation & 31))) & 15;
+    public static int Connections(int mask, int orientation)
+    {
+        int o = orientation & 3;
+        return ((mask << (4 - o)) | (mask >> o)) & 15;
+    }
 
     int Mask(int cell) => Connections(rooms.I32(Cells[cell].Room, 0x10), Cells[cell].Orientation);
 

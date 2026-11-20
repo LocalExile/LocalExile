@@ -1,5 +1,6 @@
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Modding;
 
 namespace GameServer.Modules.Deepwater;
 
@@ -80,17 +81,18 @@ public static class DeepwaterChartStats
     static readonly Lazy<ItemCatalog.BaseType[]> SupportGems = new(() =>
     {
         var list = new List<ItemCatalog.BaseType>();
-        for (int row = 0; Program.Items.Row(row) is { } t; row++)
-            if (t.Class == "Support Skill Gem" && ItemDrops.Droppable(t)) list.Add(t);
+        foreach (int row in GemSources.DropPool(Program.Items, "data"))
+            if (Program.Items.Row(row) is { Class: "Support Skill Gem", DropLevel: >= 1 } t && ItemDrops.Droppable(t))
+                list.Add(t);
         return [.. list];
     });
 
     // Cached droppable uniques per jewellery class for chart_{ring,amulet,belt}_to_unique_*_%_chance.
     sealed record JewelleryUniques(
         IReadOnlyList<UniqueCatalog.Definition> Source,
-        UniqueCatalog.Definition[] Rings,
-        UniqueCatalog.Definition[] Amulets,
-        UniqueCatalog.Definition[] Belts);
+        (UniqueCatalog.Definition Def, int DropLevel)[] Rings,
+        (UniqueCatalog.Definition Def, int DropLevel)[] Amulets,
+        (UniqueCatalog.Definition Def, int DropLevel)[] Belts);
     static volatile JewelleryUniques? _jewelleryUniques;
 
     /// <summary>Builds <see cref="DeepwaterCellRules"/> for one cell from its effective stats (cell + global) and,
@@ -196,25 +198,25 @@ public static class DeepwaterChartStats
     public static bool ConsumesLantern(DeepwaterCellRules[]? cellRules, int cell) =>
         !(cellRules is not null && (uint)cell < (uint)cellRules.Length && cellRules[cell].FreeLanterns);
 
-    /// <summary>Picks a random droppable support gem whose DropLevel fits <paramref name="level"/>.</summary>
-    public static Item? RollSupportGem(int level, Random rng)
+    /// <summary>Picks a random droppable support gem whose DropLevel fits <paramref name="level"/> and league rules allow.</summary>
+    public static Item? RollSupportGem(int level, Random rng, LeagueRules? league = null)
     {
         var all = SupportGems.Value;
         int eligible = 0;
         for (int i = 0; i < all.Length; i++)
-            if (all[i].DropLevel <= level) eligible++;
+            if (all[i].DropLevel <= level && league?.AllowsGemBase(all[i].Id) != false) eligible++;
         if (eligible == 0) return null;
         int target = rng.Next(eligible);
         for (int i = 0; i < all.Length; i++)
         {
-            if (all[i].DropLevel > level) continue;
+            if (all[i].DropLevel > level || league?.AllowsGemBase(all[i].Id) == false) continue;
             if (target-- == 0) return ItemCatalog.Create(all[i]) with { ItemLevel = 1 };
         }
         return null;
     }
 
     public static bool IsFlaskClass(string itemClass) =>
-        itemClass.EndsWith("Flask", StringComparison.Ordinal);
+        itemClass is "LifeFlask" or "ManaFlask" or "HybridFlask" or "UtilityFlask" or "UtilityFlaskCritical";
 
     /// <summary>Applies all active post-roll drop transforms for <paramref name="rules"/> to <paramref name="drops"/>
     /// in deterministic order: no-equipment/no-flask filters, equipment→gold, currency→Stacked Decks,
@@ -226,7 +228,8 @@ public static class DeepwaterChartStats
         in DeepwaterCellRules rules,
         int monsterLevel,
         MonsterRarity monsterRarity,
-        Random rng)
+        Random rng,
+        Func<string, double>? uniqueWeight = null)
     {
         if (drops.Count == 0 || !rules.HasTransforms) return;
 
@@ -303,7 +306,7 @@ public static class DeepwaterChartStats
                     _ => 0,
                 };
                 if (chance <= 0 || (chance < 100 && rng.Next(100) >= chance)) continue;
-                if (RollUniqueJewellery(catalog, uniques, d.Type.Class, d.Item.ItemLevel > 0 ? d.Item.ItemLevel : monsterLevel, rng) is { } uniqueDrop)
+                if (RollUniqueJewellery(catalog, uniques, d.Type.Class, d.Item.ItemLevel > 0 ? d.Item.ItemLevel : monsterLevel, rng, uniqueWeight) is { } uniqueDrop)
                     drops[i] = uniqueDrop;
             }
         }
@@ -348,22 +351,22 @@ public static class DeepwaterChartStats
             global::Game.CorruptDrops(drops);
     }
 
-    static ItemDrops.Drop? RollUniqueJewellery(ItemCatalog catalog, UniqueCatalog uniques, string itemClass, int itemLevel, Random rng)
+    static ItemDrops.Drop? RollUniqueJewellery(ItemCatalog catalog, UniqueCatalog uniques, string itemClass, int itemLevel, Random rng, Func<string, double>? uniqueWeight)
     {
         var all = uniques.All;
         var index = _jewelleryUniques;
         if (index is null || !ReferenceEquals(index.Source, all))
         {
-            var rings = new List<UniqueCatalog.Definition>();
-            var amulets = new List<UniqueCatalog.Definition>();
-            var belts = new List<UniqueCatalog.Definition>();
+            var rings = new List<(UniqueCatalog.Definition Def, int DropLevel)>();
+            var amulets = new List<(UniqueCatalog.Definition Def, int DropLevel)>();
+            var belts = new List<(UniqueCatalog.Definition Def, int DropLevel)>();
             foreach (var def in all)
             {
                 if (def.EncounterOnly) continue;
                 if (catalog.Find(def.BaseTypeId) is not { Supported: true } baseType) continue;
-                if (baseType.Class == "Ring") rings.Add(def);
-                else if (baseType.Class == "Amulet") amulets.Add(def);
-                else if (baseType.Class == "Belt") belts.Add(def);
+                if (baseType.Class == "Ring") rings.Add((def, baseType.DropLevel));
+                else if (baseType.Class == "Amulet") amulets.Add((def, baseType.DropLevel));
+                else if (baseType.Class == "Belt") belts.Add((def, baseType.DropLevel));
             }
             _jewelleryUniques = index = new(all, [.. rings], [.. amulets], [.. belts]);
         }
@@ -375,7 +378,27 @@ public static class DeepwaterChartStats
             _ => [],
         };
         if (pool.Length == 0) return null;
-        var picked = pool[rng.Next(pool.Length)];
+        double total = 0;
+        for (int i = 0; i < pool.Length; i++)
+        {
+            if (pool[i].DropLevel > itemLevel) continue;
+            double w = uniqueWeight is null ? 1.0 : uniqueWeight(pool[i].Def.Name);
+            if (double.IsFinite(w) && w > 0) total += w;
+        }
+        UniqueCatalog.Definition? picked = null;
+        if (total > 0)
+        {
+            double roll = rng.NextDouble() * total;
+            for (int i = 0; i < pool.Length; i++)
+            {
+                if (pool[i].DropLevel > itemLevel) continue;
+                double w = uniqueWeight is null ? 1.0 : uniqueWeight(pool[i].Def.Name);
+                if (!double.IsFinite(w) || w <= 0) continue;
+                picked = pool[i].Def;
+                if ((roll -= w) < 0) break;
+            }
+        }
+        if (picked is null) return null;
         byte ilvl = (byte)Math.Clamp(itemLevel, 1, 100);
         if (uniques.Create(picked with { ItemLevel = ilvl }, rng) is not { } created) return null;
         var type = catalog.ByHash(created.TypeHash);

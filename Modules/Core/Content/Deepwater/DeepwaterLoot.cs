@@ -42,7 +42,7 @@ internal static class DeepwaterLoot
     const string IzaroAltarType = Objects + "DeepwaterIzaroObject";
     const string IzaroChestFallback = "Metadata/Chests/Labyrinth/Izaro/IzaroChest1";
     const string OfferingToTheGoddessId = "Metadata/Items/MapFragments/CurrencyOfferingToTheGoddess";
-    const string LeagueMonsters = "Metadata/Monsters/LeagueDeepwater/";
+    const string LeagueMonsters = "Metadata/Monsters/DeepwaterLeague/";
     const string BottleItem = "Metadata/Items/Deepwater/DeepwaterBottledItem";
     const string ResourceFound = "map_deepwater_league_resource_found_+%";
 
@@ -500,8 +500,10 @@ internal static class DeepwaterLoot
         if (arrive > start) await Task.Delay(TimeSpan.FromSeconds(arrive - start));
         try
         {
-            if (!PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
-                || !GameServer.Core.World.PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (thing.X, thing.Y), reach)) return true;
+            double arrivedAt = conn.Clock.Elapsed.TotalSeconds;
+            if (!PlayerActionCurrent(conn, action) || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || run.Failed
+                || !run.InLight((thing.X, thing.Y), arrivedAt)
+                || !GameServer.Core.World.PlayerWalk.InWalkUpRange(conn.Walk.Position(arrivedAt), (thing.X, thing.Y), reach)) return true;
             uint was;
             lock (run.Gate)
             {
@@ -630,7 +632,7 @@ internal static class DeepwaterLoot
                 break;
             case Kind.Kindling:
                 lock (run.Gate) run.Total += 3;
-                await DeepwaterLanterns.SendCount(conn, run);
+                foreach (var member in Members(conn)) await DeepwaterLanterns.SendCount(member, run);
                 break;
             case Kind.TormentCage:
             {
@@ -649,7 +651,7 @@ internal static class DeepwaterLoot
                 var drops = RollSunkenCurrency(catalog, level);
                 if (catalog.Find(OfferingToTheGoddessId) is { Supported: true } offering)
                     drops.Add(new(ItemCatalog.Create(offering) with { StackSize = 1, ItemLevel = (byte)level }, offering));
-                if (DeepwaterChartStats.RollSupportGem(level, Random.Shared) is { } gem
+                if (DeepwaterChartStats.RollSupportGem(level, Random.Shared, LeagueFor(conn).Rules) is { } gem
                     && catalog.ByHash(gem.TypeHash) is { } gemType)
                     drops.Add(new(gem with { Quality = (byte)Random.Shared.Next(10, 21) }, gemType));
                 await Drop(conn, thing, ItemDrops.Stacked(drops));
@@ -690,10 +692,27 @@ internal static class DeepwaterLoot
                     ? t.Components.Contains("Weapon")
                     : t.Class is "Ring" or "Amulet" or "Belt";
             var uniques = UniquesFor(conn);
-            var pool = uniques.All.Where(d => !d.EncounterOnly && catalog.Find(d.BaseTypeId) is { Supported: true } bt && Matches(bt)).ToArray();
-            if (pool.Length > 0 && uniques.Create(pool[rng.Next(pool.Length)] with { ItemLevel = (byte)level }, rng) is { } item
-                && catalog.ByHash(item.TypeHash) is { } uType)
-                drops.Add(new(item with { Identified = false }, uType));
+            var weightOf = DropsFor(conn).UniqueWeight;
+            var candidates = new List<(UniqueCatalog.Definition Def, double Weight)>();
+            double total = 0;
+            foreach (var d in uniques.All)
+            {
+                if (d.EncounterOnly) continue;
+                if (catalog.Find(d.BaseTypeId) is not { Supported: true } bt || bt.DropLevel > level || !Matches(bt)) continue;
+                double w = weightOf(d.Name);
+                if (!double.IsFinite(w) || w <= 0) continue;
+                candidates.Add((d, w));
+                total += w;
+            }
+            if (candidates.Count > 0)
+            {
+                double pick = rng.NextDouble() * total;
+                var chosen = candidates[^1].Def;
+                foreach (var (d, w) in candidates) { if ((pick -= w) < 0) { chosen = d; break; } }
+                if (uniques.Create(chosen with { ItemLevel = (byte)level }, rng) is { } item
+                    && catalog.ByHash(item.TypeHash) is { } uType)
+                    drops.Add(new(item with { Identified = false }, uType));
+            }
             drops.AddRange(RollSunkenCurrency(catalog, level));
             return drops;
         }
@@ -755,7 +774,14 @@ internal static class DeepwaterLoot
     /// the run: the same instance again with the new count.</summary>
     static async Task SendGoldenBuff(ClientState conn, int stacks)
     {
-        var box = GoldenBuffs.GetValue(conn, c => new StrongBox<ushort>(c.NextBuff++));
+        var box = GoldenBuffs.GetValue(conn, c =>
+        {
+            lock (c.Monsters)
+            {
+                ushort id = c.NextBuff++;
+                return new StrongBox<ushort>(id == 0 ? c.NextBuff++ : id);
+            }
+        });
         await global::Game.SendWorldRecord(PlayerOf(conn), PlayerId,
             InstanceEntities.AddBuff(PlayerId, box.Value, DeepwaterConstants.GoldenLanternBuff, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue)),
             $"0x01c1 Golden Lantern's Glow × {stacks}");
@@ -868,7 +894,7 @@ internal static class DeepwaterLoot
                             roll.Made.Add(rareScarab.Item);
                 }
                 if (cr.RareSupportGemChance > 0 && Random.Shared.Next(100) < cr.RareSupportGemChance
-                    && DeepwaterChartStats.RollSupportGem(roll.Monster.Level, Random.Shared) is { } supportGem)
+                    && DeepwaterChartStats.RollSupportGem(roll.Monster.Level, Random.Shared, LeagueFor(roll.Conn).Rules) is { } supportGem)
                 {
                     roll.Made.Add(supportGem);
                 }
@@ -878,10 +904,11 @@ internal static class DeepwaterLoot
                 var capturedRules = cr;
                 var catalog = ItemsFor(roll.Conn);
                 var uniques = UniquesFor(roll.Conn);
+                var uniqueWeight = DropsFor(roll.Conn).UniqueWeight;
                 int monsterLevel = roll.Monster.Level;
                 var monsterRarity = roll.Monster.Rarity;
                 roll.AddTransform(drops => DeepwaterChartStats.ApplyDropTransforms(
-                    drops, catalog, uniques, in capturedRules, monsterLevel, monsterRarity, Random.Shared));
+                    drops, catalog, uniques, in capturedRules, monsterLevel, monsterRarity, Random.Shared, uniqueWeight));
             }
         }
         int stacks;

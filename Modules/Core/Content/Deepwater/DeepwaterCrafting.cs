@@ -176,6 +176,8 @@ public static class DeepwaterCrafting
         if (row != InputRow) return null;
         if (ItemsOf(conn).Items(OutputRow).Count > 0 || conn.HasQuestFlag(CraftInProgress))
             return "claim a Ghostly Copy from the display cases before crafting again";
+        if (DeepwaterDredge.Unmarked(conn, item))
+            return "contraband items cannot be Allflame crafted";
         return InputItemRefusal(ItemsFor(conn), item);
     }
 
@@ -200,6 +202,11 @@ public static class DeepwaterCrafting
     public static async Task QuickMove(IModuleContext module, ClientState conn, InstanceItems.LeagueWindowMove move)
     {
         var player = PlayerOf(conn);
+        if (player.AreaId != DeepwaterModule.HubId)
+        {
+            module.Log($"{player.Character} <= 0x010f Allflame Crafting quick-move: refused (not on The Sovereign)");
+            return;
+        }
         var items = ItemsOf(conn);
         byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : InputRow;
         string what = $"0x010f Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} Allflame Crafting";
@@ -468,6 +475,10 @@ public static class DeepwaterCrafting
                 if (items.Items(OutputRow).Count > 0) return;
                 if (!items.Items(currencyRow).Any(i => i.Id == currencyItemId)) return;
                 if (!isChangeling && !items.Items(InputRow).Any(i => i.Id == targetInvItem!.Id)) return;
+                // Check Sulphur availability before mutating items so insufficient Sulphur exits cleanly without rolling back live inventories.
+                if (cost > 0 && DeepwaterLocker.SulphurHeld(conn) < cost) return;
+                if (!DeepwaterLocker.TryPaySulphurInTransaction(conn, cost, out sulphurPayment))
+                    return;
                 consumed = items.ConsumeOne(currencyRow, currencyItemId);
                 if (consumed is null) throw new DeepwaterLocker.AbortTransactionException();
                 if (!isChangeling)
@@ -475,8 +486,6 @@ public static class DeepwaterCrafting
                     removedTarget = items.Remove(InputRow, targetInvItem!.Id);
                     if (removedTarget is null) throw new DeepwaterLocker.AbortTransactionException();
                 }
-                if (!DeepwaterLocker.TryPaySulphurInTransaction(conn, cost, out sulphurPayment))
-                    throw new DeepwaterLocker.AbortTransactionException();
                 for (int i = 0; i < copies.Count; i++)
                 {
                     var placed = items.Put(OutputRow, new InventoryItem(items.NewItemId(), (byte)(i * 2), 0, copies[i]));
@@ -699,6 +708,7 @@ public static class DeepwaterCrafting
     sealed class VatGroup
     {
         public readonly Lock Gate = new();
+        public string? Owner;
         public List<Vat> List = [];
     }
 
@@ -767,6 +777,7 @@ public static class DeepwaterCrafting
             // Reconstruct unclaimed copies from inventory 106 on fresh hub entry / relog.
             if (isHubOwner && outputs.Count > 0 && !group.List.Any(v => v.Copy is not null))
             {
+                group.Owner = player.Character;
                 for (int i = 0; i < group.List.Count; i++)
                 {
                     var v = group.List[i];
@@ -798,6 +809,7 @@ public static class DeepwaterCrafting
         var updates = new List<(Vat Vat, uint OldId)>();
         lock (group.Gate)
         {
+            group.Owner = PlayerOf(conn).Character;
             for (int i = 0; i < group.List.Count; i++)
             {
                 var v = group.List[i];
@@ -828,7 +840,10 @@ public static class DeepwaterCrafting
 
         if (!await WorldOf(conn).WalkUpTo(clicked.X, clicked.Y, clicked.Reach, at)) return true;
 
-        if (!isHubOwner || clicked.Copy is null)
+        bool ownsVats;
+        lock (group.Gate) ownsVats = isHubOwner && group.Owner is not null
+            && group.Owner.Equals(player.Character, StringComparison.OrdinalIgnoreCase);
+        if (!ownsVats || clicked.Copy is null)
         {
             await DeepwaterLoot.EndAction(conn);
             return true;
@@ -868,8 +883,13 @@ public static class DeepwaterCrafting
 
         // Click 2: claim the copy, clear inventory 106, clear all 4 vats, and clear QF 3578.
         Item? claimedCopy;
-        lock (group.Gate) claimedCopy = clicked.Copy;
-        if (claimedCopy is null)
+        uint claimedOutputId;
+        lock (group.Gate)
+        {
+            claimedCopy = clicked.Copy;
+            claimedOutputId = clicked.OutputItemId;
+        }
+        if (claimedCopy is null || claimedOutputId == 0)
         {
             await DeepwaterLoot.EndAction(conn);
             return true;
@@ -877,19 +897,41 @@ public static class DeepwaterCrafting
 
         var items = ItemsOf(conn);
         var shape = ShapeOf(claimedCopy) ?? new(1, 1, "");
-        byte destRow = PlayerInventories.MainInventory;
-        var cell = items.FreeCell(destRow, shape.Width, shape.Height, ShapeOf);
-        if (cell is null && ExpandedInventoryGranted(conn))
-        {
-            destRow = PlayerInventories.ExpandedInventory;
-            cell = items.FreeCell(destRow, shape.Width, shape.Height, ShapeOf);
-        }
-        bool canDrop = cell is null && GameEvents.AllowsLoot(conn) && Environment.GetEnvironmentVariable("Game_DROPS") != "0"
+        bool canDrop = GameEvents.AllowsLoot(conn) && Environment.GetEnvironmentVariable("Game_DROPS") != "0"
             && ItemsFor(conn).ByHash(claimedCopy.TypeHash) is not null;
-        if (cell is null && !canDrop)
+
+        var removedIds = new List<uint>();
+        InventoryItem? placed = null;
+        byte destRow = PlayerInventories.MainInventory;
+        bool noRoom = false;
+        bool claimed = false;
+        Saves.Atomically(() =>
+        {
+            var outputs = items.Items(OutputRow);
+            if (!outputs.Any(o => o.Id == claimedOutputId)) return;
+            var cell = items.FreeCell(destRow, shape.Width, shape.Height, ShapeOf);
+            if (cell is null && ExpandedInventoryGranted(conn))
+            {
+                destRow = PlayerInventories.ExpandedInventory;
+                cell = items.FreeCell(destRow, shape.Width, shape.Height, ShapeOf);
+            }
+            if (cell is null && !canDrop) { noRoom = true; return; }
+            foreach (var o in outputs.ToList())
+                if (items.Remove(OutputRow, o.Id) is not null) removedIds.Add(o.Id);
+            if (cell is { } dest)
+                placed = items.Put(destRow, new InventoryItem(items.NewItemId(), dest.X, dest.Y, claimedCopy));
+            claimed = true;
+        });
+
+        if (noRoom)
         {
             await player.Send(InstanceChat.ChatLine("Make room in your inventory to claim this Ghostly Copy."),
                 "0x0017 chat line: inventory full when claiming Allflame crafting vat");
+            await DeepwaterLoot.EndAction(conn);
+            return true;
+        }
+        if (!claimed)
+        {
             await DeepwaterLoot.EndAction(conn);
             return true;
         }
@@ -897,37 +939,15 @@ public static class DeepwaterCrafting
         var clearedVats = new List<(Vat Vat, uint OldId)>();
         lock (group.Gate)
         {
-            if (clicked.Copy is null)
+            group.Owner = null;
+            foreach (var v in group.List)
             {
-                clearedVats.Clear();
-            }
-            else
-            {
-                claimedCopy = clicked.Copy;
-                foreach (var v in group.List)
-                {
-                    uint oldId = v.Id;
-                    v.Id = conn.TakeObjectId();
-                    (v.OutputItemId, v.Copy, v.Original, v.OpenAttempts, v.TakeState) = (0, null, null, 0, v == clicked ? 2 : 0);
-                    clearedVats.Add((v, oldId));
-                }
+                uint oldId = v.Id;
+                v.Id = conn.TakeObjectId();
+                (v.OutputItemId, v.Copy, v.Original, v.OpenAttempts, v.TakeState) = (0, null, null, 0, v == clicked ? 2 : 0);
+                clearedVats.Add((v, oldId));
             }
         }
-        if (clearedVats.Count == 0)
-        {
-            await DeepwaterLoot.EndAction(conn);
-            return true;
-        }
-
-        var removedIds = new List<uint>();
-        InventoryItem? placed = null;
-        Saves.Atomically(() =>
-        {
-            foreach (var o in items.Items(OutputRow).ToList())
-                if (items.Remove(OutputRow, o.Id) is not null) removedIds.Add(o.Id);
-            if (cell is { } dest)
-                placed = items.Put(destRow, new InventoryItem(items.NewItemId(), dest.X, dest.Y, claimedCopy));
-        });
 
         if (removedIds.Count > 0)
             await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(OutputRow), items.NextRevision(OutputRow), removedIds, []),

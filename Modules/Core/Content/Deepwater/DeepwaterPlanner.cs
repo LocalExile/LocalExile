@@ -92,20 +92,33 @@ internal static class DeepwaterPlanner
         await PlayerOf(conn).Send(message, $"0x02c9 DeepwaterHubRules mode 1: {plan.Border.Count} border mods, reroll cost {(Board3x3(conn) ? Cost(plan.Rerolls) : DeepwaterHubRuleset.NoReroll)}");
     }
 
-    /// <summary>12 border modifiers: uniform over the pool, no family (the Id without its tier digit) twice on the board, the
-    /// HardMode row only in Ruthless (all G: the client data has no weights).</summary>
+    static string BorderFamily(string id)
+    {
+        if (id.EndsWith(HardModeOnly, StringComparison.Ordinal))
+            id = id[..^HardModeOnly.Length];
+        return id.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+    }
+
+    /// <summary>12 border modifiers: uniform over the pool, no family (the Id without its HardMode suffix or tier digit)
+    /// twice on the board; in Ruthless any family with a HardMode variant uses only that variant (all G: the client data
+    /// has no weights).</summary>
     static List<ItemMod> Roll(ClientState conn, Random random)
     {
         bool hard = LeagueFor(conn).HardMode;
-        var pool = ItemsFor(conn).Mods.All.Where(m => m.Domain == BorderDomain && m.GenerationType == BorderGeneration
-            && (hard || !m.Id.EndsWith(HardModeOnly, StringComparison.Ordinal))).ToList();
+        var allBorder = ItemsFor(conn).Mods.All.Where(m => m.Domain == BorderDomain && m.GenerationType == BorderGeneration).ToList();
+        HashSet<string>? hardModeFamilies = hard
+            ? allBorder.Where(m => m.Id.EndsWith(HardModeOnly, StringComparison.Ordinal)).Select(m => BorderFamily(m.Id)).ToHashSet(StringComparer.Ordinal)
+            : null;
+        var pool = allBorder.Where(m => hard
+            ? m.Id.EndsWith(HardModeOnly, StringComparison.Ordinal) || !hardModeFamilies!.Contains(BorderFamily(m.Id))
+            : !m.Id.EndsWith(HardModeOnly, StringComparison.Ordinal)).ToList();
         var chosen = new List<ItemMod>();
-        var families = new HashSet<string>();
+        var families = new HashSet<string>(StringComparer.Ordinal);
         while (chosen.Count < 12 && pool.Count > 0)
         {
             var mod = pool[random.Next(pool.Count)];
             pool.Remove(mod);
-            if (!families.Add(mod.Id.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9'))) continue;
+            if (!families.Add(BorderFamily(mod.Id))) continue;
             chosen.Add(mod.Roll(ModSection.Implicit, random));
         }
         return chosen;

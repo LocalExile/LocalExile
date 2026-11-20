@@ -122,7 +122,8 @@ internal static class DeepwaterDredge
     public static async Task Clear(IModuleContext module, ClientState conn)
     {
         Pickups.Remove(conn);
-        var held = Ids(conn);
+        var held = new HashSet<uint>(Ids(conn));
+        CollectFlagged(conn, held);
         if (held.Count == 0) return;
         Change(conn, ids => ids.Clear());
         await Unmark(conn, held, live: !conn.Closed && !conn.LeavingArea);
@@ -142,8 +143,18 @@ internal static class DeepwaterDredge
     /// its next area).</summary>
     public static async Task Remove(IModuleContext module, ClientState conn, bool live, string why)
     {
-        Pickups.Remove(conn);
-        var ids = Ids(conn);
+        var ids = new HashSet<uint>(Ids(conn));
+        if (Pickups.TryGetValue(conn, out var pending))
+        {
+            Pending[] due;
+            lock (pending) { due = [.. pending]; pending.Clear(); }
+            Pickups.Remove(conn);
+            foreach (var p in due)
+                if (conn.Instance is { } inst && inst.Ground.Get(p.GroundId) is null)
+                    foreach (var it in Picked(conn, p.TypeHash))
+                        if (!p.Before.Contains(it.Id)) ids.Add(it.Id);
+        }
+        CollectFlagged(conn, ids);
         if (ids.Count == 0) return;
         var items = ItemsOf(conn);
         var removed = new Dictionary<byte, List<uint>>();
@@ -161,4 +172,16 @@ internal static class DeepwaterDredge
             await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), list, []),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {list.Count} Dredge items lost");
     }
+
+    // Includes any item still carrying DredgeFlags (such as a stack split via 0x7c whose new id was never added to Ids).
+    static void CollectFlagged(ClientState conn, HashSet<uint> target)
+    {
+        var items = ItemsOf(conn);
+        foreach (byte row in (ReadOnlySpan<byte>)[PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory, PlayerInventories.Cursor, DeepwaterExtraction.CapsuleRow])
+            foreach (var it in items.Items(row))
+                if (Dredged(it.Item)) target.Add(it.Id);
+    }
+
+    /// <summary>Clears any pending pickups when the Deepwater module unloads.</summary>
+    internal static void ClearCache() => Pickups.Clear();
 }

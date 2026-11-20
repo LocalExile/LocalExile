@@ -350,9 +350,13 @@ public static partial class MapTorment
             await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, mark.Magic, null);
             await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, mark.Stats, null);
             if (buff)
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceEntities.AddBuff(id, conn.NextBuff++,
+            {
+                ushort buffId;
+                lock (conn.Monsters) buffId = NextBuffId(conn);
+                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceEntities.AddBuff(id, buffId,
                     mark.Grip ? TormentCatalog.PossessedBuff : TormentCatalog.TouchedBuff),
                     $"torment: monster 0x{id:x} {(mark.Grip ? "possessed" : "touched")}");
+            }
             shown.Versions[id] = mark.Version;
         }
     }

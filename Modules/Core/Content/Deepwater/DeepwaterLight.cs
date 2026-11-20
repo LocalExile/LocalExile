@@ -25,6 +25,18 @@ internal sealed class DeepwaterLight
     // How many players have a slow: the stat source returns at once while none has (it runs on every stat lookup).
     int _slowed;
 
+    public void Clear()
+    {
+        _divers.Clear();
+        Volatile.Write(ref _slowed, 0);
+    }
+
+    static ushort NextBuffId(ClientState conn)
+    {
+        ushort id = conn.NextBuff++;
+        return id == 0 ? conn.NextBuff++ : id;
+    }
+
     public bool Drowning(ClientState conn, out double left)
     {
         left = 0;
@@ -58,7 +70,7 @@ internal sealed class DeepwaterLight
         {
             if (lit)
             {
-                diver.LightBuff = conn.NextBuff++;
+                lock (conn.Monsters) diver.LightBuff = NextBuffId(conn);
                 await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.AddBuff(PlayerId, diver.LightBuff, DeepwaterConstants.LanternBuff),
                     $"0x01c1 deepwater_lantern_buff at ({at.X}, {at.Y})");
             }
@@ -73,7 +85,7 @@ internal sealed class DeepwaterLight
         bool dark = !safe && !lit;
         if (dark && diver.DrownBuff == 0)
         {
-            diver.DrownBuff = conn.NextBuff++;
+            lock (conn.Monsters) diver.DrownBuff = NextBuffId(conn);
             diver.Since = now;
             diver.Killed = false;
             await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.AddBuff(PlayerId, diver.DrownBuff, DeepwaterConstants.DrowningBuff,

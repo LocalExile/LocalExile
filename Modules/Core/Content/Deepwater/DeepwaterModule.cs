@@ -81,6 +81,8 @@ public sealed partial class DeepwaterModule : IModule
     readonly ConditionalWeakTable<InstanceState, DeepwaterRun> _runs = new();
     readonly DeepwaterLight _light = new();
 
+    sealed class UnloadCleanup(Action onDispose) : IDisposable { public void Dispose() => onDispose(); }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
@@ -88,6 +90,19 @@ public sealed partial class DeepwaterModule : IModule
         module.Lifetime.Own(Quests.Register(id, [new DeepwaterQuests()]));
         // The league monsters' more life (DeepwaterLifeScalingPerLevel) and Cursed Ducat toughness more life, as Harvest's grove monsters.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([DeepwaterMonsters.LevelMoreLife, DeepwaterCursedDucats.CursedMoreLife], []));
+        // Clear weak tables on hot-reload so live Gateway objects never pin this collectible ALC.
+        module.Lifetime.Own(new UnloadCleanup(() =>
+        {
+            _states.Clear();
+            _runs.Clear();
+            _plans.Clear();
+            _hubOwners.Clear();
+            _light.Clear();
+            DeepwaterBuffs.ClearCache();
+            DeepwaterDredge.ClearCache();
+            DeepwaterLanterns.ClearCache();
+        }));
+        Func<ClientState, string, Task> failRun = (c, why) => RunFailed(module, c, why);
         LoadHub(module);
         // Right-clicking a Message in a Bottle (BaseItemTypes#5437) opens BottledItemRevealWindow (0x7b kind 0x6d).
         GameEvents.ItemUse.Add(id, (conn, row, item, type) => DeepwaterBottles.Use(module, conn, row, item, type));
@@ -166,7 +181,7 @@ public sealed partial class DeepwaterModule : IModule
             if (RunOf(conn) is not { } run) return;
             await _light.Tick(module, conn, run);
             await DeepwaterCollapse.Tick(module, conn, run);
-            await DeepwaterExtraction.Tick(module, conn, run, (c, why) => RunFailed(module, c, why));
+            await DeepwaterExtraction.Tick(module, conn, run, failRun);
             await DeepwaterVelka.Tick(module, conn, run);
             await TickAutoLantern(module, conn, run);
             await DeepwaterDredge.Tick(module, conn);

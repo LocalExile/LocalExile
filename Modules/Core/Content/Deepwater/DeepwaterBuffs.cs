@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
@@ -25,9 +26,15 @@ internal static class DeepwaterBuffs
         public readonly List<(int X, int Y)> Crabs = [];
     }
 
-    static readonly RuleTable<ClientState, Held> Holders = new();
+    static readonly ConditionalWeakTable<ClientState, Held> Holders = new();
     // How many buffs are held on the server: the per-kill and per-stat-build hooks return at once while none is.
     static int _held;
+
+    internal static void ClearCache()
+    {
+        Holders.Clear();
+        Volatile.Write(ref _held, 0);
+    }
 
     static int Setting(string key) => DeepwaterLoot.Setting(key);
 
@@ -45,12 +52,16 @@ internal static class DeepwaterBuffs
         bool coral = kind == DeepwaterEncounters.EncounterKind.CoralNest;
         var held = Holders.GetValue(conn, _ => new());
         ushort buff;
-        lock (held)
+        lock (conn.Monsters)
         {
-            if ((coral ? held.Craiceann : held.Sailor) != 0) return;
-            buff = conn.NextBuff++;
-            if (coral) held.Craiceann = buff; else held.Sailor = buff;
-            Interlocked.Increment(ref _held);
+            lock (held)
+            {
+                if ((coral ? held.Craiceann : held.Sailor) != 0) return;
+                buff = conn.NextBuff++;
+                if (buff == 0) buff = conn.NextBuff++;
+                if (coral) held.Craiceann = buff; else held.Sailor = buff;
+                Interlocked.Increment(ref _held);
+            }
         }
         string name = coral ? "Craiceann's Call" : "Sailor's Lantern";
         await global::Game.SendWorldRecord(PlayerOf(conn), PlayerId, InstanceEntities.AddBuff(PlayerId, buff, coral ? CraiceannsCall : SailorsLantern),
@@ -59,10 +70,21 @@ internal static class DeepwaterBuffs
         await SendStats(conn, name);
     }
 
-    /// <summary>Each tick: the crab packs due, and at life 0 the buffs end.</summary>
+    /// <summary>Each tick: at life 0 the buffs end; otherwise spawn any queued crab packs.</summary>
     public static async Task Tick(IModuleContext module, ClientState conn)
     {
         if (Volatile.Read(ref _held) == 0 || !Holders.TryGetValue(conn, out var held) || conn.Closed || conn.LeavingArea) return;
+        if (conn.PlayerLife == 0)
+        {
+            var ended = Take(held);
+            if (ended.Count == 0) return;
+            var player = PlayerOf(conn);
+            foreach (ushort buff in ended)
+                await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "0x01c2 Allflame encounter buff ends (died)");
+            module.Log($"{CharacterName(conn)}: Allflame encounter buffs end (died)");
+            await SendStats(conn, "died");
+            return;
+        }
         (int X, int Y)[] crabs;
         lock (held)
         {
@@ -70,14 +92,6 @@ internal static class DeepwaterBuffs
             held.Crabs.Clear();
         }
         foreach (var at in crabs) await SpawnCrabs(module, conn, at);
-        if (conn.PlayerLife != 0) return;
-        var ended = Take(held);
-        if (ended.Count == 0) return;
-        var player = PlayerOf(conn);
-        foreach (ushort buff in ended)
-            await global::Game.SendWorldRecord(player, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "0x01c2 Allflame encounter buff ends (died)");
-        module.Log($"{CharacterName(conn)}: Allflame encounter buffs end (died)");
-        await SendStats(conn, "died");
     }
 
     /// <summary>The player left the area: its buffs went with it (the next area does not show them again).</summary>

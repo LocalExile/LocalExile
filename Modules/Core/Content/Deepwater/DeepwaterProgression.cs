@@ -784,7 +784,7 @@ internal static class DeepwaterProgression
     {
         if (conn.Closed || conn.LeavingArea) return;
         var items = ItemsOf(conn);
-        bool hasAllflame = false, hasBossAllflame = false, hasTsoathaDucat = false;
+        bool hasAllflame = false, hasBossAllflame = false;
         int upgradeMask = 0;
 
         for (int r = 0; r < QuestItemRows.Length; r++)
@@ -795,7 +795,6 @@ internal static class DeepwaterProgression
                 uint h = list[j].Item.TypeHash;
                 if (h == FairgravesAllflameHash) hasAllflame = true;
                 else if (h == VelkaAllflameHash) hasBossAllflame = true;
-                else if (h == TsoathaDucatHash) hasTsoathaDucat = true;
                 else
                 {
                     for (int i = 0; i < UpgradePieceHashes.Length; i++)
@@ -814,7 +813,7 @@ internal static class DeepwaterProgression
 
         SyncQf(HaveAllflameFlag, hasAllflame && !HasLeagueFlag(conn, VesperFlameGivenLqf));
         SyncQf(HaveBossAllflameFlag, hasBossAllflame && !HasLeagueFlag(conn, VelkaFlameGivenLqf));
-        SyncQf(DeepwaterVelka.HaveQuestDucat3Flag, hasTsoathaDucat);
+        // QF 3631 (HaveDeepwaterQuestDucat3) is owned exclusively by DeepwaterCursedDucats.SyncFlags (which scans rows 115/116 too).
         for (int i = 0; i < UpgradeHeldFlags.Length; i++)
             SyncQf(UpgradeHeldFlags[i], (upgradeMask & (1 << i)) != 0
                 && !HasLeagueFlag(conn, DeepwaterUpgrades.TurnInLeagueFlags[i]));

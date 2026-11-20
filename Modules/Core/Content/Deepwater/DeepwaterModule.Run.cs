@@ -66,7 +66,8 @@ public sealed partial class DeepwaterModule
                 var (cellRareDucat, cellRareDucatChance) = DeepwaterLoot.RoomRareDucats(board);
                 run = new DeepwaterRun
                 {
-                    Voyage = voyage, Board = board, Controller = planned?.Owner ?? player.Character, Total = DeepwaterLanterns.Total(conn, voyage),
+                    Voyage = voyage, Board = board, Controller = planned?.Owner ?? player.Character,
+                    Total = planned is { LanternTotal: > 0 } ? planned.LanternTotal : DeepwaterLanterns.Total(conn, voyage),
                     Level = level, Plan = planned,
                     CellMods = effects.Mods, CellQuantity = effects.Quantity, CellRarity = effects.Rarity,
                     CursedQuantityFactor = cursedEffects.QuantityFactor, CursedRarityFactor = cursedEffects.RarityFactor,
@@ -101,6 +102,8 @@ public sealed partial class DeepwaterModule
         }
         foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
+        if (run.CollapseState != 0 && DeepwaterRuleset.Collapse(run.CollapseState) is { } collapse)
+            await player.Send(collapse, $"0x02c9 ruleset DeepwaterRules mode 3: {run.CollapseState} (sync)");
         await DeepwaterLoot.Show(conn, run);
         await DeepwaterExtraction.Show(conn, run);
         await DeepwaterVelka.Show(conn, run);
@@ -116,8 +119,14 @@ public sealed partial class DeepwaterModule
         if (player.Character.Equals(run.Controller, StringComparison.OrdinalIgnoreCase) && run.Phase != DeepwaterRun.RunPhase.Ended)
         {
             await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner]);
-            // The Maiden Voyage's tracker: a Chart or a Voyage from the deck, at its first entry (G: the triggers, R1 §6).
-            if (made && run.Plan is { } planned)
+            bool firstOwnerEntry;
+            lock (run.Gate)
+            {
+                firstOwnerEntry = !run.OwnerEntered;
+                run.OwnerEntered = true;
+            }
+            // The Maiden Voyage's tracker: a Chart or a Voyage from the deck, at its owner's first entry (G: the triggers, R1 §6).
+            if (firstOwnerEntry && run.Plan is { } planned)
             {
                 if (planned.Voyage) await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.VoyageExplore]);
                 else

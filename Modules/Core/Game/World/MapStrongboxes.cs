@@ -495,7 +495,12 @@ public static partial class MapStrongboxes
                 singles.Add(new(pack.PickVariety(random), x, y, rarity, pack.Id));
             }
         }
-        var occupied = conn.Monsters.Values.Where(m => !m.Dead).Select(m => m.Walk.Position(conn.Clock.Elapsed.TotalSeconds)).Append((box.X, box.Y));
+        (int X, int Y)[] occupied;
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            occupied = [.. conn.Monsters.Values.Where(m => !m.Dead).Select(m => m.Walk.Position(now)), (box.X, box.Y)];
+        }
         var spawns = AreaPopulation.AtPacks(plans, (x, y) => conn.Layout.WalkableFor(x, y, 1),
             row => Monsters.Find(row.ToString()) is { Supported: true }, random.Next(), MapModsOf(conn)?.PackSizeFactor ?? 1, occupied);
         spawns.AddRange(singles.Where(s => Monsters.Find(s.Variety.ToString()) is { Supported: true }));

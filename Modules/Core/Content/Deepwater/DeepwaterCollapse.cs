@@ -58,7 +58,7 @@ internal static class DeepwaterCollapse
     {
         if (run.CollapseState == 0 || run.Phase == DeepwaterRun.RunPhase.Ended || conn.Closed || conn.LeavingArea) return;
         double now = conn.Clock.Elapsed.TotalSeconds;
-        var changes = new List<(DeepwaterRun.Lantern Lantern, string Kind, bool Collected)>();
+        List<(DeepwaterRun.Lantern Lantern, string Kind, bool Collected)>? changes = null;
         bool firstOut = false, swarm = false;
         lock (run.Gate)
         {
@@ -72,7 +72,7 @@ internal static class DeepwaterCollapse
                     shrink.Started = true;
                     var (a, _) = lantern.At(now);
                     lantern = run.Lanterns[i] = lantern with { A = a, RateA = shrink.Rate, B = 1, RateB = FlickerRate, SetAt = now };
-                    changes.Add((lantern, "shrink", collected));
+                    (changes ??= []).Add((lantern, "shrink", collected));
                     continue;
                 }
                 var (nowA, nowB) = lantern.At(now);
@@ -80,13 +80,13 @@ internal static class DeepwaterCollapse
                 {
                     shrink.Held = true;
                     lantern = run.Lanterns[i] = lantern with { A = FloorA, RateA = 0, B = nowB, RateB = nowB > 0 ? FlickerRate : 0, SetAt = now };
-                    changes.Add((lantern, "hold", collected));
+                    (changes ??= []).Add((lantern, "hold", collected));
                 }
                 else if (!shrink.Floor && nowA <= 0)
                 {
                     shrink.Out = true;
                     lantern = run.Lanterns[i] = lantern with { A = 0, RateA = 0, B = 0, RateB = 0, SetAt = now };
-                    changes.Add((lantern, "out", collected));
+                    (changes ??= []).Add((lantern, "out", collected));
                     if (run.CollapseState == 1)
                     {
                         run.CollapseState = 2;
@@ -102,29 +102,31 @@ internal static class DeepwaterCollapse
                 swarm = true;
             }
         }
-        if (changes.Count > 0 || firstOut)
+        if (changes is { Count: > 0 } || firstOut)
             foreach (var member in DeepwaterLoot.Members(conn))
             {
-                foreach (var (lantern, kind, collected) in changes)
-                    switch (kind)
-                    {
-                        case "shrink":
-                            await DeepwaterLanterns.SendStates(member, lantern, collected, shrinking: true, extinguished: false, "shrinking = 1");
-                            await DeepwaterLanterns.SendTask(member, lantern, "the collapse");
-                            break;
-                        case "hold":
-                            await DeepwaterLanterns.SendTask(member, lantern, "held at the floor (G)");
-                            break;
-                        default:
-                            await DeepwaterLanterns.SendStates(member, lantern, collected, shrinking: true, extinguished: true, "extinguished = 1");
-                            await DeepwaterLanterns.RemoveTask(member, lantern);
-                            break;
-                    }
+                if (changes is not null)
+                    foreach (var (lantern, kind, collected) in changes)
+                        switch (kind)
+                        {
+                            case "shrink":
+                                await DeepwaterLanterns.SendStates(member, lantern, collected, shrinking: true, extinguished: false, "shrinking = 1");
+                                await DeepwaterLanterns.SendTask(member, lantern, "the collapse");
+                                break;
+                            case "hold":
+                                await DeepwaterLanterns.SendTask(member, lantern, "held at the floor (G)");
+                                break;
+                            default:
+                                await DeepwaterLanterns.SendStates(member, lantern, collected, shrinking: true, extinguished: true, "extinguished = 1");
+                                await DeepwaterLanterns.RemoveTask(member, lantern);
+                                break;
+                        }
                 if (firstOut && DeepwaterRuleset.Collapse(2) is { } state)
                     await PlayerOf(member).Send(state, "0x02c9 ruleset DeepwaterRules mode 3: collapse 2 (the first lantern went out)");
             }
-        foreach (var (lantern, kind, _) in changes)
-            module.Log($"{CharacterName(conn)}: Allflame lantern {lantern.Order} 0x{lantern.Id:x} {kind} at +{now:0.0} s");
+        if (changes is not null)
+            foreach (var (lantern, kind, _) in changes)
+                module.Log($"{CharacterName(conn)}: Allflame lantern {lantern.Order} 0x{lantern.Id:x} {kind} at +{now:0.0} s");
         if (swarm) await DeepwaterMonsters.Swarm(module, conn, run);
     }
 }

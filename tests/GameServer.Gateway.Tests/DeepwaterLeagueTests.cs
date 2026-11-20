@@ -481,9 +481,35 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal(45, combatAffixes["base_critical_strike_multiplier_+"]);
         Assert.Equal(12, combatAffixes["reduce_enemy_elemental_resistance_%"]);
         Assert.Equal(1, combatAffixes["hexproof"]);
-        Assert.Equal(-50, combatAffixes["curse_effect_on_self_+%_final"]);
+        Assert.Equal(-50, combatAffixes["map_monsters_curse_effect_on_self_+%_final"]);
         Assert.Equal(100, combatAffixes["global_chance_to_blind_on_hit_%"]);
         Assert.Equal(30, combatAffixes["base_resist_all_elements_%"]);
+
+        // Regression checks: truncated 0x2ca compact-uint, orientation >= 4, Diamond Flask class, Synthesised Ukatoa guard,
+        // spellcaster cast speed, and self critical strike reduction against extra monster crit multiplier.
+        Assert.Throws<InvalidDataException>(() => InstanceRulesets.ReadAction([0x02, 0xca, 0xac, 0x80]));
+        Assert.Equal(15, GameServer.Data.Terrain.Generation.DeepwaterGeneration.Connections(15, 5));
+        Assert.True(DeepwaterChartStats.IsFlaskClass("UtilityFlaskCritical"));
+        Assert.Null(DeepwaterDucats.Apply(catalog, rolls, DeepwaterDucats.UkatoaHash, amuletItem with { Synthesised = true }, amuletType, rng));
+        var castEffects = new MonsterModEffects(new Dictionary<string, int> { ["base_cast_speed_+%"] = 100 });
+        Assert.Equal(0.5, castEffects.AttackSeconds(1.0, spell: true), 6);
+        Assert.Equal(1.0, castEffects.AttackSeconds(1.0, spell: false), 6);
+        Assert.Equal(100, global::Game.SelfCriticalReduction(s => s == "self_take_no_extra_damage_from_critical_strikes" ? 1 : 0));
+        var critMonster = new SpawnedMonster("crit", new(0, 0, 1), 60, 8, 100)
+        {
+            Mods = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
+            {
+                ["always_crit"] = 1,
+                ["base_critical_strike_multiplier_+"] = 110,
+            })),
+        };
+        var baseHit = DamagePacket.Of(DamageType.Physical, 100, 100);
+        Assert.Equal(100, global::Game.MonsterModHit(critMonster, baseHit, 1000, 1000, new Random(1), out bool c1,
+            selfCriticalReduction: () => 100).MinTotal, 6);
+        Assert.True(c1);
+        Assert.Equal(170, global::Game.MonsterModHit(critMonster, baseHit, 1000, 1000, new Random(1), out bool c2,
+            selfCriticalReduction: () => 50).MinTotal, 6);
+        Assert.True(c2);
 
         // DropRoll post-roll transforms: equipment->gold, currency->Stacked Decks, no-equipment/no-flask,
         // ring->unique, max-quality flask, fractured, corrupted.

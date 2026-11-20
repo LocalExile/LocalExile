@@ -71,6 +71,9 @@ public sealed partial class DeepwaterModule
         GameEvents.InventoryPlace.Add(id, (conn, place) => Task.FromResult(
             DeepwaterLocker.RefusedPlace(module, conn, place)
             || DeepwaterCursedDucats.RefusedPlace(module, conn, place)));
+        // Refuse 0x0028 pickups from server-managed Deepwater grids (ActiveRow 109, ChartedRow 104, OutputRow 106).
+        GameEvents.InventoryPick.Add(id, (conn, pick) => Task.FromResult(
+            PlayerInventories.Row(pick.InventoryId) is DeepwaterLocker.ActiveRow or DeepwaterLocker.ChartedRow or DeepwaterCrafting.OutputRow));
         // C→S 0x010e: Ctrl + click into or out of the open Chart Window slot (103).
         GameEvents.Packet(InstanceItems.MissionSlotMoveId).Add(id, async (conn, bytes) =>
         {
@@ -311,18 +314,19 @@ public sealed partial class DeepwaterModule
         catch (InvalidDataException) { return false; }
         if (action is not { } a) return false;
         string who = PlayerOf(conn).Character;
+        bool onHub = PlayerOf(conn).AreaId == HubId;
         switch (a.Op)
         {
             case DeepwaterHubRuleset.Op.TakeAllLoot:
                 await DeepwaterExtraction.TakeFromCollection(module, conn, null);
                 break;
-            case DeepwaterHubRuleset.Op.MoveStoredChart when a.Args.Length >= 2:
+            case DeepwaterHubRuleset.Op.MoveStoredChart when onHub && a.Args.Length >= 2:
                 await DeepwaterPlanner.Move(module, conn, a.Args[0], a.Args[1]);
                 break;
-            case DeepwaterHubRuleset.Op.RotateStoredChart when a.Args.Length >= 1:
+            case DeepwaterHubRuleset.Op.RotateStoredChart when onHub && a.Args.Length >= 1:
                 await DeepwaterPlanner.Rotate(module, conn, a.Args[0]);
                 break;
-            case DeepwaterHubRuleset.Op.DeleteStoredChart when a.Args.Length >= 1:
+            case DeepwaterHubRuleset.Op.DeleteStoredChart when onHub && a.Args.Length >= 1:
                 await DeepwaterPlanner.Delete(module, conn, a.Args[0]);
                 break;
             case DeepwaterHubRuleset.Op.Open1x1Mission:
@@ -337,7 +341,12 @@ public sealed partial class DeepwaterModule
             case DeepwaterHubRuleset.Op.ConfirmEnterMission:
                 await ConfirmStart(module, conn);
                 break;
-            case DeepwaterHubRuleset.Op.RerollBorderModifiers:
+            case DeepwaterHubRuleset.Op.RerollBorderModifiers when onHub:
+                if (_states.TryGetValue(PlayerOf(conn), out var armedState) && armedState.ArmedPlan is { Voyage: true })
+                {
+                    module.Log($"{who} <= 0x02ca DeepwaterHubRules RerollBorderModifiers: refused (a Voyage is armed at the Bathysphere)");
+                    break;
+                }
                 await DeepwaterPlanner.Reroll(module, conn);
                 break;
             default:

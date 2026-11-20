@@ -129,10 +129,10 @@ internal static class DeepwaterEncounters
     static int? Variety(IModuleContext module, string id)
     {
         if (VarietyRows.Value.TryGetValue(id, out int row) && Monsters.Find(row.ToString()) is { Supported: true }) return row;
-        if (Unsupported.Add(id)) module.Log($"Allflame encounters: {id} is not a monster the server spawns; that guard is left out");
+        if (Unsupported.TryAdd(id, 0)) module.Log($"Allflame encounters: {id} is not a monster the server spawns; that guard is left out");
         return null;
     }
-    static readonly HashSet<string> Unsupported = new(StringComparer.Ordinal);
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> Unsupported = new(StringComparer.Ordinal);
 
     static QuestObjectTypes.Info? Info(string type) =>
         QuestObjectTypes.Find(type) is { } info && QuestObject.CanSerialize(info.Components, States.Value.GetValueOrDefault(type) is not null) ? info : null;

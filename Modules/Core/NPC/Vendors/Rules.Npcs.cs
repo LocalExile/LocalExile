@@ -56,7 +56,7 @@ static partial class VendorsRules
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
         if (npc is null || !HasAvailableReward(conn, npc.Npc, offer)) return;
         var catalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
-        if (catalog.Find(offer) is not { } data) return;
+        if (catalog.Find(offer) is not { Reclaimable: true } data) return;
         var items = ItemsOf(conn);
         var itemCatalog = ItemsFor(conn);
         var rewards = conn.NpcRewardItems

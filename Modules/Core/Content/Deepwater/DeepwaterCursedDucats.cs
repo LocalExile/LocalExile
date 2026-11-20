@@ -355,9 +355,24 @@ public static class DeepwaterCursedDucats
         PlayerInventories.MainInventory,
         PlayerInventories.ExpandedInventory,
         PlayerInventories.Cursor,
+        DeepwaterExtraction.CollectionRow,
         ActiveRow,
         StorageRow,
     ];
+
+    /// <summary>Whether <paramref name="conn"/> holds a Cursed Ducat with <paramref name="typeHash"/> in any carried,
+    /// collection, active-socket, or storage row.</summary>
+    public static bool Carries(ClientState conn, uint typeHash)
+    {
+        var items = ItemsOf(conn);
+        for (int r = 0; r < CarriedRows.Length; r++)
+        {
+            var rowItems = items.Items(CarriedRows[r]);
+            for (int i = 0; i < rowItems.Count; i++)
+                if (rowItems[i].Item.TypeHash == typeHash) return true;
+        }
+        return false;
+    }
 
     /// <summary>Syncs <c>LQF 1899–1901</c> (<c>DeepwaterTotalDucatsSocketed1..3</c>), <c>LQF 1902–1904</c>
     /// (<c>DeepwaterSocketedDucat1..3</c>), and <c>QF 3629–3634</c> (<c>HaveDeepwaterQuestDucat1..6</c>) to the player's

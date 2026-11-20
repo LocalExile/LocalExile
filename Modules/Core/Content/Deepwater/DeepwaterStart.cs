@@ -16,6 +16,7 @@ internal sealed class DeepwaterPlan
     public required int Size { get; init; }
     public required IReadOnlyList<DeepwaterBoardRules.Cell?> Cells { get; init; }
     public required int Level { get; init; }
+    public int LanternTotal { get; init; }
     public IReadOnlyList<ItemMod> Border { get; init; } = [];
     public required IReadOnlyList<Dictionary<uint, int>> CellStats { get; init; }
     public required Dictionary<uint, int> Global { get; init; }
@@ -87,7 +88,7 @@ public sealed partial class DeepwaterModule
             return;
         }
         state.Confirm = null;
-        await DeepwaterExtraction.TakeFromCollection(module, conn, null);
+        await DeepwaterExtraction.TakeFromCollection(module, conn, null, requireWindow: false);
         await start();
     }
 
@@ -138,6 +139,7 @@ public sealed partial class DeepwaterModule
         {
             Voyage = false, Owner = player.Character, Size = 1, Cells = cells,
             Level = Math.Clamp((int)cell.Chart.AreaLevel, 1, 100),
+            LanternTotal = DeepwaterLanterns.Total(conn, voyage: false),
             CellStats = [DeepwaterBoardRules.CellStats(mods, cells, 1, 0, [])],
             Global = global,
             ChartItem = active.Id,
@@ -167,7 +169,7 @@ public sealed partial class DeepwaterModule
         int n = DeepwaterPlanner.Board3x3(conn) ? 3 : 2;
         int count = args.Length > 0 ? args[0] : 0;
         byte[] slots = args.Length >= 1 + count ? args[1..(1 + count)] : [];
-        byte[]? board = (count, n) switch
+        byte[]? board = (slots.Length, n) switch
         {
             (9, 3) => slots,
             (9, 2) => slots.Where((_, i) => i % 3 == 2 || i >= 6).All(s => s == 0xff) ? [slots[0], slots[1], slots[3], slots[4]] : null,
@@ -214,6 +216,7 @@ public sealed partial class DeepwaterModule
         {
             Voyage = true, Owner = player.Character, Size = n, Cells = cells, Border = border,
             Level = level,
+            LanternTotal = DeepwaterLanterns.Total(conn, voyage: true),
             CellStats = [.. Enumerable.Range(0, cells.Length).Select(i => DeepwaterBoardRules.CellStats(mods, cells, n, i, border))],
             Global = global,
             Picked = picked,
@@ -273,7 +276,15 @@ public sealed partial class DeepwaterModule
         var transfer = new PendingTransfer(run.Area.Hash16, 0, New: true)
         {
             Map = run,
-            Done = r => { if (!r.Ok) _ = Restore(module, conn, plan, r.Error ?? "the transfer was refused"); },
+            Done = r =>
+            {
+                if (r.Ok) return;
+                _ = Task.Run(async () =>
+                {
+                    try { await Restore(module, conn, plan, r.Error ?? "the transfer was refused"); }
+                    catch (Exception ex) { module.Log($"{plan.Owner}: failed to restore Allflame run after transfer refusal: {ex.Message}"); }
+                });
+            },
         };
         await ChangeArea(remote, stream, ciphers, conn, transfer, "Allflame Bathysphere");
     }
@@ -334,7 +345,7 @@ public sealed partial class DeepwaterModule
                 var (remote, stream, ciphers) = conn.Wire;
                 await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.EnterTheChart], on: false);
             }
-            await ReturnActive(module, conn, $"the run did not start: {reason}");
+            await ReturnActive(module, conn, $"the run did not start: {reason}", forceSend: true);
             return;
         }
         var back = new List<InventoryItem>();
@@ -359,7 +370,7 @@ public sealed partial class DeepwaterModule
     /// <summary>The chart in 109 goes back to 103 (or the main inventory when 103 is taken) when its run never started
     /// (G). One whose run was entered and left by a crash, a relog or a death is lost, as a failed Chart (the research's
     /// "Failure → lost"), and counts as the tutorial's failed first Chart.</summary>
-    async Task ReturnActive(IModuleContext module, ClientState conn, string reason)
+    async Task ReturnActive(IModuleContext module, ClientState conn, string reason, bool forceSend = false)
     {
         var items = ItemsOf(conn);
         var left = items.Items(DeepwaterLocker.ActiveRow).ToList();
@@ -374,7 +385,7 @@ public sealed partial class DeepwaterModule
                 CharacterSaves.ChangeModuleData(me, EnteredChartKey, _ => "");
                 if (items.Remove(DeepwaterLocker.ActiveRow, it.Id) is null) continue;
                 module.Log($"{CharacterName(conn)}: the active chart {it.Id}'s run was left unfinished; the chart is lost (G)");
-                bool live = !conn.Closed && !conn.LeavingArea;
+                bool live = !conn.Closed && (forceSend || !conn.LeavingArea);
                 if (!HasLeagueFlag(conn, DeepwaterConstants.FirstChartLeagueFlag))
                     await SetTutorialFlags(module, conn, live, DeepwaterConstants.FailedFirstChartLeagueFlag);
                 if (live) await SendRow(conn, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id} (the chart is lost)");
@@ -390,7 +401,7 @@ public sealed partial class DeepwaterModule
                 if (cell is { } c && items.Remove(DeepwaterLocker.ActiveRow, it.Id) is { } taken) placed = items.Put(row, taken with { X = c.X, Y = c.Y });
             });
             module.Log($"{CharacterName(conn)}: the active chart {it.Id} {(placed is null ? "stays in 109 (no room)" : $"goes back to row {row}")} ({reason})");
-            if (placed is null || conn.Closed || conn.LeavingArea) continue;
+            if (placed is null || conn.Closed || (!forceSend && conn.LeavingArea)) continue;
             await SendRow(conn, DeepwaterLocker.ActiveRow, [it.Id], [], $"remove item {it.Id}");
             await SendRow(conn, row, [], [placed], $"add item {placed.Id} (the chart back)");
         }

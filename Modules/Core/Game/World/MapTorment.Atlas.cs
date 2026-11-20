@@ -214,8 +214,9 @@ public static partial class MapTorment
     static async Task TickPossession(ClientState conn, double seconds)
     {
         if (!Possessed.TryGetValue(conn, out var possession)) return;
-        var add = new List<int>();
+        var add = new List<ushort>();
         var remove = new List<ushort>();
+        int needBuffs = 0;
         lock (possession)
         {
             for (int i = possession.Spirits.Count - 1; i >= 0; i--)
@@ -229,10 +230,28 @@ public static partial class MapTorment
                     possession.Stats = null;
                     continue;
                 }
-                if (buff == 0) { buff = conn.NextBuff++; add.Add(buff); }
+                if (buff == 0) needBuffs++;
                 possession.Spirits[i] = (row, left, touches, buff);
             }
             // An empty possession stays in the table until the area is left: a spirit may be going into it right now.
+        }
+        if (needBuffs > 0)
+        {
+            var allocated = new ushort[needBuffs];
+            lock (conn.Monsters)
+                for (int i = 0; i < needBuffs; i++) allocated[i] = NextBuffId(conn);
+            int next = 0;
+            lock (possession)
+            {
+                for (int i = 0; i < possession.Spirits.Count && next < allocated.Length; i++)
+                {
+                    var (row, left, touches, buff) = possession.Spirits[i];
+                    if (buff != 0) continue;
+                    buff = allocated[next++];
+                    possession.Spirits[i] = (row, left, touches, buff);
+                    add.Add(buff);
+                }
+            }
         }
         if (add.Count == 0 && remove.Count == 0) return;
         var w = conn.Wire;
@@ -274,14 +293,21 @@ public static partial class MapTorment
     /// monster-only stats (drops, the monster flags) are left out. Nothing when no spirit possesses the player.</summary>
     public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> stats)
     {
-        if (!Possessed.TryGetValue(conn, out var possession) || possession.Spirits.Count == 0) return stats;
+        if (!Possessed.TryGetValue(conn, out var possession)) return stats;
         Dictionary<uint, int> own;
         lock (possession)
         {
+            if (possession.Spirits.Count == 0) return stats;
             own = possession.Stats ??= GripStats(possession.Spirits.Select(p => p.Row));
         }
         foreach (var (key, value) in own) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
+    }
+
+    static ushort NextBuffId(ClientState conn)
+    {
+        ushort id = conn.NextBuff++;
+        return id == 0 ? conn.NextBuff++ : id;
     }
 
     static Dictionary<uint, int> GripStats(IEnumerable<int> rows)

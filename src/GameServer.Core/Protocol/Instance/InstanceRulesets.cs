@@ -35,6 +35,7 @@ public static class InstanceRulesets
     {
         if (m.Length < 4 || (m[0] << 8 | m[1]) != ActionId) throw new InvalidDataException("not a 0x2ca ruleset action");
         int lengthBytes = CompactUIntLength(m[3]);
+        if (m.Length < 3 + lengthBytes) throw new InvalidDataException("0x2ca ruleset action is cut off");
         uint n = CompactUInt(m[3..]);
         if (m.Length < 3 + lengthBytes + n) throw new InvalidDataException("0x2ca ruleset action is cut off");
         return (m[2], m.Slice(3 + lengthBytes, (int)n).ToArray());

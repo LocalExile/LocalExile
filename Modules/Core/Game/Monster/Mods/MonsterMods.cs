@@ -111,7 +111,7 @@ public static partial class Game
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
-        int additionalCritical = 0)
+        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null)
     {
         var e = m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
@@ -120,10 +120,11 @@ public static partial class Game
             baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
         int chance = baseCrit + additionalCritical;
         critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
-        int extraMult = critical ? Math.Max(0, e["base_critical_strike_multiplier_+"]) : 0;
-        double factor = critical
-            ? Math.Max(100, MonsterModEffects.CriticalMultiplier + extraMult - (selfCriticalReduction?.Invoke() ?? 0)) / 100.0
-            : 1;
+        int extraMult = critical
+            ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e["base_critical_strike_multiplier_+"] + (extraCriticalMultiplier?.Invoke() ?? 0))
+            : 0;
+        int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
+        double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
@@ -224,7 +225,7 @@ public static partial class Game
     }
 
     public static int SelfCriticalReduction(Func<string, int> get) =>
-        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? MonsterModEffects.CriticalMultiplier
+        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? 100
             : get("base_self_critical_strike_multiplier_-%");
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
