@@ -1128,7 +1128,7 @@ it and is saved with the item. A corrupted item takes no currency but a Scroll o
 currency yet), and nothing removes corruption.
 
 `CurrencyCorrupt`, same handler (0x71, 0x72 with Shift). For gems, the server chooses one of four outcomes with equal
-weight: corruption alone, one level up or down, 1–20 quality up or down (bounded to 0–23), or conversion to a
+weight: corruption alone, one level up or down, 1–10 quality up or down (bounded to 0–23), or conversion to a
 matching Vaal variant. `SkillGems.VaalVariant_BaseItemTypesKey` links the base, and the Vaal variant's second
 granted effect identifies the original skill. A conversion with no matching variant only corrupts the gem.
 Experience `-1` represents one level above the normal cap.

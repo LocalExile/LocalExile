@@ -33,7 +33,7 @@ public class QualityCurrencyTests
         Assert.Equal(21, items.GemLevel(Apply(original, 1)));
         Assert.Equal(19, items.GemLevel(Apply(original, 1, increase: false)));
         Assert.Equal(23, Apply(original, 2).Quality);
-        Assert.Equal(0, Apply(original, 2, increase: false).Quality);
+        Assert.Equal(10, Apply(original, 2, increase: false).Quality);
         var vaal = Apply(original, 3);
         Assert.Equal("Vaal Ground Slam of Earthshaking", items.GemName(vaal));
         Assert.Contains(variant.Effect, items.GemEffects(vaal));

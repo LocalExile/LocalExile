@@ -1272,11 +1272,7 @@ public static partial class Game
     internal static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
-        var catalog = ItemsFor(conn);
-        var type = catalog.ByHash(currencyTypeHash);
-        if (target.Components.Contains("SkillGem") && type is not null
-            && (type.Id == CurrencyEffects.VaalOrb || catalog.CurrencyAction(type) is "corrupt_item" or "special_corrupt_item"))
-            return CorruptGem(catalog, target, random);
+        var type = ItemsFor(conn).ByHash(currencyTypeHash);
         bool isEssence = type is not null && EssencesFor(conn).Contains(type.Hash);
         return type?.Id switch
         {
@@ -1321,6 +1317,7 @@ public static partial class Game
             CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target, random),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target),
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(conn), random),
+            CurrencyEffects.VaalOrb when target.Components.Contains("SkillGem") => CorruptGem(ItemsFor(conn), target, random),
             CurrencyEffects.VaalOrb => ItemsFor(conn).ByHash(target.TypeHash) is { } vaalType
                 ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(conn).Requirements(vaalType), RollsFor(conn), random) : null,
             CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(conn), random),
@@ -1340,6 +1337,8 @@ public static partial class Game
         };
     }
 
+    // Vaal Orb on a gem: four equal outcomes, no change, one level up or down (over the cap is experience -1), 1-10
+    // quality up or down (0-23), or its Vaal gem keeping a transfigured skill (wiki Vaal Orb "Gems").
     static Item? CorruptGem(ItemCatalog catalog, Item item, Random random)
     {
         if (item.Corrupted || item.Mirrored || catalog.ByHash(item.TypeHash) is not { Supported: true } type
@@ -1354,7 +1353,7 @@ public static partial class Game
                 return next == level ? corrupted
                     : corrupted with { GemExperience = next > gem.MaxLevel ? -1 : gem.ExperienceFor(next) };
             case 2:
-                int quality = random.Next(1, 21) * (random.Next(2) == 0 ? -1 : 1);
+                int quality = random.Next(1, 11) * (random.Next(2) == 0 ? -1 : 1);
                 return corrupted with { Quality = (byte)Math.Clamp(item.Quality + quality, 0, 23) };
             case 3:
                 if (gem.VaalBaseRow is int row && catalog.Row(row) is { Supported: true } vaalType
