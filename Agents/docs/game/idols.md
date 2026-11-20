@@ -60,7 +60,8 @@ The panel binds to the inventory object of the row's first S→C 0xc0 in an area
   They reach the instance's area stats (S→C 0x1d) and whatever reads a map's stats; a stat the server has no consumer
   for does nothing yet, as on a map item.
 - **Drops.** Monsters in maps drop Idols unidentified, magic or rare, of a base whose drop level they reach
-  (`GameEvents.Drops`). GGG does not publish the rates: the module's are its own (`IdolRules`), scaled by a setting.
+  (`GameEvents.Drops`), scaled by the map's item quantity (`MapMods.QuantityFactor`) and the module's `dropRate` setting.
+  GGG does not publish the rates: the module's are its own (`IdolRules`).
 - **Rolls.** Idols have the jewels' affix caps, two a side and three or four on a rare (`ItemRolls`).
 - **Unique Idols.** One Idol drop in 50 is a unique one, each as likely as the next, and the Idol inventory takes one
   of each (`UniqueMapRelicLimits`; the client's tooltip says "Limited to: 1" by itself).
