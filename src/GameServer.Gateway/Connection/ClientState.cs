@@ -33,17 +33,8 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
-/// <summary>An essence spell the hit kit cannot represent as damage/summon/projectile (EssenceSpells.cs): the resistance
-/// pulses (cold/fire/lightning, -10% of the element), the chaos damage-over-time pulse, or the grasping-hand grab. The
-/// released rare casts it as a kit special; at its contact the effect lands on the players near the rare instead of a hit.
-/// Value is the resistance debuff, Dps the chaos damage per second before resistance, Duration the pulse's seconds; Effect
-/// and Daemon name the skill and the daemon variety whose rig plays the cast animation (the rare's own rig has no clip).</summary>
-public sealed record EssenceSpellInfo(string Kind, int Value, double Dps, double Duration, int Effect, string Daemon);
-
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
-    /// <summary>An essence pulse/grab this swing casts instead of a hit (EssenceSpells.cs); null for an ordinary attack.</summary>
-    public EssenceSpellInfo? EssenceSpell { get; init; }
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }

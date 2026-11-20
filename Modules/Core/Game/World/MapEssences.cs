@@ -38,6 +38,9 @@ public static partial class MapEssences
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Monolith>? Monoliths;
         public readonly HashSet<int> Dirty = [];
+        /// <summary>Per released rare, its special essence spells (the pulses/grab the hit kit drops) and each spell's
+        /// next-ready time. Runtime only; rebuilt from the monolith's essences after a restore.</summary>
+        public readonly Dictionary<uint, CastState> Casting = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();

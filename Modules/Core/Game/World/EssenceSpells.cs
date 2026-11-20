@@ -5,102 +5,186 @@ using static Game;
 using static Program;
 
 /// <summary>
-/// The essence spells the hit kit cannot represent as damage/summon/projectile: the resistance pulses (Hatred/Anger/Wrath),
-/// the chaos damage-over-time pulse (Misery) and the grasping-hand grab (Envy). Their daemon effects carry no hit, so the
-/// rare casts them as kit specials (<see cref="MapEssences.EssenceKit"/> marks them with an <see cref="EssenceSpellInfo"/>);
-/// the rare's own action plays the cast on its rig, and at the contact <see cref="EssenceSpellContact"/> lands the effect on
-/// the players near the rare instead of a hit:
+/// The essence spells the hit kit cannot represent: the resistance pulses (Hatred/Anger/Wrath), the chaos damage-over-time
+/// pulse (Misery) and the grasping-hand grab (Envy). Their daemon effects carry no hit damage, summon or projectile, so
+/// <see cref="EssenceKit"/> drops them; a non-hit kit special also fights the auto-attack and stalls the rare, so they are
+/// cast here on their own timer while the released rare lives, independent of its AI. The visual is a spell effect object
+/// (the client's own art for the skill), not a monster action — the rare's rig has no pulse/grab clip:
 /// <list type="bullet">
-/// <item>RepeatedPulseCold/Fire/Lightning: <c>base_&lt;type&gt;_damage_resistance_%</c> (-10) on the player for the pulse's
-/// duration, the essence elemental-damage-taken debuff (BuffDefinitions 746, invisible).</item>
-/// <item>RepeatedPulseDegen: <c>base_chaos_damage_to_deal_per_minute</c> as a chaos degeneration on the player for the
-/// pulse's duration, after chaos resistance, through <c>TrapDegenPerSecond</c> (the essence daemon degen aura, buff 100).</item>
-/// <item>EssenceDaemonGrab: teleports the player to the rare; moving out of reach before the contact evades it.</item>
+/// <item>RepeatedPulseCold/Fire/Lightning: a pulse nova (<c>Metadata/Effects/Spells/pulses/&lt;element&gt;pulse.ao</c>) at the
+/// rare, then <c>base_&lt;type&gt;_damage_resistance_%</c> (-10) on the players near it for the pulse's duration (the
+/// invisible essence elemental-damage-taken debuff, BuffDefinitions 746).</item>
+/// <item>RepeatedPulseDegen: a chaos pulse nova (<c>pulses/chaospulse.ao</c>) at the rare, then
+/// <c>base_chaos_damage_to_deal_per_minute</c> as a chaos degeneration on the players near it, after chaos resistance,
+/// through <c>TrapDegenPerSecond</c> (the essence daemon degen aura, buff 100).</item>
+/// <item>EssenceDaemonGrab: the demon-grasp circle and hand (<c>monsters_effects/essence/demon_grasp/</c>) appear where the
+/// target stood; after the windup the grasp end plays and a player still inside the circle is pulled to the rare — stepping
+/// out evades it (the wiki).</item>
 /// </list>
-/// The wiki: Hatred/Anger/Wrath "debuffs the player with -10% resistance", Misery "pulses that inflict chaos damage over
-/// time", Envy "a grasping hand that teleports the player to the monster's location … can be evaded by moving". The pulses
-/// are self-centred novas (ActiveSkill repeated_pulse, TargetType 4); the grab is dominus_grab (DominusGrab).
+/// Cooldowns live on the instance area, so several players' ticks cast a spell once, not once each.
 /// </summary>
 public static partial class MapEssences
 {
     static double Now => DateTime.UtcNow.Ticks / (double)TimeSpan.TicksPerSecond;
 
-    /// <summary>The contact of an essence pulse/grab the rare just cast (Program.MonsterSwing). The rare's own rig has no
-    /// RepeatedPulse/DominusGrab clip, so the essence's daemon — whose rig does — is manifested riding the rare (attached,
-    /// no separate blocker) to play the cast; the pulse's debuff/degen or the grab then lands on the players near it.</summary>
-    public static async Task EssenceSpellContact(ClientState conn, SpawnedMonster monster, MonsterAttack attack)
+    const string GrabCircleArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao";
+    const string GrabHandArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp.ao";
+    const string GrabEndArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_end.ao";
+
+    /// <summary>One special spell a released rare casts: its daemon effect, what it does (cold/fire/lightning resistance
+    /// pulse, chaos degen pulse, or grab), the pulse nova art, the resistance value / chaos dps / duration from the skill's
+    /// stats at the rare's level, and its repeat cooldown.</summary>
+    sealed record SpecialSpell(int Effect, string Kind, string Art, int Value, double Dps, double Duration, double Cooldown);
+
+    sealed class CastState
     {
-        if (attack.EssenceSpell is not { } spell || conn.Closed || conn.LeavingArea) return;
-        var at = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        double range = Math.Max(attack.Range, 30);
-        uint daemon = await ShowDaemon(conn, monster, spell, at, player);
-        try
-        {
-            switch (spell.Kind)
-            {
-                case "cold" or "fire" or "lightning":
-                    await Task.Delay(TimeSpan.FromSeconds(0.6));
-                    if (!conn.Closed && !conn.LeavingArea) await ResDebuff(conn, at, range, spell);
-                    break;
-                case "chaos":
-                    await Task.Delay(TimeSpan.FromSeconds(0.6));
-                    if (!conn.Closed && !conn.LeavingArea) ChaosDegen(conn, at, range, spell);
-                    break;
-                case "grab":
-                    // The hand trap appears where the player stood; after its windup, only a player still inside it is
-                    // pulled to the rare — stepping out evades it (the wiki).
-                    await Task.Delay(TimeSpan.FromSeconds(1.0));
-                    if (!conn.Closed && !conn.LeavingArea) await Grab(conn, monster, player, 10);
-                    break;
-            }
-            await Task.Delay(TimeSpan.FromSeconds(0.5));
-        }
-        finally { RemoveDaemon(conn, daemon); }
-        Console.WriteLine($"[map-content] essence {spell.Kind} pulse by 0x{monster.ObjectId:x} at ({at.X}, {at.Y}), reach {range:0}");
+        public IReadOnlyList<SpecialSpell> Spells = [];
+        public readonly Dictionary<int, double> Ready = [];
     }
 
-    /// <summary>The essence's daemon riding the rare, playing its skill action so the client shows the pulse/grab on the
-    /// daemon's rig (the rare's has no clip). Attached to the rare's root so it adds no blocker of its own; friendly,
-    /// invulnerable, out of the AI, no bar. The grab aims at the player (the hand appears there); a pulse is self-centred.</summary>
-    static async Task<uint> ShowDaemon(ClientState conn, SpawnedMonster monster, EssenceSpellInfo spell, (int X, int Y) at, (int X, int Y) player)
+    static string EssenceSpellKind(string? effectId) => effectId switch
     {
-        var catalog = SkillsFor(conn);
-        if (Monsters.Find(spell.Daemon) is not { Supported: true } variety || catalog.ActionHash(spell.Effect) is not ushort hash) return 0;
-        ushort skillId = (ushort)(hash & 0x3fff);
-        var stats = catalog.EffectStats(spell.Effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
-        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(spell.Effect) / 1000.0), 26, DamagePacket.Empty) { Spell = true };
-        foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-        if (catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
-        var (remote, stream, ciphers) = conn.Wire;
-        var target = spell.Kind == "grab" ? player : at;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
-            friendly: true, log: false, alone: true, scripted: true, ownedSkills: [skill], instanceOwned: true,
-            placement: MonsterPlacement.Established, attachTo: (monster.ObjectId, "<root>", 0, 3),
-            extraStats: [(StatKeys.HideMiniLifeBar, 1)],
-            owned: (_, m) =>
+        "RepeatedPulseCold" => "cold",
+        "RepeatedPulseFire" => "fire",
+        "RepeatedPulseLightning" => "lightning",
+        "RepeatedPulseDegen" => "chaos",
+        "EssenceDaemonGrab" => "grab",
+        _ => "",
+    };
+
+    static string PulseArt(string kind) => kind switch
+    {
+        "cold" => "Metadata/Effects/Spells/pulses/icepulse.ao",
+        "fire" => "Metadata/Effects/Spells/pulses/firepulse.ao",
+        "lightning" => "Metadata/Effects/Spells/pulses/lightningpulse.ao",
+        "chaos" => "Metadata/Effects/Spells/pulses/chaospulse.ao",
+        _ => "",
+    };
+
+    /// <summary>The special spells of a rare's essences: the daemon effects the hit kit drops, each built at the rare's
+    /// level. The damage/summon/projectile effects stay in the kit (<see cref="EssenceKit"/>); only these are cast here.</summary>
+    static IReadOnlyList<SpecialSpell> SpecialSpellsOf(ClientState conn, IReadOnlyList<int> essences, int level)
+    {
+        var skills = SkillsFor(conn);
+        var list = new List<SpecialSpell>();
+        var seen = new HashSet<int>();
+        foreach (int row in essences)
+        {
+            if (DaemonEffects(row) is not { } daemon) continue;
+            foreach (int effect in daemon.Effects)
             {
-                m.NoRewards = true; m.Attack = null; m.Aggro = false; m.BusyUntil = double.PositiveInfinity;
-                m.EncounterStats = new Dictionary<string, int> { ["base_cannot_be_damaged"] = 1 };
-            });
-        if (id == 0) return 0;
-        await SendWorldRecord(remote, stream, ciphers, conn, id,
-            [.. InstanceProtocol.ActionStarted(id, at.X, at.Y, target.X, target.Y, skillId, 0xffff, conn.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(id)],
-            $"essence daemon {spell.Daemon} {spell.Kind}");
+                if (!seen.Add(effect)) continue;
+                if (EssenceSpellKind(skills.EffectId(effect)) is not { Length: > 0 } kind) continue;
+                int effectLevel = skills.MaxLevelAt(effect, level);
+                var native = GolemData.Skill(skills, effect, level);
+                int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
+                int value = kind switch
+                {
+                    "cold" => Get("base_cold_damage_resistance_%"),
+                    "fire" => Get("base_fire_damage_resistance_%"),
+                    "lightning" => Get("base_lightning_damage_resistance_%"),
+                    _ => 0,
+                };
+                // The pulse's cast time is its repeat interval; the cooldown holds the next cast.
+                double cooldown = Math.Max(Math.Max(0, skills.CooldownMs(effect, effectLevel) / 1000.0), skills.CastMs(effect) / 1000.0);
+                list.Add(new(effect, kind, PulseArt(kind), value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
+                    Get("base_skill_effect_duration") / 1000.0, cooldown));
+            }
+        }
+        return list;
+    }
+
+    /// <summary>Called from the essence tick: each released rare casts its ready special spells while a player is in reach.
+    /// The rare's own AI is untouched (it fights with its default attack and the hit-kit spells); these cast alongside it.</summary>
+    static async Task CastSpecialSpells(ClientState conn)
+    {
+        if (conn.Closed || conn.LeavingArea || !Areas.TryGetValue(conn.Instance, out var area) || area.Monoliths is null) return;
+        double now = Now;
+        foreach (var mono in area.Monoliths.Where(m => m.Stage >= 4 && m.Monster != 0).ToArray())
+        {
+            SpawnedMonster? monster;
+            lock (conn.Monsters) conn.Monsters.TryGetValue(mono.Monster, out monster);
+            if (monster is null || monster.Dead || monster.Life <= 0 || !monster.Hostile) continue;
+            CastState state;
+            lock (area.Casting)
+                if (!area.Casting.TryGetValue(mono.Monster, out state!))
+                    area.Casting[mono.Monster] = state = new CastState { Spells = SpecialSpellsOf(conn, mono.Essences, monster.Level) };
+            if (state.Spells.Count == 0) continue;
+            var at = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            double range = Math.Max(60, monster.Variety?.AggroRange ?? 60);
+            var target = Members(conn).Where(c => c.PlayerSent && c.PlayerLife > 0 && !c.Immune
+                && Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) <= range)
+                .OrderBy(c => Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at)).FirstOrDefault();
+            if (target is null) continue;
+            lock (state)
+                foreach (var spell in state.Spells)
+                {
+                    if (now < state.Ready.GetValueOrDefault(spell.Effect)) continue;
+                    state.Ready[spell.Effect] = now + spell.Cooldown;
+                    _ = CastSpell(conn, monster, target, at, spell);
+                }
+        }
+    }
+
+    static async Task CastSpell(ClientState conn, SpawnedMonster monster, ClientState target, (int X, int Y) at, SpecialSpell spell)
+    {
+        try
+        {
+            if (spell.Kind == "grab")
+            {
+                var trapAt = target.Walk.Position(target.Clock.Elapsed.TotalSeconds);
+                uint circle = SpawnEffect(conn, trapAt, GrabCircleArt);
+                uint hand = SpawnEffect(conn, trapAt, GrabHandArt);
+                await Task.Delay(TimeSpan.FromSeconds(1.0));
+                if (!conn.Closed && !conn.LeavingArea)
+                {
+                    uint end = SpawnEffect(conn, trapAt, GrabEndArt);
+                    await Grab(conn, monster, target, trapAt, 10);
+                    await Task.Delay(TimeSpan.FromSeconds(0.6));
+                    RemoveEffect(conn, end);
+                }
+                RemoveEffect(conn, circle); RemoveEffect(conn, hand);
+                Console.WriteLine($"[map-content] essence grab by 0x{monster.ObjectId:x} at ({trapAt.X}, {trapAt.Y})");
+                return;
+            }
+            uint fx = SpawnEffect(conn, at, spell.Art);
+            await Task.Delay(TimeSpan.FromSeconds(0.5));
+            if (!conn.Closed && !conn.LeavingArea)
+            {
+                double range = Math.Max(60, monster.Variety?.AggroRange ?? 60);
+                if (spell.Kind == "chaos") ChaosDegen(conn, at, range, spell);
+                else await ResDebuff(conn, at, range, spell);
+            }
+            await Task.Delay(TimeSpan.FromSeconds(1.5));
+            RemoveEffect(conn, fx);
+            Console.WriteLine($"[map-content] essence {spell.Kind} pulse by 0x{monster.ObjectId:x} at ({at.X}, {at.Y})");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[map-content] essence spell {spell.Kind} failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>A spell effect object (the client's art for the skill), broadcast to the instance and played at once; the
+    /// strongbox ground-effect pattern. Returns its object id, removed when the spell ends.</summary>
+    static uint SpawnEffect(ClientState conn, (int X, int Y) at, string art, float scale = 1)
+    {
+        uint id = conn.TakeObjectId();
+        lock (conn.Monsters)
+        {
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()), null, WorldId: id, CreatesObject: true));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.AnimationUpdate(id, 0, 0, 1), null, WorldId: id));
+        }
         return id;
     }
 
-    static void RemoveDaemon(ClientState conn, uint id)
+    static void RemoveEffect(ClientState conn, uint id)
     {
         if (id == 0) return;
         lock (conn.Monsters)
-            if (conn.Monsters.Remove(id, out var monster))
-            {
-                monster.Dead = true; monster.Life = 0; monster.ActionGeneration++;
-                conn.MonsterViews.Remove(id); conn.AsleepMonsters.Remove(id);
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "essence daemon ends", id, monster,
-                    PlayerMinions.OutputKind.Remove, WorldId: id, RemovesObject: true));
-            }
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
     }
 
     static IEnumerable<ClientState> PlayersNear(ClientState conn, (int X, int Y) at, double radius) => Members(conn)
@@ -108,7 +192,7 @@ public static partial class MapEssences
 
     /// <summary>The resistance pulse: -10% of its element on the players near the rare for the pulse's duration. The same
     /// element's debuff refreshes rather than stacks; the buff (746) is invisible, so the debuff is the stat alone.</summary>
-    static async Task ResDebuff(ClientState source, (int X, int Y) at, double range, EssenceSpellInfo spell)
+    static async Task ResDebuff(ClientState source, (int X, int Y) at, double range, SpecialSpell spell)
     {
         string statName = spell.Kind switch
         {
@@ -137,7 +221,7 @@ public static partial class MapEssences
 
     /// <summary>The chaos pulse: a chaos degeneration on the players near the rare for the pulse's duration, after their
     /// chaos resistance, dealt through <c>TrapDegenPerSecond</c> (the tick recomputes the share). Pulses stack.</summary>
-    static void ChaosDegen(ClientState source, (int X, int Y) at, double range, EssenceSpellInfo spell)
+    static void ChaosDegen(ClientState source, (int X, int Y) at, double range, SpecialSpell spell)
     {
         if (spell.Dps <= 0) return;
         double seconds = Math.Max(1, spell.Duration);
@@ -158,18 +242,18 @@ public static partial class MapEssences
         }
     }
 
-    /// <summary>The grab: the hand trap appeared where the player stood at the cast; after its windup, a player still
-    /// inside it is pulled to the rare, one who stepped out is not (the wiki). The teleport is the gate's own (0x01b7).</summary>
-    static async Task Grab(ClientState conn, SpawnedMonster monster, (int X, int Y) trapAt, double trapRadius)
+    /// <summary>The grab: the demon-grasp circle appeared where the target stood at the cast; after its windup, a target
+    /// still inside it is pulled to the rare, one who stepped out is not (the wiki). The teleport is the gate's own (0x01b7).</summary>
+    static async Task Grab(ClientState conn, SpawnedMonster monster, ClientState target, (int X, int Y) trapAt, double trapRadius)
     {
-        if (conn.Immune || InGracePeriod(conn)) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        if (Dist(conn.Walk.Position(now), trapAt) > trapRadius) return;
+        if (target.Immune || InGracePeriod(target)) return;
+        double now = target.Clock.Elapsed.TotalSeconds;
+        if (Dist(target.Walk.Position(now), trapAt) > trapRadius) return;
         var at = monster.Walk.Position(now);
-        var (remote, stream, ciphers) = conn.Wire;
-        using (ProjectileMutation(conn))
-            conn.Walk.Teleport(at.X, at.Y, ProjectileWorldTime(conn));
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, at.X, at.Y),
+        var (remote, stream, ciphers) = target.Wire;
+        using (ProjectileMutation(target))
+            target.Walk.Teleport(at.X, at.Y, ProjectileWorldTime(target));
+        await SendWorldRecord(remote, stream, ciphers, target, PlayerId, InstanceProtocol.Teleport(PlayerId, at.X, at.Y),
             $"essence grab to ({at.X}, {at.Y})");
     }
 

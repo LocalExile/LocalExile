@@ -31,9 +31,9 @@ public static partial class MapEssences
 
     /// <summary>The released rare monster's essence spells as kit specials (effect, attack, cooldown): the daemon
     /// effects of its essences, each built as the monster's own action at its level, with the skill's cooldown. Effects
-    /// that hit for nothing, summon nothing and fire nothing are dropped, as a boss kit's are — except the essence
-    /// pulses/grab (<see cref="EssenceSpellInfo"/>), which the rare casts as a special whose contact lands the pulse's
-    /// debuff/degen or the grab on the players near it instead of a hit.</summary>
+    /// that hit for nothing, summon nothing and fire nothing are dropped, as a boss kit's are; the essence pulses/grab
+    /// are cast separately by <see cref="EssenceSpellContact"/> on their own timer, not through the kit (a non-hit kit
+    /// special fights the auto-attack and stalls the rare).</summary>
     public static IReadOnlyList<MonsterKitSkill> EssenceKit(ClientState conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
     {
         var catalog = SkillsFor(conn);
@@ -49,44 +49,12 @@ public static partial class MapEssences
                 double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
                 ushort id = (ushort)(0x4000 + kit.Count);
                 var attack = BossKits.AttackFor(conn, variety, level, effect, id);
-                if (EssenceSpellKind(catalog.EffectId(effect)) is { Length: > 0 } kind)
-                {
-                    var native = GolemData.Skill(catalog, effect, level);
-                    int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
-                    int value = kind switch
-                    {
-                        "cold" => Get("base_cold_damage_resistance_%"),
-                        "fire" => Get("base_fire_damage_resistance_%"),
-                        "lightning" => Get("base_lightning_damage_resistance_%"),
-                        _ => 0,
-                    };
-                    var info = new EssenceSpellInfo(kind, value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
-                        Get("base_skill_effect_duration") / 1000.0, effect, daemon.Daemon);
-                    // The pulse's cast time is its repeat interval (4 s), not its animation: a short cast plays, then the
-                    // cooldown holds the next pulse. The grab winds up for its cast time before it teleports.
-                    double interval = catalog.CastMs(effect) / 1000.0;
-                    kit.Add(new(effect, attack with { EssenceSpell = info, Seconds = Math.Min(attack.Seconds, 1.0) },
-                        Math.Max(Math.Max(0, cooldown), interval)));
-                    continue;
-                }
                 if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
                 kit.Add(new(effect, attack, Math.Max(0, cooldown)));
             }
         }
         return kit;
     }
-
-    /// <summary>The essence pulse/grab an effect casts (the daemon effects the hit kit cannot represent), or "" for an
-    /// ordinary damage/summon/projectile effect.</summary>
-    static string EssenceSpellKind(string? effectId) => effectId switch
-    {
-        "RepeatedPulseCold" => "cold",
-        "RepeatedPulseFire" => "fire",
-        "RepeatedPulseLightning" => "lightning",
-        "RepeatedPulseDegen" => "chaos",
-        "EssenceDaemonGrab" => "grab",
-        _ => "",
-    };
 
     /// <summary>The encased preview monsters: the rare and the pack's magic monsters as paused, invulnerable monster
     /// objects in the frozen visual, standing in the crystals. The client draws the model, life bar and essence panel

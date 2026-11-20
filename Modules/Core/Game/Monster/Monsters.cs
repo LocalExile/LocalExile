@@ -349,30 +349,15 @@ public static partial class Game
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
-        // An essence rare's extra kit is only its spells, every one a cooldown special. Prepend its default attack as a
-        // ready entry (cooldown 0) so the AI always has a swing between the spells: BossKits.Choose falls back to
-        // monster.Attack when no special is ready, which would otherwise be the last spell, re-cast every tick ignoring
-        // its cooldown (the rare stood still casting, or grabbed without pause). The spells' kit ids shift up one to stay
-        // aligned with the actor's skill list, which SkillsOf numbers by kit index.
-        bool essenceDefault = false;
-        if (extraKit is { Count: > 0 })
-        {
-            if (kit.Count == 0 && attack is not null && skill is not null)
-            {
-                kit = [new MonsterKitSkill(effect, attack with { SkillId = 0x4000 }, 0),
-                    .. extraKit.Select((e, i) => e with { Attack = e.Attack with { SkillId = (ushort)(0x4001 + i) } })];
-                essenceDefault = true;
-            }
-            else kit = [.. kit, .. extraKit];
-        }
+        if (extraKit is { Count: > 0 }) kit = [.. kit, .. extraKit];
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
             : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
-        // An extra kit whose default attack is not already an entry keeps its own skill alongside the kit's; the essence
-        // rare's default is prepended above, so it is not added a second time here.
-        if (extraKit is { Count: > 0 } && !essenceDefault && kingSkills is null && skill is not null)
+        // An extra kit (an essence monster's spells) is specials on top of the default attack, not a replacement: the
+        // default attack is not one of its entries, so keep its own skill alongside the kit's.
+        if (extraKit is { Count: > 0 } && kingSkills is null && skill is not null)
             skills = [skill, .. (skills ?? [])];
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(conn, variety, level, skills);
@@ -1968,13 +1953,6 @@ public static partial class Game
                 return;
             }
             if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
-        }
-        if (a.EssenceSpell is not null)
-        {
-            // An essence pulse/grab: the rare's own action played (its rig animates the cast); the contact lands the
-            // pulse's debuff/degen or the grab on the players near it instead of a hit (EssenceSpells.cs).
-            await MapEssences.EssenceSpellContact(conn, m, a);
-            return;
         }
         if (a.Summon is { } summon)
         {

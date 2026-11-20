@@ -181,8 +181,10 @@ public static partial class MapEssences
     public static async Task Tick(ClientState conn, double now)
     {
         if (conn.Closed || conn.LeavingArea) return;
-        // The essence pulses' player debuffs/degen expire on their own timer (the rare casts the pulses through its kit).
+        // The essence pulses' player debuffs/degen expire on their own timer, and the released rares cast their ready
+        // special spells (pulses/grab) alongside their ordinary AI. Runs before the release/dirty work below.
         TickEffects(conn);
+        await CastSpecialSpells(conn);
         // Crystal Resonance: apply pending inherited essences to the map boss once it exists (it may be held back far
         // from the player until approached); a cheap check, the Monsters scan runs only while something is pending.
         if (Inherited.TryGetValue(conn.Instance, out var inh) && inh.Applied < inh.Essences.Count)
