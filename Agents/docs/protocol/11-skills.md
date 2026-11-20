@@ -2529,6 +2529,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   totals they use for their landings. Each helmet enchantment for additional Toxic Rain arrows or Spark
   projectiles has an item-local stat that names the receiving skills in `Stats.BelongsActiveSkillsKey`.
   Equipment supplies that named input to the active skill, which adds it to its projectile count.
+  The Split Arrow helmets supply `split_arrow_num_of_additional_projectiles` through equipped stats.
+  Split Arrow adds that value to its arrows. Split Arrow of Splitting fires one arrow and adds the value
+  to its split targets, which the panel publishes as `virtual_projectile_number_to_split`.
 - **Kinetic Bolt** (`KineticBoltLegs.cs`): `virtual_projectiles_cannot_fork = 1` turns forks into zig-zags, and the
   record carries `kinetic_bolt_number_of_zig_zags`. A primary bolt travels 15 cells, then alternates ±45 deg (10 cells)
   and ±90 deg (20 cells) at a leg's end, a non-evaded hit or a wall, without spending Pierce/Chain/Return, emitting

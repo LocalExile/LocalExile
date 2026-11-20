@@ -65,9 +65,11 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   Attack base/added coefficients are separate; negative weapon conditions, remaining weapon families,
   skill-specific added inputs and native checks stay in #368.
   Verify the native panel across helmet swaps for skill-specific damage, Toxic Rain's physical damage
-  gained as extra chaos and the Toxic Rain and Spark projectile counts. Local casts cover Vortex ground and Toxic Rain pods. Other standalone
-  damage-over-time executors still need equipment checks. [#1181](https://github.com/LocalExile/LocalExile/issues/1181),
-  [#1184](https://github.com/LocalExile/LocalExile/issues/1184), [#1185](https://github.com/LocalExile/LocalExile/issues/1185)
+  gained as extra chaos, and the projectile counts for Toxic Rain, Spark and Split Arrow. Check both helmet tiers
+  with Split Arrow of Splitting in the client. Local casts cover its split targets, Vortex ground and Toxic Rain pods.
+  Other standalone damage-over-time executors still need equipment checks. [#1181](https://github.com/LocalExile/LocalExile/issues/1181),
+  [#1184](https://github.com/LocalExile/LocalExile/issues/1184), [#1185](https://github.com/LocalExile/LocalExile/issues/1185),
+  [#1186](https://github.com/LocalExile/LocalExile/issues/1186)
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):

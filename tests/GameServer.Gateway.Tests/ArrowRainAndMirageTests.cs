@@ -189,16 +189,19 @@ public class ArrowRainAndMirageTests
 
     static async Task EquippedProjectileCounts()
     {
-        using var b = new Battle("Toxic Rain", "Spark", "Split Arrow", "Rain of Arrows", "Blast Rain");
+        using var b = new Battle("Toxic Rain", "Spark", "Split Arrow", "Split Arrow of Splitting", "Rain of Arrows", "Blast Rain");
         var items = Game.ItemsOf(b.Conn);
         var hat = ItemCatalog.Create(Program.Items.Find("Royal Burgonet")!);
         var gems = Game.GemSkillEffects(b.Conn).ToDictionary(g => g.Name);
         b.Conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
-        foreach (var (enchant, strength, rain, spark) in new (string?, int, int, int)[]
+        foreach (var (enchant, strength, rain, spark, splitBonus) in new (string?, int, int, int, int)[]
         {
-            (null, 1000, 7, 6), ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 1000, 8, 6),
-            ("EnchantmentSparkNumOfAdditionalProjectiles1", 1000, 7, 8), ("EnchantmentSparkNumOfAdditionalProjectiles2", 1000, 7, 9),
-            ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 100, 7, 6), (null, 1000, 7, 6)
+            (null, 1000, 7, 6, 0), ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 1000, 8, 6, 0),
+            ("EnchantmentSparkNumOfAdditionalProjectiles1", 1000, 7, 8, 0), ("EnchantmentSparkNumOfAdditionalProjectiles2", 1000, 7, 9, 0),
+            ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 100, 7, 6, 0),
+            ("EnchantmentSplitArrowNumOfAdditionalProjectiles1", 1000, 7, 6, 2),
+            ("EnchantmentSplitArrowNumOfAdditionalProjectiles2", 1000, 7, 6, 3),
+            ("EnchantmentSplitArrowNumOfAdditionalProjectiles2", 100, 7, 6, 0), (null, 1000, 7, 6, 0)
         })
         {
             // The Royal Burgonet needs 148 Strength. Keep the bow and its gems qualified at 100.
@@ -215,11 +218,18 @@ public class ArrowRainAndMirageTests
             }
             await Game.SendEquipment("projectile-count", b.Stream, b.Ciphers, b.Conn, items);
             var skills = Game.PlayerSkills(b.Conn);
-            foreach (var (name, count) in new[] { ("Toxic Rain", rain), ("Spark", spark), ("Split Arrow", 7), ("Rain of Arrows", 20), ("Blast Rain", 8) })
+            foreach (var (name, count) in new[] { ("Toxic Rain", rain), ("Spark", spark), ("Split Arrow", 7 + splitBonus),
+                ("Split Arrow of Splitting", 1), ("Rain of Arrows", 20), ("Blast Rain", 8) })
             {
                 var gem = gems[name];
                 var stats = skills.Single(row => row.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
-                Assert.Equal(count, Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1)).Profile.Count);
+                var profile = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1)).Profile;
+                Assert.Equal(count, profile.Count);
+                if (name == "Split Arrow of Splitting")
+                {
+                    Assert.Equal(5 + splitBonus, profile.Split); // Three gem targets plus the two generic projectiles.
+                    Assert.Equal(profile.Split, stats[Program.Stats.Key("virtual_projectile_number_to_split")!.Value]);
+                }
                 Assert.Equal(count, stats[StatKeys.TotalProjectilesToFire]);
                 Assert.Equal(count, stats[StatKeys.VirtualTotalProjectiles]);
                 if (name == "Spark") continue;
