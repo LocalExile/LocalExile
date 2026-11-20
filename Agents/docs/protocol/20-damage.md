@@ -240,6 +240,11 @@ therefore give 90% increased damage to that arrow. A socketed Fireball receives 
 Shock Nova's ring adds its ring-only increase on top of the general Shock Nova increase.
 Both its ring and its disc take the general increase once. [#1181](https://github.com/LocalExile/LocalExile/issues/1181)
 
+Toxic Rain's active skill maps `toxic_rain_physical_damage_%_to_add_as_chaos` to
+`physical_damage_%_to_add_as_chaos`. Its landing hit and pod burst gain chaos from the physical
+amount before conversion. With a 10% enchant and 20% generic gain, both hits gain 30%.
+The pod's separate chaos damage over time uses the gem's per-minute value. [#1184](https://github.com/LocalExile/LocalExile/issues/1184)
+
 ## 2a. Equipped weapon-local damage
 
 `ItemWeaponStats` constructs one typed item packet from the active, requirement-enabled weapon before character,

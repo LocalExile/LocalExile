@@ -419,10 +419,20 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public string? EffectId(int effectRow) =>
         _tables.Value?.EffectIds.GetValueOrDefault(effectRow);
 
+    public readonly record struct HitDamageMapping(uint Output, ReadOnlyMemory<uint> Inputs);
+
     /// <summary>The stat keys this effect's ActiveSkills row maps to increased damage.</summary>
-    public ReadOnlySpan<uint> DamageIncreaseInputs(int effectRow) =>
+    public ReadOnlySpan<uint> DamageIncreaseInputs(int effectRow)
+    {
+        foreach (var mapping in HitDamageMappings(effectRow))
+            if (mapping.Output == StatKeys.DamagePct) return mapping.Inputs.Span;
+        return [];
+    }
+
+    /// <summary>The named inputs and their hit modifiers for this granted effect's active skill.</summary>
+    public ReadOnlySpan<HitDamageMapping> HitDamageMappings(int effectRow) =>
         _tables.Value is { } t && (uint)effectRow < (uint)t.ActiveSkills.Count && t.ActiveSkills[effectRow] is int active
-            ? t.DamageIncreaseInputs[active] : [];
+            ? t.HitDamageMappings[active] : [];
 
     /// <summary>Whether a GrantedEffects row is a support, from its actual row (not its translated name).</summary>
     public bool IsSupportEffect(int effectRow) => _supportEffects.Value.Contains(effectRow);
@@ -1506,7 +1516,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
-        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, uint[][] DamageIncreaseInputs,
+        List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, HitDamageMapping[][] HitDamageMappings,
         List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
@@ -1537,7 +1547,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var statSets = new List<int>();
             var effectInfo = new List<(int, int, bool)>();
             var activeRows = ClientTables.TableOrEmpty("ActiveSkills");
-            var damageInputs = new uint[activeRows.Count][];
+            ReadOnlySpan<uint> hitOutputs = [StatKeys.DamagePct, StatKeys.PhysicalDamageAsExtraChaosPct];
+            var damageInputs = new HitDamageMapping[activeRows.Count][];
             for (int i = 0; i < activeRows.Count; i++)
             {
                 var active = activeRows[i];
@@ -1545,8 +1556,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 var outputs = active.Ints("Output_StatKeys");
                 if (inputs.Length != outputs.Length)
                     throw new InvalidDataException($"ActiveSkills row {i} has {inputs.Length} stat inputs and {outputs.Length} outputs.");
-                damageInputs[i] = [.. inputs.Where((_, index) => outputs[index] == StatKeys.DamagePct - 1)
-                    .Select(input => checked((uint)input + 1))];
+                var mappings = new List<HitDamageMapping>();
+                foreach (uint output in hitOutputs)
+                {
+                    uint[] mapped = [.. inputs.Where((_, index) => outputs[index] == output - 1)
+                        .Select(input => checked((uint)input + 1))];
+                    if (mapped.Length != 0) mappings.Add(new(output, mapped));
+                }
+                damageInputs[i] = [.. mappings];
             }
             var activeSkills = new List<int?>();
             int row = 0;

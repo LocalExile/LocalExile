@@ -136,8 +136,9 @@ public class ArrowRainAndMirageTests
         Assert.Equal(aim, points[0]);
         Assert.Equal(aim + new ProjectileVector(2, 0), points[1]);
         Assert.All(Game.RainLandings("BlastRain", aim, 6, 17, [], new Random(1)), p => Assert.InRange((p - aim).Length, 0, 20));
-        using var b = new Battle("Toxic Rain");
-        var gem = Game.GemSkillEffects(b.Conn).Single();
+        using var b = new Battle("Toxic Rain", "Split Arrow");
+        var gems = Game.GemSkillEffects(b.Conn).ToDictionary(g => g.Name);
+        var gem = gems["Toxic Rain"];
         Game.ReleaseArrowRain(b.Session, gem.Id, gem, (120, 100), new(1), 0);
         Assert.Equal(100000u, b.Enemy.Life);
         b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
@@ -154,6 +155,33 @@ public class ArrowRainAndMirageTests
         Assert.True(b.Enemy.Life < ticking);
         Assert.Equal(1, Game.ToxicWalkFactor(b.Enemy));
         Assert.Equal(100000u, b.Ally.Life);
+
+        DamagePacket Hit(ushort skill) => Game.SupportedHitFor(b.Conn, skill, suppress: false, area: true, projectile: true);
+        var basis = Hit(gem.Id);
+        double physicalBeforeConversion = basis[DamageType.Physical].Max + basis[DamageType.Chaos].Max;
+        ushort split = gems["Split Arrow"].Id;
+        var splitBase = Hit(split);
+        var items = Game.ItemsOf(b.Conn);
+        var helmet = ItemCatalog.Create(Program.Items.Find("Iron Hat")!);
+        b.Conn.PlayerStats[StatKeys.PhysicalDamageAsExtraChaosPct] = 20;
+        foreach (var (enchant, extra) in new (string?, int)[]
+        {
+            ("EnchantmentToxicRainPhysicalAddedAsChaos1", 6), ("EnchantmentToxicRainPhysicalAddedAsChaos2", 10), (null, 0)
+        })
+        {
+            if (items.Items(PlayerInventories.Helmet).SingleOrDefault() is { } worn)
+                items.Remove(PlayerInventories.Helmet, worn.Id);
+            if (enchant is not null)
+            {
+                var mod = Program.Items.Mods.ById(enchant)!;
+                items.Add(PlayerInventories.Helmet, 0, 0, helmet with { Mods = [new ItemMod(ModSection.Enchant, mod.Hash, mod.MaxValues())] });
+            }
+            await Game.SendEquipment("toxic-rain", b.Stream, b.Ciphers, b.Conn, items);
+            var hit = Hit(gem.Id);
+            Assert.Equal(basis[DamageType.Physical], hit[DamageType.Physical]);
+            Assert.Equal(basis[DamageType.Chaos].Max + physicalBeforeConversion * (20 + extra) / 100, hit[DamageType.Chaos].Max, 7);
+            Assert.Equal(splitBase[DamageType.Physical].Max * .2, Hit(split)[DamageType.Chaos].Max, 7);
+        }
         await VortexSharesGroundAcrossCasters();
         VortexSettlesBeforeChillReplacement();
     }
