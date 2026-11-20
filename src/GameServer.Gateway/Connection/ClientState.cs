@@ -1009,6 +1009,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public Flasks.Effects FlaskEffects { get; } = new();
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
     public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
+    /// <summary>The tinctures active/lingering on the flask belt, with shared Mana Burn / Weeping Wounds and cooldown.</summary>
+    public Tinctures.Effects TinctureEffects { get; } = new();
     /// <summary>Life, mana and hybrid flasks' "during effect" mods while their recovery runs.</summary>
     public UtilityFlasks.RecoveryDuringEffects RecoveryFlaskStats { get; } = new();
     /// <summary>Ignited corpses consumed since the flask-charge loop last paid them (Cinderswallow Urn's recharge).</summary>

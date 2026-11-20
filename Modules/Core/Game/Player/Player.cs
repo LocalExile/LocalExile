@@ -1183,6 +1183,7 @@ public static partial class Game
             double now;
             int? ailmentDeathEpoch = null;
             bool pbDeath = false, pbRateChanged = false, pbRateBlocked = false;
+            List<uint>? deactivatedTinctures = null;
             using (ProjectileMutation(conn))
             {
                 // Commit earlier projectile hits before advancing leech/recovery to this resource boundary.
@@ -1245,6 +1246,7 @@ public static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
+                    AdvanceTincturesLocked(conn, now, seconds, recoveryStats, out _, out _, ref deactivatedTinctures);
                     ClearPlayerDecay(conn);
                     ClearEssenceAuraExposure(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
@@ -1306,8 +1308,12 @@ public static partial class Game
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    AdvanceTincturesLocked(conn, now, seconds, recoveryStats, out double tinctureManaDrain,
+                        out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
+                    if (tinctureLifeDrain > 0)
+                        afterBurn = RecoveryPool.Advance(afterBurn, lifeCap, -tinctureLifeDrain, ref conn.TinctureEffects.LifeBurnCarry, minimum: 1);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, lifeCap, life, ref flaskCarry);
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
@@ -1328,12 +1334,14 @@ public static partial class Game
                         RecordHardcoreDeath(conn);
                     }
                     bool survived = CompleteResourceRecoveryLocked(conn, recoveryFrom, now, recoveryStats,
-                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds), manaBefore, manaCap, ref manaCarry);
+                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds) - tinctureManaDrain, manaBefore, manaCap, ref manaCarry);
                     lifeAfter = conn.PlayerLife;
+                    if (survived) CheckTinctureResourceDeactivationLocked(conn, now, recoveryStats, ref deactivatedTinctures);
                     // The once-per-transition Loyalty triggers: Energy Shield Recharge started, Low Life reached.
                     lock (conn.Monsters) LoyaltyResourceStateLocked(conn, recoveryStats, now);
                     if (!survived)
                     {
+                        DeactivateAllTincturesOnDeathLocked(conn, now, recoveryStats, ref deactivatedTinctures);
                         ailmentDeathEpoch = conn.IncomingHitEpoch; dead = true;
                         lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0; manaAfter = manaBefore;
                     }
@@ -1368,6 +1376,10 @@ public static partial class Game
                         : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            if (deactivatedTinctures is { Count: > 0 })
+                await SendTinctureBarInactive(remote, stream, ciphers, conn, deactivatedTinctures);
+            await PublishFlaskChanges(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (dead)
             {

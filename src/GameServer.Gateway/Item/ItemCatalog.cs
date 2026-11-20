@@ -24,7 +24,7 @@ public sealed class ItemCatalog
     public void Warm()
     {
         _ = Stash;
-        _ = _gems.Value; _ = _flasks.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
+        _ = _gems.Value; _ = _flasks.Value; _ = _tinctures.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
     }
     private readonly string _folder;
     private readonly Lazy<HashSet<int>> _activeGemEffects;
@@ -46,6 +46,7 @@ public sealed class ItemCatalog
         _defences = new(() => LoadDefences(folder));
         _flasks = new(() => LoadFlasks(folder, _rows.Value.Rows, hardMode));
         _utilityFlasks = new(() => UtilityFlasks.Load(folder, _rows.Value.Rows, hardMode));
+        _tinctures = new(() => Tinctures.Load(folder, _rows.Value.Rows));
         _onslaught = new(() => _utilityFlasks.Value.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null));
         _visualsById = new(() => LoadVisualsById(folder));
         _words = new(() => LoadWords(folder));
@@ -223,7 +224,9 @@ public sealed class ItemCatalog
         })
         {
             var hits = rows.Where(match).ToList();
-            if (hits.Count > 0) return EmptyResonatorType(hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
+            if (hits.Count > 0) return EmptyResonatorType(
+                hits.FirstOrDefault(t => t.Supported && (t.Class != "Tincture" || _tinctures.Value.NativeRows.Contains(t.Row)))
+                ?? hits.FirstOrDefault(t => t.Supported) ?? hits[0]);
         }
         return null;
     }
@@ -471,6 +474,14 @@ public sealed class ItemCatalog
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.Value.GetValueOrDefault(t.Row);
+
+    private readonly Lazy<Tinctures.Catalog> _tinctures;
+
+    /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
+    public Tinctures.Definition? TinctureOf(BaseType t) => _tinctures.Value.ByRow.GetValueOrDefault(t.Row);
+
+    /// <summary>Shared tincture BuffDefinitions rows (Mana Burn, Weeping Wounds, parent and unique tincture buffs).</summary>
+    public Tinctures.BuffRows TinctureBuffs => _tinctures.Value.Buffs;
 
     private readonly Lazy<UtilityFlasks.ExtraBuff?> _onslaught;
 

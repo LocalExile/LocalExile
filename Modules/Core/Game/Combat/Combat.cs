@@ -596,6 +596,7 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
+                if (conn.TinctureEffects.AnyActive) TinctureOnWeaponHitLocked(conn, player, contactAt);
             }
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -2562,6 +2563,7 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
+                        if (!spell && conn.TinctureEffects.AnyActive) TinctureOnWeaponHitLocked(conn, player, at);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
@@ -3297,6 +3299,7 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 now = conn.Clock.Elapsed.TotalSeconds;
+                if (conn.TinctureEffects.AnyActive) TinctureOnKillLocked(conn, CharacterPlayerStats(conn));
                 // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
                 devoured = ConsumeDevouredCorpseLocked(conn, id, m, now);
                 corpseConsumed = devoured || ConsumeCorpseOnKillLocked(conn, id, m, now);
