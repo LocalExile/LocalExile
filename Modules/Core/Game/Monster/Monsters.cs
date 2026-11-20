@@ -385,8 +385,10 @@ public static partial class Game
             Spell = spell,
             CooldownSeconds = cooldownSeconds,
             Scripted = kingActor || brine || atlas,
-            // A weapon in the off hand, not a shield (ItemStances 10) or a quiver (9).
-            DualWielding = ownedLooks?.Any(l => l.Slot == 1 && l.Stance is not (9 or 10)) == true,
+            // A weapon in the off hand, not a shield (ItemStances 10) or a quiver (9). Check variety.Weapons too:
+            // dual-wielding monsters like Overseer Krow equip both hands on the client and alternate hands (0x141243d40),
+            // so omitting off-hand stats leaves off-hand attacks with 0 reach and 0 duration.
+            DualWielding = (ownedLooks ?? variety.Weapons).Any(l => l.Slot == 1 && l.Stance is not (9 or 10)),
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
@@ -437,7 +439,7 @@ public static partial class Game
             && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(conn, bandit);
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? variety.StateMachine;
         uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
-        var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
+        var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
@@ -929,9 +931,16 @@ public static partial class Game
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
                 if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
-                // A boss's kit (BossKits): the skill that is ready and reaches the player, else its default swing. Never
-                // while a swing still runs: the attack an order names must stay the one its hit is applied with.
-                if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d);
+                // A boss's kit (BossKits): the skill that is ready and reaches the player, else its chase swing. Never
+                // while a swing or arrived lockstep walk-up swing still runs: the attack an order names must stay the one
+                // its hit is applied with, and switching skills must close any open melee walk-up so StepWalkUp never
+                // tests a melee chase against a newly chosen ranged skill's reach.
+                if (m.Kit.Count > 0 && now >= m.BusyUntil && m.ClientSwingAt is null && !cadence.SwingPending(m))
+                {
+                    var chosen = BossKits.Choose(m, now, d);
+                    if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
+                    m.Attack = chosen;
+                }
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -1096,6 +1105,7 @@ public static partial class Game
                         m.SwingGeneration = m.ActionGeneration;
                         m.SwingOrderedAt = begun;
                         cadence.BeginSwing(m, m.ActionGeneration);
+                        if (m.Attack is { } arrived) BossKits.Consume(m, arrived, begun);
                         plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
                         continue;
                     }
@@ -1115,6 +1125,7 @@ public static partial class Game
                     && conn.Layout.Sight is { } sight && GameServer.Core.World.ClientPathfinder.LineBelow((mx, my), (px, py), sight, 1);
                 if (!blockedShot && m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
                     && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
+                    && BossKits.Ready(m, a, now)
                     && SummonReadyLocked(conn, id, m, a, now)
                     && (m.Kit.Count > 0 || MonsterAiCadence.Due(now, m.CooldownReadyAt)))
                 {
@@ -1974,6 +1985,7 @@ public static partial class Game
         double startedAt = 0;
         bool meleeClock = false;
         (int X, int Y)? projectileAim = null;
+        (int X, int Y) beamOrigin = default, beamAim = default;
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
@@ -1981,6 +1993,7 @@ public static partial class Game
             if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, now, seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             var (from, player) = (order.From, order.Player);
+            (beamOrigin, beamAim) = (from, player);
             // The client-drawn straight mortar retains the action order's aim throughout its windup
             // (141ba7c30 -> 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = player;
@@ -1994,6 +2007,11 @@ public static partial class Game
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, conn.MonsterOrderFlags, targetObjectId: PlayerId);
         }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
+        if (BossKits.EffectOf(m, a) == BossKits.PietyBeamEffect)
+        {
+            await RunPietyBeam(remote, stream, ciphers, conn, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim);
+            return;
+        }
         if (meleeClock)
         {
             if (!await WaitMonsterMeleeContact(conn, id, m, action)) return;
@@ -2065,6 +2083,100 @@ public static partial class Game
             await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
                 owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
+    }
+
+    /// <summary>Piety, the Abomination's rotating 360-degree beam (<c>PietyCorruptedLightningBeam</c>): aims at the
+    /// player's cell on cast, then sweeps −900° (2.5 clockwise turns) across the active window of its 11.2 s cast at
+    /// 120-cell reach and 0.33 s per-target hit cooldown (3.29.3c client RE: 0x141b491a0, 0x141b49320, 0x141b4960d,
+    /// 0x141b4974d).</summary>
+    public static async Task RunPietyBeam(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, SpawnedMonster m, MonsterAttack a, int action, ushort sequence, double startedAt, double seconds,
+        (int X, int Y) origin, (int X, int Y) aim)
+    {
+        const double WindupFraction = 0.14, EndFraction = 0.89, SweepRadians = -5 * Math.PI,
+            Length = 120, HalfWidth = 4.5, HitCooldown = 0.33, MinionDamageFactor = 0.45;
+        double sweepStart = startedAt + seconds * WindupFraction,
+            sweepEnd = startedAt + seconds * EndFraction;
+        if (!await WaitMonsterActionTime(conn, id, m, action, sweepStart)) return;
+        double startAngle = aim == origin ? 0 : Math.Atan2(aim.Y - origin.Y, aim.X - origin.X);
+        double prevAngle = startAngle, nextPlayerHit = double.NegativeInfinity;
+        MonsterAttack? minionAttack = null;
+        Dictionary<uint, double>? nextMinionHit = null;
+        while (MonsterActionCurrent(conn, id, m, action))
+        {
+            double now;
+            bool paused, frozen, shouldHitPlayer = false, minionHit = false;
+            double angle = prevAngle;
+            lock (conn.Monsters)
+            {
+                paused = conn.Paused;
+                now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
+                frozen = MonsterActionFactor(m, now) == 0;
+                if (!paused && !frozen && now < sweepEnd && !InGracePeriod(conn))
+                {
+                    double t = Math.Clamp((now - sweepStart) / Math.Max(0.01, sweepEnd - sweepStart), 0, 1);
+                    angle = startAngle + SweepRadians * t;
+                    if (conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count > 0)
+                    {
+                        minionAttack ??= a with { Damage = a.Damage.Scale(MinionDamageFactor) };
+                        foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).ToArray())
+                        {
+                            if (golem.Monster.Dead || golem.Monster.Life == 0) continue;
+                            nextMinionHit ??= [];
+                            if (now < nextMinionHit.GetValueOrDefault(golem.Id, double.NegativeInfinity)) continue;
+                            if (!InSweptBeam(origin, golem.Monster.Walk.Position(now), prevAngle, angle, Length, HalfWidth)) continue;
+                            nextMinionHit[golem.Id] = now + HitCooldown;
+                            if (GolemTakeHitLocked(conn, golem, id, m, minionAttack, now, area: true)) minionHit = true;
+                        }
+                    }
+                    if (now >= nextPlayerHit && InSweptBeam(origin, conn.Walk.Position(now), prevAngle, angle, Length, HalfWidth))
+                        shouldHitPlayer = true;
+                }
+            }
+            if (frozen) return;
+            if (paused) { await AreaWait(PlayerUpdateRole.MonsterAction, 50); continue; }
+            if (now >= sweepEnd) return;
+            if (minionHit) await PublishMinionOutcomes(remote, stream, ciphers, conn);
+            if (shouldHitPlayer)
+            {
+                MonsterHitOutcome? outcome = null;
+                double hitFrom = prevAngle, hitTo = angle;
+                if (await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+                {
+                    if (InGracePeriod(conn)) return null;
+                    double hitNow = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                    if (MonsterActionFactor(m, hitNow) == 0 || hitNow < nextPlayerHit) return null;
+                    var here = conn.Walk.Position(hitNow);
+                    if (!InSweptBeam(origin, here, hitFrom, hitTo, Length, HalfWidth)) return null;
+                    nextPlayerHit = hitNow + HitCooldown;
+                    outcome = CommitMonsterHitLocked(remote, conn, id, m, a, hitNow, here, origin, checkRange: false, sequence: sequence);
+                    return outcome?.HitPacket;
+                }, $"0x01af monster 0x{id:x} ({m.Label}) beam hit on the player") && outcome is not null)
+                    await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+            }
+            prevAngle = angle;
+            await AreaWait(PlayerUpdateRole.MonsterAction, 50);
+        }
+    }
+
+    static bool InSweptBeam((int X, int Y) origin, (int X, int Y) target, double fromAngle, double toAngle, double length, double halfWidth)
+    {
+        double dx = target.X - origin.X, dy = target.Y - origin.Y;
+        double dist2 = dx * dx + dy * dy;
+        if (dist2 > (length + halfWidth) * (length + halfWidth)) return false;
+        if (dist2 <= halfWidth * halfWidth) return true;
+        // Check distance to the current beam ray, plus whether the target's bearing fell inside the angular wedge
+        // swept since the previous tick (fromAngle >= toAngle because SweepRadians is negative).
+        double cos = Math.Cos(toAngle), sin = Math.Sin(toAngle);
+        double proj = Math.Clamp(dx * cos + dy * sin, 0, length);
+        double px = dx - proj * cos, py = dy - proj * sin;
+        if (px * px + py * py <= halfWidth * halfWidth) return true;
+        double sweep = Math.Abs(toAngle - fromAngle);
+        if (sweep <= 1e-6) return false;
+        double bearing = Math.Atan2(dy, dx);
+        double delta = (fromAngle - bearing) % (2 * Math.PI);
+        if (delta < 0) delta += 2 * Math.PI;
+        return delta <= sweep && dist2 <= length * length;
     }
 
     /// <summary>An area skill's contact: the player takes the hit when they still stand in the aimed area. The area is
