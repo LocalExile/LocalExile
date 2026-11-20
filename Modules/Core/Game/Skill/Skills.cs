@@ -1007,8 +1007,23 @@ public static partial class Game
                 Publish(placed.Mine ? "skill_is_mined" : "skill_is_trapped", 1);
                 Publish(placed.Mine ? "number_of_mines_to_place" : "number_of_traps_to_throw",
                     PlacedSkillCount(conn, supported, placed.Mine));
-                Publish("active_skill_base_area_of_effect_radius", SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get));
-                Publish("active_skill_area_of_effect_radius", (int)SkillRadius(conn, own, true, effect));
+                int frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
+                int throwSpeed = Get(placed.Mine ? "mine_laying_speed_+%" : "trap_throwing_speed_+%")
+                    + Get("trap_and_mine_throwing_speed_+%")
+                    + frenzy * Get(placed.Mine ? "mine_throwing_speed_+%_per_frenzy_charge" : "trap_throwing_speed_+%_per_frenzy_charge");
+                Publish(placed.Mine ? "virtual_mine_throwing_speed_+%" : "virtual_trap_throwing_speed_+%", throwSpeed);
+                if (Get("trap_trigger_radius_+%") is int triggerPct and not 0)
+                    Publish("virtual_trap_trigger_radius_+%", triggerPct);
+                if (Get("throw_traps_in_circle_radius") is int circleRadius and > 0)
+                    Publish("virtual_throw_traps_in_circle_radius", circleRadius);
+                bool spellArea = !SkillsFor(conn).IsAttack(effect);
+                var areaStats = SkillAreaStats(conn, own, effect, playerStats);
+                int AreaGet(string n) => Stats.Key(n) is uint key ? areaStats.GetValueOrDefault(key) : 0;
+                int baseRadius = SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get);
+                Publish("active_skill_base_area_of_effect_radius", baseRadius);
+                Publish("active_skill_area_of_effect_radius", SkillArea.Radius(baseRadius, AreaGet, spellArea));
+                Publish("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(AreaGet, spellArea));
+                Publish("skill_area_of_effect_+%", SkillArea.Increased(AreaGet, spellArea));
             }
             Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
             if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))

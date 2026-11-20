@@ -361,6 +361,15 @@ public static partial class Game
     {
         if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
         {
+            var supported = SupportedSkill(conn, skill);
+            var placed = PlacedKind(supported);
+            if (placed.Trap || placed.Mine)
+            {
+                var player = CharacterPlayerStats(conn);
+                return Math.Max(TickSeconds, PlacedThrowSeconds(
+                    n => GolemStat(supported.Stats, n) + GolemStat(player, n),
+                    placed.Mine, ChargesOf(conn).Effective(ChargeType.Frenzy)) / PlayerActionFactor(conn));
+            }
             if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
             // The native spell duration divides the virtual base by cast speed (0x1419f1960).
             // The repeat counter restarts the same action (0x1419e6370); hold through every cast, not just its first.
