@@ -183,10 +183,13 @@ public static class Tinctures
 
     public sealed record Active(uint ItemId, byte Slot, string Name, Item Item, Definition Definition,
         ushort Buff, ushort BuffRow, double ActivatedAt, double DebuffInterval, double CooldownDuration,
-        IReadOnlyList<(string Stat, int Value)> ScaledStats)
+        IReadOnlyDictionary<string, int> Local, double InitialEffectMultiplier,
+        IReadOnlyList<(string Stat, int Value)> InitialScaledStats)
     {
         public double NextBurnAt { get; set; } = double.IsInfinity(DebuffInterval)
             ? double.PositiveInfinity : ActivatedAt + DebuffInterval;
+        public double EffectMultiplier { get; set; } = InitialEffectMultiplier;
+        public IReadOnlyList<(string Stat, int Value)> ScaledStats { get; set; } = InitialScaledStats;
     }
 
     public sealed record Lingering(uint ItemId, byte Slot, string Name, ushort Buff, ushort BuffRow,
@@ -198,14 +201,17 @@ public static class Tinctures
         readonly List<Active> _active = [];
         readonly List<Lingering> _lingering = [];
         readonly List<uint> _pendingBarInactive = [];
+        readonly List<(byte Slot, int Charges)> _pendingAdjacentCharges = [];
         readonly Lock _lock = new();
         volatile bool _anyActive;
         volatile bool _anyEffective;
         volatile bool _hasLingering;
         volatile bool _hasPendingBarInactive;
+        volatile bool _hasPendingAdjacentCharges;
         long _revision;
 
         public double CooldownUntil { get; private set; } = double.NegativeInfinity;
+        public double LastAdjacentChargeGrantAt { get; set; } = double.NegativeInfinity;
         public int BurnStacks { get; private set; }
         public bool LifeBurn { get; set; }
         public ushort BurnBuff { get; set; }
@@ -218,7 +224,14 @@ public static class Tinctures
         public bool AnyEffective => _anyEffective;
         public bool HasLingering => _hasLingering;
         public bool HasPendingBarInactive => _hasPendingBarInactive;
+        public bool HasPendingAdjacentCharges => _hasPendingAdjacentCharges;
         public long Revision => Volatile.Read(ref _revision);
+
+        public bool HasActiveAdjacentTo(byte slot)
+        {
+            if (!_anyActive) return false;
+            lock (_lock) return _active.Any(a => Math.Abs(a.Slot - slot) == 1);
+        }
 
         public void QueuePendingBarInactive(uint itemId)
         {
@@ -239,6 +252,42 @@ public static class Tinctures
                 _pendingBarInactive.Clear();
                 _hasPendingBarInactive = false;
                 return ids;
+            }
+        }
+
+        public void QueuePendingAdjacentCharges(byte slot, int charges)
+        {
+            if (charges <= 0) return;
+            lock (_lock)
+            {
+                _pendingAdjacentCharges.Add((slot, charges));
+                _hasPendingAdjacentCharges = true;
+            }
+        }
+
+        public List<(byte Slot, int Charges)>? DrainPendingAdjacentCharges()
+        {
+            if (!_hasPendingAdjacentCharges) return null;
+            lock (_lock)
+            {
+                if (_pendingAdjacentCharges.Count == 0) { _hasPendingAdjacentCharges = false; return null; }
+                var list = new List<(byte Slot, int Charges)>(_pendingAdjacentCharges);
+                _pendingAdjacentCharges.Clear();
+                _hasPendingAdjacentCharges = false;
+                return list;
+            }
+        }
+
+        public bool UpdateScaling(uint itemId, double multiplier, IReadOnlyList<(string Stat, int Value)> scaled)
+        {
+            lock (_lock)
+            {
+                var entry = _active.FirstOrDefault(a => a.ItemId == itemId);
+                if (entry is null) return false;
+                entry.EffectMultiplier = multiplier;
+                entry.ScaledStats = scaled;
+                Interlocked.Increment(ref _revision);
+                return true;
             }
         }
 

@@ -1,11 +1,13 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
     // Tincture weapon-scoped stats mapped to existing attack/weapon-only stat consumers so active tinctures apply to
-    // eligible weapon attacks without leaking into spells or unarmed attacks.
+    // eligible weapon attacks without leaking into spells or unarmed attacks. Ailment chances/effects/durations, DoT
+    // multipliers, stun, crit multiplier, culling, and low-life enemy damage are read directly on weapon-only paths.
     static readonly (string Source, string Target)[] TinctureWeaponStatMap =
     [
         ("critical_strike_chance_+%_with_tinctured_weapons", "attack_critical_strike_chance_+%"),
@@ -15,7 +17,6 @@ public static partial class Game
         ("chance_to_bleed_on_hit_%_with_tinctured_weapons", "bleed_on_hit_with_attacks_%"),
         ("bleeding_damage_+%_with_tinctured_weapons", "bleeding_damage_+%"),
         ("chance_to_poison_on_hit_%_with_tinctured_weapons", "chance_to_poison_on_hit_with_attacks_%"),
-        ("poison_damage_+%_with_tinctured_weapons", "poison_damage_+%"),
         ("chance_to_blind_on_hit_%_with_tinctured_weapons", "attacks_chance_to_blind_on_hit_%"),
         ("blind_effect_+%_with_tinctured_weapons", "blind_effect_+%"),
         ("gain_x_rage_on_hit_with_tinctured_weapons", "gain_x_rage_on_attack_hit"),
@@ -23,16 +24,6 @@ public static partial class Game
         ("mana_gained_on_hitting_enemies_with_tinctured_weapons", "mana_gain_per_target"),
         ("life_gained_on_killing_enemies_with_tinctured_weapons", "base_life_gained_on_enemy_death"),
         ("base_mana_gained_on_tinctured_weapon_kill", "base_mana_gained_on_enemy_death"),
-        ("chance_to_ignite_%_with_tinctured_weapons", "base_chance_to_ignite_%"),
-        ("ignite_damage_+%_with_tinctured_weapons", "ignite_damage_+%"),
-        ("chance_to_freeze_%_with_tinctured_weapons", "base_chance_to_freeze_%"),
-        ("chill_effect_+%_with_tinctured_weapons", "chill_effect_+%"),
-        ("chance_to_shock_%_with_tinctured_weapons", "base_chance_to_shock_%"),
-        ("shock_effect_+%_with_tinctured_weapons", "shock_effect_+%"),
-        ("elemental_ailment_duration_+%_with_tinctured_weapons", "elemental_ailment_duration_+%"),
-        ("damage_over_time_multiplier_+_with_tinctured_weapons", "dot_multiplier_+"),
-        ("stun_threshold_reduction_+%_with_tinctured_weapons", "base_stun_threshold_reduction_+%"),
-        ("stun_duration_+%_with_tinctured_weapons", "base_stun_duration_+%"),
         ("flask_charges_granted_from_tinctured_weapon_kills_+%", "charges_gained_+%"),
     ];
 
@@ -121,8 +112,9 @@ public static partial class Game
                 var local = ItemModStats.Local(current.Item, catalog.Mods);
                 int emptySlots = Math.Max(0, 5 - bar.Count);
                 bool highToxicity = effects.BurnStacks >= Tinctures.HighToxicityThreshold;
+                bool usedLifeFlaskRecently = conn.RecentEvents.Happened(StatConditions.UsedLifeFlask, now);
                 double multiplier = Tinctures.EffectMultiplier(current.Item, local, Get, emptySlots,
-                    highToxicity, usedLifeFlaskRecently: false, usingFlask: AnyFlaskEffect(conn));
+                    highToxicity, usedLifeFlaskRecently, usingFlask: AnyFlaskEffect(conn));
                 var scaled = Tinctures.ScaledMods(current.Item, catalog.Mods, multiplier);
                 double interval = Tinctures.DebuffInterval(definition, local, Get);
                 double cooldown = Tinctures.CooldownSeconds(definition, local, Get);
@@ -143,7 +135,7 @@ public static partial class Game
 
                 effects.LifeBurn = lifeBurn;
                 var active = new Tinctures.Active(current.Id, (byte)slot, type.Name, current.Item, definition,
-                    buffInstance, buffRow, now, interval, cooldown, scaled);
+                    buffInstance, buffRow, now, interval, cooldown, local, multiplier, scaled);
                 effects.Activate(active);
 
                 // Emit wire-active Tincture component byte (1) in the flask bar without persisting TinctureActive in saves.
@@ -425,6 +417,24 @@ public static partial class Game
 
             if (effects.AnyActive)
             {
+                // Re-scale active tinctures live when conditional effect modifiers change (Legacy of the Wilds high
+                // toxicity, Runegraft of the Imbued not using flask, Colloidal Mixture life flask recently, empty slots).
+                var catalog = ItemsFor(conn);
+                int emptySlots = Math.Max(0, 5 - ItemsOf(conn).Items(PlayerInventories.Flask).Count);
+                bool highToxicity = effects.BurnStacks >= Tinctures.HighToxicityThreshold;
+                bool usedLifeFlaskRecently = conn.RecentEvents.Happened(StatConditions.UsedLifeFlask, now);
+                bool usingFlask = AnyFlaskEffect(conn);
+                int RecStat(string name) => TinctureStat(recoveryStats, name);
+                foreach (var active in effects.ActiveSnapshot())
+                {
+                    double mult = Tinctures.EffectMultiplier(active.Item, active.Local, RecStat, emptySlots,
+                        highToxicity, usedLifeFlaskRecently, usingFlask);
+                    if (Math.Abs(mult - active.EffectMultiplier) > 1e-6)
+                    {
+                        effects.UpdateScaling(active.ItemId, mult, Tinctures.ScaledMods(active.Item, catalog.Mods, mult));
+                        statsChanged = true;
+                    }
+                }
                 if (effects.BurnStacks != stacksBefore || effects.PresentedLifeBurn != lifeBurn)
                 {
                     SyncTinctureBurnBuffLocked(conn, lifeBurn);
@@ -548,24 +558,96 @@ public static partial class Game
         return sources;
     }
 
-    // Called under conn.Monsters on a landed weapon attack hit: handles The Battle Within's on-hit Mana Burn stacks.
-    public static void TinctureOnWeaponHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, double now)
+    // Sends 0xbf charge updates for flasks adjacent to active tinctures (Nature's Concoction), acquiring FlaskBarGate
+    // outside conn.Monsters to preserve canonical lock ordering.
+    public static async Task SendTinctureAdjacentFlaskCharges(string remote, NetworkStream stream,
+        ConnectionCiphers ciphers, ClientState conn, List<(byte Slot, int Charges)>? grants)
     {
-        if (!conn.TinctureEffects.AnyActive) return;
+        if (grants is not { Count: > 0 }) return;
+        var catalog = ItemsFor(conn);
+        await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
+        {
+            var totals = new Dictionary<byte, int>();
+            foreach (var (slot, charges) in grants)
+                totals[slot] = totals.GetValueOrDefault(slot) + charges;
+            List<InventoryItem> changed = [];
+            foreach (var flask in items.Items(PlayerInventories.Flask).ToArray())
+            {
+                if (flask.X > byte.MaxValue || !totals.TryGetValue((byte)flask.X, out int amount) || amount <= 0) continue;
+                if (catalog.ByHash(flask.Item.TypeHash) is not { } type || catalog.FlaskChargesOf(type) is not { } use) continue;
+                if (!CanGainFlaskCharges(conn, flask)) continue;
+                if (items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, use, amount)) is { } done)
+                    changed.Add(done);
+            }
+            return changed.Count == 0 ? null : ([.. changed.Select(c => c.Id)], changed);
+        }, changed => $"0x00bf adjacent tincture flask charges: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))}",
+            retainOutput: true);
+    }
+
+    // Extra flask effect granted by Nature's Concoction / Tincture Mastery 4 to flasks adjacent to an active tincture
+    // when the player has hit an enemy with a weapon recently. Zero-allocation fast path when no tincture is active.
+    public static int AdjacentTinctureFlaskEffect(ClientState conn, byte slot, Func<string, int> character, double now)
+    {
+        if (!conn.TinctureEffects.HasActiveAdjacentTo(slot)) return 0;
+        int bonus = character("flasks_adjacent_to_active_tinctures_have_effect_+%_if_hit_with_weapon_recently");
+        if (bonus == 0) return 0;
+        return conn.RecentEvents.Happened(StatConditions.HitEnemy, now) ? bonus : 0;
+    }
+
+    // Called under conn.Monsters on a landed player weapon attack hit (melee, area attack, or projectile attack):
+    // handles The Battle Within (on-hit Mana Burn), Grasping Nightshade (Wither stacks), Wildfire Phloem (Ignite
+    // refresh & Covered in Ash on full life), and Nature's Concoction (adjacent flask charges on weapon hit, 0.5 s ICD).
+    public static void TinctureOnWeaponHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SpawnedMonster target, uint targetLifeBefore, double now, Random? random = null)
+    {
+        var effects = conn.TinctureEffects;
+        if (!effects.AnyEffective) return;
         if (TinctureStat(player, "tincture_applied") == 0) return;
-        int gain = TinctureStat(player, "toxicity_stacks_gained_on_hit_with_tinctured_weapons");
+        int Get(string name) => TinctureStat(player, name);
+        random ??= Random.Shared;
+
+        // Grasping Nightshade & Wildfire Phloem apply while active or lingering on living hostile targets.
+        if (target.Hostile && !target.Dead && target.Life > 0)
+        {
+            int witherStacks = Get("apply_X_wither_stacks_for_2_seconds_with_tinctured_weapons");
+            if (witherStacks > 0)
+                ApplyWitherStacksLocked(target, witherStacks, WitherDurationSeconds(2.0, Get), Get, now);
+            int refreshChance = Get("refresh_ignite_duration_on_tinctured_weapon_hit_%_chance");
+            if (refreshChance > 0 && target.Ignites.IgnitedAt(now) && RandomRolls.Chance(refreshChance, 100, random))
+                target.Ignites.Refresh(now);
+            int ashSeconds = Get("tinctured_weapon_cover_in_ash_on_hit_for_X_seconds_vs_full_life_enemies");
+            if (ashSeconds > 0 && targetLifeBefore == target.MaxLife)
+                target.CoveredInAshUntil = Math.Max(target.CoveredInAshUntil, now + ashSeconds);
+        }
+
+        if (!effects.AnyActive) return;
+
+        // Nature's Concoction: flasks adjacent to active tinctures gain charges on weapon hit (0.5 s cooldown).
+        int adjCharges = Get("flasks_adjacent_to_active_tinctures_gain_X_charges_on_weapon_hit");
+        if (adjCharges > 0 && now - effects.LastAdjacentChargeGrantAt >= 0.5)
+        {
+            effects.LastAdjacentChargeGrantAt = now;
+            foreach (var active in effects.ActiveSnapshot())
+            {
+                if (active.Slot > 0) effects.QueuePendingAdjacentCharges((byte)(active.Slot - 1), adjCharges);
+                if (active.Slot < 4) effects.QueuePendingAdjacentCharges((byte)(active.Slot + 1), adjCharges);
+            }
+        }
+
+        // The Battle Within: gain Mana Burn stacks on weapon hit.
+        int gain = Get("toxicity_stacks_gained_on_hit_with_tinctured_weapons");
         if (gain <= 0) return;
-        int next = conn.TinctureEffects.AddBurnStacks(gain);
-        int deactivateAt = TinctureStat(player, "tinctures_deactivate_on_reaching_X_toxicity");
+        int next = effects.AddBurnStacks(gain);
+        int deactivateAt = Get("tinctures_deactivate_on_reaching_X_toxicity");
         if (deactivateAt > 0 && next >= deactivateAt)
         {
             List<uint> ids = [];
             DeactivateAllTincturesLocked(conn, now, player, $"reached {deactivateAt} Mana Burn on hit",
                 allowLinger: true, deactivatedIds: ids);
-            foreach (uint id in ids) conn.TinctureEffects.QueuePendingBarInactive(id);
+            foreach (uint id in ids) effects.QueuePendingBarInactive(id);
         }
         else
-            SyncTinctureBurnBuffLocked(conn, conn.TinctureEffects.LifeBurn);
+            SyncTinctureBurnBuffLocked(conn, effects.LifeBurn);
         RecomputePoolsAndSpeed(conn);
         Automation(conn).StatRevision++;
     }

@@ -829,11 +829,14 @@ public static partial class Game
         bool canRecover, copyLife;
         FlaskRecovery.Use r;
         ResourceEffectsState recoveryOwner;
+        int adjacentEffect = AdjacentTinctureFlaskEffect(conn, (byte)slot, Get, AreaTime(conn));
+        Func<string, int> flaskCharacter = adjacentEffect == 0 ? Get
+            : name => name == "flask_effect_+%" ? Get(name) + adjacentEffect : Get(name);
         lock (conn.Monsters)
         {
             recoveryOwner = ResourceEffectsOf(conn);
             r = FlaskRecovery.For(use, flask.Item, local,
-                name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+                name => flaskCharacter(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
             canRecover = Flasks.CanRecover(use, conn.PlayerLife, LifeCap(conn), conn.PlayerMana, (uint)UnreservedMana(conn))
                 || copyLife && conn.PlayerLife < LifeCap(conn)
@@ -866,7 +869,7 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
+            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local, during));
     }

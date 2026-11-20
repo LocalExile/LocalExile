@@ -1379,6 +1379,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (deactivatedTinctures is { Count: > 0 })
                 await SendTinctureBarInactive(remote, stream, ciphers, conn, deactivatedTinctures);
+            if (conn.TinctureEffects.DrainPendingAdjacentCharges() is { Count: > 0 } adjacentFlaskCharges)
+                await SendTinctureAdjacentFlaskCharges(remote, stream, ciphers, conn, adjacentFlaskCharges);
             await PublishFlaskChanges(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (dead)

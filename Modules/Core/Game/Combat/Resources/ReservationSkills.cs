@@ -116,7 +116,7 @@ public static partial class Game
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
-            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
+            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
             increased += SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(conn, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,

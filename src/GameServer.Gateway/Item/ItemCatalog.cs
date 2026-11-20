@@ -480,6 +480,9 @@ public sealed class ItemCatalog
     /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
     public Tinctures.Definition? TinctureOf(BaseType t) => _tinctures.Value.ByRow.GetValueOrDefault(t.Row);
 
+    /// <summary>True for the native 3.25+ tincture bases in Tinctures.dat (excluding legacy 3.23 empty-implicit rows).</summary>
+    public bool IsNativeTincture(BaseType t) => _tinctures.Value.NativeRows.Contains(t.Row);
+
     /// <summary>Shared tincture BuffDefinitions rows (Mana Burn, Weeping Wounds, parent and unique tincture buffs).</summary>
     public Tinctures.BuffRows TinctureBuffs => _tinctures.Value.Buffs;
 

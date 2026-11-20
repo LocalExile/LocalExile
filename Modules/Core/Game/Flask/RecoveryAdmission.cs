@@ -26,6 +26,7 @@ public static partial class Game
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
         double now = AreaTime(conn);
+        if (use.LifePerUse > 0) conn.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
         if (recovery.ExtraLife > 0)
             conn.FlaskEffects.Start(new((byte)slot, 0, 0, recovery.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));

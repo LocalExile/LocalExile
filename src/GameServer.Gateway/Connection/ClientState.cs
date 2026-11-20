@@ -322,6 +322,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
     public ushort CrushBuff;
+    // Covered in Ash by his hits (Wildfire Phloem, etc.) until when: 20% less movement speed and 20% increased fire
+    // damage taken, shown with BuffDefinitions 807 (cover_in_ash).
+    public double CoveredInAshUntil = double.NegativeInfinity, CoveredInAshShownUntil;
+    public ushort CoveredInAshBuff;
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;

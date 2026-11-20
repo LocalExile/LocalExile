@@ -567,6 +567,7 @@ public static partial class Game
                     weapon.Melee, player, ownPenetration));
                 stun = OwnerStun(conn, m, damage, mitigated, weapon.Melee, spell: false, critical, player, ownPenetration)
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
+                uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, weapon.Melee, player);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
                     rampageSource, player);
@@ -596,7 +597,7 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
-                if (conn.TinctureEffects.AnyActive) TinctureOnWeaponHitLocked(conn, player, contactAt);
+                if (conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
             }
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -2563,7 +2564,7 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
-                        if (!spell && conn.TinctureEffects.AnyActive) TinctureOnWeaponHitLocked(conn, player, at);
+                        if (!spell && conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
@@ -2861,7 +2862,9 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now),
+        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
+            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
+        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
@@ -2870,14 +2873,20 @@ public static partial class Game
     {
         var a = HitResistances.Mods.From(player, Stats.Key);
         var b = skill is null ? default : HitResistances.Mods.From(skill, Stats.Key);
+        int ignorePhys = Has("tincture_applied")
+            ? Math.Clamp(Value("hits_ignore_enemy_monster_physical_damage_reduction_%_chance_with_tinctured_weapons"), 0, 100)
+            : 0;
         return new(a.CriticalIgnoreElemental | b.CriticalIgnoreElemental,
             a.AttackCriticalIgnoreElemental | b.AttackCriticalIgnoreElemental,
             a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore,
             IgnoreFire: Has("virtual_hits_ignore_enemy_fire_resistance"),
-            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"));
+            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"),
+            IgnorePhysicalReductionChance: ignorePhys);
 
         bool Has(string name) => Stats.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (skill?.GetValueOrDefault(key) ?? 0) != 0);
+        int Value(string name) => Stats.Key(name) is uint key
+            ? player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0) : 0;
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where
