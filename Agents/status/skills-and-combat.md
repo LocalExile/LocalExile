@@ -64,6 +64,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Summoned followers stop pathless walk orders and retry when a route becomes available.
+- Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
