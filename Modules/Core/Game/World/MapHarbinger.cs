@@ -89,7 +89,7 @@ public static partial class MapHarbinger
         public readonly ConcurrentQueue<PendingKill> Kills = new();
         public readonly List<PendingEffect> Effects = [];
         public readonly Dictionary<uint, Dictionary<int, double>> ActorCooldowns = [];
-        public readonly Dictionary<uint, ActiveTimedBuff> ActiveTimedAuras = [];
+        public readonly Dictionary<(uint SourceId, string AuraKey), ActiveTimedBuff> ActiveTimedAuras = [];
         public readonly Dictionary<(uint MonsterId, string AuraKey), AppliedAllyAura> AppliedAllyAuras = [];
         public readonly List<GroundHazard> Hazards = [];
         public readonly Dictionary<ClientState, double[]> GroundCarry = [];

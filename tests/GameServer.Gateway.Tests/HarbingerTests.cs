@@ -520,10 +520,11 @@ public sealed class HarbingerTests
             var kingPos = conn.Monsters[king.Monster].Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             Assert.NotEqual((150, 150), kingPos);
 
-            // Verify Avatar6 buffed its living minions with damage_+% > 0.
+            // Verify Avatar6 buffed its living minions with damage_+% >= 60 and base_actor_scale_+% == 25.
             var bufferEnc = Encounters()[1];
             Assert.NotEmpty(bufferEnc.Minions);
-            Assert.Contains(bufferEnc.Minions, mid => conn.Monsters[mid].Effects["damage_+%"] >= 60);
+            Assert.Contains(bufferEnc.Minions, mid =>
+                conn.Monsters[mid].Effects["damage_+%"] >= 60 && conn.Monsters[mid].Effects.ActorScalePct == 25);
 
             // Verify King helper Minion6 applied HarbingerActionSpeedAuraAtlas (-30 action_speed_-% on top of -20 obelisk).
             Assert.True(sampleMinion.Effects["action_speed_-%"] <= -50,

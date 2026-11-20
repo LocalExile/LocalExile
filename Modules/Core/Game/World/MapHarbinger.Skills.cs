@@ -18,9 +18,9 @@ public static partial class MapHarbinger
     const double MinionEmpowerDuration = 6.0;
 
     static readonly IReadOnlyDictionary<string, int> WeakMinionBuffStats =
-        new Dictionary<string, int>(StringComparer.Ordinal) { ["damage_+%"] = 30, ["actor_scale_+%"] = 15 };
+        new Dictionary<string, int>(StringComparer.Ordinal) { ["damage_+%"] = 30, ["base_actor_scale_+%"] = 15 };
     static readonly IReadOnlyDictionary<string, int> StrongMinionBuffStats =
-        new Dictionary<string, int>(StringComparer.Ordinal) { ["damage_+%"] = 60, ["actor_scale_+%"] = 25 };
+        new Dictionary<string, int>(StringComparer.Ordinal) { ["damage_+%"] = 60, ["base_actor_scale_+%"] = 25 };
 
     sealed class ActiveTimedBuff(uint sourceId, string auraKey, ushort buffRow, double radius, double remaining,
         IReadOnlyDictionary<string, int> stats, HashSet<uint>? targets = null)
@@ -83,7 +83,9 @@ public static partial class MapHarbinger
         {
             int effLevel = catalog.MaxLevelAt(skill.EffectRow, level);
             var attack = BuildSkillAttack(conn, skill, level);
-            var stats = WithBehaviourVariation(conn, skill.EffectRow, attack.InPlaceSkillStats());
+            var stats = attack.Projectile is not null
+                ? MonsterActionSkillStats(conn, skill.EffectRow, effLevel, attack)
+                : WithBehaviourVariation(conn, skill.EffectRow, attack.InPlaceSkillStats());
             if (catalog.FindByRow(skill.SkillId, skill.EffectRow, effLevel, stats) is { } gs)
                 granted.Add(gs);
         }
@@ -372,7 +374,8 @@ public static partial class MapHarbinger
                 var aim = ActorPosition(conn, targets[0], pos);
                 await SendActorSkillAction(conn, actorId, skill.SkillId, aim, targets[0]);
                 var buffStats = skill.Role == SkillRole.MinionBuffStrong ? StrongMinionBuffStats : WeakMinionBuffStats;
-                area.ActiveTimedAuras[actorId] = new(actorId, $"harbinger:empower:{actorId}", MinionEmpowerBuffRow,
+                string auraKey = $"harbinger:empower:{actorId}";
+                area.ActiveTimedAuras[(actorId, auraKey)] = new(actorId, auraKey, MinionEmpowerBuffRow,
                     AllyAuraDefaultRadius * 2, MinionEmpowerDuration, buffStats, [.. targets]);
                 break;
             }
@@ -384,7 +387,8 @@ public static partial class MapHarbinger
                 int speedStat = Raw("action_speed_-%");
                 if (speedStat == 0) speedStat = -30;
                 var stats = new Dictionary<string, int>(StringComparer.Ordinal) { ["action_speed_-%"] = speedStat };
-                area.ActiveTimedAuras[actorId] = new(actorId, $"harbinger:speed:{actorId}", ActionSpeedAuraAtlasBuffRow,
+                string auraKey = $"harbinger:speed:{actorId}";
+                area.ActiveTimedAuras[(actorId, auraKey)] = new(actorId, auraKey, ActionSpeedAuraAtlasBuffRow,
                     AllyAuraDefaultRadius, duration, stats);
                 break;
             }
@@ -408,7 +412,8 @@ public static partial class MapHarbinger
                     var buffStats = new Dictionary<string, int>(StringComparer.Ordinal);
                     if (fireRes > 0) buffStats["base_fire_damage_resistance_%"] = fireRes;
                     if (addFire > 0) buffStats["physical_damage_%_to_add_as_fire"] = addFire;
-                    area.ActiveTimedAuras[actorId] = new(actorId, $"harbinger:mortar:{actorId}", MortarBuffRow,
+                    string auraKey = $"harbinger:mortar:{actorId}";
+                    area.ActiveTimedAuras[(actorId, auraKey)] = new(actorId, auraKey, MortarBuffRow,
                         AllyAuraDefaultRadius, dur, buffStats);
                 }
                 break;
@@ -452,7 +457,8 @@ public static partial class MapHarbinger
                     var buffStats = new Dictionary<string, int>(StringComparer.Ordinal);
                     if (coldRes > 0) buffStats["base_cold_damage_resistance_%"] = coldRes;
                     if (addCold > 0) buffStats["physical_damage_%_to_add_as_cold"] = addCold;
-                    area.ActiveTimedAuras[actorId] = new(actorId, $"harbinger:cold:{actorId}", ColdBeaconBuffRow,
+                    string auraKey = $"harbinger:cold:{actorId}";
+                    area.ActiveTimedAuras[(actorId, auraKey)] = new(actorId, auraKey, ColdBeaconBuffRow,
                         AllyAuraDefaultRadius, dur, buffStats);
                 }
                 break;
@@ -688,14 +694,14 @@ public static partial class MapHarbinger
     static async Task SyncAllyAuras(ClientState conn, Area area, double dt)
     {
         // Expire timed ally buffs (minion empower, action speed aura, mortar/cold beacon).
-        List<uint>? expired = null;
-        foreach (var (src, timed) in area.ActiveTimedAuras)
+        List<(uint SourceId, string AuraKey)>? expired = null;
+        foreach (var (key, timed) in area.ActiveTimedAuras)
         {
             timed.Remaining -= dt;
-            if (timed.Remaining <= 0) (expired ??= []).Add(src);
+            if (timed.Remaining <= 0) (expired ??= []).Add(key);
         }
         if (expired is not null)
-            foreach (uint src in expired) area.ActiveTimedAuras.Remove(src);
+            foreach (var key in expired) area.ActiveTimedAuras.Remove(key);
 
         // Gather all active ally aura sources from living Harbingers, helpers, obelisks, and active timed buffs.
         var sources = new List<AllyAuraSource>();
@@ -815,11 +821,13 @@ public static partial class MapHarbinger
                     buffRow = AngerAuraBuffRow;
                     statMap["attack_minimum_added_fire_damage"] = Math.Max(1, (int)Math.Round(Raw("attack_minimum_added_fire_damage") * native.Multiplier));
                     statMap["attack_maximum_added_fire_damage"] = Math.Max(1, (int)Math.Round(Raw("attack_maximum_added_fire_damage") * native.Multiplier));
+                    statMap["physical_damage_%_to_add_as_fire"] = 25;
                     break;
                 case "AvatarWrath":
                     buffRow = WrathAuraBuffRow;
                     statMap["attack_minimum_added_lightning_damage"] = Math.Max(1, (int)Math.Round(Raw("attack_minimum_added_lightning_damage") * native.Multiplier));
                     statMap["attack_maximum_added_lightning_damage"] = Math.Max(1, (int)Math.Round(Raw("attack_maximum_added_lightning_damage") * native.Multiplier));
+                    statMap["physical_damage_%_to_add_as_lightning"] = 25;
                     break;
                 default:
                     continue;
@@ -850,7 +858,13 @@ public static partial class MapHarbinger
     static async Task ClearAurasFromSource(ClientState conn, Area area, uint sourceId)
     {
         if (sourceId == 0) return;
-        area.ActiveTimedAuras.Remove(sourceId);
+        List<(uint SourceId, string AuraKey)>? timedOwned = null;
+        foreach (var key in area.ActiveTimedAuras.Keys)
+            if (key.SourceId == sourceId)
+                (timedOwned ??= []).Add(key);
+        if (timedOwned is not null)
+            foreach (var key in timedOwned)
+                area.ActiveTimedAuras.Remove(key);
         List<(uint MonsterId, string AuraKey)>? owned = null;
         foreach (var (key, applied) in area.AppliedAllyAuras)
             if (applied.SourceId == sourceId)
