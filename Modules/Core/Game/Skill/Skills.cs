@@ -1520,6 +1520,15 @@ public static partial class Game
         }, "0x02bc player Actor: current skill stats");
         if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+        // The skill list above replaces every skill record, and the client's replacement refreshes an existing zero-rate
+        // cooldown entry (0x141ef1573): a guard's held entry would start counting again while its buff runs (issue #1127,
+        // seen on movement, which refreshes the conditional item stats). Re-publish the held rate-0 entry behind the list
+        // so the bar stays frozen; a zero-rate refresh replaces the entry without restarting its animation.
+        // Built at the send gate: a guard that ended while this send waited has its counting entry queued behind, and a
+        // held entry built before would go out after it and freeze the bar with no buff.
+        if (TriggeredGuards.TryGetValue(conn, out _))
+            await Send(remote, stream, ciphers, [], "0x02bc guard cooldown re-held after its skill refresh",
+                atGate: () => HeldGuardCooldownRefresh(conn));
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
 
         // The update can take a bound skill off the skill bar (live 2026-10-21: Haste's slot emptied when its aura went on,
