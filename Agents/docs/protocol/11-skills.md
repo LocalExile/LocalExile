@@ -2961,6 +2961,9 @@ The direction uses the centre of the displacement cell. PlayerClass base ID 5 (T
 For each mine it rounds the endpoint and projects it onto the segment from the thrower to the cursor.
 A sideways sweep keeps the last walkable cell visible from the thrower. If none qualifies, a second sweep starts
 at the thrower. Both stop at a projectile-blocking cell. A single mine keeps the ordinary aimed cell.
+The 3.29.3c gem stat `support_locus_mine_mines_always_target_your_location` gives a Locus mine the owner's location
+as its target. The Gateway samples that cell for each detonation and uses it for both the mine's action and the skill's
+aim. Power Siphon still selects its own visible enemies from the mine.
 Locus Mine Support stores `support_locus_mine_cannot_detonate_mines_within_X_units = 30` on its mines (3.29.3c).
 The 3.29.3c gem text bars detonation within three metres of the owner. The Gateway includes the boundary in this radius
 and uses the owner's current cell for the Actor availability bit, admission and detonation. A mine that is too close

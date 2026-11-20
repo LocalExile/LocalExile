@@ -472,16 +472,16 @@ public static partial class Game
         bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
         double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
-        var target = conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
+        (int X, int Y)? ownerAim = placed.Mine && GolemStat(placed.Own, "support_locus_mine_mines_always_target_your_location") != 0
+            ? conn.Walk.Position(now) : null;
+        var target = ownerAim.HasValue ? default : conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
             && Dist(p.Value.Walk.Position(now), placed.At) <= 60);
         if (bear) target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
             .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
-        var aim = target.Value?.Walk.Position(now) ?? placed.At;
+        var aim = ownerAim ?? target.Value?.Walk.Position(now) ?? placed.At;
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
-        // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
-        // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
-        // does a triggered spell's: no local input action predicts it.
+        // The projectile carries the supported skill's hit and modifiers from the trap or mine. No local input predicts it.
         var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
         if (!bear && payload.Name is not null && payload.Effect == placed.Effect && UsesProjectileRuntime(placed.Effect)
             && ResolveProjectileDefinition(placed.Effect) is not null)
@@ -490,7 +490,7 @@ public static partial class Game
             var lifetime = CombatLifetime;
             var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
             var at = placed.At;
-            var shot = PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
+            var shot = ownerAim ?? PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
                 .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
