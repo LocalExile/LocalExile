@@ -5,6 +5,32 @@ namespace GameServer.Gateway.Tests;
 public class HarvestAndInnocenceTests
 {
     [Fact]
+    public void Dominus_waits_for_both_waves_of_tower_unique_monsters()
+    {
+        using var registration = Quests.Register("dominus-wave-test", QuestObjectsModule.Acts());
+        var rules = Quests.For(new HashSet<string> { "dominus-wave-test" });
+        const string area = Act3Areas.UpperSceptreOfGod;
+        foreach (string guard in Act3Monsters.DominusLegionnaires)
+        {
+            Assert.False(rules.QuestSpawned(area, guard));
+            var wave = rules.FormsAfter(area, guard);
+            Assert.Equal(Act3Monsters.DominusMiscreations, wave.Select(rule => rule.Next));
+            Assert.All(wave, rule => Assert.Equal(Act3Monsters.DominusLegionnaires, rule.Varieties));
+        }
+        foreach (string miscreation in Act3Monsters.DominusMiscreations)
+        {
+            Assert.True(Game.Monsters.Find(miscreation) is { Supported: true });
+            Assert.True(rules.QuestSpawned(area, miscreation));
+            var boss = Assert.Single(rules.FormsAfter(area, miscreation));
+            Assert.Equal(Act3Monsters.DominusMiscreations, boss.Varieties);
+            Assert.Equal(Act3Monsters.Dominus, boss.Next);
+            Assert.Equal("mapboss2", boss.BossPoint);
+        }
+        Assert.True(rules.QuestSpawned(area, Act3Monsters.Dominus));
+        Assert.Equal(Act3Monsters.DominusAscendant, rules.SecondForm(area, Act3Monsters.Dominus));
+    }
+
+    [Fact]
     public void Abberath_waits_in_his_own_final_arena_after_the_first_fight()
     {
         using var registration = Quests.Register("abberath-arena-test", QuestObjectsModule.Acts());
