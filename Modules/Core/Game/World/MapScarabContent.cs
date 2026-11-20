@@ -60,8 +60,8 @@ public static class MapScarabContent
             if (!family.Success) continue;
             var mods = Fragments.Of([slot], Program.Items.Mods);
             if (Encounter(family.Groups["family"].Value, mods) is not { } content) continue;
-            string values = string.Join(", ", mods.Stats.OrderBy(s => s.Key)
-                .Select(s => $"{s.Key}={s.Value}"));
+            string values = string.Join(", ", mods.Stats.Select(s => (Name: Program.Stats.Name(s.Key), s.Value))
+                .OrderBy(s => s.Name, StringComparer.Ordinal).Select(s => $"{s.Name}={s.Value}"));
             request.ContentWarnings.Add((content,
                 $"area={opening.Area.Id} owner={request.Conn.Character} scarab={type.Id} ({type.Name}) "
                 + $"content={content} stats=[{values}]: no enabled provider implements this named encounter effect"));
