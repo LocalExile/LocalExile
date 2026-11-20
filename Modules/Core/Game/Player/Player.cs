@@ -745,7 +745,8 @@ public static partial class Game
     // skill's art (SkillArt).
     public static int SkillArtVariation(ClientState conn, uint gem) => SkillCosmeticStat(conn, gem, "skill_art_variation");
 
-    static int SkillCosmeticStat(ClientState conn, uint gem, string stat) =>
+    // Another stat of those skill effects (ground_caustic_art_variation: the caustic ground a skin leaves), 0 without one.
+    public static int SkillCosmeticStat(ClientState conn, uint gem, string stat) =>
         Stats.Key(stat) is not uint key ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])

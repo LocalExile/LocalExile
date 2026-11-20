@@ -290,6 +290,26 @@ public sealed class SkillArt
         return ao;
     }
 
+    readonly Lazy<Dictionary<(string, int), string>> _objectModels = new(ObjectModels);
+
+    /// <summary>The .ao of the object this MiscObjectsArtVariations Id places for the variation (Toxic Rain's
+    /// <c>toxic_rain_spore</c>: the pod, a lotus, a sphere …): its MiscObjects type's model, or null.</summary>
+    public string? ObjectModel(string id, int variation) => _objectModels.Value.GetValueOrDefault((id, variation));
+
+    static Dictionary<(string, int), string> ObjectModels()
+    {
+        var models = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in Rows("object_types"))
+            if (row.TextOrNull("type") is { } type && row.TextOrNull("animated_object") is { Length: > 0 } ao) models[type] = ao;
+        var objects = Rows("MiscObjects");
+        var result = new Dictionary<(string, int), string>();
+        foreach (var row in Rows("MiscObjectsArtVariations"))
+            if (Int(row, "__col3") is int v && row.Ints("MiscObject") is [int o, ..] && o >= 0 && o < objects.Count
+                && objects[o].TextOrNull("EffectVirtualPath") is { } path && models.TryGetValue(path, out var model))
+                result.TryAdd((row.Text("Id") ?? "", v), model);
+        return result;
+    }
+
     static (Dictionary<(string, int), string>, Dictionary<(string, int), ushort>, Dictionary<(string, int), string>) Load()
     {
         var animated = new Dictionary<(string, int), string>();
