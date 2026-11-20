@@ -27,6 +27,7 @@ public static partial class MapStrongboxes
         public List<AreaPopulation.Spawn> Pending { get; init; } = [];
         /// <summary>The daemons' later waves (StrongboxDaemons.cs), released into <see cref="Pending"/> when due.</summary>
         public List<Wave> Waves { get; init; } = [];
+        public List<VaalSpark> Sparks { get; init; } = [];
         public List<VaalFirestorm> Firestorms { get; init; } = [];
         public List<VaalCausticArrow> CausticArrows { get; init; } = [];
         public List<VaalFlameblast> Flameblasts { get; init; } = [];
@@ -65,6 +66,7 @@ public static partial class MapStrongboxes
         public readonly HashSet<ClientState> Visitors = [];
         public bool[]? VesselFloor;
         public volatile bool Active;
+        public SparkSkill? SparkSkill;
         public FirestormSkill? FirestormSkill;
         public FlameblastSkill? FlameblastSkill;
         public CausticArrowSkill? CausticArrowSkill;
@@ -76,10 +78,14 @@ public static partial class MapStrongboxes
     {
         public readonly HashSet<uint> Boxes = [];
         public readonly HashSet<uint> Casts = [];
+        public Dictionary<uint, int> SparkLegs = [];
         public readonly HashSet<(uint Source, long Started)> PositionWatches = [];
         public long? Entered;
     }
-    sealed record KeptView(long? Entered, uint[] Boxes, uint[] Casts);
+    sealed record KeptView(long? Entered, uint[] Boxes, uint[] Casts)
+    {
+        public Dictionary<uint, int> SparkLegs { get; init; } = [];
+    }
     static readonly RuleTable<ClientState, View> Presented = new();
     static string ViewKey(ClientState conn) => $"Ambush/view/{conn.PeerId}";
 
@@ -92,6 +98,7 @@ public static partial class MapStrongboxes
             view.Boxes.UnionWith(kept.Boxes);
             view.Casts.UnionWith(kept.Casts);
             view.Entered = kept.Entered;
+            view.SparkLegs = kept.SparkLegs;
         }
         return view;
     });
@@ -198,7 +205,7 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0 || b.CausticArrows.Count > 0);
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0 || b.CausticArrows.Count > 0 || b.Sparks.Count > 0);
 
     static void Keep(ClientState conn, Area area)
     {
@@ -612,6 +619,7 @@ public static partial class MapStrongboxes
                 if (box.Firestorms.Count != 0) await TickFirestorms(conn, area, box, now);
                 if (box.Flameblasts.Count != 0) await TickFlameblasts(conn, area, box, now);
                 if (box.CausticArrows.Count != 0) await TickCausticArrows(conn, area, box, now);
+                if (box.Sparks.Count != 0) await TickSparks(conn, area, box, now);
             }
             bool hasZones;
             lock (area.Zones) hasZones = area.Zones.Count > 0;
@@ -701,7 +709,10 @@ public static partial class MapStrongboxes
         foreach (var (conn, view) in Presented)
         {
             if (conn.Closed || conn.LeavingArea || view.Boxes.Count == 0) continue;
-            conn.Instance.ContentState[ViewKey(conn)] = JsonSerializer.Serialize(new KeptView(view.Entered, [.. view.Boxes], [.. view.Casts]));
+            lock (conn.Monsters)
+                lock (view.SparkLegs)
+                    conn.Instance.ContentState[ViewKey(conn)] = JsonSerializer.Serialize(new KeptView(view.Entered, [.. view.Boxes], [.. view.Casts])
+                        { SparkLegs = view.SparkLegs });
             LeaveZones(conn, removeArt: true);
         }
         Presented.Clear();

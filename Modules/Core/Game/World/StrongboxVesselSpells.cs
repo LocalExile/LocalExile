@@ -1,4 +1,5 @@
 using GameServer.Core.World;
+using GameServer.Core.Protocol.Instance;
 using static Game;
 using static Program;
 
@@ -20,6 +21,7 @@ public static partial class MapStrongboxes
     sealed record VesselSkill(int Effect, ushort Action, int ActorLevel, Dictionary<uint, int> Stats,
         MonsterAttack ActionRecord, int Critical, SpellCastTiming? Timing = null)
     {
+        public GrantedSkill? PrecedingGrant { get; init; }
         public double Seconds => ActionRecord.Seconds;
         public int Required(string name) => Stats[Program.Stats.Key(name)!.Value];
         public int Get(string name) => Program.Stats.Key(name) is uint key ? Stats.GetValueOrDefault(key) : 0;
@@ -47,6 +49,13 @@ public static partial class MapStrongboxes
         // The Vaalsmithed prefixes share one native mod family. The suffix has its own family.
         foreach (var (_, daemon, effects) in Daemons(conn, type, box))
         {
+            if (effects.Contains(VaalSparkEffect))
+            {
+                var skill = area.SparkSkill ??= ReadSpark(conn);
+                var cast = PrepareSpark(conn, box, daemon, skill);
+                box.Sparks.Add(cast);
+                return (cast, skill.Spell);
+            }
             if (effects.Contains(VaalCausticArrowEffect))
             {
                 var skill = area.CausticArrowSkill ??= ReadCausticArrow(conn, daemon);
@@ -95,14 +104,23 @@ public static partial class MapStrongboxes
             Watch(cast, cast.Steps.Length, skill.ReleaseTicks + skill.StepTicks, skill.StepTicks);
         }
 
-        void Watch(VesselCast cast, int count, long first, long interval)
+        foreach (var cast in box.Sparks)
+        {
+            var skill = area.SparkSkill ??= ReadSpark(player);
+            Register(cast, Enumerable.Range(cast.Landed, skill.Frames - cast.Landed).Select(i => skill.SampleTime(cast, i)));
+        }
+
+        void Watch(VesselCast cast, int count, long first, long interval) =>
+            Register(cast, Enumerable.Range(cast.Landed, count - cast.Landed)
+                .Select(i => (cast.Started + first + i * interval) / (double)TimeSpan.TicksPerSecond));
+
+        void Register(VesselCast cast, IEnumerable<double> times)
         {
             var key = (box.Id, cast.Started);
             lock (player.Monsters)
             {
                 ViewFor(player).PositionWatches.Add(key);
-                player.Walk.WatchPositions(key, Enumerable.Range(cast.Landed, count - cast.Landed)
-                    .Select(i => (cast.Started + first + i * interval) / (double)TimeSpan.TicksPerSecond));
+                player.Walk.WatchPositions(key, times);
             }
         }
     }
@@ -131,7 +149,7 @@ public static partial class MapStrongboxes
     {
         if (cast.Actor == 0)
             await Show(conn, cast.Daemon, skill.Effect, skill.ActorLevel, skill.Stats, (box.X, box.Y),
-                id => { cast.Actor = id; Keep(conn, area); }, play, skill.Timing, skill.ActionRecord, cast.Target(box));
+                id => { cast.Actor = id; Keep(conn, area); }, play, skill.Timing, skill.ActionRecord, cast.Target(box), skill.PrecedingGrant);
         else if (play)
             await PlayDaemon(conn, cast.Actor, skill.Action, (box.X, box.Y), cast.Target(box), cast.Daemon, shared: true);
     }

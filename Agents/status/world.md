@@ -175,6 +175,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   every ten cells and at a wall or range end. The grid and projectile blockers are sampled when the box opens. Players
   joining after release see the surviving ground and take only the remaining contacts. The exact release frame, curve,
   trail spacing, an additional impact area and the client-drawn volley still need graphical evidence.
+- The Vaalsmithed Spark daemon owns `EASChestVaalSpark` and `ChestVaalSpark`. Its damaging grant uses the ordinary
+  Spark action. One cast releases two sparks with a two-second lifetime and 25% increased projectile speed. The instance
+  runs their seeded turns, terrain collisions and player hits on one timeline. An observer arriving during flight sees the
+  surviving sparks at their current positions. The server aims one volley at the opener and releases it after the grant's
+  650 ms cast time. The empty action's role, repeat count, targeting and visible sequence still need a client observation.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

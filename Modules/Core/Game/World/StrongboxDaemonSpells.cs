@@ -195,7 +195,7 @@ public static partial class MapStrongboxes
     /// <summary>The daemon at the box, sending its skill's action so the client plays it; 0 when it cannot be created.</summary>
     static async Task<uint> Show(ClientState conn, string daemon, int effect, int actorLevel,
         IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at, Action<uint>? admitted = null, bool play = true, SpellCastTiming? timing = null,
-        MonsterAttack? actionRecord = null, (int X, int Y)? aim = null)
+        MonsterAttack? actionRecord = null, (int X, int Y)? aim = null, GrantedSkill? precedingGrant = null)
     {
         var catalog = SkillsFor(conn);
         if (Monsters.Find(daemon) is not { Supported: true } variety || catalog.ActionHash(effect) is not ushort hash) return 0;
@@ -207,7 +207,7 @@ public static partial class MapStrongboxes
         if (catalog.FindMonsterSkill(skillId, effect, actorLevel, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)actorLevel, MonsterRarity.Normal, at.X, at.Y,
-            friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
+            friendly: true, log: false, alone: false, scripted: true, ownedSkills: precedingGrant is null ? [skill] : [precedingGrant, skill], placement: MonsterPlacement.Established,
             instanceOwned: admitted is not null, owned: (actor, m) =>
             {
                 m.NoRewards = true;
