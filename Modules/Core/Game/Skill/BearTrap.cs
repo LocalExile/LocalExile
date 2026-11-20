@@ -9,7 +9,8 @@ public static partial class Game
         public ushort Buff;
         public bool RootShown;
         public double ShownUntil;
-        public int SentSlow;
+        // The monster AI has stopped the walk a new hold found (BearTrapHoldStarts).
+        public bool HoldHandled;
     }
     static readonly RuleTable<SpawnedMonster, BearSnares> BearTraps = new();
 
@@ -28,13 +29,24 @@ public static partial class Game
         state.Effects.RemoveAll(e => e.Until <= now);
         state.Effects.Add(new(now + root, now + root + tail,
             Math.Clamp(-own("bear_trap_movement_speed_+%_final"), 0, 100),
-            Math.Max(0, own("bear_trap_damage_taken_+%_from_traps_and_mines"))));
-        // This holds walking only. No flinch, stun, action-speed change or phase grace is introduced.
+            // The helmet enchantment's additional increase is the player's (Mods EnchantmentBearTrapDamageTaken1/2).
+            Math.Max(0, own("bear_trap_damage_taken_+%_from_traps_and_mines")
+                + player("bear_trap_additional_damage_taken_+%_from_traps_and_mines"))));
+        // This holds walking only. No flinch, stun, action-speed change or phase grace is introduced. The walk under way
+        // is stopped by the monster AI (BearTrapHoldStarts), as the client's is.
         if (monster.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0)
         {
             monster.Walk.BlockMovementUntil(now + root, now);
-            monster.LastTarget = null;
+            state.HoldHandled = false;
         }
+    }
+
+    /// <summary>True once per new hold, for the monster AI to stop the walk or chase under way as it does a freeze's.</summary>
+    public static bool BearTrapHoldStarts(SpawnedMonster monster, double now)
+    {
+        if (!monster.Walk.MovementBlocked(now) || !BearTraps.TryGetValue(monster, out var state) || state.HoldHandled) return false;
+        state.HoldHandled = true;
+        return true;
     }
 
     public static double BearTrapWalkFactor(SpawnedMonster monster, double now)
@@ -44,7 +56,8 @@ public static partial class Game
         double slow = state.Effects.Where(e => e.Until > now)
             .Select(e => now < e.RootUntil ? e.Slow : e.Slow * (e.Until - now) / Math.Max(.001, e.Until - e.RootUntil))
             .DefaultIfEmpty().Max();
-        return Math.Max(.01, 1 - slow / 100);
+        // In 5% steps: each step is a stats message that re-lays the client's walk (07, the lockstep tick), not one a tick.
+        return Math.Max(.01, 1 - Math.Ceiling(slow / 5 - 1e-9) * 5 / 100);
     }
 
     public static int BearTrapDamageTaken(SpawnedMonster monster, double now) =>
@@ -69,12 +82,6 @@ public static partial class Game
             state.RootShown = root; state.ShownUntil = until;
             packets.Add((InstanceEntities.AddBuff(id, state.Buff = conn.NextBuff++, root ? (ushort)162 : (ushort)163,
                 PlayerId, u68: BitConverter.SingleToUInt32Bits((float)(until - now))), "Bear Trap debuff"));
-        }
-        int slow = (int)Math.Round(100 * (BearTrapWalkFactor(monster, now) - 1));
-        if (slow != state.SentSlow && Stats.Key("bear_trap_movement_speed_+%_final") is uint key)
-        {
-            packets.Add((InstanceEntities.StatsUpdate(id, [(key, slow)]), "Bear Trap movement speed"));
-            state.SentSlow = slow;
         }
         if (state.Effects.Count == 0) BearTraps.Remove(monster);
     }

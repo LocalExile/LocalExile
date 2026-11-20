@@ -92,6 +92,8 @@ public sealed class SecondarySkillExecutionTests
         Assert.Equal(130, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 5.5));
         var buffs=Game.MonsterAilmentChangesLocked(f.Conn,1.1);
         Assert.Contains(buffs,p=>p.Log=="Bear Trap debuff");
+        // The client walks by movement_velocity_+%, so the slow is sent there.
+        Assert.Contains(buffs,p=>p.Log.EndsWith("movement_velocity_+% = -80 (movement modifiers)"));
         Assert.DoesNotContain(Game.MonsterAilmentChangesLocked(f.Conn,1.2),p=>p.Log=="Bear Trap debuff");
         Assert.Contains(Game.MonsterAilmentChangesLocked(f.Conn,2.5),p=>p.Log=="Bear Trap debuff changes");
         Assert.Contains(Game.MonsterAilmentChangesLocked(f.Conn,5.5),p=>p.Log=="Bear Trap debuff changes");

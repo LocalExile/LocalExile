@@ -898,6 +898,17 @@ public static partial class Game
                     m.LastTarget = null;
                     continue;
                 }
+                // Held by a Bear Trap: its walk or chase stops as a freeze's does, once; it may still attack where it stands.
+                if (BearTrapHoldStarts(m, now))
+                {
+                    if (now < m.Walk.ArrivesAt || m.LastTarget is not null)
+                    {
+                        if (conn.LockstepClient) NextPlannedAction(m);
+                        else plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is held by a Bear Trap"));
+                    }
+                    m.LastTarget = null;
+                    continue;
+                }
                 // Fleeing (MonsterFlee): once a started swing ends, it walks to its flee point and does nothing
                 // else until that walk ends, there or short of it; then it chases again.
                 if (m.Fleeing)

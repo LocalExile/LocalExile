@@ -65,11 +65,11 @@ public sealed class PlayerWalk
 
     public double Speed => _speed;
 
-    /// <summary>Stops walking and refuses new walk orders until the given simulation time. Teleports remain possible.</summary>
+    /// <summary>Refuses new walk orders until the given simulation time: an order leaves the walker where it stands. The
+    /// walk under way goes on until the caller stops it (with an order). Teleports remain possible.</summary>
     public void BlockMovementUntil(double until, double now)
     {
         if (until <= now) return;
-        Cancel(now);
         _movementBlockedUntil = Math.Max(_movementBlockedUntil, until);
     }
 
