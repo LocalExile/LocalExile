@@ -608,16 +608,18 @@ kit fights the auto-attack (`BossKits.Choose` falls back to `monster.Attack`, re
 the rare and desyncs its position on the client, and the rare's rig has no `RepeatedPulse`/`DominusGrab` clip so the cast
 draws no animation. Instead a periodic caster in the essence tick casts them on their own cooldown while the released rare
 lives, independent of its AI (which fights normally with its default attack and the hit/summon spells); cooldowns live on the
-instance area (`Area.Casting`) so several players' ticks cast a spell once. The visual is the client's own spell art spawned
-as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`), not a
-monster action or a daemon — an earlier standalone daemon blocked the rare's walk, and an attached daemon still drew nothing.
-The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4):
-`Metadata/Effects/Spells/pulses/icepulse|firepulse|lightningpulse|chaospulse.ao` (MiscAnimated 1011/1013/1012/1072) at the
-rare, then the debuff/degen on the players near it. The grab (ActiveSkill 373 `dominus_grab`, ActionType 203 `DominusGrab`
-0xb975) is a ground trap: the essence `demon_grasp` circle + hand
-(`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao` / `demon_grasp.ao`, MiscAnimated
-1025/1024) appear where the target stood; after a 1 s windup the grasp end (`demon_grasp_end.ao`, 1026) plays and a target
-still inside the circle is pulled to the rare — stepping out evades it. The pulse's cast time is its repeat interval (4 s).
+instance area (`Area.Casting`) so several players' ticks cast a spell once. The **grab** visual is the client's own spell art
+spawned as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`):
+the essence `demon_grasp` circle + hand (`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao`
+/ `demon_grasp.ao`, MiscAnimated 1025/1024) appear where the target stood; after a 1 s windup the grasp end
+(`demon_grasp_end.ao`, 1026) plays and a target still inside the circle is pulled to the rare — stepping out evades it. The
+**pulse** nova is animated by the native client from a real daemon's skill action (the shrine nova pattern), not a bare
+effect object (a standalone `pulses/*.ao` effect object draws nothing): `ShowPulseDaemon` spawns the essence's daemon at the
+rare (friendly, invulnerable, out of AI, `SummonerId` = the rare so it does not block its walk) and plays its
+`RepeatedPulse` action with `active_skill_area_of_effect_radius` / `total_skill_area_of_effect_radius_+%_including_final`
+set (`SkillArea`, base 26 like the shrine ShockNova circle); the daemon is removed when the pulse ends. The pulses are
+self-centred (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill
+373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its repeat interval (4 s).
 The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
 `base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
 resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
@@ -676,16 +678,18 @@ kit fights the auto-attack (`BossKits.Choose` falls back to `monster.Attack`, re
 the rare and desyncs its position on the client, and the rare's rig has no `RepeatedPulse`/`DominusGrab` clip so the cast
 draws no animation. Instead a periodic caster in the essence tick casts them on their own cooldown while the released rare
 lives, independent of its AI (which fights normally with its default attack and the hit/summon spells); cooldowns live on the
-instance area (`Area.Casting`) so several players' ticks cast a spell once. The visual is the client's own spell art spawned
-as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`), not a
-monster action or a daemon — an earlier standalone daemon blocked the rare's walk, and an attached daemon still drew nothing.
-The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4):
-`Metadata/Effects/Spells/pulses/icepulse|firepulse|lightningpulse|chaospulse.ao` (MiscAnimated 1011/1013/1012/1072) at the
-rare, then the debuff/degen on the players near it. The grab (ActiveSkill 373 `dominus_grab`, ActionType 203 `DominusGrab`
-0xb975) is a ground trap: the essence `demon_grasp` circle + hand
-(`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao` / `demon_grasp.ao`, MiscAnimated
-1025/1024) appear where the target stood; after a 1 s windup the grasp end (`demon_grasp_end.ao`, 1026) plays and a target
-still inside the circle is pulled to the rare — stepping out evades it. The pulse's cast time is its repeat interval (4 s).
+instance area (`Area.Casting`) so several players' ticks cast a spell once. The **grab** visual is the client's own spell art
+spawned as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`):
+the essence `demon_grasp` circle + hand (`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao`
+/ `demon_grasp.ao`, MiscAnimated 1025/1024) appear where the target stood; after a 1 s windup the grasp end
+(`demon_grasp_end.ao`, 1026) plays and a target still inside the circle is pulled to the rare — stepping out evades it. The
+**pulse** nova is animated by the native client from a real daemon's skill action (the shrine nova pattern), not a bare
+effect object (a standalone `pulses/*.ao` effect object draws nothing): `ShowPulseDaemon` spawns the essence's daemon at the
+rare (friendly, invulnerable, out of AI, `SummonerId` = the rare so it does not block its walk) and plays its
+`RepeatedPulse` action with `active_skill_area_of_effect_radius` / `total_skill_area_of_effect_radius_+%_including_final`
+set (`SkillArea`, base 26 like the shrine ShockNova circle); the daemon is removed when the pulse ends. The pulses are
+self-centred (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4); the grab is ActiveSkill
+373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its repeat interval (4 s).
 The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
 `base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
 resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
