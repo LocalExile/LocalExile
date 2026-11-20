@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "settings": {
+    "experienceMultiplier": {
+      "type": "number",
+      "default": 1,
+      "min": 0.1,
+      "max": 100,
+      "format": "multiplier",
+      "label": "Crucible XP multiplier",
+      "description": "Multiplier applied to Weapon Passive Tree experience awarded by Crucible Forges and Magmatic Ore."
+    },
+    "geodeDropRate": {
+      "type": "number",
+      "default": 1,
+      "min": 0,
+      "max": 100,
+      "format": "multiplier",
+      "label": "Geode drop rate",
+      "description": "Multiplier for Igneous and Crystalline Geode drops from Crucible encounters in maps. 0 disables geode drops."
+    }
+  }
+}

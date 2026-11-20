@@ -1,0 +1,8 @@
+{
+  "name": "Crucible",
+  "parent": "Standard",
+  "base": "Standard",
+  "hardcore": false,
+  "ssf": false,
+  "description": "Crucible: channel Crucible Forges to reveal and allocate Passive Skill Trees on weapons and shields, and combine them in the Forge of the Titans."
+}
