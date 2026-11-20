@@ -1205,6 +1205,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public bool TutorialGettingUp;
     public TaskCompletionSource? TutorialDialogueSkipped;
     public string? NpcFinishFlag;
+    public int? NpcFinishLeagueFlag;
     // The dialogue row whose script acts when its talk ends (DoNPCChat, FinishNPCChat, SendOpenScreen, AreaTransitionTo:
     // Game.EndTalkScript), or null.
     public NpcCatalog.Talk? NpcTalkScript;
