@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Gateway.Tests;
 
@@ -126,10 +127,13 @@ public sealed class GuardSkillTests
             [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]);
         var packets = new List<byte[]>();
         var outgoing = Program.Outgoing;
-        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, f.Ciphers)) packets.Add(bytes.ToArray()); };
+        // Its own cipher stream: the guard's start still has its stats send and held entry queued on the fixture's, and
+        // those would pass for the refresh's entry.
+        var refresh = new ConnectionCiphers(new byte[64], false);
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, refresh)) packets.Add(bytes.ToArray()); };
         try
         {
-            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "conditional item stats changed");
+            await Game.SendCharacterStats("test", f.Stream, refresh, f.Conn, "conditional item stats changed");
             Assert.Contains(packets, p => p.SequenceEqual(frozen));
             Assert.True(Game.SingleUseState(f.Conn, gem.Effect, gem.Id)!.Held);
         }
