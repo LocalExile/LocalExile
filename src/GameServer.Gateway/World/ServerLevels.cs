@@ -33,6 +33,9 @@ public static class ServerLevels
         /// <summary>The Labyrinth's objects its tiles place (server-only, as the room lines): the ElegantHouse doorways'
         /// roller traps, the abyss edges' blades, the smashable and hidden walls, the statues that wake.</summary>
         public IReadOnlyList<PlacedTileObject> TileLabyrinthObjects { get; init; } = [];
+        /// <summary>The lore interactables its tiles place (<c>Metadata/NPC/Info/</c>: Weathered Carvings, Arteri's
+        /// Letter, Library books, Stained Glass Windows, Kaom's Carvings, Victario's Graffiti).</summary>
+        public IReadOnlyList<PlacedTileObject> TileLoreObjects { get; init; } = [];
         /// <summary>The server objects of the placed rooms and the objects their point lists name (AreaObjects.RoomObjects):
         /// the quest engine's places for room objects data/room-points.json does not keep (QuestObjectTypes.AreaPlacements).</summary>
         public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
@@ -335,6 +338,7 @@ public static class ServerLevels
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
+                TileLoreObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/NPC/Info/", StringComparison.OrdinalIgnoreCase)),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
                 PackRooms = AreaPopulation.PackRooms(result.Records),
