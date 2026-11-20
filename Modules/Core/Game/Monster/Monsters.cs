@@ -642,6 +642,10 @@ public static partial class Game
             conn.LaterFormPoints.Clear();
             foreach (var (row, cell) in laterForms)
                 if (Monsters.Find(row.ToString()) is { } form) conn.LaterFormPoints[form.Id] = cell;
+            foreach (var form in quests.FormPlacements(layout.Id))
+                if (points.FirstOrDefault(p => p.Name.Equals(form.BossPoint, StringComparison.OrdinalIgnoreCase)) is { } point
+                    && AreaPopulation.BossCell(point, walkable) is { } cell)
+                    conn.LaterFormPoints[form.Next] = cell;
             // Recipe arenas have no captured mapboss point: the held last boss forms next to arrival.
             if (MapBossFights.Current.PhaseOf(layout.Id) is { } phase && !conn.LaterFormPoints.ContainsKey(phase.Last))
                 conn.LaterFormPoints[phase.Last] = (layout.SpawnX + 8, layout.SpawnY);
