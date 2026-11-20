@@ -175,7 +175,7 @@ public static class GatewayProjectileSkillProfiles
         var secondary = KineticBoltSecondary(parent);
         return parent with
         {
-            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i : 0, parent.ZigZags,
+            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i + 1 : 0, parent.ZigZags,
                 parent.Speed, parent.Range, secondary),
             LegLeash = 0
         };

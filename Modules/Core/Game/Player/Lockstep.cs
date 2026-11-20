@@ -80,6 +80,7 @@ public static partial class Game
     public static bool LockstepPlayerFree(ClientState conn, double at)
     {
         if (!MeleeRepeatAllowsMove(conn, at)) return false;
+        if (BarrageAllowsMove(conn, at) is bool barrage) return barrage;
         if (at >= conn.LockstepBusyUntil) return true;
         if (!conn.LockstepClient || conn.LockstepCastWindow is not { } cast) return false;
         if (conn.LockstepHold.Active)

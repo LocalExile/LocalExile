@@ -77,6 +77,9 @@ public sealed class AnimationContacts
             .Select(row => row.Text("Id")!).ToArray());
     }
 
+    /// <summary>A named contact clip on the selected rig, including its contact and cancellation events.</summary>
+    public AnimationClip ContactClip(string animatedObject, string name) => _byAo.Value[animatedObject].Clips[name];
+
     /// <summary>The ordinary elemental projectile clip for the equipped ItemStances, in main/off-hand order.
     /// An empty hand has stance 0xff. Older data and combinations outside the actor's ACT have no entry.</summary>
     public AnimationClip? ProjectileCast(string animatedObject, byte main, byte off) =>

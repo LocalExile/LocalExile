@@ -19,10 +19,11 @@ public static partial class Game
     /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
     /// volley, so it stops there too. Other projectiles keep their full range.</summary>
     public static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
-        // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
-        toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
-            || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true
-            ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
+        toTarget || ProjectileEndsAtAim(effect) ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
+
+    // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
+    static bool ProjectileEndsAtAim(string? effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+        || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
     /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
@@ -148,28 +149,32 @@ public static partial class Game
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);
+        using var stats = new PlayerStatScope(conn);
         bool cancelOnNewAction = !attack || ResolveProjectileDefinition(gem.Effect)?.CancelWindupOnNewAction == true;
         contact ??= PlayerProjectileContact(conn, skillId, gem.Effect, sequence, swingAt ?? conn.Clock.Elapsed.TotalSeconds);
         double? seconds = attack ? 0 : contact?.Duration ?? CastMs(conn, gem.Effect, skillId) / 1000d;
         if (seconds is not double cast) return Task.CompletedTask;
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
         double acceptedAt = contact?.Start ?? swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double attackTime = attack ? SupportedAttackSeconds(conn, skillId, sequence) : 0;
+        var barrage = attack ? PlayerBarrage(conn, skillId, gem.Effect, action, acceptedAt, attackTime) : null;
+        if (barrage is not null && conn.LockstepClient) BarrageAttacks.AddOrUpdate(conn, barrage);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
                 ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, AnimationWeaponProfileFor(conn),
-                SupportedAttackSeconds(conn, skillId, sequence))
+                attackTime)
             : null;
-        double delay = thrown is { } swing ? swing
-            : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId, sequence), false))
-            : cast * (contact?.Fraction ?? Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+        double delay = barrage?.FirstContact ?? thrown ?? (attack ? AttackReleaseDelay(AttackContactDelay(conn, attackTime, false))
+            : cast * (contact?.Fraction ?? Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject)));
         int epoch = conn.ProjectileEpoch;
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
-        // Paid attacks survive Move unless their recipe opts into cancellable windup (e.g. release-time costs).
-        // Spells and cooldown tickets retain action cancellation.
-        // Epoch, death and hit recovery still cancel unreleased attacks.
+        // Moving can end a barrage before its first contact or between shots. Ordinary paid arrows retain
+        // their existing release contract. The area's epoch and hit recovery interrupt either kind.
+        bool Firing() => conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
+            && PlayerActionCurrent(conn, action);
         bool Valid() => sacrifice.Current && conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
-            && (ticket?.Current(conn) ?? (cancelOnNewAction
+            && (barrage is null || PlayerActionCurrent(conn, action)) && (ticket?.Current(conn) ?? (cancelOnNewAction
             ? PlayerActionCurrent(conn, action)
             : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
             && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
@@ -251,8 +256,18 @@ public static partial class Game
                         aim = CoincidentPlayerProjectileAim(conn, gem.Effect, CharacterPlayerStats(conn),
                             SupportedSkill(conn, skillId).Stats, aim, sequence, left);
                     var use = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more);
-                    return ClientDrawnVolley(conn, session, skillId, gem, use, sequence, (uint)left);
+                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more, attackContact: barrage?.Fire.Point);
+                    if (barrage is not null)
+                        use = use with { Profile = use.Profile with { SequentialDelay = ProjectileRuntime.Time(barrage.Interval) },
+                            CanEmit = Firing };
+                    // Kinetic Bolt chooses its zig-zag legs from the shot ordinal of a sequential attack.
+                    use = ClientDrawnVolley(conn, session, skillId, gem, use, sequence, (uint)left);
+                    if (barrage is null) return use;
+                    string effect = SkillsFor(conn).EffectId(gem.Effect)!;
+                    bool atCursor = ProjectileEndsAtAim(effect) || GatewayProjectileSkillProfiles.IsKineticBolt(effect);
+                    var at = ProjectileSession.Vector(conn.Walk.Position(ProjectileWorldTime(conn)));
+                    var angles = barrage.Angles(use.Aim - at, sequence, use.Profile.Count, atCursor);
+                    return use with { Profile = use.Profile with { NativeVolley = new() { Angles = angles } } };
                 });
             }
         }
@@ -385,7 +400,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
-        (int X, int Y)? from = null)
+        (int X, int Y)? from = null, ContactPoint? attackContact = null)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -420,7 +435,7 @@ public static partial class Game
         // An attack gem leaves from its weapon's contact keyframe, as the default attack's shot does: puncture_bow (Burning
         // Arrow's clip) has attack1_bow's contact and position. Released at the feet 1.5 cells ahead, the arrow showed up
         // inside the body at the ground instead of at the bow.
-        var release = spell ? null : Animations.AttackContactPoint(
+        var release = spell ? null : attackContact ?? Animations.AttackContactPoint(
             Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject,
             AnimationWeaponProfileFor(conn));
         // LightningSlash is released three cells ahead at ground level, not at the sword's contact point

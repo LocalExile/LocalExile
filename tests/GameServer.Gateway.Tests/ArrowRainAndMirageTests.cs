@@ -2718,7 +2718,7 @@ public class ArrowRainAndMirageTests
     [Theory]
     [InlineData("Split Arrow", "Crude Bow")]
     [InlineData("Power Siphon", "Driftwood Wand")]
-    public void Barrage_support_paces_attacks_using_the_resolved_projectile_count(string skill, string weapon)
+    public async Task Barrage_support_paces_attacks_using_the_resolved_projectile_count(string skill, string weapon)
     {
         using var b = new Battle(skill, "Barrage Support");
         var items = Game.ItemsOf(b.Conn);
@@ -2735,6 +2735,11 @@ public class ArrowRainAndMirageTests
         int baselineSpeed = (int)MathF.Round(nativeSpeed - 100, MidpointRounding.AwayFromZero);
         Assert.Equal(0, Game.SupportedSkill(b.Conn, gem.Id).Stats.GetValueOrDefault(penaltyKey));
         items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [2] });
+        b.Conn.LockstepClient = true;
+        b.Conn.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
+        b.Enemy.Walk.Teleport(135, 100, 0);
+        if (skill == "Power Siphon")
+            b.Conn.Monsters[202] = new("second target", new(130, 112, 0), 0, 0, 100000) { Hostile = true };
         int initialCount = 0;
         foreach (int extra in new[] { 0, 2 })
         {
@@ -2751,6 +2756,47 @@ public class ArrowRainAndMirageTests
                 MidpointRounding.AwayFromZero);
             double expected = baseline * (baselineSpeed + 100) / (speed + 100);
             Assert.Equal(expected, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
+
+            // Drive the paid skill on an explicit timeline. Power Siphon keeps one simultaneous shot per
+            // target. A direct bow volley contacts at 66/200 of each Witch fire clip after its windup.
+            double start = 10 + extra * 3;
+            b.Conn.Clock.Start();
+            Assert.True(await Game.CastGemSkill("barrage", b.Stream, b.Ciphers, b.Conn, gem.Id, (100, 100), (175, 100),
+                sequence: 0x8013, actionToken: b.Conn.ActionCount, swingAt: start));
+            b.Conn.Clock.Stop();
+            double windup = expected * .4, interval = expected * .6 / count;
+            var shots = new Dictionary<long, (long At, long Group)>();
+            int hits = 0;
+            uint life = b.Enemy.Life;
+            bool move = skill == "Split Arrow" && extra != 0;
+            int action = b.Conn.ActionCount;
+            for (int step = 0; step <= (expected + 1) * 200; step++)
+            {
+                double elapsed = step / 200d;
+                b.Session.AdvanceTo(ProjectileRuntime.Time(start + elapsed));
+                foreach (var shot in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0))
+                    shots.TryAdd(shot.Id, (shot.CreatedAt, shot.EmissionId));
+                if (b.Enemy.Life < life) hits++;
+                life = b.Enemy.Life;
+                if (move && b.Conn.ActionCount == action && elapsed >= windup + 2.8 * interval)
+                {
+                    b.Conn.LockstepHold.Press((99, 108), 0x2909, 8);
+                    await Game.StartLockstepActions("barrage-move", b.Stream, b.Ciphers, b.Conn, start + elapsed);
+                }
+            }
+            if (skill == "Power Siphon")
+            {
+                Assert.Equal(2, shots.Count);
+                Assert.Single(shots.Values.Distinct());
+                continue;
+            }
+            int fired = move ? 3 : count;
+            if (move) Assert.NotEqual(action, b.Conn.ActionCount);
+            long first = ProjectileRuntime.Time(start + windup + interval * 66 / 200);
+            Assert.Equal(Enumerable.Range(0, fired).Select(i => first + i * ProjectileRuntime.Time(interval)),
+                shots.Values.Select(shot => shot.At).Order());
+            Assert.Equal(fired, shots.Values.Select(shot => shot.Group).Distinct().Count());
+            Assert.Equal(fired, hits);
         }
         items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
         Assert.Equal(baseline, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);

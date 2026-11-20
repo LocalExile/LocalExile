@@ -288,7 +288,12 @@ Barrage's attack-time penalty uses the resolved projectile count, including addi
 In the 3.29.3c release, `0x142706610` reads the count (`0x2d5`, or bow alias `0x2d6`) and
 `support_barrage_attack_time_+%_per_projectile_fired` (`0x2a28`), multiplying final speed by
 `100 / (100 + count * penalty)` at `0x142708769..0x1427087fd` before rounding to an integer percent.
-This does not establish individual release times: Barrage still needs its sequential release, cancellation and hit admission.
+For direct player attacks, the startup uses 40% of the paid attack time and the remaining 60% is divided by the
+resolved shot count (`0x141b71790`). Each shot leaves on its rig's Barrage fire contact. The Witch bow contact
+is 66/200 of a firing clip. The shot ordinal seeds the two spread offsets (`0x141bae62c`).
+Move can interrupt early startup or later firing clips. The first fire clip is protected, and subsequent clips
+use their contact and lock-cancelling events (`0x141bad750`). Released arrows remain in flight and can each hit
+the same enemy. Power Siphon's per-target selection and Arrow Nova's payload have separate release paths.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.
