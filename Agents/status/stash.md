@@ -48,7 +48,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   lazily on first click (`C→S 0xc7`) and stay registered for the connection so revisited cached pages accept manual
   placement without showing a red overlay.
   `SendTabChange`/`EnsureTabLoaded` registers unopened tabs before `0xbf` (affinity deposits and Map/Unique children).
-  Gateway tests cover lazy preloading, keeping visited tabs registered, and unopened-tab registration before `0xbf`.
+  Quest items (`QuestItem` class or `Quest` component) are refused from personal and guild stashes.
+  Gateway tests cover lazy preloading, keeping visited tabs registered, quest-item refusal, and unopened-tab registration before `0xbf`.
   See protocol/18-stash.md §3–4.
 - **Dev tab fill (`/item_tab <tab name> <count>`).** On a currency, essence, fragment, delve, blight, delirium or divination tab it
   adds up to `count` more, at most 1000 per command, of every item type that has its own slot, as far as each slot holds.

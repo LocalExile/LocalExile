@@ -72,19 +72,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   claimed; using the Book of Regrets gives two refund points, the Book of Skill a passive point (`extra_skill_points` 1).
   Docs: [12](../docs/protocol/12-quests.md) §8.
 - a1q2 "The Caged Brute": Brutus spawns in the Warden's
-  section (`mapboss2`); Piety's room sets `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered;
-  Tarkleigh's reward is claimed.
+  section (`mapboss2`) with intro and chain-hook dialogue; Piety spawns in her room (`PietyPrison`) and plays her
+  monologue on `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered; Tarkleigh's reward is claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - a1q6 "The Marooned Mariner": Fairgraves stands on his
   ship; "Marooned" gives the quest; the slave girl's chest in The Ship Graveyard Cave drops the Allflame; "Thank You"
-  hands it in and turns him into the boss, who fights; his death, Bestel's book and its passive point follow.
+  hands it in, plays his combat line (`FairgravesAttacks`) and turns him into the boss, who fights; his death,
+  Bestel's book and its passive point follow.
   Docs: [12](../docs/protocol/12-quests.md) §10.
-- a1q3 "The Siren's Cadence" and Act 2: Merveil, the Siren
-  spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and creates the
-  exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
+- a1q3 "The Siren's Cadence" and Act 2: Merveil plays her Cavern of Wrath/Anger entry and fight-start dialogue, Merveil,
+  the Siren spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and
+  creates the exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
-- a1q9 "The Way Forward", Act 1: Piety's blockage at Prisoner's
-  Gate sets `a1q9-SeenBlockage` and `a1q9-RoadBlocked`; the road to The Western Forest stays closed (Act 2 opens it).
+- a1q9 "The Way Forward", Act 1: Piety (`PietyBlockage`) and the visual spike walls (`SpikeBlockage`/`SpikeBlockage2`)
+  spawn at Prisoner's Gate, seal the pass with her class dialogue on `a1q9-SeenBlockage`/`a1q9-RoadBlocked`, and reopen
+  when Act 2 sets `a1q9-RoadOpened`.
   After all of Act 1 the save had every `Act1Complete` flag.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - Acts 2 and 3 (live 2026-10-30, seed 1, on the engine before the modules: the campaign runner on a character started

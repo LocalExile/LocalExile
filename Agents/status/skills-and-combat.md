@@ -115,7 +115,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) §3.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
-- Kinetic Bolt's zig-zags. Docs: [11](../docs/protocol/11-skills.md) §10.
+- Kinetic Bolt's zig-zags (including multi-projectile volley parity). Docs: [11](../docs/protocol/11-skills.md) §10.
+- Mirage Archer spawns non-blocking on the client (`Positioned.blocking = false`, `flags1 0x08`) so it does not trap
+  player movement onto diagonals. Docs: [11](../docs/protocol/11-skills.md) §10.
+- Ice Nova of Frostbolts expands from up to two active player Frostbolt projectiles near the aimed point with its native
+  more-damage multiplier (not checked live). Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) §2i.
 - Shared Mana/Recoup and Blind from Whisperer's nodes. Docs: [Whisperer](../docs/game/whisperer.md).
 - Selected supported-spell panel. Docs: [11](../docs/protocol/11-skills.md) §9.

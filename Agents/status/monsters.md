@@ -187,7 +187,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   A skill with a cooldown takes the turn the moment it is ready and in reach; between those, the skill used longest ago
   does, and kit fallbacks chase with a zero-cooldown melee attack rather than re-casting an on-cooldown ranged special.
   Lockstep arrived swings consume kit cooldowns without switching skills mid-walk-up, dual-wielding monsters read
-  off-hand weapon stats, Avarius/Innocence start in `Transitionable` state 1, and Piety's lightning beam sweeps 900°.
+  off-hand weapon stats, Avarius/Innocence start in `Transitionable` state 1, Amarissa/Ambrosia start targetable in
+  state 2, Fairgraves throws Spectral Throw and summons ghostflame Raging Spirits, Merveil casts Ice Spear and summons
+  statues/daughters/spawn, and Piety's lightning beam sweeps 900°.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
