@@ -108,8 +108,10 @@ public static partial class MapEssences
         // the break is presented, so the proposed placement's nearest-clear search would spawn it offset from the crystal.
         uint monster = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Rare,
             monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false, extraKit: essenceKit,
-            placement: MonsterPlacement.Established, owned: (id, _) =>
+            placement: MonsterPlacement.Established, owned: (id, m) =>
             {
+                // The rare keeps only the tier-scaled count of its summon spell alive (not the default summoner cap).
+                m.SummonCap = essenceKit.Where(e => e.Attack.Summon is not null).Select(e => e.Attack.Summon!.Count).DefaultIfEmpty(0).Max();
                 area.Monoliths![monolith.Index] = monolith with { Stage = 4, Monster = id, ForcedRelease = false };
                 area.Dirty.Add(monolith.Index);
                 ApplyReleaseEffects(conn, area, monolith.Index);

@@ -47,6 +47,13 @@ public static partial class MapEssences
             {
                 if (!seen.Add(effect)) continue;
                 int effectLevel = catalog.MaxLevelAt(effect, level);
+                var native = GolemData.Skill(catalog, effect, level);
+                int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
+                // A triggered spell (cast_when_triggered_by_other_skill) is fired by the essence's pulse, not a standalone
+                // kit special — the periodic caster plays it (EssenceSpells). Leaving it in the kit makes the kit all
+                // cooldown specials, and BossKits.Choose's fallback then re-casts the last special every tick, freezing the
+                // rare in place; the rare keeps its default attack and fights normally instead.
+                if (Get("cast_when_triggered_by_other_skill_%") != 0) continue;
                 double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
                 ushort id = (ushort)(0x4000 + kit.Count);
                 var attack = BossKits.AttackFor(conn, variety, level, effect, id);

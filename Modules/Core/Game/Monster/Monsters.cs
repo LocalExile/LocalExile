@@ -1977,10 +1977,10 @@ public static partial class Game
     /// Immolators keep bringing skeletons while the player is near).</summary>
     public const int MaxSummoned = 5;
 
-    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than MaxSummoned
+    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than its alive cap
     // of its monsters alive); any other attack may.
     public static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned;
+        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < (m.SummonCap > 0 ? m.SummonCap : MaxSummoned);
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
