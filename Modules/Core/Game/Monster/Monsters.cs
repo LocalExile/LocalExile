@@ -239,7 +239,7 @@ public static partial class Game
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
-        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety))
+        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety) || MapBeyond.IsBoss(variety))
             && MapDevices.Value.IsMapArea(conn.Layout.Hash);
         if (mapBoss && MapModsOf(conn) is { } bossMap)
             mods = mods with { Effects = mods.Effects.Combine(MapBossEffects(bossMap)) };
@@ -360,7 +360,7 @@ public static partial class Game
             : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
         if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
+        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? variety.StateMachine;
         uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
             skills, stats)
@@ -507,13 +507,21 @@ public static partial class Game
     // area without a walk map. Game_MONSTERS=0 turns it off.
     public static async Task PopulateArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        var layout = conn.Layout;
+        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0" || CaptureTour.Active(CharacterName(conn))) return;
+        // An entry without a walk map cannot place packs yet. Do not mark the shared instance populated: a later
+        // entry with its map ready must still place them. An established save (even empty) needs no new walk map.
+        if (conn.Instance.Monsters is null && layout.Id != Sirus.Area && layout.Walkable is null) return;
+        if (Monsters.Error is { } catalogError)
+        {
+            Console.WriteLine($"[gateway] {remote} area monsters: {catalogError}");
+            return;
+        }
         // Another player already runs this instance's monsters: this client shows theirs (SharedMonsters.cs).
         if (!ClaimMonsterHost(remote, conn)) return;
         // The packs go in one monster at a time, and the overlay's count waits for the last of them (the entry's 0x1a0,
         // Messages.cs): a recount per spawn would be a count of the area per monster.
         using var recount = HoldMonstersRemaining(conn);
-        var layout = conn.Layout;
-        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         // The Crux of Nothingness fight places its three Mystic Fetishes at fixed offsets from the room's mapboss point
         // (KingInMists.cs). Keep that point on the connection so the treant form uses the same origin as the humanoid,
         // and so a kept instance recovers it before its saved monsters are restored.
@@ -521,8 +529,6 @@ public static partial class Game
         if (layout.Id == "AzmeriLeagueBoss"
             && AreaPopulation.FitRooms(layout.Id, conn.Seed, [], "data").Points.FirstOrDefault(p => p.Name == "mapboss") is { } mapboss)
             conn.KingOrigin = (mapboss.X, mapboss.Y);
-        // A capture tour only waits for the recorder: no monsters to attack the character meanwhile.
-        if (CaptureTour.Active(CharacterName(conn))) return;
         // An instance entered before keeps its monsters as the last connection left them: where they were, with their
         // damage; the dead stay dead (#12).
         if (conn.Instance.Monsters is { } saved)
@@ -545,7 +551,6 @@ public static partial class Game
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the
         // separate maze layout the fight does not build yet.
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
-        if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
         var quests = QuestsOf(conn);
         bool useWetlandsFallback = false;
@@ -650,6 +655,9 @@ public static partial class Game
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
+            localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
+                    && t.Transition.TeleportTo.HasValue)
+                .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
@@ -890,6 +898,28 @@ public static partial class Game
                     m.LastTarget = null;
                     continue;
                 }
+                // Held by a Bear Trap: its walk or chase stops, once; it may still attack where it stands. A predictive client
+                // stops on a Move onto its own cell, as a freeze's; a lockstep client takes none, so it gets a knockback's
+                // teleport onto that cell (live 2026-11-19: without one it walked its whole leg at the slowed speed).
+                if (BearTrapHoldStarts(m, now))
+                {
+                    bool walking = now < m.Walk.ArrivesAt || m.LastTarget is not null;
+                    Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) held by a Bear Trap at ({mx}, {my})"
+                        + (walking ? $", its walk to {m.Walk.Destination} stopped" : ""));
+                    if (walking)
+                    {
+                        if (!conn.LockstepClient)
+                            plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is held by a Bear Trap"));
+                        else
+                        {
+                            NextPlannedAction(m);
+                            m.Walk.Teleport(mx, my, now);
+                            m.KnockbackPending = (mx, my);
+                        }
+                    }
+                    m.LastTarget = null;
+                    continue;
+                }
                 // Fleeing (MonsterFlee): once a started swing ends, it walks to its flee point and does nothing
                 // else until that walk ends, there or short of it; then it chases again.
                 if (m.Fleeing)
@@ -989,7 +1019,7 @@ public static partial class Game
                 // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
                 // move them, so they get no chase. Neither does a type the client never walks (Pathfinding immobile),
                 // whatever its speed column says: the client would only hop it to each order's from cell.
-                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true };
+                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true } || m.Walk.MovementBlocked(now);
                 // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), a melee attack
                 // of a monster that never walks (the chase's own 0x1ab, whose goal test passes as it applies: 0x141e81c20),
                 // and any attack on a predictive client, where a walking player has already gone farther: no swing right

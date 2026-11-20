@@ -45,6 +45,8 @@ public static partial class Game
         foreach (var (key, value) in golem.Own)
         {
             string name = Stats.Name(key) ?? "";
+            // Spell Totem changes the summoning skill, not the actor that skill summons.
+            if (name is "is_totem" or "base_skill_is_totemified" or "skill_is_totemified" or "is_ranged_attack_totem") continue;
             if (name.StartsWith("minion_", StringComparison.Ordinal)) name = name[7..];
             // SupportedSkill already projects its global added damage into the attack and spell forms.
             if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)

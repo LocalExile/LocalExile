@@ -492,6 +492,7 @@ public static partial class Game
             // direct physical roll may then store a new instance; it never consumes that new instance itself.
             double stored, impaleStored;
             int impaleStacks, damage;
+            byte hitCode = 0;
             bool impaled, critical;
             string? resistance;
             List<byte[]>? ignited = null, bled = null;
@@ -553,6 +554,7 @@ public static partial class Game
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(Random.Shared));
+                hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(player, true, ownPenetration, weapon.LocalSources, weapon.Melee));
@@ -610,7 +612,8 @@ public static partial class Game
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
             var order = HitOrder(conn, PlayerId);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03,
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId,
+                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03, code: hitCode,
                     angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
@@ -1268,7 +1271,9 @@ public static partial class Game
                 }
                 if (paid && beastCompanion is { } beast)
                     QueueBeastCompanionLocked(conn, beast, skillId, actionToken);
-                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
+                // The native Holy Flame skill is tagged Channel for the totem's payload. Its owner places it with a
+                // single cast. Starting an owner channel would tie the placement to the input that movement clears.
+                if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(conn, skillId))
                 {
                     channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
@@ -2147,8 +2152,9 @@ public static partial class Game
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit)
         {
-            // Contagion has no hit: its cast puts a chaos damage over time on the monsters in its area (MonsterContagions.cs).
-            if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
+            if (IsBane(conn, gem.Effect))
+                await CastBane(conn, skillId, admittedGem, from, to, repeat, radiusMore, Current);
+            else if (ContagionCast(conn, skillId, gem.Effect) is { } contagion)
                 await CastContagion(conn, gem.Effect, skillId, from, to,
                     contagion with { SpreadAo = ContagionSkinAo(conn, gem.Gem) }, repeat, radiusMore,
                     actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, cooldownUse?.Instant == true, Current);
@@ -2605,7 +2611,7 @@ public static partial class Game
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
-                            settleKill: singleStrikeTarget is not null);
+                            settleKill: singleStrikeTarget is not null, hitCode: hitCode);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));
@@ -3372,6 +3378,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
         drops.AddRange(MadeDrops(conn, modded));
+        if (MapBeyond.CorruptsDrops(conn, m.Variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.
