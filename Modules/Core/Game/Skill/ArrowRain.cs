@@ -4,12 +4,21 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" or "ToxicRain";
+    static bool ArrowRain(string? id) => ArrowRainDefinition(id) is not null;
 
-    // These bow attacks have area hit stats but no travelling Projectiles row. Capture the normal
-    // offensive snapshot at release; each arrow resolves its own area at the landing cell.
-    static readonly ProjectileSkillDefinition GroundArrow = new("Metadata/Projectiles/DefaultArrow",
-        new((get, speed, _) => GatewayProjectileDefaults.Resolve("Metadata/Projectiles/DefaultArrow", get, speed, attack: true, arrows: true)));
+    // These bow attacks land directly. Their offensive snapshot and outgoing arrow totals use the same quantity.
+    const string GroundArrowMetadata = "Metadata/Projectiles/DefaultArrow";
+    static readonly ProjectileSkillDefinition GroundArrow = RainArrow(toxic: false), ToxicArrow = RainArrow(toxic: true);
+    static ProjectileSkillDefinition RainArrow(bool toxic) => new(GroundArrowMetadata, new((get, speed, _) =>
+        GatewayProjectileModifiers.Resolve(GatewayProjectileDefaults.Create(GroundArrowMetadata, get, speed, arrows: true),
+            get, attack: true, arrows: true, skillExtraProjectiles: toxic ? get("toxic_rain_num_of_additional_projectiles") : 0)));
+
+    static ProjectileSkillDefinition? ArrowRainDefinition(string? id) => id switch
+    {
+        "ToxicRain" => ToxicArrow,
+        "RainOfArrows" or "BlastRain" => GroundArrow,
+        _ => null
+    };
 
     public static IReadOnlyList<ProjectileVector> RainLandings(string effect, ProjectileVector aim, int count,
         double spread, IReadOnlyList<ProjectileVector> enemies, Random random)
@@ -57,9 +66,7 @@ public static partial class Game
         int variation = SkillArtVariation(conn, gem.Gem);
         string? ArtOf(string key) => Art.Animated(key, variation) ?? Art.Animated(key, 0);
         bool toxic = id == "ToxicRain", blast = id == "BlastRain";
-        int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
-            + (toxic ? Get("toxic_rain_num_of_additional_projectiles") : 0)
-            + (mirage ? Get("mirage_archer_number_of_additional_projectiles") : 0), 1, 256);
+        int count = Math.Clamp(use.Profile.Count + (mirage ? Get("mirage_archer_number_of_additional_projectiles") : 0), 1, 256);
         var (radius, spread) = RainArea(conn, id, gem.Effect, own, player);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();

@@ -2525,7 +2525,10 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Bow arrow counts**: `number_of_additional_arrows` and
   `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` add primary arrows on top of the generic
   projectile additions, only for a real bow (not wand, spell or melee projectiles); the selected-skill panel publishes
-  the arrow total.
+  the arrow total. Ordinary Toxic Rain, Rain of Arrows and Blast Rain publish the same projectile and arrow
+  totals they use for their landings. Each helmet enchantment for additional Toxic Rain arrows or Spark
+  projectiles has an item-local stat that names the receiving skills in `Stats.BelongsActiveSkillsKey`.
+  Equipment supplies that named input to the active skill, which adds it to its projectile count.
 - **Kinetic Bolt** (`KineticBoltLegs.cs`): `virtual_projectiles_cannot_fork = 1` turns forks into zig-zags, and the
   record carries `kinetic_bolt_number_of_zig_zags`. A primary bolt travels 15 cells, then alternates ±45 deg (10 cells)
   and ±90 deg (20 cells) at a leg's end, a non-evaded hit or a wall, without spending Pierce/Chain/Return, emitting

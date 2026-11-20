@@ -6,10 +6,11 @@ public static partial class Game
     // Never put final counts back into supported/raw stats and resolve quantity modifiers twice.
     public static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats)
     {
-        if (ResolveProjectilePanelParameters(effect) is not { } parameters) return;
+        var groundRain = ArrowRainDefinition(Skills.EffectId(effect));
+        if ((groundRain?.Parameters ?? ResolveProjectilePanelParameters(effect)) is not { } parameters) return;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         ProjectileProfile profile;
-        bool arrows = ArrowsForSkill(effect);
+        bool arrows = groundRain is not null || ArrowsForSkill(effect);
         try { profile = parameters.Resolve(Get, 1, arrows); }
         catch (InvalidOperationException ex)
         {
@@ -28,6 +29,7 @@ public static partial class Game
             Put("total_number_of_arrows_to_fire", total);
             Put("virtual_total_number_of_arrows", total);
         }
+        if (groundRain is not null) return; // Rain arrows land at their destination without a flight interaction.
         Put("projectile_number_of_targets_to_pierce", profile.CannotPierce || profile.Pierce < 0 ? 0 : profile.Pierce);
         Put("virtual_always_pierce", !profile.CannotPierce && profile.Pierce < 0 ? 1 : 0);
         Put("virtual_projectiles_cannot_pierce", profile.CannotPierce ? 1 : 0);

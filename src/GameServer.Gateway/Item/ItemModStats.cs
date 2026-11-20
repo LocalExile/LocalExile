@@ -105,7 +105,8 @@ public static class ItemModStats
                 long percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local
-                        || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Id))
+                        || !local && (row.Stats[s].SkillEnchantment
+                            || sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Id)))
                     {
                         string id = row.Stats[s].Id;
                         var state = StatConditions.Of(id, subject);

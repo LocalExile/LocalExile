@@ -182,8 +182,51 @@ public class ArrowRainAndMirageTests
             Assert.Equal(basis[DamageType.Chaos].Max + physicalBeforeConversion * (20 + extra) / 100, hit[DamageType.Chaos].Max, 7);
             Assert.Equal(splitBase[DamageType.Physical].Max * .2, Hit(split)[DamageType.Chaos].Max, 7);
         }
+        await EquippedProjectileCounts();
         await VortexSharesGroundAcrossCasters();
         VortexSettlesBeforeChillReplacement();
+    }
+
+    static async Task EquippedProjectileCounts()
+    {
+        using var b = new Battle("Toxic Rain", "Spark", "Split Arrow", "Rain of Arrows", "Blast Rain");
+        var items = Game.ItemsOf(b.Conn);
+        var hat = ItemCatalog.Create(Program.Items.Find("Royal Burgonet")!);
+        var gems = Game.GemSkillEffects(b.Conn).ToDictionary(g => g.Name);
+        b.Conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
+        foreach (var (enchant, strength, rain, spark) in new (string?, int, int, int)[]
+        {
+            (null, 1000, 7, 6), ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 1000, 8, 6),
+            ("EnchantmentSparkNumOfAdditionalProjectiles1", 1000, 7, 8), ("EnchantmentSparkNumOfAdditionalProjectiles2", 1000, 7, 9),
+            ("EnchantmentToxicRainNumOfAdditionalProjectiles1_", 100, 7, 6), (null, 1000, 7, 6)
+        })
+        {
+            // The Royal Burgonet needs 148 Strength. Keep the bow and its gems qualified at 100.
+            b.Conn.PlayerStats[Program.Stats.Key("virtual_strength_for_requirements")!.Value] = strength;
+            if (items.Items(PlayerInventories.Helmet).SingleOrDefault() is { } previous)
+                items.Remove(PlayerInventories.Helmet, previous.Id);
+            if (enchant is not null)
+            {
+                var mod = Program.Items.Mods.ById(enchant)!;
+                items.Add(PlayerInventories.Helmet, 0, 0, hat with
+                {
+                    Mods = [new ItemMod(ModSection.Enchant, mod.Hash, mod.MaxValues())]
+                });
+            }
+            await Game.SendEquipment("projectile-count", b.Stream, b.Ciphers, b.Conn, items);
+            var skills = Game.PlayerSkills(b.Conn);
+            foreach (var (name, count) in new[] { ("Toxic Rain", rain), ("Spark", spark), ("Split Arrow", 7), ("Rain of Arrows", 20), ("Blast Rain", 8) })
+            {
+                var gem = gems[name];
+                var stats = skills.Single(row => row.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+                Assert.Equal(count, Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1)).Profile.Count);
+                Assert.Equal(count, stats[StatKeys.TotalProjectilesToFire]);
+                Assert.Equal(count, stats[StatKeys.VirtualTotalProjectiles]);
+                if (name == "Spark") continue;
+                Assert.Equal(count, stats[StatKeys.TotalArrowsToFire]);
+                Assert.Equal(count, stats[StatKeys.VirtualTotalArrows]);
+            }
+        }
     }
 
     static void VortexSettlesBeforeChillReplacement()

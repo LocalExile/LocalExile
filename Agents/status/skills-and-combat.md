@@ -185,6 +185,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
+  Bow rains publish their landing counts. The additional-projectile helmets increase Toxic Rain and Spark counts.
   Toxic Rain's physical-as-extra-chaos helmet enchants apply to its landing and burst. [20](../docs/protocol/20-damage.md#2-hit-pipeline)
   The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
   The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.

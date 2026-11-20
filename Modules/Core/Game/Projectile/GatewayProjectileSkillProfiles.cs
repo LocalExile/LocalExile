@@ -121,6 +121,8 @@ public static class GatewayProjectileSkillProfiles
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
         {
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark"
+                => get("spark_num_of_additional_projectiles") + get("spark_number_of_additional_projectiles"),
             "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
                 => get("freezing_pulse_number_of_additional_projectiles"),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"

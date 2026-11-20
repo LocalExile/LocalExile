@@ -16,6 +16,8 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
     public sealed record ModStat(string Id, int Min, int Max, bool Local = false)
     {
         public bool Scalable { get; init; } = true;
+        // A local enchantment stat can name the active skills it modifies (Stats.BelongsActiveSkillsKey).
+        public bool SkillEnchantment { get; init; }
     }
 
     /// <summary>A Mods.dat row. GenerationType 1 prefix, 2 suffix, 3 unique / base implicit, 10 enchantment …;
@@ -138,6 +140,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
             [.. r.Ints(keys).Zip(r.Ints(values), (k, v) => (k < tags.Count ? tags[k] : $"#{k}", v))];
         foreach (var r in ClientTables.Table("Mods"))
         {
+            int generation = r.Int("GenerationType");
             bool alternate = hardMode && r.BoolOrNull("HasHardmodeStatValues") == true;
             string suffix = alternate ? "Hardmode" : "";
             // The client's stat iterator (0x1424371e0) stops at the first empty key, so the count does too.
@@ -149,10 +152,13 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
                 var (statId, local, scalable) = key >= 0 && key < stats.Count ? stats[key] : ($"#{key}", false, true);
                 // Explicit zero is meaningful (for example disabled boss rarity bonuses); it must not fall back.
                 modStats.Add(new(statId, r.Int($"Stat{i}Min{suffix}"), r.Int($"Stat{i}Max{suffix}"), local)
-                { Scalable = scalable });
+                {
+                    Scalable = scalable,
+                    SkillEnchantment = local && generation == 10 && s[key].Texts("BelongsActiveSkillsKey").Length != 0
+                });
             }
             rows.Add(new Mod(rows.Count, r.Text("Id") ?? "", (ushort)r.Int("HASH16"),
-                r.Text("Name") ?? "", r.Int("Domain"), r.Int("GenerationType"),
+                r.Text("Name") ?? "", r.Int("Domain"), generation,
                 r.Int("Level"), modStats)
             {
                 Ranges = ranges,
