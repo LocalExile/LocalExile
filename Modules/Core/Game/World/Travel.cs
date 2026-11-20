@@ -50,6 +50,8 @@ public static partial class Game
         {
             SpawnedNpc? speaker;
             lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(use.TargetId);
+            if (speaker is null || speaker.Npc.Id == BanditChoices.In(conn)?.Variety)
+                speaker = BanditChoices.Speaker(conn, use.TargetId);
             if (speaker is not null)
             {
                 await TalkToNpc(remote, stream, ciphers, conn, use, speaker, requestedAt);
@@ -327,6 +329,7 @@ public static partial class Game
         // never held together. The endgame flags not earned yet (Quests.EndgameOnly: EndGameAvailable before Kitava) only
         // in a hideout and a map area, where the map device and the maps need them.
         var own = conn.QuestFlagsSnapshot();
+        BanditChoices.AddDialogueFlags(conn, own);
         string[] endgame;
         lock (conn.Monsters) endgame = [.. Quests.EndgameOnly.Where(conn.UnearnedQuestFlags.Contains)];
         if (endgame.Length > 0 && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);

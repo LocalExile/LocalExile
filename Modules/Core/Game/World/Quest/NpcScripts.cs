@@ -79,6 +79,7 @@ public static partial class Game
     public static async Task<bool> EndTalkScript(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
+        if (await BanditChoices.OpenVote(conn, npcId, npc, talk)) return true;
         if (talk.NextChat is int next && Npcs.Value.TalkOf(npc.Npc, next) is { } page)
         {
             conn.InNpcTalk = true;
