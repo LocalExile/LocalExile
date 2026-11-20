@@ -5,7 +5,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters: [17](../docs/protocol/17-npcs.md).
+- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters; campaign Lilly saves her account shop
+  unlock after her introduction: [17](../docs/protocol/17-npcs.md).
 - Gold gambling at the gamble NPCs (black-market window, 3.29 prices and rolls): [17](../docs/protocol/17-npcs.md) §5.
 - `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
 

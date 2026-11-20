@@ -8,6 +8,8 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int SpawnX, int SpawnY,
     Func<int, int, bool>? Walkable, (uint Id, AreaTransitionObject Transition)[] AreaTransitions)
 {
+    /// <summary>The layout's own spawn: an arrival's <c>with { SpawnX = … }</c> copy keeps it (the town portal's anchor).</summary>
+    public (int X, int Y) Anchor { get; init; } = (SpawnX, SpawnY);
     public float SpawnRotation { get; init; }
     /// <summary>The area's waypoint (WaypointCatalog), if it has one and its place is known.</summary>
     public WaypointObject? Waypoint { get; init; }
