@@ -33,7 +33,8 @@ public sealed class VendorsModule : IModule
             SpawnedNpc? npc;
             lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
             if (npc is null) return false;
-            if (talk.Category == "BuyItems") await OpenNpcShop(remote, stream, ciphers, conn, conn.TalkingTo, npc);
+            if (talk.Category == "BuyItems" && Gambling.Gambles(npc.Npc.Id)) await OpenGamble(remote, stream, ciphers, conn, conn.TalkingTo, npc);
+            else if (talk.Category == "BuyItems") await OpenNpcShop(remote, stream, ciphers, conn, conn.TalkingTo, npc);
             else if (talk.Category == "SellItems") await OpenNpcSale(remote, stream, ciphers, conn, npc);
             else return false;
             return true;

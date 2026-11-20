@@ -116,6 +116,7 @@ public static partial class Game
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects["chaos_damage_does_not_bypass_energy_shield"] != 0;
         long damage = 0;
+        var mitigated = DamagePacket.Empty;
         foreach (var (type, range) in rolled.Components)
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
@@ -139,15 +140,22 @@ public static partial class Game
                 * Math.Max(0, 1 + GolemStat(g.Own, "vaal_upgrade_minion_damage_taken_+%_final") / 100d)
                 * (area ? Math.Max(0, 1 + effects["damage_taken_+%_from_area_hits"] / 100.0) : 1));
             if (value > 0)
+            {
+                mitigated = mitigated.Add(type, new(value, value));
                 damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
+            }
         }
         PublishEnergyShieldLocked(conn, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == "never_freeze" && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0) GolemHostileAilmentsLocked(conn, g, attacker, source, rolled, critical, !attack.Spell, now);
+        var from = source.Walk.Position(now);
+        var to = m.Walk.Position(now);
+        // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
-            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m, WorldId: attacker));
+            flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
+            angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, g.Id, m, WorldId: attacker));
         conn.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
         if (m.Life == 0) GolemDieLocked(conn, g, now);
         else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)

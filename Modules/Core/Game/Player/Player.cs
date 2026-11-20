@@ -731,8 +731,11 @@ public static partial class Game
 
     // The skill_art_variation of the skill effects worn in a gem type's Cosmetics tab slots (0: none), which picks the
     // skill's art (SkillArt).
-    public static int SkillArtVariation(ClientState conn, uint gem) =>
-        Stats.Key("skill_art_variation") is not uint key ? 0
+    public static int SkillArtVariation(ClientState conn, uint gem) => SkillCosmeticStat(conn, gem, "skill_art_variation");
+
+    // Another stat of those skill effects (ground_caustic_art_variation: the caustic ground a skin leaves), 0 without one.
+    public static int SkillCosmeticStat(ClientState conn, uint gem, string stat) =>
+        Stats.Key(stat) is not uint key ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
             .Where(st => st.Stat == key).Select(st => st.Value).FirstOrDefault();
@@ -1242,6 +1245,7 @@ public static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
+                    ClearPlayerDecay(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
                         conn.ChaosDotBypassCarry = 0;
@@ -1703,6 +1707,14 @@ public static partial class Game
         }
         if (!inTown && MapCheckpointExit(conn) is { } exit)
         {
+            // The area the map was entered from is remade on the next entry (a town or a hideout) and an empty instance is
+            // gone six minutes after its last player leaves, so the instance the device recorded may be gone: Auth refuses
+            // that transfer ("instance N unavailable in this league") and leaves the dead player in the map (live
+            // 2026-11-18, the Simulacrum). Then enter a new instance of that area by its device, as the portal back does
+            // (PortalsFeature.ReturnTransfer): it is seed 1, so the cell is the same, and the run's portals follow there.
+            if (exit.Instance != 0 && AreaInstances.RecreatedOnEntry(exit.Area)
+                && await AreaInstances.Gone(conn, exit.Area, exit.Instance))
+                exit = exit with { Instance = 0 };
             await ChangeArea(remote, stream, ciphers, conn, exit, "resurrect at checkpoint: out of the map, where it was entered from");
             await GameEvents.RunResurrected(conn);
             return;

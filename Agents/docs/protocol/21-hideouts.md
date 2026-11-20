@@ -291,6 +291,14 @@ instance of the same area, the character's open run moves to it (the old instanc
 portals left come up at the new device, and the map's portal back leads there rather than to an instance that is gone
 (live 2026-11-18: a disconnect inside the Simulacrum after the hideout had stood empty for six minutes came back to a
 device with no portals, while the map's own instance was still alive).
+A click on a portal back (the map's own, or a Portal Scroll's) asks Auth's instance list first: while the instance the
+portal was opened from is live the player enters it at the device, and a town's or a hideout's instance that is gone is
+made again and entered at the same cell by its device (seed 1), while a map's own instance is never made again.
+Before this the transfer to the gone instance was refused and the click did nothing (live 2026-11-18, the same
+Simulacrum run).
+The death screen's "Resurrect at Checkpoint" in a map asks that list too, for the area the map device stood in: an
+instance that is gone is made again and entered by its device, instead of a refused transfer that left the dead
+character in the map (live 2026-11-18, the same run).
 
 **Taking a portal** (C→S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter

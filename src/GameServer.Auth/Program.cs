@@ -10,6 +10,7 @@ using GameServer.Core;
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
 //   build  <Game.exe>                      say which allowed client build the executable is (ClientBuilds)
+//   verify-patch <out.exe> [keys.json]     read-only check that the patched copy trusts this server's keys
 //   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys; in a Steam install's
 //                                          folder the copy also reads the loose game files (LooseFilesPatch)
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
@@ -73,6 +74,21 @@ switch (cmd)
         Console.WriteLine(ClientBuilds.SupportNote(ClientBuilds.Require(File.ReadAllBytes(args[1]))));
         return 0;
     }
+    case "verify-patch" when args.Length >= 2:
+    {
+        var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 2 ? args[2] : DefaultKeys));
+        var image = new ClientImage(File.ReadAllBytes(args[1]));
+        var verify = image.ReadVerifyKey();
+        var signing = keys.Signing;
+        bool matches = verify.P == signing.P && verify.Q == signing.Q && verify.G == signing.G && verify.Y == signing.Y
+            && image.ReadServerStaticPublic() == keys.ServerStaticPublic
+            && LoginGroups.Static.PublicFor(image.ReadClientStaticPrivate()) == keys.ClientStaticPublic;
+        if (!matches)
+            Console.Error.WriteLine("[auth] patched client login keys do not match this server; regenerate the patched copy with GameServer.Auth patch before starting the client.");
+        else
+            Console.WriteLine("[auth] patched client login keys match this server");
+        return matches ? 0 : 1;
+    }
     case "patch" when args.Length >= 3:
     {
         if (Path.GetFullPath(args[1]).Equals(Path.GetFullPath(args[2]), StringComparison.OrdinalIgnoreCase))
@@ -97,7 +113,7 @@ switch (cmd)
         await Serve(LoginServerKeys.FromJson(File.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
         return 0;
     default:
-        Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | serve [keys.json]");
+        Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | verify-patch <out.exe> [keys.json] | serve [keys.json]");
         return 2;
 }
 }

@@ -96,6 +96,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
   A run whose device instance is gone (a hideout's instance expires six minutes after its last player leaves) moves to
   the instance the character enters, so its portals left stand at the new device (2026-11-18).
+  A click on a portal back into a hideout or town whose instance expired enters a new one of that area, by its
+  device, instead of a transfer that was refused (2026-11-18).
+  "Resurrect at Checkpoint" from a map whose hideout instance is gone enters a new instance of it by its device, not
+  a refused transfer that left the dead character in the map (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
@@ -108,12 +112,24 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
-  box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage and Decay; other skills/scaling remain partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
-  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
+  (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
+  spawning packs and bosses (K'Tash, Ghorr, Beidat) and shutting down further portals once a boss spawns.
+  Tainted currency drops, all five Beyond scarabs (Resurgence, Invasion, Haemophilia, Corruption, base), Atlas passives
+  (Endless Tide, Demonic Power 60 s boss buffs, faction notables, Torn Veil, Fiendish Opulence) and Idols read from
+  `Game.MapModsOf`.
+  Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
+
+- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with wave summoning and permyriad life loss
+  on wave kills, King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
+  (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and composed Atlas/Idol map stats.
+  Not yet: the Harbingers', helpers' and obelisks' own skills (they stand still), The Beachhead unique map portal
+  encounter and Harbinger unique piece assembly.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
@@ -189,7 +205,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Niko and Kirac in the hideout (verified live, 2026-10-21):** Niko to Nessa's right, Kirac to her left.
   Faustus uses his native hideout NPC alongside them in every template, with the existing dialogue and saved editor placement.
   Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);
-  Purchase Items sells maps.
+  Purchase Items sells maps. Kirac marks a conversation heard when chosen (NPCTalk column 15 league flags), which opens his next ones.
   Niko's Delve options need quest flag ThisIsMyHideout (sent in hideouts and the Mine Encampment) and league quest
   flag 68 DelveEncounterComplete (every character): NPCTalk columns 15-18 are league quest flag ids.
   See [21](../docs/protocol/21-hideouts.md).

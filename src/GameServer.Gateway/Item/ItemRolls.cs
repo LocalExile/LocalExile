@@ -315,7 +315,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// unmodifiable, with every property kept (mods and their values, fractured mods, quality, sockets, links, socketed
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
-        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
+        item.SkinTransferSource is null && item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
             ? item with { Mirrored = true } : null;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
@@ -378,8 +378,14 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public Item? RollAffinity(Item item, ItemRarity rarity, Random rng, int percent) =>
         rarity == ItemRarity.Rare ? RollCore(item, rarity, rng, null, null, null, false, null, percent) : null;
 
+    /// <summary>The same as <see cref="Roll(Item, ItemRarity, Random, ValueTuple{int, int}?, ModCatalog.Mod?, int?, bool)"/>,
+    /// with only the affixes <paramref name="allow"/> admits (a narrower pool, such as the better tiers of each).</summary>
+    public Item Roll(Item item, ItemRarity rarity, Random rng, Func<ModCatalog.Mod, bool> allow) =>
+        RollCore(item, rarity, rng, null, null, null, false, null, null, allow)!;
+
     Item? RollCore(Item item, ItemRarity rarity, Random rng, (int Count, int MaxEach)? shape,
-        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent)
+        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent,
+        Func<ModCatalog.Mod, bool>? allow = null)
     {
         var fractured = item.FracturedIndexes();
         var rules = new MetacraftRules(item, catalog.Mods);
@@ -402,7 +408,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag)
-            .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
+            .Where(p => (!respectMetamods || generation.Allows(p.Mod)) && (allow is null || allow(p.Mod))).ToList();
         var chosen = kept.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         int keptCount = chosen.Count;
         if (guaranteed is not null) chosen.Add(guaranteed);

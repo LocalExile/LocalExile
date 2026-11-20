@@ -12,6 +12,9 @@ using GameServer.Core.World;
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     ImmutableArray<(string Owner, int Rank, T Run)> _subscribers = [];
+    long _revision;
+    /// <summary>Changes when a provider is added or removed, for consumers that retain derived state.</summary>
+    public long Revision => Volatile.Read(ref _revision);
 
     public GameEvent() => GameEventOwners.Register(this);
 
@@ -24,7 +27,12 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
             while (at > 0 && s[at - 1].Rank > rank) at--;
             return s.Insert(at, (owner, rank, run));
         });
-        return new Subscription(() => ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run))));
+        Interlocked.Increment(ref _revision);
+        return new Subscription(() =>
+        {
+            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
+            Interlocked.Increment(ref _revision);
+        });
     }
 
     public IEnumerable<T> All => _subscribers.Select(s => s.Run);
@@ -57,8 +65,11 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
                 yield return (owner, run);
     }
 
-    void GameEventOwners.IOwned.Release(string owner, int rank) =>
-        ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank));
+    void GameEventOwners.IOwned.Release(string owner, int rank)
+    {
+        if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank)))
+            Interlocked.Increment(ref _revision);
+    }
 
     int GameEventOwners.IOwned.Count(string owner) => _subscribers.Count(e => e.Owner == owner);
 
@@ -212,11 +223,22 @@ public static class GameEvents
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
 
+    /// <summary>A gamble window as it opens (an NPC whose shop is the black market, window kind 10): add, remove or reprice
+    /// its offers.</summary>
+    public static readonly GameEvent<Action<GambleWindow>> Gambles = new();
+
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
 
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
+
+    /// <summary>Extra worn items counted as stat inputs only: their mods join the character's stat sources and conditions,
+    /// their local defences the armour slots' defences. They host no gems or granted skills, and checks that look for one
+    /// worn item (weapon hit stats, gem requirements, unique mechanics such as Her Embrace) still read the real inventory.
+    /// Rows outside the equipment rows are dropped; ids must be stable and distinct from real items.</summary>
+    public static readonly GameEvent<Func<ClientState, IReadOnlyList<(byte Row, InventoryItem Item)>,
+        IReadOnlyList<(byte Row, InventoryItem Item)>>> ItemStatSources = new();
 
     static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, GameEvent<Func<ClientState, byte[], Task<bool>>>> Packets = new();
 
@@ -305,6 +327,13 @@ public static class GameEvents
             if (await GameEventOwners.Guard(owner, $"Packet 0x{opcode:x4}", async () => taken = await run(conn, bytes)) && taken) return true;
         }
         return false;
+    }
+
+    /// <summary>Every subscriber of this league sees the window's offers in turn.</summary>
+    public static void RunGambles(GambleWindow window)
+    {
+        foreach (var (owner, run) in Gambles.Subscribers(window.Conn))
+            GameEventOwners.Guard(owner, nameof(Gambles), () => run(window));
     }
 
     /// <summary>The subscribers' changes to a kill's drops; null when none of this league's changes drops.</summary>

@@ -94,7 +94,8 @@ static partial class Game
     // Scheduled contacts commit rewards and queue charge gains before yielding to the outbox. A held socket must
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true)
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true,
+        byte hitCode = 0)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -106,9 +107,12 @@ static partial class Game
         }
         var player = conn.Walk.Position(now);
         var target = monster.Walk.Position(now);
-        session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
-            kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
-        session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
+        var order = HitOrder(conn, PlayerId);
+        // World records, as a projectile's hit: the copy for a party member gets its key renamed only on a declared record.
+        session.World(PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
+            kind: 3, code: hitCode, angle: HitAngle(target.X - player.X, target.Y - player.Y),
+            orderKey: order.Key, checkpoint: order.Hit));
+        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
             $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {

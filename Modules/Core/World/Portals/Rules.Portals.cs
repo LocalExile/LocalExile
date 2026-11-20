@@ -179,7 +179,7 @@ static partial class PortalsRules
             || (open.Entrance ?? open.ReturnTo) is not { } origin
             || origin.Area != conn.Layout.Hash || origin.Instance == 0 || origin.Instance == conn.InstanceNumber) return;
         var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = origin.Area });
-        if (!PortalsFeature.OriginExpired(response, origin.Instance)) return;
+        if (!AreaInstances.Gone(response, origin.Instance)) return;
         if (MapDevice.Rebind(CharacterName(conn), origin.Area, conn.InstanceNumber) is not { } moved) return;
         Console.WriteLine($"[gateway] {remote} map run of {moved.Area.Id} follows the device into instance {conn.InstanceNumber} " +
             $"(instance {origin.Instance} of {moved.Area.Name} is gone)");
