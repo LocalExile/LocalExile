@@ -24,6 +24,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
     double nextMove, nextGround;
     IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
     bool Current => !stopped && CurrentGameWork && !boss.Dead && boss.Life > 0;
+
     internal async Task Bind(ClientState c)
     {
         if (!players.Contains(c)) players.Add(c);
@@ -106,6 +107,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
                 await All(id, InstanceProtocol.AnimationUpdate(id, 0, 1, 1), "[Yugul] turret channel ends");
             }
             if (now < nextTurret[id] || !c.Monsters.TryGetValue(id, out var m)) continue;
+            if (NearestTarget(owner, Present, m.Walk.Position(now), now) is not { } aim) continue;
             double interval = .35 / .6; // Native YugulStormBurst: 350 ms, 40% reduced cast speed.
             double end = now + interval * 6;
             channelEnds[id] = end;
@@ -114,9 +116,6 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
             var attack = BossKits.AttackFor(c, m.Variety!, boss.Level, 6582, TurretSkill) with { Spell = true, Scripted = true,
                 Ailments = IncomingAilmentSettings(name => Stat(c, 6582, boss.Level, name)) };
             var projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/YugulChromeProjectile", 400, false, 2); // Native speed 1000, 60% reduced.
-            var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(m.Walk.Position(now), p.Walk.Position(now)));
-            if (target is null) continue;
-            var aim = target.Walk.Position(now);
             foreach (var p in Present.ToArray())
             {
                 var w = p.Wire; var session = ProjectilesFor(w.Remote, w.Stream, w.Ciphers, p); flights.Add(session); session.Advance();
@@ -142,17 +141,13 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
             foreach (uint id in orbs)
             {
                 if (!c.Monsters.TryGetValue(id, out var m)) continue;
-                if (orbReady.TryGetValue(id, out var ready))
-                {
-                    if (now < ready) continue;
-                    orbReady.Remove(id);
-                    await All(id, InstanceProtocol.AnimationUpdate(id, 0, 7, 1), "[Yugul] fear orb chases");
-                }
+                if (orbReady.TryGetValue(id, out var ready) && now < ready) continue;
                 var from = m.Walk.Position(now);
-                var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(from, p.Walk.Position(now)));
-                if (target is null) continue;
+                if (NearestTarget(owner, Present, from, now) is not { } target) continue;
+                if (orbReady.Remove(id))
+                    await All(id, InstanceProtocol.AnimationUpdate(id, 0, 7, 1), "[Yugul] fear orb chases");
                 double speed = 12 * (phase == 2 ? 1.5 : 1);
-                var to = Toward(from, target.Walk.Position(now), speed * .5);
+                var to = Toward(from, target, speed * .5);
                 lock (c.Monsters) { m.Walk.SetSpeed(speed, now); m.Walk.Order(to.X, to.Y, now); }
                 await All(id, InstanceProtocol.MoveTo(id, to.X, to.Y, (float)speed, InstanceProtocol.FollowTerrain), "[Yugul] fear orb follows");
             }
