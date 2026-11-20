@@ -52,17 +52,11 @@ public static partial class MapEssences
         _ => "",
     };
 
-    static string PulseArt(string kind) => kind switch
-    {
-        "cold" => "Metadata/Effects/Spells/pulses/icepulse.ao",
-        "fire" => "Metadata/Effects/Spells/pulses/firepulse.ao",
-        "lightning" => "Metadata/Effects/Spells/pulses/lightningpulse.ao",
-        "chaos" => "Metadata/Effects/Spells/pulses/chaospulse.ao",
-        _ => "",
-    };
-
-    /// <summary>The special spells of a rare's essences: the daemon effects the hit kit drops, each built at the rare's
-    /// level. The damage/summon/projectile effects stay in the kit (<see cref="EssenceKit"/>); only these are cast here.</summary>
+    /// <summary>The special spells of a rare's essences: the daemon's pulse effect (the trigger that debuffs / deals chaos
+    /// degen) paired with the visual to play. The resistance pulses (Hatred/Anger/Wrath) trigger a projectile nova — the
+    /// daemon's Creeping Frost / flame breath / mortar effect (<c>projectiles_nova</c>, additional projectiles) — so the
+    /// client fires that nova of projectiles; the chaos pulse (Misery) is its own visual. The damage/summon/projectile
+    /// effects stay in the kit (<see cref="EssenceKit"/>); only these are cast here.</summary>
     static IReadOnlyList<SpecialSpell> SpecialSpellsOf(ClientState conn, IReadOnlyList<int> essences, int level)
     {
         var skills = SkillsFor(conn);
@@ -71,27 +65,33 @@ public static partial class MapEssences
         foreach (int row in essences)
         {
             if (DaemonEffects(row) is not { } daemon) continue;
-            foreach (int effect in daemon.Effects)
+            int pulse = daemon.Effects.FirstOrDefault(e => EssenceSpellKind(skills.EffectId(e)).Length > 0, -1);
+            if (pulse < 0 || !seen.Add(pulse)) continue;
+            string kind = EssenceSpellKind(skills.EffectId(pulse));
+            int effectLevel = skills.MaxLevelAt(pulse, level);
+            var native = GolemData.Skill(skills, pulse, level);
+            int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
+            int value = kind switch
             {
-                if (!seen.Add(effect)) continue;
-                if (EssenceSpellKind(skills.EffectId(effect)) is not { Length: > 0 } kind) continue;
-                int effectLevel = skills.MaxLevelAt(effect, level);
-                var native = GolemData.Skill(skills, effect, level);
-                int Get(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
-                int value = kind switch
-                {
-                    "cold" => Get("base_cold_damage_resistance_%"),
-                    "fire" => Get("base_fire_damage_resistance_%"),
-                    "lightning" => Get("base_lightning_damage_resistance_%"),
-                    _ => 0,
-                };
-                // The pulse's cast time is its repeat interval; the cooldown holds the next cast.
-                double cooldown = Math.Max(Math.Max(0, skills.CooldownMs(effect, effectLevel) / 1000.0), skills.CastMs(effect) / 1000.0);
-                list.Add(new(effect, kind, daemon.Daemon, value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
-                    Get("base_skill_effect_duration") / 1000.0, cooldown));
-            }
+                "cold" => Get("base_cold_damage_resistance_%"),
+                "fire" => Get("base_fire_damage_resistance_%"),
+                "lightning" => Get("base_lightning_damage_resistance_%"),
+                _ => 0,
+            };
+            // The pulse's cast time is its repeat interval; the cooldown holds the next cast.
+            double cooldown = Math.Max(Math.Max(0, skills.CooldownMs(pulse, effectLevel) / 1000.0), skills.CastMs(pulse) / 1000.0);
+            // The visual: the daemon's projectile nova if it has one (the Creeping Frost circle), else the pulse itself.
+            int visual = daemon.Effects.FirstOrDefault(e => e != pulse && IsProjectileNova(skills, e), pulse);
+            list.Add(new(visual, kind, daemon.Daemon, value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
+                Get("base_skill_effect_duration") / 1000.0, cooldown));
         }
         return list;
+    }
+
+    static bool IsProjectileNova(SkillCatalog skills, int effect)
+    {
+        var stats = skills.EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
+        return Stats.Key("base_is_projectile") is uint key && stats.GetValueOrDefault(key) != 0;
     }
 
     /// <summary>Called from the essence tick: each released rare casts its ready special spells while a player is in reach.
@@ -198,13 +198,18 @@ public static partial class MapEssences
         ushort skillId = (ushort)(hash & 0x3fff);
         var stats = catalog.EffectStats(spell.Effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        // The pulse has no base radius stat of its own; the nova rides a hardcoded circle (the shrine ShockNova's 26).
-        int radius = SkillArea.Radius(26, Get, true);
+        // A projectile nova (Creeping Frost circle) carries its own radius and projectile stats — keep them. The bare
+        // chaos pulse has no radius of its own; it rides a hardcoded circle (the shrine ShockNova's 26).
+        bool nova = Get("base_is_projectile") != 0;
+        int radius = Math.Max(1, SkillArea.Radius(nova ? Get("active_skill_base_area_of_effect_radius") : 26, Get, true));
         var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(spell.Effect) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-        void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
-        Set("active_skill_area_of_effect_radius", radius);
-        Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
+        if (!nova)
+        {
+            void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
+            Set("active_skill_area_of_effect_radius", radius);
+            Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
+        }
         if (catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
         // PositionedBlocking false: the daemon's body must not block the rare's own walk (a monster AI walk is stopped by
