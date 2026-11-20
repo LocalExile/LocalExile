@@ -207,7 +207,10 @@ public static partial class MapEssences
         Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
         if (catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
+        // PositionedBlocking false: the daemon's body must not block the rare's own walk (a monster AI walk is stopped by
+        // living bodies, unlike the client-driven player walk); it still renders and plays the nova.
+        var caster = variety with { PositionedBlocking = false };
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, caster, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
             friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
             owned: (_, m) =>
             {
