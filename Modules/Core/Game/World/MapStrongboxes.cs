@@ -34,6 +34,8 @@ public static partial class MapStrongboxes
         public bool Corrupted { get; init; }
         /// <summary>A unique box's UniqueChests Id (<see cref="StrongboxCatalog.Uniques"/>); its mods are in <see cref="Mods"/>.</summary>
         public string? Unique { get; init; }
+        /// <summary>Optional pack-pool area id for guard spawns in biome-populated instances where <c>Packs.For(Layout.Id)</c> is empty.</summary>
+        public string? PackArea { get; init; }
 
         [System.Text.Json.Serialization.JsonIgnore]
         public IReadOnlyList<ItemMod> Explicits => [.. Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))];
@@ -168,6 +170,86 @@ public static partial class MapStrongboxes
     static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
         .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
+
+    public readonly record struct SpawnRequest(int X, int Y, StrongboxCatalog.Contents? Kind, int Level, MapMods Mods, string? PackArea = null);
+
+    static StrongboxCatalog.Definition? PickKind(StrongboxCatalog.Contents kind, int level, bool hardMode, MapMods mods, Random random)
+    {
+        static bool Exact(StrongboxCatalog.Definition t, StrongboxCatalog.Contents k, bool hm) => k switch
+        {
+            StrongboxCatalog.Contents.Currency => t.Id == (hm ? "Metadata/Chests/StrongBoxes/ArcanistHardMode" : "Metadata/Chests/StrongBoxes/Arcanist"),
+            StrongboxCatalog.Contents.Card => t.Id == "Metadata/Chests/StrongBoxes/StrongboxDivination",
+            StrongboxCatalog.Contents.Scarab => t.Id == (hm ? "Metadata/Chests/StrongBoxes/StrongboxScarabHardMode" : "Metadata/Chests/StrongBoxes/StrongboxScarab"),
+            _ => t.Kind == k && t.Rollable && t.Id.EndsWith("HardMode", StringComparison.Ordinal) == hm,
+        };
+        return StrongboxCatalog.All.FirstOrDefault(t => Exact(t, kind, hardMode) && level >= t.MinLevel && level <= t.MaxLevel)
+            ?? StrongboxCatalog.All.FirstOrDefault(t => Exact(t, kind, hardMode))
+            ?? StrongboxCatalog.All.FirstOrDefault(t => Exact(t, kind, false))
+            ?? Pick(level, hardMode, mods, random);
+    }
+
+    /// <summary>Places additional strongboxes in the current instance, optionally constrained to a content kind
+    /// (Arcanist, Diviner, Operative, etc.), respecting each request's area level and <see cref="MapMods"/>.</summary>
+    public static async Task<int> SpawnAt(ClientState conn, IReadOnlyList<SpawnRequest> requests, Random random)
+    {
+        if (conn.Instance is null || requests.Count == 0 || StrongboxCatalog.All.Count == 0) return 0;
+        var area = Areas.GetOrCreateValue(conn.Instance);
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Boxes is null)
+            {
+                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                    area.Boxes = JsonSerializer.Deserialize<List<Box>>(saved) ?? [];
+                else
+                    area.Boxes = [];
+            }
+            bool hardMode = LeagueFor(conn).HardMode;
+            var modCatalog = ItemsFor(conn).Mods;
+            int added = 0;
+            var created = new List<Box>(requests.Count);
+            foreach (var req in requests)
+            {
+                int level = Math.Clamp(req.Level, 1, 100);
+                var mods = req.Mods;
+                bool corrupted = mods.Get("map_strongboxes_are_corrupted") != 0;
+                Box box;
+                if (req.Kind is null
+                    && random.NextDouble() * 100 < UniqueChance * Math.Max(0, 100 + mods.Get("map_strongboxes_chance_to_be_unique_+%")) / 100.0
+                    && StrongboxCatalog.RollUnique(level, random) is { } special)
+                {
+                    box = new(conn.Instance.World.NewMonsterId(), area.Boxes.Count, req.X, req.Y, special.Type.Id)
+                    {
+                        Unique = special.Unique.Id, Rarity = 3, Corrupted = corrupted, PackArea = req.PackArea,
+                        Mods = Kept(special.Unique.ModRows.Select(r => modCatalog.Row(r)?.Roll(ModSection.Explicit, random)).OfType<ItemMod>()),
+                    };
+                }
+                else
+                {
+                    var type = req.Kind is { } k ? PickKind(k, level, hardMode, mods, random) : Pick(level, hardMode, mods, random);
+                    if (type is null) continue;
+                    byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
+                    var rolled = StrongboxMods.Roll(modCatalog, type, rarity, level, mods, random);
+                    box = new(conn.Instance.World.NewMonsterId(), area.Boxes.Count, req.X, req.Y, type.Id)
+                    {
+                        Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted, PackArea = req.PackArea,
+                    };
+                }
+                area.Boxes.Add(box);
+                created.Add(box);
+                added++;
+            }
+            if (added > 0)
+            {
+                Keep(conn, area);
+                foreach (var member in Members(conn))
+                    foreach (var box in created)
+                        await Present(member, box);
+            }
+            return added;
+        }
+        finally { area.Gate.Release(); }
+    }
 
     public static async Task Enter(ClientState conn)
     {
@@ -361,7 +443,8 @@ public static partial class MapStrongboxes
     /// <param name="summoned">The box's daemons bring guards of their own: no stand-in packs.</param>
     static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box, bool first, bool summoned)
     {
-        if (Packs.For(conn.Layout.Id) is not { } packs || StrongboxCatalog.Find(box.Type) is not { } type) return [];
+        var packs = (box.PackArea is { Length: > 0 } ? Packs.For(box.PackArea) : null) ?? Packs.For(conn.Layout.Id);
+        if (packs is null || StrongboxCatalog.Find(box.Type) is not { } type) return [];
         var pool = packs.Scattered.Where(p => p.Pack.Entries.Count > 0
             && p.Pack.Entries.All(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToList();
         if (pool.Count == 0) return [];
