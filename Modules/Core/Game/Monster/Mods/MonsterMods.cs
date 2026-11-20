@@ -155,7 +155,7 @@ public static partial class Game
         mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
             ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                 * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
-            .Scale(m.Effects.DamageTaken(spell));
+            .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     public static int SelfCriticalReduction(ClientState conn)

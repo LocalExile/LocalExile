@@ -114,7 +114,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
-  Essence supports Vaal corruption, Adaptation transfers, low-life enrage and Decay; other skills/scaling remain partial (#505).
+  Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   A Touch or Grip updates ordinary AI hits, attack and cast times, and the skills shown to players. These follow the kept mods on re-entry (#1177).
