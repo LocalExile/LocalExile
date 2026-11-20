@@ -2805,6 +2805,41 @@ public class ArrowRainAndMirageTests
             await VerifyBarrageNovaLanding();
             VerifyBallistaBarrage();
         }
+        else VerifyPowerSiphonBallista();
+    }
+
+    static void VerifyPowerSiphonBallista()
+    {
+        using var b = new Battle("Power Siphon", "Ballista Totem Support");
+        var conn = b.Conn;
+        var items = Game.ItemsOf(conn);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!)
+            with { Sockets = item.Sockets, Links = item.Links });
+        var gem = Game.GemSkillEffects(conn).Single();
+        var source = Game.SupportedSkill(conn, gem.Id);
+        var totem = new TotemState.Totem(777, gem.Id, (108, 100), 100, 20, null, varietyId: Game.TotemVariety(conn, gem.Effect)!.Id)
+        { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem, Ballista = true };
+        conn.Totems.Place(totem, 1, 0);
+        Game.BindTotemSource(conn, totem);
+        Assert.Contains(Game.TotemProxy(conn, gem.Id)!.Stats!, s => s.Key == StatKeys.VirtualTotalProjectiles && s.Value == 4);
+
+        conn.Walk.Teleport(245, 105, 0);
+        b.Enemy.Walk.Teleport(141, 110, 0);
+        conn.Monsters[202] = new("east", new(145, 100, 0), 0, 0, 1000) { Hostile = true };
+        conn.Monsters[203] = new("west edge", new(36, 100, 0), 0, 0, 1000) { Hostile = true };
+        conn.Monsters[204] = new("outside", new(108, 173, 0), 0, 0, 1000) { Hostile = true };
+        conn.Monsters[205] = new("behind wall", new(108, 138, 0), 0, 0, 1000) { Hostile = true };
+        conn.ProjectileWalls.Add((108, 120));
+        conn.Clock.Start();
+        Game.TickSpellTotemsLocked("power-siphon", b.Stream, b.Ciphers, conn, []);
+        conn.Clock.Stop();
+        Assert.Equal(1, totem.Sequence);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
+        var directions = b.Session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == totem.Id).Select(p => p.Direction).ToArray();
+        Assert.Equal(3, directions.Length);
+        foreach (var ray in new ProjectileVector[] { new(33, 10), new(37, 0), new(-72, 0) })
+            Assert.Contains(directions, direction => (direction - ray.Unit).Length < 1e-9);
     }
 
     static void VerifyBallistaBarrage()

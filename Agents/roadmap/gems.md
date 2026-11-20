@@ -77,6 +77,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Check Arrow Nova with Barrage Support on a live client, including the first and last landing arrows against one target.
   Check Volley and Greater Volley at walls on a live client, including the firing actor with Barrage Support.
   Check Ballista Barrage playback on both supported clients, including its muzzle and changes to arrow count between attacks.
+  Check Power Siphon target selection on both clients, especially crowded cells, sight at terrain edges and special projectile modifiers.
   Other proxy Barrage sequences, simultaneous jewel endpoint volleys and panel DPS still need verification.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.

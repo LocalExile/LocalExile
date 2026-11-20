@@ -29,6 +29,8 @@ public static partial class Game
     /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
     public static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
     {
+        // A per-target action has already aimed each projectile from the firing actor.
+        if (profile.NativeVolley?.Angles is not null) return profile;
         var fan = new ProjectileNativeVolley
         {
             Width = get("total_projectile_spread_angle_override") is > 0 and var width ? width / 10.869565 : 60 / 10.869565,
@@ -38,8 +40,6 @@ public static partial class Game
         };
         if (ParallelFiringPoints.From(get) is { } points)
         {
-            // A per-target action has already assigned the individual rays.
-            if (profile.NativeVolley?.Angles is not null) return profile;
             bool random = get("random_projectile_direction") != 0;
             return profile with { NativeVolley = fan with { Layout = use => points.Groups(use, fan, random) } };
         }

@@ -52,32 +52,48 @@ public static partial class Game
         var parameters = new ProjectileSkillParameters((get, speed, fromBow) => GatewayProjectileSkillProfiles.Resolve(id,
             arrows && (fromBow || !wand) ? bow : wandRow, get, speed, attack: true, fromBow));
         var definition = SkillProjectileDefinition(id, arrows ? bow : wandRow, parameters);
+        if (!Has("power_siphon_base_fire_at_x_targets")) return definition;
         var specialize = definition.SpecializeRelease!;
         return definition with { SpecializeRelease = (context, use) => AtNearbyTargets(context, specialize(context, use)) };
     }
 
-    // Power Siphon (power_siphon_base_fire_at_x_targets, projectiles_are_not_fired, number_of_projectiles_override 1):
-    // one projectile at each of the nearest enemies in front of or beside the caster, up to the stat's count; with
-    // none in range, one along the aim. Each aims at its enemy's cell at release.
-    // shortcut: "nearby" is the projectile's flight range and "in front" the half-plane of the aim; neither is read
-    // from the client.
+    // PowerShot takes one ordinary projectile contact per visible target. A crowded search samples the
+    // spatial buckets with the action RNG before writing the individual target cells.
     static ProjectileUse AtNearbyTargets(ProjectileReleaseContext context, ProjectileUse use)
     {
-        int most = context.Get("power_siphon_base_fire_at_x_targets");
-        if (most <= 0) return use;
-        var conn = context.Conn;
+        var source = use.LaunchSource;
         double now = context.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        var caster = ProjectileSession.Vector(conn.Walk.Position(now));
-        var aim = use.Aim - caster;
-        var targets = conn.Monsters.Values
-            .Where(m => m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && !m.WorldHidden)
-            .Select(m => ProjectileSession.Vector(m.Walk.Position(now)))
-            .Where(at => (at - caster).Length <= use.Profile.Range && (at - caster).X * aim.X + (at - caster).Y * aim.Y >= 0)
-            .OrderBy(at => (at - caster).Length).Take(most).Select(at => at - use.Origin).ToArray();
-        if (targets.Length == 0) return use with { Profile = use.Profile with { Count = 1, NativeVolley = new() { Angles = [0] } } };
+        var candidates = new List<ProjectileVector>();
+        foreach (var monster in context.Conn.Monsters.Values)
+        {
+            if (!monster.Hostile || monster.Dead || monster.Life == 0 || monster.OwnerId is not null || monster.WorldHidden
+                || ArenaHazards.Untargetable(context.Conn, monster)) continue;
+            var at = ProjectileSession.Vector(monster.Walk.Position(now));
+            double reach = 70 + LivingCollision.Size(monster);
+            var delta = at - source;
+            if (delta.X * delta.X + delta.Y * delta.Y <= reach * reach && context.Session.TraceTerrain(at, source) is null)
+                candidates.Add(at);
+        }
+        // An empty contact still consumes the attack and emits nothing.
+        if (candidates.Count == 0) return use with { CanEmit = static () => false };
+
+        // Native 23-cell buckets are visited row first. Inside a bucket the Gateway has the instance's object order.
+        var targets = candidates.OrderBy(at => Math.Floor(at.Y / 23)).ThenBy(at => Math.Floor(at.X / 23)).ToArray();
+        int count = Math.Min(targets.Length, use.Profile.Count);
+        if (targets.Length > count)
+        {
+            var rng = new AnimationVariantSelector.NativeRandom([use.Sequence, 0, use.Emitter.Id, use.RepeatsLeft, 0, 0, 0, 0]);
+            for (int i = 0; i < count; i++)
+            {
+                int pick = i + rng.Uniform(0, targets.Length - i - 1);
+                (targets[i], targets[pick]) = (targets[pick], targets[i]);
+            }
+        }
         double along = Math.Atan2(use.Aim.Y - use.Origin.Y, use.Aim.X - use.Origin.X);
-        return use with { Profile = use.Profile with { Count = targets.Length,
-            NativeVolley = new() { Angles = [.. targets.Select(to => Math.Atan2(to.Y, to.X) - along)] } } };
+        var angles = new double[count];
+        for (int i = 0; i < count; i++)
+            angles[i] = Math.Atan2(targets[i].Y - use.Origin.Y, targets[i].X - use.Origin.X) - along;
+        return use with { Profile = use.Profile with { Count = count, NativeVolley = new() { Angles = angles } } };
     }
 
     // A variant's base gem: Royale and transfigured effects share the base effect's skill shape and art.

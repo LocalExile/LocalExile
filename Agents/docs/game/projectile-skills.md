@@ -14,6 +14,11 @@ effect. They fire the held weapon's projectile: Projectiles.dat has skill art by
 straight shots and stay refused: Explosive, Galvanic, Ensnaring and Scourge Arrow, Snipe, Kinetic Rain/Fusillade,
 Somatic Shell, Barrage, Vaal Power Siphon.
 
+Power Siphon's `PowerShot` contact (3.29.3c, `0x141b70330`) searches all around the acting entity. It admits a target
+within 70 cells plus its Positioned size and checks sight before taking a slot. Above the virtual projectile count it
+partially shuffles the visible targets without replacement. Each selected cell receives one ordinary projectile contact.
+An empty search produces no projectile. The client's order inside a 23-cell spatial bucket has not been compared live.
+
 ## Implemented behavior
 
 | Skill | Enemy contact | Terrain | Maximum range / return endpoint | Quantity and area damage |

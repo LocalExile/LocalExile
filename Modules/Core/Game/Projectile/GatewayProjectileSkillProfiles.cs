@@ -40,6 +40,15 @@ public static class GatewayProjectileSkillProfiles
         {
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
+        int siphonBase = effect.StartsWith("PowerSiphon", StringComparison.Ordinal)
+            ? get("power_siphon_base_fire_at_x_targets") : 0;
+        if (siphonBase > 0)
+        {
+            // virtual_total_number_of_projectiles starts with the gem's targets plus base projectiles.
+            // The action's one-projectile override applies separately to each acquired enemy.
+            siphonBase = Math.Max(1, siphonBase + get("base_number_of_projectiles"));
+            p = p with { Count = siphonBase };
+        }
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";
@@ -144,6 +153,19 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (siphonBase > 0)
+        {
+            int count = siphonBase;
+            if (get("modifiers_to_projectile_count_do_not_apply") == 0
+                && get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") == 0)
+            {
+                float skill = Math.Max(0, (100 + get("number_of_projectiles_+%_final_from_skill")) / 100f);
+                float locus = Math.Max(0, (100 + get("number_of_projectiles_+%_final_from_locus_mine_support")) / 100f);
+                count = (int)(p.Count * skill * locus);
+                if (get("maximum_number_of_projectiles_to_fire_is_1") != 0) count = 1;
+            }
+            p = p with { Count = Math.Clamp(count, 1, 256) };
+        }
         if (IsMoltenStrike(effect))
         {
             bool groundChains = get("molten_strike_projectiles_chain_when_impacting_ground") != 0;
