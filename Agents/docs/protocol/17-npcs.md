@@ -24,7 +24,9 @@ An NPCs.dat row's `Id` (`Metadata/NPC/Act1/Tarkleigh`) is an .ot type, created w
 The child .ot only sets its `animated_object`.
 
 Of the NPC types in `data/object-types.json`, 190 have exactly that list; 54 add Transitionable, 31 StateMachine, and a
-few ControlZone, Functions, Stats or Brackets (not written yet).
+few ControlZone, Functions, Stats or Brackets. Stats is written as a monster's (compact count + pairs, u32, u32, u8;
+reader `0x1421c98b0`), empty; Functions and ControlZone read nothing (slot 17 `0x1400f1180`: ret). Brackets is not
+written: it would also let Kingsmarch's Mayor, Tujen, Rog, Farmer and Recruiter spawn.
 
 | Part | Bytes |
 |---|---|
@@ -83,11 +85,21 @@ NPC is removed and created again there).
 
 The league hubs have NPCs of their own (`NpcCatalog.Towns`): Niko in the Mine Encampment, Einhar in the Menagerie
 (495, 485, 290°; the hideout row `EinharHideout`, because `EinharMenagerie` has no `.ot` in the GGPK and the client
-drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Dannig,
-Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour,
-Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
-been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
-Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`: unlike `VillageFaustus`, it has no ControlZone, so it can be serialized).
+drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Sonja and
+Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour. Kingsmarch, the Rogue
+Harbour and the Monastery have not been placed live yet: their NPCs, stash and guild stash are offsets from the arrival
+(`StashCatalog.FromArrival`).
+Kingsmarch's Dannig, Faustus and Isla and the Monastery's Ailith (`ChayulaFarmerHub`) have Functions or ControlZone and
+are left out until they are placed live.
+Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`).
+
+The Allflame NPCs (`Deepwater` module): NPCs 789–795 opt into `NPCTalk` league-flag filtering and auto-conversations via
+`GameEvents.NpcUsesLeagueFlags` (`__col15` set, `__col16` required, `__col18` refused; `__col17` sets one league flag in
+`2..1910` and uses `1` as a manual-only sentinel that prevents auto-open). Valerie's Coast "Ready for Adventure?"
+(NPCTalk 3932) needs QuestFlags 3551 `DeepwaterNPCSeen` and sets `DeepwaterNPCIntroductionSeen` (3552) plus league flag
+1834 `DeepwaterBoatUnlocked`. `hub.arm`'s Valerie lines (x 84–97) lie off the walkable deck; `DeepwaterProgression`
+places the active deck variant on `ValeriePlacerOne/Two/Three` or beside `CorpseBattery`, and below-deck Valerie
+(`#791`/`#792`) with `VesperCrafting` (`#795`) until league flag 1859 awakens Vesper.
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off
@@ -138,7 +150,7 @@ by the same amount.
 - **Not placed:** league NPCs of the same rooms (Einhar, Niko, Jun, Alva, Gwennen, Tujen, Rog, Dannig, Divinia,
   Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of Exile, Tolman (act 8, no NPCTalk rows), Kirac
   and the Karui Shores' `HelenaIntro` at (510, 173) (a trigger by the tunnel that plays "HelenaThroughTheTunnel" and
-  then hides; both need ControlZone, which is not serialized) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
+  then hides; not placed yet) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
   Oriath Docks' `InnocenceTown` in Bannon's cell, Act 6's Lilly sitting by Bestel at (148, 343) (she is placed by her
   ship, `QuestObjects/Act6/LillyShip`). Which stage the real server shows depends on quest progress; the Gateway places
   the first one.
@@ -356,6 +368,10 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
   Faustus in the hideout). Not done: the alt price floor (the account's highest character in the league).
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
+  QuestRewardOffers `__col3` is a league quest flag taken flag (1911, past the client's 0x776 flags, is none):
+  Allflame's pity Sulphur (offer 136) has only LQF 1880. The other rows that have one are once-per-league rewards
+  (Kirac's first map 70, the Heist coins 77-109, Kingsmarch's tutorial gold 123-129); the server ORs it with the row's
+  QuestFlag and sets it in the claim's save.
 
 ## 6. Dev commands
 

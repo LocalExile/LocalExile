@@ -106,11 +106,19 @@ public partial class Program
                 // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
                 // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
                 string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
-                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(
-                    ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup),
-                    new AreaStatsRequest(characterName, resolved.League, areaHash, map)));
-                // The client generates the area at the seed, level and stats of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
+                var areaLeague = ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup);
+                var areaRequest = new AreaStatsRequest(characterName, resolved.League, areaHash, map);
+                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
+                // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
+                // Composed by the instance's first connection, as the area stats.
+                int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
+                // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
+                // of the level from. A Labyrinth room's extra data is its node, so it gets none.
+                var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
+                    : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
+                // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
+                // Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory, pluginStates);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -151,12 +159,24 @@ public partial class Program
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
+                // A module's own extra data (Delve's) takes the place of the plugin states: the instance and the server's
+                // level drop them too, so both sides build the level without them.
+                if (pluginStates.Count > 0 && moduleHeader?.Terrain is not null)
+                {
+                    Console.WriteLine($"[gateway] {remote} {layout.Id}: the module's extra data is sent in place of the terrain plugin states");
+                    instance.DropTerrainPluginStates();
+                    ServerLevels.PlayWithoutPluginStates(layout.Id, seed);
+                    pluginStates = [];
+                }
+                byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
+                    : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
-                    TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
-                    AchievementSets: moduleHeader?.AchievementSets);
+                    TerrainData: terrainData,
+                    AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
-                    (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
+                    (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
+                    string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));
                 await Logic.Entered(remote, conn, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
                 if (resolved.Character is { Length: > 0 } runner)

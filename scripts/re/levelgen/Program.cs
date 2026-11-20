@@ -520,11 +520,15 @@ static void Heights(string areaId, uint seed)
     var files = Files();
     string stem = Path.Combine(Root(), "data", "walkability", $"{areaId}_seed{seed}");
     int level = 1;
+    Dictionary<ushort, byte[]>? pluginStates = TracePluginStates(null);
     if (File.Exists(stem + ".gen.json"))
         using (var head = JsonDocument.Parse(File.ReadAllText(stem + ".gen.json")))
+        {
             level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+            pluginStates = TracePluginStates(head.RootElement);
+        }
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
-    var grid = LevelGenerator.Generate(files, area, seed).Grid;
+    var grid = LevelGenerator.Generate(files, area, seed, topologyVariant: TopologyVariant(), pluginStates: pluginStates).Grid;
     var mine = CellHeights.Build(grid, t => files.Walk(t.Path));
     int w = grid.Width * 23;
     Console.WriteLine($"{areaId} seed {seed}: {grid.Width}x{grid.Height} tiles, heights {mine.Min()} … {mine.Max()}");
@@ -554,7 +558,7 @@ static void Doodads(string areaId, uint seed)
     int level = t.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
     var rng = new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
-    var result = LevelGenerator.Generate(files, area, seed, rng: rng);
+    var result = LevelGenerator.Generate(files, area, seed, topologyVariant: TopologyVariant(), rng: rng, pluginStates: TracePluginStates(t));
     var grid = result.Grid;
     int before = rng.Log!.Count;
     var walk = Walkability.Build(grid, tile => files.Walk(tile.Path));
@@ -612,14 +616,16 @@ static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string 
     string stem = Path.Combine(root, "data", "walkability", $"{areaId}_seed{seed}");
     int level = 1;
     uint? clientHash = null;
+    Dictionary<ushort, byte[]>? pluginStates = TracePluginStates(null);
     if (File.Exists(stem + ".gen.json"))
         using (var head = JsonDocument.Parse(File.ReadAllText(stem + ".gen.json")))
         {
             level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
             clientHash = head.RootElement.TryGetProperty("tileHash", out var th) ? th.GetUInt32() : null;
+            pluginStates = TracePluginStates(head.RootElement);
         }
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
-    var result = LevelGenerator.Generate(files, area, seed);
+    var result = LevelGenerator.Generate(files, area, seed, topologyVariant: TopologyVariant(), pluginStates: pluginStates);
     var grid = result.Grid;
     var walk = Walkability.Build(grid, t => files.Walk(t.Path));
     // The doodad stage stamps the generated doodads' collision; with LEVELGEN_CAPTURED_DOODADS the captured ones
@@ -759,19 +765,44 @@ static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string 
     Compare("projectile", walk.Projectile, stem + ".projectile.bin");
 }
 
+// The terrain plugin states the load was played with (the trace's pluginStates, from the Gateway through the
+// recorder; LEVELGEN_PLUGINS=id=hex,… in its place): TerrainPlugins __col1 → the state's bytes.
+static Dictionary<ushort, byte[]>? TracePluginStates(JsonElement? trace)
+{
+    if (Environment.GetEnvironmentVariable("LEVELGEN_PLUGINS") is { Length: > 0 } pluginText)
+        return pluginText.Split(',').Select(p => p.Split('=')).ToDictionary(p => ushort.Parse(p[0]), p => Convert.FromHexString(p[1]));
+    if (trace is { } t && t.TryGetProperty("pluginStates", out var ps) && ps.ValueKind == JsonValueKind.Object)
+        return ps.EnumerateObject().ToDictionary(p => ushort.Parse(p.Name), p => Convert.FromHexString(p.Value.GetString() ?? ""));
+    return null;
+}
+
+// LEVELGEN_VARIANT: the league category (0x1d +0x28, 60 for none) the topology pick reads, e.g. 59 for Allflame's
+// Deepwater variants of The Coast.
+static int TopologyVariant() =>
+    int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_VARIANT"), out int variant) ? variant : 60;
+
 static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveTerrain = null)
 {
     string root = Root();
     var fs = OpenGame();
     var files = Files();
     int level = 1;
+    Dictionary<ushort, byte[]>? pluginStates = TracePluginStates(null);
     if (tracePath is not null)
-        using (var head = JsonDocument.Parse(File.ReadAllText(tracePath))) level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+        using (var head = JsonDocument.Parse(File.ReadAllText(tracePath)))
+        {
+            level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+            pluginStates = TracePluginStates(head.RootElement);
+        }
     // LEVELGEN_LEVEL: the area level without a trace; LEVELGEN_LAB=seed:row:difficulty: a Labyrinth room's node (0x1d extra data).
     if (int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_LEVEL"), out int levelOverride)) level = levelOverride;
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
     LabyrinthNodeKey? labyrinthNode = Environment.GetEnvironmentVariable("LEVELGEN_LAB") is { } lab && lab.Split(':') is [var ls, var lr, var ld]
         ? new LabyrinthNodeKey(uint.Parse(ls), int.Parse(lr), int.Parse(ld)) : null;
+    // LEVELGEN_STATS=id=value,…: the 0x1d area stats (1-based Stats ids).
+    int variant = TopologyVariant();
+    if (Environment.GetEnvironmentVariable("LEVELGEN_STATS") is { Length: > 0 } statsText)
+        area = area with { Stats = statsText.Split(',').Select(p => p.Split('=')).ToDictionary(p => int.Parse(p[0]), p => int.Parse(p[1])) };
 
     GenerationResult? result = null;
     var rng = new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
@@ -804,7 +835,7 @@ static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveT
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain); }
+    try { result = LevelGenerator.Generate(files, area, seed, topologyVariant: variant, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain, pluginStates: pluginStates); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);

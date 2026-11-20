@@ -117,7 +117,8 @@ decides each one (row bytes: +0x10 i32, +0x14 QuestFlag, +0x24 WorldArea, +0x34 
   419 NecropolisAreaUnlocked, 1834 DeepwaterBoatUnlocked;
 - a WorldArea (+0x24) needs that area's waypoint bit (0x4c): the Labyrinth pin's Labyrinth_Airlock, which the Gateway
   always sends as activated (and accepts as a 0x4d destination);
-- the i32 at +0x34 (`__col5`), when 1-59, must equal the current area's value at `(+0xc278)+0xd0`;
+- the i32 at +0x34 (`__col5`), when 1-59, must equal the league category at world `(+0xc278)+0xd0`, which 0x1d's
+  +0x28 sets (`InstanceEvents.LeagueCategory`, [011](../re/011-level-generation.md) §3);
 - +0x3a set hides the pin (SynthesisHub); +0x39 needs the Hideouts key (Player +0x1f8);
 - the DelveHub row (index 4) also compares a level (`0x140aa7860`), which the tested character passed.
 
@@ -133,11 +134,20 @@ the panel was opened from; the Gateway moves the player to the hub (arriving at 
 | 0x181 | `0181 00002F00 00` | Kingsmarch | KalguuranSettlersLeague |
 | 0x182 | `0182 00002F00 00` | Monastery of the Keepers | ChayulaLeague |
 | 0x184 | `0184 00002F00` | Rogue Harbour | HeistHub |
+| 0x183 | `0183 00002F00 00` | Deepwater | DeepwaterHub (The Sovereign) |
 
-The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in); the
-Guild Hideout, Halls of the Dead, Necropolis and Deepwater pins are not mapped yet. The Deepwater pin (`__col5` 59)
-sends nothing when clicked: the client refuses it outside its own area type, and `/goto DeepwaterHub` builds no layout
-(its graph nests `hub_interior.dgr` as a sub-graph node, which the level generator does not place yet).
+The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in). The click
+handler `0x140aa3880` switches on the row: 0 Hideout 0x17a, 1 Guild Hideout 0x185, 2 Labyrinth 0x4d, 3 Menagerie 0x17b,
+4 Mine Encampment 0x17d, 5 Synthesis 0x17c, 6 Sanctum 0x17e, 7 Halls of the Dead 0x17f, 8 Necropolis 0x180,
+9 Kingsmarch 0x181, 10 Rogue Harbour 0x184, 11 Monastery 0x182, 12 Deepwater 0x183; the u8 is 1 with Ctrl held.
+Without Ctrl it sends nothing while `0x140aa76f0` says the player is already there: the current area's type equals the
+row's `__col15` (53 for Deepwater, so the pin is off on The Sovereign).
+The Deepwater pin (`__col5` 59) is enabled only when 0x1d sends league category 59, which the Deepwater module does in
+the Allflame leagues; it also answers `/boat` (C→S 0x16, Commands row 70) and the Deepwater Coast's rowboat. The pin and
+`/boat` are refused before the first visit (QuestFlags 3556), and the u8 is ignored.
+The Sovereign is a generated layout ([011](../re/011-level-generation.md) §3c3): the player arrives at hub.arm's
+`default` point, its waypoint is the deck tile's `DeepwaterHubBoat_waypoint`, and its two boat gates are in-area
+teleports between the deck and below deck.
 
 **Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
 (`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,

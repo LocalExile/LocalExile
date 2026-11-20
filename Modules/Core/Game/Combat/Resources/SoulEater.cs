@@ -43,8 +43,11 @@ public static partial class Game
         return (int)Math.Clamp(SoulEaterState.MaximumStacks + (long)bonus, 0, ushort.MaxValue);
     }
 
+    static bool MapSoulEater(ClientState conn) =>
+        MapModsOf(conn)?.Get("map_player_consume_nearby_souls") > 0;
+
     public static bool SoulEaterActive(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
-        SoulEaterHitCooldownMs(stats) > 0 || SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
+        MapSoulEater(conn) || SoulEaterHitCooldownMs(stats) > 0 || SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
 
     /// <summary>The buff's attack speed part, added to the final main-hand value without rebuilding the pools.</summary>
     public static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
@@ -57,7 +60,7 @@ public static partial class Game
     /// <summary>The stat snapshot's part: the attack/cast speed buckets and the capped character size.</summary>
     public static void WithSoulEater(ClientState conn, Dictionary<uint, int> stats)
     {
-        bool flask = SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
+        bool flask = MapSoulEater(conn) || SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
         int hitCooldown = SoulEaterHitCooldownMs(stats);
         bool active = flask || hitCooldown > 0;
         conn.SoulEater.Enabled = active;

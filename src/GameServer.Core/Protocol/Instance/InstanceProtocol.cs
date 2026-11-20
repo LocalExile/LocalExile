@@ -28,6 +28,24 @@ public static class InstanceProtocol
     /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
     public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
 
+    /// <summary>0x1d's extra data (<see cref="AreaInstance.TerrainData"/>) holding only terrain plugin states: flag bytes
+    /// 0x00, 0x01 (second byte bit 0), u8 count, then per plugin its TerrainPlugins <c>__col1</c> id (u16), the state's
+    /// length (u16) and the state, little-endian (<c>0x141ecdad0</c> → world +0x70). At generation start the client
+    /// creates each listed plugin with its state, then the area's own plugin with an empty one unless listed
+    /// (<c>0x141eca930</c>).</summary>
+    public static byte[] TerrainPluginStates(IReadOnlyList<(ushort Plugin, byte[] State)> states)
+    {
+        if (states.Count is 0 or > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(states));
+        var bytes = new List<byte> { 0x00, 0x01, (byte)states.Count };
+        foreach (var (plugin, state) in states)
+        {
+            if (state.Length > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(states));
+            bytes.AddRange([(byte)plugin, (byte)(plugin >> 8), (byte)state.Length, (byte)(state.Length >> 8)]);
+            bytes.AddRange(state);
+        }
+        return [.. bytes];
+    }
+
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
@@ -105,19 +123,23 @@ public static class InstanceProtocol
         InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength, InstancePantheon.ChooseGodId => InstancePantheon.ChooseGodLength,
         InstanceWaypoints.VisitDelveHubId => InstanceWaypoints.VisitDelveHubLength, InstanceWaypoints.VisitSanctumId => InstanceWaypoints.VisitSanctumLength,
         InstanceWaypoints.VisitKingsmarchId => InstanceWaypoints.VisitKingsmarchLength, InstanceWaypoints.VisitHeistHubId => InstanceWaypoints.VisitHeistHubLength,
-        InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength,
+        InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength, InstanceWaypoints.VisitDeepwaterHubId => InstanceWaypoints.VisitDeepwaterHubLength,
         InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
         // Ctrl + click with the map device open: a map sends one of these, never 0xe8 (that is the Atlas Idol path).
         InstanceMapDevice.MoveIntoDeviceId => InstanceMapDevice.MoveItemLength,
         InstanceMapDevice.MoveOutOfDeviceId => InstanceMapDevice.MoveItemLength,
+        InstanceItems.MissionSlotMoveId or InstanceItems.CraftingSlotMoveId or InstanceItems.LockerMoveId
+            or InstanceItems.ExtractionMoveId or InstanceItems.SocketStorageMoveId => InstanceItems.LeagueWindowMoveLength,
+        InstanceItems.CollectionTakeId => InstanceItems.CollectionTakeLength,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnObjectId => InstanceItems.UseItemOnObjectLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
         InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
         InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,
         InstanceItems.LevelUpGemId => 14, InstanceItems.LevelUpAllGemsId => InstanceItems.LevelUpAllGemsLength, InstanceItems.LockGemId => InstanceItems.LockGemLength,
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
+        InstanceEntities.CancelBuffId => InstanceEntities.CancelBuffLength,
         InstanceNpcs.VoteAnswerId => InstanceNpcs.VoteAnswerLength,
-        InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.DeleteFolderId => InstanceStash.DeleteFolderLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
+        InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TakeAllRewardsId => InstanceNpcs.TakeAllRewardsLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.DeleteFolderId => InstanceStash.DeleteFolderLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
         InstanceEntities.AtlasTreeTabId or InstanceEntities.AtlasRefundAllId or InstanceEntities.AtlasTreeWidgetId => InstanceEntities.AtlasTreeTabLength,
         SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
@@ -141,19 +163,18 @@ public static class InstanceProtocol
         0x0038 or 0x011a or 0x012e or 0x013c or 0x013e or 0x0159 or 0x0168 or 0x0169 or 0x016a or 0x016c or 0x0171
             or 0x0186 or 0x018a or 0x018d or 0x019b or 0x020e or 0x021e or 0x0224 or 0x0243 or 0x024c or 0x0257
             or 0x025d or 0x0260 or 0x0264 or 0x027e or 0x0296 or 0x02a6 or 0x02ac or 0x02ce or 0x02d5 => 2,
-        0x001a or 0x005e or 0x0083 or 0x008b or 0x00ac or 0x00d9 or 0x00da or 0x0156 or 0x0187 or 0x01f7 or 0x01f8
+        0x001a or 0x005e or 0x0083 or 0x00ac or 0x00d9 or 0x00da or 0x0156 or 0x0187 or 0x01f7 or 0x01f8
             or 0x0245 or 0x024f or 0x0297 or 0x0298 or 0x02a3 or 0x02a4 => 3,
         0x011d or 0x0142 or 0x0143 or 0x016b or 0x01fd or 0x021d or 0x0221 or 0x0222 or 0x0247 or 0x0255 or 0x02b1
             or 0x02d0 or 0x02d1 => 4,
         0x0249 or 0x027d => 5,
-        0x004b or 0x005c or 0x005d or 0x0066 or 0x0069 or 0x00a2 or 0x00d0 or 0x0113 or 0x01fc or 0x0206 or 0x020b
+        0x005c or 0x005d or 0x0066 or 0x0069 or 0x00a2 or 0x00d0 or 0x01fc or 0x0206 or 0x020b
             or 0x020f or 0x0217 or 0x0218 or 0x0259 or 0x026b or 0x0275 or 0x027a or 0x0284 or 0x0288 or 0x0289
             or 0x02a1 or 0x02fd => 6,
-        0x002e or 0x0065 or 0x0068 or 0x0107 or 0x0152 or 0x017c or 0x017f or 0x0180 or 0x0183 or 0x0185 or 0x01da
+        0x002e or 0x0065 or 0x0068 or 0x0107 or 0x0152 or 0x017c or 0x017f or 0x0180 or 0x0185 or 0x01da
             or 0x01dc or 0x01e0 or 0x01fb or 0x01fe or 0x0216 or 0x028e or 0x02d6 => 7,
         0x0062 or 0x00ef or 0x00f0 or 0x00f1 or 0x00f2 or 0x00f8 or 0x00fa or 0x00fb or 0x00fc or 0x00ff or 0x0100
-            or 0x0102 or 0x0104 or 0x0105 or 0x0108 or 0x0109 or 0x010d or 0x010e or 0x010f or 0x0111 or 0x0112
-            or 0x0115 or 0x01ec => 8,
+            or 0x0102 or 0x0104 or 0x0105 or 0x0108 or 0x0109 or 0x010d or 0x01ec => 8,
         0x00e2 or 0x00f4 or 0x00fd or 0x0106 or 0x010a or 0x010b or 0x010c => 9,
         0x0061 or 0x00f9 or 0x013a or 0x01a7 or 0x01d8 or 0x01d9 or 0x0265 or 0x029b or 0x02d3 => 10,
         0x0057 or 0x0060 or 0x0063 or 0x0064 or 0x0177 => 11,
@@ -660,8 +681,8 @@ public static class InstanceProtocol
             case 0x028f:
                 return MeasureRecombine(data, out length);
             // u16 id, u8 ruleset, CompactUInt(len), len bytes (ruleset message, writer 0x141fa7c10 / reader 0x141fa7ca0).
-            case 0x02ca:
-                return MeasureRulesetMessage(data, out length);
+            case InstanceRulesets.ActionId:
+                return InstanceRulesets.MeasureActionLength(data, out length);
             default:
                 if (KnownClientLength(id) is int fixedLen) { length = fixedLen; return WireMeasure.Ok; }
                 length = 0;
@@ -757,53 +778,6 @@ public static class InstanceProtocol
         return WireMeasure.Ok;
     }
 
-    static WireMeasure MeasureRulesetMessage(ReadOnlySpan<byte> data, out int length)
-    {
-        length = 0;
-        if (data.Length < 4) return WireMeasure.Incomplete;
-        var status = TryReadCompactUInt(data[3..], out uint payloadLen, out int lenBytes);
-        if (status != WireMeasure.Ok) return status;
-        if (payloadLen > ushort.MaxValue) return WireMeasure.Invalid;
-        int total = 3 + lenBytes + (int)payloadLen;
-        if (data.Length < total) return WireMeasure.Incomplete;
-        length = total;
-        return WireMeasure.Ok;
-    }
-
-    static WireMeasure TryReadCompactUInt(ReadOnlySpan<byte> data, out uint value, out int byteLength)
-    {
-        value = 0;
-        byteLength = 0;
-        if (data.Length == 0) return WireMeasure.Incomplete;
-        byte first = data[0];
-        if (first < 0x80) { value = first; byteLength = 1; return WireMeasure.Ok; }
-        if (first < 0xc0)
-        {
-            if (data.Length < 2) return WireMeasure.Incomplete;
-            value = (uint)((first & 0x3f) << 8 | data[1]);
-            byteLength = 2;
-            return WireMeasure.Ok;
-        }
-        if (first < 0xe0)
-        {
-            if (data.Length < 3) return WireMeasure.Incomplete;
-            value = (uint)((first & 0x1f) << 16 | data[1] << 8 | data[2]);
-            byteLength = 3;
-            return WireMeasure.Ok;
-        }
-        if (first < 0xf0)
-        {
-            if (data.Length < 4) return WireMeasure.Incomplete;
-            value = (uint)((first & 0x0f) << 24 | data[1] << 16 | data[2] << 8 | data[3]);
-            byteLength = 4;
-            return WireMeasure.Ok;
-        }
-        if (data.Length < 5) return WireMeasure.Incomplete;
-        value = BinaryPrimitives.ReadUInt32BigEndian(data[1..]);
-        byteLength = 5;
-        return WireMeasure.Ok;
-    }
-
     /// <summary>Parses the client's plaintext opening, or null if fewer than <see cref="OpeningLength"/> bytes arrived.</summary>
     public static InstanceOpening? TryReadOpening(ReadOnlySpan<byte> buf)
     {
@@ -822,6 +796,7 @@ public static class InstanceProtocol
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142189aa0. Other optional parts remain off. Defaults follow the constructor (0x1421a42b0).
+/// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
