@@ -89,7 +89,7 @@ public sealed partial class AccountStash
             int parent = -1;
             for (int i = 0; i < _tabs.Count; i++)
                 if (_tabs[i].Saved.Type == StashRules.Map && _tabs[i].Saved.UniqueCategory == 0
-                    && _tabs[i].Saved.Parent == ushort.MaxValue) { parent = i; break; }
+                    && !_tabs[i].Saved.Hidden) { parent = i; break; }
             if (parent < 0) return 0;
             var have = MapChildren(parent).Select(i => _tabs[i].Saved.UniqueCategory).ToHashSet();
             int added = 0;

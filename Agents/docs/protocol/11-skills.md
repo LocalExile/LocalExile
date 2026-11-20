@@ -1586,6 +1586,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   native use refresh briefly restores the recovery rate, but the held remaining stays full so the ring does not move;
   `StartTriggeredGuard`'s held entry behind the 0x1ce freezes the rate again. Without the pre-entry the prediction swept
   ~109 ms (3.00 → 2.89) on a slow first press before the held entry froze it (#1127).
+  A skill-list refresh (Actor 0x20, `SendSkills`) replaces every skill record, and that replacement refreshes an existing
+  zero-rate entry (the `0x141ef1573` case above): a movement or conditional-item-stat refresh during the buff therefore
+  started the held entry counting again at the recovery rate (Frida: `[3,3,0]` → `[3,3,1]` → counting, live 2026-11-19).
+  `SendSkills` re-publishes the held rate-0 entry behind the list (`HeldGuardCooldownRefresh`), so the bar stays frozen
+  through stat refreshes; a zero-rate refresh replaces the entry without restarting its animation (#1127).
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
@@ -2811,8 +2816,9 @@ The Spirit chieftains are the first (section 10f).
   its attack time.
   There the hit needs both alive and within reach + 2; it rolls the minion's accuracy (DefaultMonsterStats at its
   level) against the target's evasion, then the target's block, then the target's mitigation (`MonsterTakesRolled`).
-  S→C 0x1af shows the hit (the minion as source, flags 0x4601), the target's Life follows, and a kill gives the
-  player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
+  S→C 0x1af shows the hit (the minion as source, kind 3, flags 0x4201, code by type), the target's Life follows,
+  and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
+  kill it).
   A minion's hit does not count as the player hitting.
 - End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
   removed a second later (0x2bd).

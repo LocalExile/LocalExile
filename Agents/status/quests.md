@@ -102,7 +102,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
-  Every quest object, chest and NPC the rules name is placed at seed 1.
+  Every quest object, chest and NPC the rules name is placed at seed 1. Helena's rescue uses her visible state 2
+  on the kill and on re-entry; her asset's last state hides her. Sin's first appearance after Innocence advances
+  the paused entrance to state 2, while a return starts in the completed pose.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
@@ -195,11 +197,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- The bandit vote (a2q7's help path: talking to a bandit lord opens the client's vote panel through
-  `DispatchRulesetEvent(BanditCallVote)`, VoteType/VoteState) is not implemented; its messages are not
-  reverse-engineered.
-  The lords are hostile and the choice comes from the kills (the campaign runner kills all three); the help rewards'
-  stats (QuestStaticRewards 4–6) apply once their flags are set.
+- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
+  rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
 

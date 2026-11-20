@@ -105,6 +105,9 @@ public static partial class MapEssences
                 Keep(conn, area);
             });
         if (monster == 0) return false;
+        var pending = MapEssenceCatalog.PendingEffects(monolith.Essences);
+        if (pending.Count > 0)
+            Console.WriteLine($"[map-content] essence source=0x{monolith.Id:x} monster=0x{monster:x}: unsupported behaviours=[{string.Join(',', pending)}]; ordinary stats and essence rewards remain active");
         foreach (var member in Members(conn)) await Present(member, area.Monoliths![monolith.Index], true);
         // The transition showed the release; recreating the object would cut its break short. Kept dirty only if a send failed.
         area.Dirty.Remove(monolith.Index);

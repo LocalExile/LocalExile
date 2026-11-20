@@ -360,6 +360,8 @@ public static partial class Game
             : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
         if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
+        bool waitingForBanditChoice = !friendly && BanditChoices.In(conn) is { } bandit
+            && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(conn, bandit);
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? variety.StateMachine;
         uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
@@ -368,6 +370,7 @@ public static partial class Game
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(conn, variety),
+            HasDialogue = waitingForBanditChoice,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
@@ -480,7 +483,7 @@ public static partial class Game
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
                 // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
                 LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Yugul.Phases(conn, variety) ?? Arakaali.Phases(conn, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
-                EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
+                EntranceGrace = waitingForBanditChoice || !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
@@ -507,13 +510,21 @@ public static partial class Game
     // area without a walk map. Game_MONSTERS=0 turns it off.
     public static async Task PopulateArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        var layout = conn.Layout;
+        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0" || CaptureTour.Active(CharacterName(conn))) return;
+        // An entry without a walk map cannot place packs yet. Do not mark the shared instance populated: a later
+        // entry with its map ready must still place them. An established save (even empty) needs no new walk map.
+        if (conn.Instance.Monsters is null && layout.Id != Sirus.Area && layout.Walkable is null) return;
+        if (Monsters.Error is { } catalogError)
+        {
+            Console.WriteLine($"[gateway] {remote} area monsters: {catalogError}");
+            return;
+        }
         // Another player already runs this instance's monsters: this client shows theirs (SharedMonsters.cs).
         if (!ClaimMonsterHost(remote, conn)) return;
         // The packs go in one monster at a time, and the overlay's count waits for the last of them (the entry's 0x1a0,
         // Messages.cs): a recount per spawn would be a count of the area per monster.
         using var recount = HoldMonstersRemaining(conn);
-        var layout = conn.Layout;
-        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         // The Crux of Nothingness fight places its three Mystic Fetishes at fixed offsets from the room's mapboss point
         // (KingInMists.cs). Keep that point on the connection so the treant form uses the same origin as the humanoid,
         // and so a kept instance recovers it before its saved monsters are restored.
@@ -521,8 +532,6 @@ public static partial class Game
         if (layout.Id == "AzmeriLeagueBoss"
             && AreaPopulation.FitRooms(layout.Id, conn.Seed, [], "data").Points.FirstOrDefault(p => p.Name == "mapboss") is { } mapboss)
             conn.KingOrigin = (mapboss.X, mapboss.Y);
-        // A capture tour only waits for the recorder: no monsters to attack the character meanwhile.
-        if (CaptureTour.Active(CharacterName(conn))) return;
         // An instance entered before keeps its monsters as the last connection left them: where they were, with their
         // damage; the dead stay dead (#12).
         if (conn.Instance.Monsters is { } saved)
@@ -545,7 +554,6 @@ public static partial class Game
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the
         // separate maze layout the fight does not build yet.
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
-        if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
         var quests = QuestsOf(conn);
         bool useWetlandsFallback = false;
@@ -654,6 +662,9 @@ public static partial class Game
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
+            localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
+                    && t.Transition.TeleportTo.HasValue)
+                .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
@@ -817,8 +828,16 @@ public static partial class Game
             // Entry protection: hostile monsters neither chase nor swing while the player stands protected on the arrival cell.
             bool protectedEntry = InGracePeriod(conn);
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
+            var bandit = BanditChoices.In(conn);
+            bool banditHeld = bandit is not null && BanditChoices.Held(conn, bandit);
             foreach (var (id, m) in conn.Monsters)
             {
+                if (bandit is not null && m.Variety?.Id == bandit.Variety && m.Hostile)
+                {
+                    m.EntranceGrace = banditHeld && !m.Aggro
+                        && conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin) && origin.Object.HasDialogue;
+                    if (m.EntranceGrace) continue;
+                }
                 // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
                 // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
@@ -890,6 +909,28 @@ public static partial class Game
                         // 07 §5; a monster's freeze is not traced).
                         if (conn.LockstepClient) NextPlannedAction(m);
                         else plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is frozen"));
+                    }
+                    m.LastTarget = null;
+                    continue;
+                }
+                // Held by a Bear Trap: its walk or chase stops, once; it may still attack where it stands. A predictive client
+                // stops on a Move onto its own cell, as a freeze's; a lockstep client takes none, so it gets a knockback's
+                // teleport onto that cell (live 2026-11-19: without one it walked its whole leg at the slowed speed).
+                if (BearTrapHoldStarts(m, now))
+                {
+                    bool walking = now < m.Walk.ArrivesAt || m.LastTarget is not null;
+                    Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) held by a Bear Trap at ({mx}, {my})"
+                        + (walking ? $", its walk to {m.Walk.Destination} stopped" : ""));
+                    if (walking)
+                    {
+                        if (!conn.LockstepClient)
+                            plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is held by a Bear Trap"));
+                        else
+                        {
+                            NextPlannedAction(m);
+                            m.Walk.Teleport(mx, my, now);
+                            m.KnockbackPending = (mx, my);
+                        }
                     }
                     m.LastTarget = null;
                     continue;
@@ -993,7 +1034,7 @@ public static partial class Game
                 // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
                 // move them, so they get no chase. Neither does a type the client never walks (Pathfinding immobile),
                 // whatever its speed column says: the client would only hop it to each order's from cell.
-                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true };
+                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true } || m.Walk.MovementBlocked(now);
                 // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), a melee attack
                 // of a monster that never walks (the chase's own 0x1ab, whose goal test passes as it applies: 0x141e81c20),
                 // and any attack on a predictive client, where a walking player has already gone farther: no swing right
