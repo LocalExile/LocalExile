@@ -118,6 +118,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
   rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
   [14](../docs/protocol/14-monster-packs.md) §5).
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage and Decay, the imprisoned pack (mini monoliths
+  that release the pack's magic monsters with the rare), the imprisoned monster entities at the crystals (+0x104 carries
+  the monster id, so the gold name/mod/essence panel draws) and the release daemon spells (the hit-kit summons and damage
+  spells work; the resistance/chaos pulses and the Envy grab are wired as kit specials but fight the auto-attack and draw no
+  cast animation — core kit support needed, #1206);
+  the 3.29 Atlas essence cluster applies (monolith count via the CoreLeagues Essence row, additional-essence and
+  3-additional chances, higher tier, Amplified Energies' max-tier, the Essence Rare Chance essence-modded rare drop, the
+  Remnant-of-Corruption chance and Crystal Resonance's map-boss essence inheritance with its essence drops); the
+  crystal/statue visuals (the `rig.ao` shards), the specialised daemon spells and buff essences (Anguish/Loathing/Zeal/Scorn),
+  the Remnant's slow/phys-DoT aura and on-death Fleshmonster summon, the Misery proximity shield and the Adaptation scarab's
+  per-essence enhancement remain partial (#505, #1206).
+- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
+  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
 - Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),

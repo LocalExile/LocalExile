@@ -421,7 +421,7 @@ the older 3.29.3b capture support that range. Other emerge types retain 24; gene
 `Metadata/MiscellaneousObjects/Monolith` reads Positioned, Animated, MinimapIcon, InteractionAction,
 Transitionable, Monolith, StateMachine and BaseEvents, in that order.
 The Monolith reader `0x1415df360` takes little-endian `u8`, MonsterVarieties `HASH16`, `u8` count,
-then count × Essences `HASH32`, then `u32` (component +0x104; meaning unverified, currently sent as zero).
+then count × Essences `HASH32`, then `u32` (component +0x104).
 The first byte is stored at component +0xf0; the essence references occupy +0xc8/+0xd0.
 The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
 Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
@@ -431,3 +431,263 @@ Vaal Orbs replaced Remnants in 3.27; the legacy `CurrencyCorruptMonolith` table 
 The historical `deal_chaos_damage_per_second_for_10_seconds_on_hit` id has an **8-second** duration in the pinned
 client's `stat_descriptions` block. Its Decay icon is BuffDefinitions row 766 (`IsRecovery=false`, `__col44=false`):
 no inline values or `u82`, despite its granted per-minute chaos-damage stat.
+
+### The imprisoned monsters and the essence panel (2026-11-20)
+
+**What the official client shows.** The encounter is one large blue crystal (`Monolith`) with a rare monster in it and
+3 to 5 small crystals (`MiniMonolith`) around it, each holding a magic monster of the same pack. The crystals are the
+only objects: the monsters are separate monster entities standing exactly at the crystals, so their models show through
+the ice (a magic mini looks like a blue, frozen spider). The main crystal is activated three times (Transitionable 1 → 2 →
+3 → 4); the fourth transition removes collision, plays the break and releases the rare. The small crystals break with it.
+The panel that the official client draws over the crystal (the two screenshots of 2026-11-20) is, top to bottom:
+
+| Row | Source |
+|---|---|
+| Ornate gold name, e.g. "Shavronne's Greed" or "Deep Crustacean" | the imprisoned monster's **MonsterVarieties.Name**, not its generated rare name (the rare name stays on the top life bar). Both screenshots' names are `MonsterVarieties` rows (`Metadata/Monsters/Undying/CityStalkeFemaleShavronneCaster` and `Metadata/Monsters/ShieldCrabs/ShieldCrabTempestShieldCharge`). |
+| 1–4 white mod lines, e.g. "Life Regen", "Extra Life", "Fire and Ignite Resistant", "Energy Shield Aura" | the monster's rarity affixes, i.e. `ObjectMagicProperties` (the same lines a rare's hover panel shows; §5). |
+| One coloured line per essence, with the essence item's icon, e.g. "Shrieking Essence of Anger", "Deafening Essence of Doubt", "Remnant of Corruption" | the Monolith component's Essences list; the text is the `Essences.BaseItemTypesKey` name (tier included), the icon its 2D art (`Art/2DItems/Currency/Essence/<Type><Tier>`). |
+| Italic footer "The monster is imprisoned by powerful Essences." | `ClientStrings` row 2337, Id `MonolithHelperText`. |
+| Round portrait at the top right | the essence art (red Essence of Anger in the first screenshot). |
+
+The imprisoned preview monster carries **only its own rare affixes** in `ObjectMagicProperties` (the top section), not the
+essence mods: those apply to the released rare only. Spawning the preview with the essence mods baked the essence names
+into the top section, so a corruption that changed the essences left the old names there (live 2026-11-20). The essence
+names in the panel come solely from the Monolith component's list (the bottom section), which updates on corruption.
+
+The strings that name the interaction come from the same block: `ClientStrings` 2340 `ItemErrorCannotApplyToMonolith`
+("Item cannot apply to monsters trapped by Essences."), `BackendErrors` 466 `InteractErrorEssence` ("Something else is
+keeping this Essence imprisoned."), `ClientStrings` 1547–1549 (mission tracking "Slay the monster(s) trapped in
+Essences."), 3914–3918 (the tutorial: "large blue crystals … have imprisoned several monsters. By activating the central
+crystal you can free the monster within …"), 2357 (three of a type upgrade at the vendor) and `ReminderText` 337 (white
+maps at most Screaming, yellow and red at most Shrieking). None of these strings is in the exe; the panel is assembled at
+run time from the tables.
+
+**Where the panel's data can and cannot come from.** `ObjectMagicProperties` carries no essence list: the 3.29.3c reader
+`0x142208700` (called by the component wrapper `0x141e7e080` with `rcx = component + 0xc8`) fills only the mod lists
+(implicit at +0x88, explicit +0xa0, enchant +0xb8, scourge +0xd0, hidden +0xe8), the rare/unique name (Words vector at
++0x0, custom name at +0x18) and the alternate quality pair (+0x1c0/+0x1d0). The monolith reader `0x1415df360` stores the
+variety reference at +0xe0, the essences at +0xc8 (16-byte entries: the Essences row and its +8 field) and the trailing
+`u32` at +0x104. A `GetComponent<ObjectMagicProperties>` → name path (`0x1415dee10` → `0x14220ba50`) builds a monster's
+name from the Words vector, its rarity and the custom name; it never sees essences. So the panel has to be attached to the
+**monolith** and the only wire field that can link it to the monster (whose name and mods it needs) is the free `u32` at
++0x104. Live 2026-11-20: with the preview monster's entity id there the panel draws the monster's name and mod lines,
+the essences and the helper text; with 0 the crystal still renders but the panel has no monster. The field is therefore
+the imprisoned monster's entity id (or a reference the client resolves to it), and a monolith built with 0 must keep
+working.
+
+**Vaal corruption (wiki, verified against `MapEssenceCatalog`).** A Vaal Orb on an unreleased monolith picks one of four
+outcomes at random: release the monsters with the essences unchanged; raise every essence one tier; add one essence of a
+new type; or transform each essence to a random type of the same tier in the **next colour group** (raising the tier to
+that group's minimum when it is higher — Muttering Fear → a Weeping group-C essence). Group E (Misery/Envy/Dread/Scorn,
+"Purple MEDS") transforms into the corrupted four Hysteria/Insanity/Horror/Delirium regardless of tier. The Stability scarab
+(`map_stable_essence_corruption`) leaves only upgrade/transform. Crystal Resonance (`map_essence_remnant_convert`; the 3.30
+Commensurate Corruption node) replaces the whole list with one of the essences the monster **already had** — an original
+essence, not a transformed one — which disables the transform-to-corrupted outcome (the guides advise avoiding the node when
+farming corrupted essences). `Corrupt`/`Transform`/`Higher`/`Additional` implement these.
+
+**The corrupted indicator is the `+0xf0` byte's bit 1 (confirmed live 2026-11-20).** The Monolith reader takes only
+`u8, u16, u8, count × u32, u32` — no separate corrupted byte — and there is no `MonolithCorrupted` client string; the
+corruption buff visuals (653 `monster_remnant_of_corruption_effect`, 654 `remnant_of_corruption_aura`, BuffDefinitions 768)
+are the Remnant essence's monster aura, not a monolith flag. Items carry corrupted as the Base component's `+0xc7` bit 0;
+monsters have no such flag. The component's first byte `+0xf0` (the .ot `is_mini_monolith`) is a bitfield — bit 0 mini,
+bit 1 corrupted — so a corrupted main monolith sends 2 and the client shows it as corrupted (verified; the crystal does not
+shrink to a mini, so the byte is not read as a plain bool).
+
+**Official 3.30 data (extracted 2026-11-20).** The Steam client's `Bundles2` can be read with
+`Tools/PoEDataExtractor` (`cat`/`decode` take the install folder, not a GGPK); its 3.30 `BuffDefinitions.datc64` and
+`BuffVisuals.datc64` decode with `data/schema/schema.min.json` with **no column mismatch**. The composition is unchanged
+from 3.29.3c, only the row numbers moved: `frozen_in_time` → `legion_petrify` (3.30 `BuffVisuals` 1085, 3.29 1082) and
+grants the `frozen_in_time` stat (3.30 stat 9473); `monolith_monster_freedom` → 660 (657); `monster_essence_effect_buff`
+→ 661 (658); `frozen_in_time_0/1/2` → 665/666/667 (662/663/664). No `BuffDefinitions` row in either build uses
+`monster_essence_effect_buff`, so the only way the client can show it is an `AddBuff` visual override. That is the essence
+effect: `frozen_in_time` (for the animation-stopping stat) with its visual overridden to `monster_essence_effect_buff`.
+`legion_petrify` is the row's own default and belongs to Legion, not to the essence encounter. The magic/rare rarity glow
+buff is also not part of the official imprisoned monster and must not be sent.
+
+**The crystals' client data** (`object_types` in `client.db`, all of 3.29.3c):
+
+| Type | Components (read) | States | Client transition events |
+|---|---|---|---|
+| `Metadata/MiscellaneousObjects/Monolith` | Positioned, Animated, MinimapIcon, InteractionAction, Transitionable, Monolith, StateMachine, BaseEvents (8); object_size 5, blocking, `animated_object = …/essence/monolith/rig.ao` | 4 | `create_state_1 = PlayAnimation(stage_01); PauseAnimation();`; `create_state_2/3 = PlayAnimation(stage_01b/stage_02b)`; `create_state_4 = PlayAnimation(stage_03); GoToAnimationEnd(); PauseAnimation(); DisableTargetable(); RemoveCollidability(); HideMinimapIcon();` — from the client block of the `.ot` (the parsed `object_types` columns only cover the server block, so they read empty) |
+| `Metadata/MiscellaneousObjects/MiniMonolith` | Positioned, Animated, Transitionable, Monolith, BaseEvents, Render (5); object_size 2, blocking, `animated_object = …/essence/monolith/rig_small.ao` | 1 | `on_transition = RemoveCollidability(); PlayAnimation(break);` and `create_transitioned = PlayAnimation(break); GoToAnimationEnd(); PauseAnimation(); RemoveCollidability();` |
+
+The `.ot` `object_size` is **client-side**: the Positioned wire byte is a flag (sending the `.ot` value 5 there made the
+client read past the components and answer `0x02fc "Buffer Underflow"`). The **state values are 1..4**: state 1 (the
+created state) plays `stage_01` and pauses, which is the intact crystal; each click steps 2, 3, 4, whose client events
+play `stage_01`, `stage_02`, `stage_03` and the Animated `on_end_stage_01/02` play `stage_01b`/`stage_02b`. Recreating
+the object at a later state (`create_state_2/3`) plays the `b` animation instead, so a change of state should be a
+Transitionable update, not a recreate.
+
+The only client-side encasing/ice code in the whole `object_types` table is on
+`Metadata/Monsters/LeagueDelve/SkeletonAbyssEssence` (a Delve monster): `create_untransitioned` is
+`AddEffectPack('Metadata/Effects/StatusAilments/monsters/frozen_in_time.epk'); PlayAnimationRandom(attack1_sword_sword_left);
+PauseAnimation();` and `on_transition` is
+`RemoveEffectPack('…/frozen_in_time.epk'); PlayAnimationAttached('…/essence/monolith/rig_small.ao', break);`. That is the
+recipe for a statue: an effect pack plus a paused animation, then the mini crystal's break. Ordinary map monsters have no
+Transitionable component in their `.ot` (the generic `Metadata/Monsters/Monster` chain is Positioned, Stats,
+ObjectMagicProperties, BaseEvents, Pathfinding, Buffs, Life, Animated, Inventories, Actor, Monster, Render, Targetable), so
+the map essence encounter cannot use that path directly; it is recorded here because it is the client's own definition of
+the encased look and of the break.
+
+The matching buffs: `BuffDefinitions` 772 `monolith_monster_freedom` (Invisible, category 18, granted
+`base_damage_taken_+%` 479) uses `BuffVisuals` 657, `Metadata/Effects/StatusAilments/monsters/frozen_in_time_stage04.epk`
+— the shatter. `BuffVisuals` 662/663/664 are the three intact stages (`frozen_in_time.epk`, `…stage02.epk`, `…stage03.epk`)
+and no BuffDefinitions row uses them; they are the monolith's own animation/effect stages. `BuffDefinitions` 2 `frozen`
+(`BuffVisuals` 4: `StatusAilments/Frozen.epk` + `supports/aurafy/ice.epk`) is the ordinary freeze ailment, not a statue.
+`BuffDefinitions` 1311 `frozen_in_time` grants stat 9468 `frozen_in_time` (with 981 and 1310), the stat the client stops a
+Legion monster's animation with; its own visual is `BuffVisuals` 1082 `legion_petrify`, but an AddBuff can override the
+visual (flags bit4), which is how the essence statue gets `frozen_in_time_0/1/2` while keeping the freeze stat.
+
+**Data for the essences themselves.** `Essences` rows: `BaseItemTypesKey` (name and art), `HASH32` (sent in the Monolith
+blob), `Level` = tier 1..7, `EssenceTypeKey`, `DropLevel`, `Monster_ModsKeys` and `Display_Monster_ModsKey`;
+`EssenceType` gives the colour group (`EssenceType` 1–5 for the normal types, 6 for the corrupted Hysteria/Insanity/
+Horror/Delirium, 0 for `NotEssence`), `IsCorruptedEssence`, and the words row. Tier names: Whispering 1, Muttering 2,
+Weeping 3, Wailing 4, Screaming 5, Shrieking 6, Deafening 7. `Essences` row 104 is `Remnant of Corruption` (type 25,
+`Level` 0, DropLevel 32) — the special Remnant essence (`CurrencyCorruptMonolith`); the catalog's `Level > 0` filter
+excludes it, and it carries the `RemnantOfCorruptionMonsterBuff/Aura/Stats` mods plus an on-death fleshmonster summon
+(`Display_Monster_ModsKey` → `EssenceFleshmonsterSummonedOnDeath`), so it is a monster modifier, not a plain panel line.
+
+**Atlas passives and scarabs (3.29, checked against the 3.30 Steam client).** The essence stats reach the module through
+the map's area stats (`Game.MapAreaStats` composes the active atlas preset; `MapModsOf` reads `KeptAreaStats`). The monolith
+**count** needs no module code: the `CoreLeagues` Essence row (row 6) rolls base = `map_extra_monoliths` +
+`map_leaguestone_additional_monoliths`, bonus chance = `map_extra_monolith_%_chance`, first-chance add = `map_monolith_chance_%`,
+max 10 — so Prolific Essence (`map_extra_monoliths` +1) and the Essence Chance small nodes (`map_extra_monolith_%_chance` +5)
+feed `LeagueCount` directly. Applied in `MapEssenceCatalog.Roll` / `MapEssences.Drops`: additional-essence chance
+(`map_essence_monsters_have_an_additional_essence_%_chance` +5), Crystal Lattice
+(`map_essence_monsters_chance_for_3_additional_essences_%` 15), Amplified Energies (`map_essence_X_essences_at_highest_tier` 1 →
+X essences raised to the highest tier their type reaches in the area pool), higher-tier chance
+(`map_essences_are_1_tier_higher_chance_%`), and Essence Rare Chance
+(`map_essence_monsters_drop_rare_item_with_random_essence_mod_%_chance` +25 → a rare item with a random essence's guaranteed
+mod via `EssenceCrafting.Apply`). Crystal Resonance's `map_essence_remnant_convert` is read by `Corrupt`, and its second
+stat `map_essence_X_mods_inherited_by_map_boss` is implemented in `EssenceBoss.cs`: each slain released rare hands X random
+essences to one map boss (not imprisoned), the tick applies them to the live boss (mods, scaled max life, life recovered
+to full, attack/speed, name plate, instance record) following `MapTorment.Apply`, and the boss drops the inherited essences
+when slain (wiki: "if multiple map bosses, one receives the mod … the boss that has the modifier drops the corresponding
+essence … if it already took damage, its life is recovered"). The boss is matched against the area's `WorldAreas`
+`Bosses_MonsterVarietiesKeys` (cached per area): Mesa's Oak the Mighty (`MapBanditLeaderOak`) has `BossHealthBar` 0, so the
+big-life-bar test alone never found it. The Remnant-of-Corruption chance
+(`map_essence_monolith_contains_essence_of_corruption_%`) adds the tier-0 Remnant essence (`CurrencyCorruptMonolith`, kept in
+the catalog but out of `Pool`) to the monolith; its `RemnantOfCorruption` monster mods apply on release, while its on-death
+fleshmonster summon stays a specialised-daemon gap. **Still not applied (needs a source):** the Adaptation scarab's
+`map_essence_imprisoned_monsters_enhanced_for_each_essence` (the data gives no value mod for it; the `map_imprisoned_monsters_*`
+stats belong to the dead domain-12 leaguestone mods "of Burden"/"of Wealth"/"Refined").
+
+The five essence scarabs are **identical in 3.29 and 3.30** (nothing removed): Essence Scarab (`map_has_monoliths` +
+`map_extra_monoliths` 3), Ascent (`map_essences_are_1_tier_higher_chance_%` 100), Calcification
+(`map_rare_monsters_trapped_in_essences` 1), Stability (`map_stable_essence_corruption` 1), Adaptation (the transfer chance 100 +
+`enhanced_for_each_essence` 1). The 3.30 **atlas** cluster was reworked (61 nodes): most small nodes became
+`map_additional_monolith_surpassing_chance_%`, Prolific Essence grants that chance instead of +1 monolith, Crystal Resonance
+swaps `map_essence_remnant_convert` for `map_boss_drop_calcified_map_chance_per_essence_up_to_15%` (the convert moves to a new
+Commensurate Corruption notable), and new notables add double corruption (`map_essences_monster_can_be_twice_corrupted`,
+Recrystallisation), possessed monsters / Rogue Exiles (Supernatural Genesis) and per-type essence chance selectors. None of that
+is in the 3.29 client, so the replica implements the 3.29 cluster only.
+
+**The release.** An essence's release spell comes from `Essences.Display_Monster_ModsKey` → that mod's `MonsterMetadata`:
+a `Metadata/Monsters/Daemon/EssenceDaemon*` variety whose granted effects are the spell (Hatred → `EssenceDaemonColdPulse`,
+Anger → `EssenceDaemonFirePulse`, Wrath → `EssenceDaemonLightningPulse`, Woe → `EssenceDaemonSummonLivingCrystals`,
+Greed → `EssenceDaemonBloodProjectileDaemon`, Contempt → `EssenceDaemonSummonKaruiSpirit`, Sorrow →
+`EssenceDaemonTotemGroundEffectVortex`, Torment → `EssenceDaemonSummonOrbOfStormsDaemon`, Fear → `EssenceDaemonSummonGhost`,
+Suffering → `EssenceDaemonFrostBomb`, Rage → `EssenceDaemonFireRuneTrap`, Doubt → `EssenceDaemonSummonSpiders`,
+Spite → `EssenceDaemonTotemGroundEffectShocked`, Misery → `EssenceDaemonChaosDegenPulse`, Dread →
+`EssenceDaemonSummonChaosGolem`, Envy → `EssenceDaemonGrab`; the corrupted four → `EssenceDaemonMadness1`/`Insanity1`/
+`Horror1`/`Terror1_`, Desolation → `Metadata/Monsters/FaridunLeague/FaridunDaemon/EssenceDaemon_`). Anguish, Loathing,
+Zeal and Scorn have an empty `MonsterMetadata` (their display mods name alternating buffs / on-death elementals, not a
+daemon). `Monster_ModsKeys` are the stat mods instead: `EssenceDaemonModLifeAndDamageLevel1..7`,
+`EssenceDaemonModRarityAndQuantityLevel1..7` and a physical-added-and-converted-to-cold mod — all with **empty names**, so
+they do not draw on a hover panel. The essence's name on the monster (released rare, or a boss that inherited it) comes
+from the `Display_Monster_ModsKey` mod itself, a name-only mod ("Whispering Essence of Hatred", "Essence of Hysteria"); it
+is added to the monster's mods alongside the stat mods so the essence shows on hover. The league's terrain room is
+`Metadata/Terrain/Leagues/Essence/monolith.arm` ("EssenceMonolith", 3×3).
+
+**The spells the hit kit cannot represent (`EssenceSpells.cs`).** A daemon effect with no hit damage, summon or projectile
+is dropped from the rare's kit (`BossKits.AttackFor`), so three essences would cast nothing through it: Misery's
+`RepeatedPulseDegen` (5996) and `EssenceDaemonProximityShield` (2842), Envy's `EssenceDaemonGrab` (2929), and the
+resistance pulses `RepeatedPulseCold`/`Fire`/`Lightning` (5990/5995/5992 — Hatred/Anger/Wrath's nova damage is the *other*
+daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). `EssenceKit` keeps these as kit specials marked with an
+`EssenceSpellInfo` (MonsterAttack.EssenceSpell): the rare's own AI casts them (`BossKits.Choose`), and at the contact
+`MapEssences.EssenceSpellContact` lands the effect on the players near the rare instead of a hit. The rare's rig has no
+`RepeatedPulse`/`DominusGrab` clip, so the contact manifests the essence's daemon (whose rig does) **attached to the rare's
+root bone** (the IzaroGoddess pattern: it rides the rare, adds no blocker, friendly/invulnerable/out of AI/no bar) and plays
+its skill action — the pulse self-centred (nova around the rare), the grab aimed at the player so the hand appears there.
+The rare keeps its default attack as a ready (cooldown 0) kit entry, so it fights between the spells' cooldowns instead of
+re-casting the last spell every tick (`BossKits.Choose` falls back to `monster.Attack`). An earlier version manifested a
+standalone daemon in the rare's cell (it blocked the rare's walk) and then cast on the rare's own rig (no clip); both are
+gone. The grab is a ground trap: it appears where the player stood at the cast, and after a 1 s windup only a player still
+inside its radius is pulled to the rare — stepping out evades it. The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db,
+TargetType 4); the grab is ActiveSkill 373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its
+repeat interval (4 s), so the kit special plays a short cast (Seconds capped at 1 s) on that cooldown. The stats at level:
+resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen `base_chaos_damage_to_deal_per_minute` (4989 at 83,
+≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The resistance debuff is a refreshing player stat
+source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its `BuffVisualsKey` is 0 `invisible`, so the debuff is
+the stat alone, no icon); the chaos degen goes through `TrapDegenPerSecond` after chaos resistance with buff 100
+`monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds` / `plague_degen.epk`); the grab teleports the player to
+the rare with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`), evaded by moving out of reach
+before the contact. The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are
+not cast.
+
+**How the replica stands (2026-11-20).** The monolith, its mini crystals, the three activations, the essence drops from
+the released rare and the rare's periodic essence spells are implemented (`MapEssences.cs`, `EssenceCorruption.cs`,
+`EssenceDaemons.cs`). The imprisoned monsters are also sent as paused, invulnerable, instance-owned monster entities at
+the crystals so their models exist, created **asleep** with the client's `hide_mini_life_bar` stat
+(`StatKeys.HideMiniLifeBar`, key 0x2a8b; the stat table's row 10890 is `hide_mini_life_bar`, keys are row + 1) so the
+model renders without a life bar and takes no orders until the crystal breaks. The rare is hostile (the monolith's panel
+shows its `ObjectMagicProperties`) with the rarity glow suppressed; the minis are the pack's own monsters, **friendly**
+and carrying `virtual_is_hidden_monster` (key 0x59d0, Stat row 22991) besides `hide_mini_life_bar`, which takes the ally
+bar, name and hover tooltip away. A friendly team alone still shows the hover (observed live); a monster type whose client
+Targetable is false hides its model with the target, and the hideout's `HideoutMonsterStatue` task is hideout-only (its
+create in a map answers `0x02fc "Buffer Underflow"`), so neither is used. The monolith carries the rare's entity id in
++0x104 and the gold panel with the name, mods, essences and helper text draws live. The encased look is the essence's own
+effect: `BuffDefinitions` 1311 `frozen_in_time` with its visual overridden to `BuffVisuals` 658
+`monster_essence_effect_buff` (3.30 661), never the row's default `legion_petrify`, plus one S→C `0x1b2` animation update
+(kind 0, index 0, **speed 0**) that stops the actor's animation. Every spawn of the encounter (the encased previews and
+the released monsters) uses `MonsterPlacement.Established`: the proposed placement's nearest-clear search pushes them
+out of the crystal, because the monolith's own blocker (size 4) stays registered until the break is presented — observed
+live as the monster standing offset from the monolith. The mini crystals take random bearings on a radius-10..22 ring
+and keep only exact cells walkable for their size 2, clear of the area's bodies and objects and at least 6 cells from
+every other crystal; a nearest-cell snap pulled them off the ring and onto each other. That combination is the closest
+match found live; the remaining visual gap is the crystal model itself: the main monolith's state-1 `stage_01` animation
+shows only its base ring in the replica, and the official look (a tall shard cluster and the shards around the minis) is
+the open item.
+
+An essence's release spell comes from `Essences.Display_Monster_ModsKey` → that mod's `MonsterMetadata`: a
+`Metadata/Monsters/Daemon/EssenceDaemon*` variety whose granted effects are the spell (Hatred → `EssenceDaemonColdPulse`,
+Anger → `EssenceDaemonFirePulse`, Wrath → `EssenceDaemonLightningPulse`, Woe → `EssenceDaemonSummonLivingCrystals`,
+Greed → `EssenceDaemonBloodProjectileDaemon`, Contempt → `EssenceDaemonSummonKaruiSpirit`, Sorrow →
+`EssenceDaemonTotemGroundEffectVortex`, Torment → `EssenceDaemonSummonOrbOfStormsDaemon`, Fear → `EssenceDaemonSummonGhost`,
+Suffering → `EssenceDaemonFrostBomb`, Rage → `EssenceDaemonFireRuneTrap`, Doubt → `EssenceDaemonSummonSpiders`,
+Spite → `EssenceDaemonTotemGroundEffectShocked`, Misery → `EssenceDaemonChaosDegenPulse`, Dread →
+`EssenceDaemonSummonChaosGolem`, Envy → `EssenceDaemonGrab`; the corrupted four → `EssenceDaemonMadness1`/`Insanity1`/
+`Horror1`/`Terror1_`, Desolation → `Metadata/Monsters/FaridunLeague/FaridunDaemon/EssenceDaemon_`). Anguish, Loathing,
+Zeal and Scorn have an empty `MonsterMetadata` (their display mods name alternating buffs / on-death elementals, not a
+daemon). `Monster_ModsKeys` are the stat mods instead: `EssenceDaemonModLifeAndDamageLevel1..7`,
+`EssenceDaemonModRarityAndQuantityLevel1..7` and a physical-added-and-converted-to-cold mod — all with **empty names**, so
+they do not draw on a hover panel. The essence's name on the monster (released rare, or a boss that inherited it) comes
+from the `Display_Monster_ModsKey` mod itself, a name-only mod ("Whispering Essence of Hatred", "Essence of Hysteria"); it
+is added to the monster's mods alongside the stat mods so the essence shows on hover. The league's terrain room is
+`Metadata/Terrain/Leagues/Essence/monolith.arm` ("EssenceMonolith", 3×3).
+
+**The spells the hit kit cannot represent (`EssenceSpells.cs`).** A daemon effect with no hit damage, summon or projectile
+is dropped from the rare's kit (`BossKits.AttackFor`), so three essences would cast nothing through it: Misery's
+`RepeatedPulseDegen` (5996) and `EssenceDaemonProximityShield` (2842), Envy's `EssenceDaemonGrab` (2929), and the
+resistance pulses `RepeatedPulseCold`/`Fire`/`Lightning` (5990/5995/5992 — Hatred/Anger/Wrath's nova damage is the *other*
+daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). `EssenceKit` keeps these as kit specials marked with an
+`EssenceSpellInfo` (MonsterAttack.EssenceSpell): the rare's own AI casts them (`BossKits.Choose`), and at the contact
+`MapEssences.EssenceSpellContact` lands the effect on the players near the rare instead of a hit. The rare's rig has no
+`RepeatedPulse`/`DominusGrab` clip, so the contact manifests the essence's daemon (whose rig does) **attached to the rare's
+root bone** (the IzaroGoddess pattern: it rides the rare, adds no blocker, friendly/invulnerable/out of AI/no bar) and plays
+its skill action — the pulse self-centred (nova around the rare), the grab aimed at the player so the hand appears there.
+The rare keeps its default attack as a ready (cooldown 0) kit entry, so it fights between the spells' cooldowns instead of
+re-casting the last spell every tick (`BossKits.Choose` falls back to `monster.Attack`). An earlier version manifested a
+standalone daemon in the rare's cell (it blocked the rare's walk) and then cast on the rare's own rig (no clip); both are
+gone. The grab is a ground trap: it appears where the player stood at the cast, and after a 1 s windup only a player still
+inside its radius is pulled to the rare — stepping out evades it. The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db,
+TargetType 4); the grab is ActiveSkill 373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its
+repeat interval (4 s), so the kit special plays a short cast (Seconds capped at 1 s) on that cooldown. The stats at level:
+resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen `base_chaos_damage_to_deal_per_minute` (4989 at 83,
+≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The resistance debuff is a refreshing player stat
+source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its `BuffVisualsKey` is 0 `invisible`, so the debuff is
+the stat alone, no icon); the chaos degen goes through `TrapDegenPerSecond` after chaos resistance with buff 100
+`monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds` / `plague_degen.epk`); the grab teleports the player to
+the rare with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`), evaded by moving out of reach
+before the contact. The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are
+not cast.

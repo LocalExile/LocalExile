@@ -199,9 +199,16 @@ public static partial class Game
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
+        IReadOnlyList<MonsterKitSkill>? extraKit = null,
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        // A monster the client is never told to wake: it renders but shows no life bar and takes no orders (an
+        // imprisoned essence monster before its crystal breaks).
+        bool asleep = false,
+        // The rarity glow buff (magic blue, rare yellow) tints the encased effect; an imprisoned monster keeps its
+        // own crystal colour instead.
+        bool rarityGlow = true,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
         bool bulk = false)
@@ -342,15 +349,35 @@ public static partial class Game
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        // An essence rare's extra kit is only its spells, every one a cooldown special. Prepend its default attack as a
+        // ready entry (cooldown 0) so the AI always has a swing between the spells: BossKits.Choose falls back to
+        // monster.Attack when no special is ready, which would otherwise be the last spell, re-cast every tick ignoring
+        // its cooldown (the rare stood still casting, or grabbed without pause). The spells' kit ids shift up one to stay
+        // aligned with the actor's skill list, which SkillsOf numbers by kit index.
+        bool essenceDefault = false;
+        if (extraKit is { Count: > 0 })
+        {
+            if (kit.Count == 0 && attack is not null && skill is not null)
+            {
+                kit = [new MonsterKitSkill(effect, attack with { SkillId = 0x4000 }, 0),
+                    .. extraKit.Select((e, i) => e with { Attack = e.Attack with { SkillId = (ushort)(0x4001 + i) } })];
+                essenceDefault = true;
+            }
+            else kit = [.. kit, .. extraKit];
+        }
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
             : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
+        // An extra kit whose default attack is not already an entry keeps its own skill alongside the kit's; the essence
+        // rare's default is prepended above, so it is not added a second time here.
+        if (extraKit is { Count: > 0 } && !essenceDefault && kingSkills is null && skill is not null)
+            skills = [skill, .. (skills ?? [])];
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(conn, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(conn, variety, level, skills);
-        List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
+        List<(uint, int)>? stats = skill is null || attack is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
@@ -429,11 +456,11 @@ public static partial class Game
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
             // A boss waiting to rise (Yugul) stays out of conn.Monsters until it does, where nothing would wake it: it is
             // created awake, as every other buried monster is; its bar only comes after the rise.
-            bool farBoss = !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            bool farBoss = asleep || !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
             // Bulk (an area's population): the create carries its wake and its rarity glow, so the client reads them in the
             // same admission and the producer waits for neither — each waited for a birth otherwise, a frame per object on
             // a lockstep client (746 monsters, 3.2 s). A far boss still wakes when the player comes near.
-            ushort glow = MonsterRarityBuffs.Row(rarity) ?? 0;
+            ushort glow = rarityGlow ? MonsterRarityBuffs.Row(rarity) ?? 0 : (ushort)0;
             ushort buff = 0;
             if (glow != 0) lock (conn.Monsters) buff = conn.NextBuff++;
             byte[]? glowBytes = glow != 0 ? InstanceEntities.AddBuff(id, buff, glow) : null;
@@ -458,7 +485,7 @@ public static partial class Game
         }
         if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
             (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.Value.NameOf(mods.NameWords)}" : ""));
-        if (log && attack.Projectile is { } shot)
+        if (log && attack?.Projectile is { } shot)
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ranged attack projectile {shot.Metadata} ({shot.Speed} units/s{(shot.Lobbed ? ", mortar" : "")})");
         if (owned is null)
             using (ProjectileMutation(conn))
@@ -1941,6 +1968,13 @@ public static partial class Game
                 return;
             }
             if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
+        }
+        if (a.EssenceSpell is not null)
+        {
+            // An essence pulse/grab: the rare's own action played (its rig animates the cast); the contact lands the
+            // pulse's debuff/degen or the grab on the players near it instead of a hit (EssenceSpells.cs).
+            await MapEssences.EssenceSpellContact(conn, m, a);
+            return;
         }
         if (a.Summon is { } summon)
         {
