@@ -37,6 +37,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Dispose()
     {
         Rules.ForgetClaimedCharacters();
+        MapStrongboxes.Unloading();
         RuleTables.Empty();
     }
 

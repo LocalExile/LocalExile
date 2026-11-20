@@ -137,10 +137,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   object creates for the opener, another player and re-entry. The chest implicit supplies three ordinary packs and its
   daemon summons one unique guard. The box waits for that guard even when another player takes over after a disconnect.
   The server chooses uniformly among the 39 supported bosses listed by Vaal side areas in 3.29.3c. Alternate minion 598
-  gives a game-object register key and no selection weights. The six Vaalsmithed prefix spells, the Blade Vortex suffix
-  spell, the Valdo map completion reward and a graphical client run are still open. GGG described the three packs and
+  gives a game-object register key and no selection weights. GGG described the three packs and
   side-area guard for the Vaal Temple vessel, which shares this chest implicit, in the
   [3.17 patch notes](https://www.pathofexile.com/forum/view-thread/3229187).
+
+- The Vaalsmithed Firestorm prefix casts `ChestVaalFirestorm` from the vessel. Its native grant supplies 24 meteors
+  at 500 ms intervals, a 750 ms cast and six seconds of burning ground per impact. Its last meteor hits the vessel.
+  The server aims at the box, starts impacts at cast completion and uses one inward revolution. The 20-cell base fall
+  radius follows Path of Building's secondary area. The native tables supply the explosion radius and area modifiers.
+  The exact spiral, first-impact timing and graphical presentation still need client evidence.
+  [Path of Building's Vaal Firestorm definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua)
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

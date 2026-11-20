@@ -27,6 +27,7 @@ public static partial class MapStrongboxes
         public List<AreaPopulation.Spawn> Pending { get; init; } = [];
         /// <summary>The daemons' later waves (StrongboxDaemons.cs), released into <see cref="Pending"/> when due.</summary>
         public List<Wave> Waves { get; init; } = [];
+        public List<VaalFirestorm> Firestorms { get; init; } = [];
         /// <summary>Normal 0, magic 1 or rare 2 (<see cref="StrongboxMods.RollRarity"/>).</summary>
         public byte Rarity { get; init; }
         /// <summary>The rolled explicit mods; the type's own (implicit) mods are not kept here.</summary>
@@ -60,11 +61,34 @@ public static partial class MapStrongboxes
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
         public bool[]? VesselFloor;
+        public volatile bool Active;
+        public FirestormSkill? FirestormSkill;
         /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
-        public readonly List<Zone> Zones = [];
+        public readonly Dictionary<uint, GroundPatch> Zones = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    sealed class View
+    {
+        public readonly HashSet<uint> Boxes = [];
+        public readonly HashSet<uint> Casts = [];
+        public long? Entered;
+    }
+    sealed record KeptView(long? Entered, uint[] Boxes, uint[] Casts);
+    static readonly RuleTable<ClientState, View> Presented = new();
+    static string ViewKey(ClientState conn) => $"Ambush/view/{conn.PeerId}";
+
+    static View ViewFor(ClientState conn) => Presented.GetValue(conn, c =>
+    {
+        var view = new View();
+        if (c.Instance.ContentState.TryRemove(ViewKey(c), out string? prior))
+        {
+            var kept = JsonSerializer.Deserialize<KeptView>(prior)!;
+            view.Boxes.UnionWith(kept.Boxes);
+            view.Casts.UnionWith(kept.Casts);
+            view.Entered = kept.Entered;
+        }
+        return view;
+    });
 
     public static void Opening(MapOpening request)
     {
@@ -168,23 +192,35 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static void Keep(ClientState conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0);
+
+    static void Keep(ClientState conn, Area area)
+    {
+        area.Active = Active(area.Boxes!);
+        conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
+    }
 
     static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
         .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
 
-    public static async Task Enter(ClientState conn)
+    public static Task Enter(ClientState conn) => Enter(conn, conn.Clock.Elapsed);
+
+    internal static async Task Enter(ClientState conn, TimeSpan entered)
     {
         if (conn.Instance is null || InTown(conn) || conn.Layout.Walkable is null) return;
         var area = Areas.GetOrCreateValue(conn.Instance);
         await area.Gate.WaitAsync();
         try
         {
+            ViewFor(conn).Entered ??= entered.Ticks;
             if (area.Boxes is null)
             {
                 if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                {
                     area.Boxes = JsonSerializer.Deserialize<List<Box>>(saved) ?? [];
+                    area.Active = Active(area.Boxes);
+                }
                 else
                 {
                     area.Boxes = Plan(conn, area);
@@ -268,7 +304,7 @@ public static partial class MapStrongboxes
 
     static async Task Present(ClientState conn, Box box, bool replace = false)
     {
-        var shown = Presented.GetOrCreateValue(conn);
+        var shown = ViewFor(conn).Boxes;
         if (!replace && shown.Contains(box.Id)) return;
         if (StrongboxCatalog.Find(box.Type) is not { } type) return;
         var (remote, stream, ciphers) = conn.Wire;
@@ -340,9 +376,8 @@ public static partial class MapStrongboxes
     {
         bool first = area.Boxes!.All(b => b.Phase == 0 && b.Cycle == 0);
         var now = DateTime.UtcNow;
-        var waves = StrongboxCatalog.Find(box.Type) is { } type
-            ? SummonWaves(conn, type, box, now, new Random(unchecked((int)conn.Seed ^ box.Index * 7349 ^ box.Cycle * 13)))
-            : [];
+        var type = StrongboxCatalog.Find(box.Type);
+        var waves = type is null ? [] : SummonWaves(conn, type, box, now, new Random(unchecked((int)conn.Seed ^ box.Index * 7349 ^ box.Cycle * 13)));
         var guards = Guards(conn, box, first, waves.Count > 0);
         if (guards.Count == 0 && waves.Count == 0)
         {
@@ -350,9 +385,11 @@ public static partial class MapStrongboxes
             return;
         }
         box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
+        var storm = type?.Id == ExquisiteVessel ? PrepareFirestorm(conn, area, type, box) : null;
         area.Boxes![box.Index] = box;
         Keep(conn, area);
         foreach (var member in Members(conn)) await Present(member, box, true);
+        if (storm is not null) await ShowFirestorm(conn, area, box, storm);
         await SpawnPending(conn, area, box);
         if (StrongboxCatalog.Find(box.Type) is { } exiled
             && StrongboxMods.Stat(ItemsFor(conn).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
@@ -540,14 +577,24 @@ public static partial class MapStrongboxes
         }
     }
 
-    public static async Task Tick(ClientState conn)
+    public static Task Tick(ClientState conn) => Tick(conn, conn.Clock.Elapsed);
+
+    internal static async Task Tick(ClientState conn, TimeSpan now)
     {
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is not { } boxes || conn.Closed || conn.LeavingArea) return;
-        if (area.Zones.Count > 0 || ZoneShare.TryGetValue(conn, out var share) && share.Dps > 0) TickZones(conn, area);
-        if (!boxes.Any(b => b.Phase == 1)) return;
+        if (conn.Closed || conn.LeavingArea) return;
+        if (!Presented.TryGetValue(conn, out _) && conn.Instance.ContentState.ContainsKey(ViewKey(conn))) await Enter(conn, now);
+        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is not { Count: > 0 } boxes) return;
+        if (!area.Active && !ZoneShare.TryGetValue(conn, out _))
+            lock (area.Zones) if (area.Zones.Count == 0) return;
         await area.Gate.WaitAsync();
         try
         {
+            foreach (var box in boxes.Where(b => b.Firestorms.Count > 0))
+                await TickFirestorms(conn, area, box, now);
+            bool hasZones;
+            lock (area.Zones) hasZones = area.Zones.Count > 0;
+            if (hasZones || ZoneShare.TryGetValue(conn, out var share) && (share.Dps > 0 || share.Art.Count > 0))
+                TickZones(conn, area, now.TotalSeconds);
             foreach (var waiting in area.Boxes!.Where(b => b.Phase == 1).ToArray())
             {
                 var prior = ReleaseWaves(waiting, DateTime.UtcNow);
@@ -615,7 +662,22 @@ public static partial class MapStrongboxes
 
     public static void Leave(ClientState conn)
     {
+        conn.Instance.ContentState.TryRemove(ViewKey(conn), out _);
         Presented.Remove(conn);
         LeaveZones(conn);
+    }
+
+    // The Gateway keeps the instance and its connections across a rules reload. Its ground damage pool must release our
+    // share before the old rule table goes away. The next tick resumes each view without a second chest birth.
+    internal static void Unloading()
+    {
+        foreach (var (conn, view) in Presented)
+        {
+            if (conn.Closed || conn.LeavingArea || view.Boxes.Count == 0) continue;
+            conn.Instance.ContentState[ViewKey(conn)] = JsonSerializer.Serialize(new KeptView(view.Entered, [.. view.Boxes], [.. view.Casts]));
+            LeaveZones(conn, removeArt: true);
+        }
+        Presented.Clear();
+        Areas.Clear();
     }
 }

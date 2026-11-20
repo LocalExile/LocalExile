@@ -110,9 +110,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 - **Working in Gateway tests.** The corruption implicit adds one Exquisite Vaal Vessel and Valdo's map mod adds ten.
   They roll chest mods at rare rarity with the `vaal_empowered` tag. Each opens with three normal packs and a Vaal
-  side-area boss. See the [strongbox status](../status/world.md) for the boss selection and client coverage.
-- **Next.** Implement the six Vaalsmithed prefix daemons for Spark, Flameblast, Firestorm, Caustic Arrow, Thrown Weapon
-  and Volcanic Fissure. Blade Vortex comes from the separate *Of the Vaal* suffix. Verify the vessel and its casts in
+  side-area boss. Vaalsmithed Firestorm shares one 24-meteor cast with the party, including when the opener leaves.
+  See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
+- **Next.** Implement the five remaining Vaalsmithed prefix spells for Spark, Flameblast, Caustic Arrow, Thrown Weapon
+  and Volcanic Fissure. Blade Vortex comes from the separate *Of the Vaal* suffix. Check the Valdo completion reward.
+  Verify the vessel and its casts in
   the client, along with the level-70 Ice Nova and ordinary Firestorm box spells. Placement of the regular
   `VaalTempleChest` and the `OrnateVaalBox*` side-area containers remains separate work.
 - **Done when:** Valdo's Exquisite Vaal Vessels spawn and their Vaalsmithed prefixes act.

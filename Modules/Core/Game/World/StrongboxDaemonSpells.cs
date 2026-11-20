@@ -18,13 +18,14 @@ using static Program;
 /// <item>The random-curse daemon: one of its curses on the players near the box for the curse's duration.</item>
 /// <item>ChestSummonSandstormDaemon (Deshret's Storm): sandstorms (physical ground) around the box, in its waves.</item>
 /// </list>
-/// The Exquisite Vaal Vessel's <c>vaal_empowered</c> spells are tracked separately in the world roadmap.
+/// The Exquisite Vaal Vessel's Firestorm runs on the shared instance clock (StrongboxVaalFirestorm.cs).
 /// </summary>
 public static partial class MapStrongboxes
 {
-    /// <summary>A ground effect around a point until a UTC time: its damage per second to players inside, and the ailment
+    /// <summary>A ground effect around a point until an instance clock time: its damage per second to players inside, and the ailment
     /// it inflicts on them (chill, shock or none).</summary>
     public sealed record Zone((int X, int Y) At, int Radius, double Until, DamageType Type, double Dps, string? Ailment, uint Art);
+    sealed record GroundPatch(Zone Zone, string Model);
 
     /// <summary>The radius (cells) of a daemon whose skill gives none: OUR choice, the reach of an Ice Nova (26).</summary>
     const int DefaultRadius = 26;
@@ -131,7 +132,7 @@ public static partial class MapStrongboxes
                 case "ChestIceNova":
                     await HitPlayers(conn, at, radius, DamageType.Cold, Hit("spell"));
                     if (Get("ice_nova_places_ground_ice") != 0)
-                        AddZone(conn, area, new(at, radius, Now + seconds, DamageType.Cold, 0, "chill", 0), "Metadata/Effects/Spells/ground_effects/ice/ice.ao");
+                        AddZone(conn, area, new(at, radius, conn.Clock.Elapsed.TotalSeconds + seconds, DamageType.Cold, 0, "chill", 0), "Metadata/Effects/Spells/ground_effects/ice/ice.ao");
                     break;
                 case "ChestExplode":
                     await HitPlayers(conn, at, radius, DamageType.Fire, Hit("secondary"));
@@ -151,7 +152,7 @@ public static partial class MapStrongboxes
                         var spot = conn.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * d), at.Y + (int)Math.Round(Math.Sin(angle) * d)));
                         await HitPlayers(conn, spot, impact, type, Hit("spell"));
                         if (ground > 0)
-                            AddZone(conn, area, new(spot, impact, Now + ground, type, fire ? burning : 0, fire ? null : "shock", 0),
+                            AddZone(conn, area, new(spot, impact, conn.Clock.Elapsed.TotalSeconds + ground, type, fire ? burning : 0, fire ? null : "shock", 0),
                                 fire ? "Metadata/Effects/Spells/ground_effects/fire/fire1.ao" : "Metadata/Effects/Spells/ground_effects/lightning/lightning_ground_01.ao");
                         await Task.Delay(TimeSpan.FromSeconds(delay));
                     }
@@ -159,7 +160,7 @@ public static partial class MapStrongboxes
                 }
                 case "ChestCausticCloud":
                     await HitPlayers(conn, at, radius, DamageType.Chaos, Hit("spell"));
-                    AddZone(conn, area, new(at, radius, Now + seconds, DamageType.Chaos, Get("base_chaos_damage_to_deal_per_minute") / 60.0, null, 0),
+                    AddZone(conn, area, new(at, radius, conn.Clock.Elapsed.TotalSeconds + seconds, DamageType.Chaos, Get("base_chaos_damage_to_deal_per_minute") / 60.0, null, 0),
                         $"Metadata/Effects/Spells/ground_effects/caustic/caustic_0{Math.Clamp(Get("ground_caustic_art_variation") + 1, 1, 3)}.ao");
                     break;
                 case "ChestFreeze":
@@ -193,7 +194,7 @@ public static partial class MapStrongboxes
 
     /// <summary>The daemon at the box, sending its skill's action so the client plays it; 0 when it cannot be created.</summary>
     static async Task<uint> Show(ClientState conn, string daemon, int effect, int actorLevel,
-        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at)
+        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at, Action<uint>? admitted = null)
     {
         var catalog = SkillsFor(conn);
         if (Monsters.Find(daemon) is not { Supported: true } variety || catalog.ActionHash(effect) is not ushort hash) return 0;
@@ -205,17 +206,44 @@ public static partial class MapStrongboxes
         var (remote, stream, ciphers) = conn.Wire;
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)actorLevel, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
-            owned: (_, m) =>
+            instanceOwned: admitted is not null, owned: (actor, m) =>
             {
                 m.NoRewards = true;
                 m.Attack = null;
                 m.EncounterStats = new Dictionary<string, int> { ["base_cannot_be_damaged"] = 1 };
+                admitted?.Invoke(actor);
             });
         if (id == 0) return 0;
-        await SendWorldRecord(remote, stream, ciphers, conn, id,
-            [.. InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skillId, 0xffff, conn.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(id)],
-            $"strongbox daemon {daemon}");
+        await PlayDaemon(conn, id, skillId, at, daemon, shared: admitted is not null);
         return id;
+    }
+
+    static Task PlayDaemon(ClientState conn, uint id, ushort skillId, (int X, int Y) at, string daemon, bool shared)
+    {
+        IEnumerable<ClientState> viewers = shared ? Members(conn) : [conn];
+        return Task.WhenAll(viewers.Select(Play));
+        async Task Play(ClientState viewer)
+        {
+            var wire = viewer.Wire;
+            var view = shared ? ViewFor(viewer) : null;
+            if (view is not null)
+            {
+                if (!viewer.PlayerSent) return;
+                bool seen;
+                lock (viewer.Monsters)
+                {
+                    if (view.Casts.Contains(id)) return;
+                    seen = viewer.MonsterViews.ContainsKey(id);
+                }
+                if (!seen) await SyncInstanceMonsters(wire.Remote, wire.Stream, wire.Ciphers, viewer, reveal: false);
+            }
+            await SendWorldRecords(wire.Remote, wire.Stream, wire.Ciphers, viewer, id, () =>
+            {
+                lock (viewer.Monsters)
+                    if (view is not null && (!viewer.MonsterViews.ContainsKey(id) || viewer.AsleepMonsters.Contains(id) || !view.Casts.Add(id))) return null;
+                return [InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skillId, 0xffff, viewer.MonsterOrderFlags), InstanceProtocol.ActionEnded(id)];
+            }, $"strongbox daemon {daemon}");
+        }
     }
 
     static void RemoveDaemon(ClientState conn, uint id)
@@ -237,12 +265,15 @@ public static partial class MapStrongboxes
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 
     /// <summary>A spell hit on the players within the radius, through the player's own defences (as a shrine's spell).</summary>
-    static async Task HitPlayers(ClientState source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet)
+    static Task HitPlayers(ClientState source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet, long? due = null)
     {
-        foreach (var conn in PlayersNear(source, at, radius).ToArray())
+        return Task.WhenAll(PlayersNear(source, at, radius).ToArray().Select(Hit));
+
+        async Task Hit(ClientState conn)
         {
+            if (due is long landing && (ViewFor(conn).Entered is not long entered || entered > landing)) return;
             int amount = (int)Math.Clamp(packet.Roll(Random.Shared).MinTotal, 0, int.MaxValue);
-            if (amount <= 0 || conn.Immune || InGracePeriod(conn) || !TrySyntheticEnemyHit(conn, type, amount, block: true, spell: true, suppress: true, out var hit)) continue;
+            if (amount <= 0 || conn.Immune || InGracePeriod(conn) || !TrySyntheticEnemyHit(conn, type, amount, block: true, spell: true, suppress: true, out var hit)) return;
             if (hit.Damage > 0)
             {
                 var stats = CharacterPlayerStats(conn);
@@ -404,7 +435,7 @@ public static partial class MapStrongboxes
             {
                 double angle = random.NextDouble() * Math.Tau, d = 6 + random.NextDouble() * 14;
                 var spot = conn.Layout.Near((box.X + (int)Math.Round(Math.Cos(angle) * d), box.Y + (int)Math.Round(Math.Sin(angle) * d)));
-                AddZone(conn, area, new(spot, radius, Now + seconds, DamageType.Physical, dps, null, 0),
+                AddZone(conn, area, new(spot, radius, conn.Clock.Elapsed.TotalSeconds + seconds, DamageType.Physical, dps, null, 0),
                     "Metadata/Effects/Spells/ground_effects/sandstorm/ground_rig.ao");
             }
             await Task.Delay(TimeSpan.FromSeconds(interval));
@@ -427,41 +458,51 @@ public static partial class MapStrongboxes
 
     static void AddZone(ClientState conn, Area area, Zone zone, string art)
     {
-        uint id = conn.TakeObjectId();
-        lock (conn.Monsters)
-        {
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                new EffectObject(zone.At.X, zone.At.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = Math.Max(1f, zone.Radius / 5f) }.Blob()),
-                null, WorldId: id, CreatesObject: true));
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
-        }
-        lock (area.Zones) area.Zones.Add(zone with { Art = id });
+        if (zone.Art == 0) zone = zone with { Art = conn.TakeObjectId() };
+        lock (area.Zones) area.Zones.Add(zone.Art, new(zone, art));
     }
 
     /// <summary>Called from <see cref="Tick"/>: each player's share of the zones' damage over time (an ailment-free degen,
     /// after resistance, through <c>TrapDegenPerSecond</c>), the zones' ailments, and the expired zones' art removed.</summary>
-    static void TickZones(ClientState conn, Area area)
+    static void TickZones(ClientState conn, Area area, double now)
     {
-        double now = Now;
-        Zone[] zones;
+        GroundPatch[] patches;
         lock (area.Zones)
         {
-            foreach (var gone in area.Zones.Where(z => z.Until <= now).ToArray())
-            {
-                area.Zones.Remove(gone);
-                lock (conn.Monsters)
-                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(gone.Art), null, WorldId: gone.Art, RemovesObject: true));
-            }
-            zones = [.. area.Zones];
+            foreach (var gone in area.Zones.Values.Where(p => p.Zone.Until <= now).ToArray()) area.Zones.Remove(gone.Zone.Art);
+            patches = [.. area.Zones.Values];
         }
         var share = ZoneShare.GetOrCreateValue(conn);
+        lock (conn.Monsters)
+        {
+            foreach (uint id in share.Art.Except(patches.Select(p => p.Zone.Art)).ToArray())
+            {
+                share.Art.Remove(id);
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
+            }
+            foreach (var (zone, model) in patches)
+            {
+                if (!share.Art.Add(zone.Art)) continue;
+                var effect = new EffectObject(zone.At.X, zone.At.Y, model) { Flags0 = EffectObject.FixedRotation, Scale = Math.Max(1f, zone.Radius / 5f) };
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(zone.Art, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
+                    null, WorldId: zone.Art, CreatesObject: true));
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(zone.Art), null, WorldId: zone.Art));
+            }
+        }
         double at = conn.Clock.Elapsed.TotalSeconds;
         var here = conn.Walk.Position(at);
-        bool alive = conn.PlayerLife > 0 && !conn.Paused && !InGracePeriod(conn);
-        var inside = alive ? zones.Where(z => Distance(here, z.At) <= z.Radius).ToArray() : [];
-        var immune = inside.Length > 0 ? PlayerImmunities(conn) : [];
-        double dps = inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type))
-            .Sum(z => z.Dps * (z.Type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(conn, z.Type), Resistance(conn, z.Type)) / 100.0));
+        bool alive = conn.PlayerLife > 0 && !conn.Paused && !conn.Immune && !InGracePeriod(conn);
+        var inside = alive ? patches.Select(p => p.Zone).Where(z => Distance(here, z.At) <= z.Radius).ToArray() : [];
+        var stats = inside.Length > 0 ? CharacterPlayerStats(conn) : null;
+        var immune = stats is not null ? PlayerImmunities(conn, stats) : [];
+        double Taken(DamageType type) => type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(conn, type), Resistance(conn, type)) / 100.0;
+        double dps = inside.Where(z => z.Dps > 0 && z.Type != DamageType.Fire && !immune.Contains(z.Type)).Sum(z => z.Dps * Taken(z.Type));
+        // Strongbox burning ground applies one ground_fire_burn to the player, including where successive meteors overlap.
+        if (!immune.Contains(DamageType.Fire) && inside.Any(z => z.Type == DamageType.Fire))
+        {
+            int effect = stats!.GetValueOrDefault(Stats.Key("burning_ground_effect_on_self_+%")!.Value);
+            dps += inside.Where(z => z.Type == DamageType.Fire).Max(z => z.Dps) * Taken(DamageType.Fire) * Math.Max(0, 1 + effect / 100.0);
+        }
         lock (conn.Monsters)
         {
             conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - share.Dps + dps);
@@ -472,20 +513,27 @@ public static partial class MapStrongboxes
             var kind = zone.Ailment == "chill" ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;
             int magnitude = kind == PlayerElementalAilments.Kind.Chill ? 10 : 15;
             if (conn.ElementalAilments.Magnitude(kind, at) >= magnitude) continue;
-            var stats = CharacterPlayerStats(conn);
             lock (conn.Monsters)
                 ApplyPlayerAilmentsLocked(conn, at, a => a.Inflict(kind, magnitude, .3, at,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom));
+                    name => Stats.Key(name) is uint key ? stats!.GetValueOrDefault(key) : 0, conn.IncomingHitRandom));
         }
+        if (patches.Length == 0) ZoneShare.Remove(conn);
     }
 
-    sealed class Exposure { public double Dps; }
+    sealed class Exposure { public double Dps; public readonly HashSet<uint> Art = []; }
     static readonly RuleTable<ClientState, Exposure> ZoneShare = new();
 
     /// <summary>The zones' share of a leaving player's degen goes with them.</summary>
-    static void LeaveZones(ClientState conn)
+    static void LeaveZones(ClientState conn, bool removeArt = false)
     {
         if (!ZoneShare.TryGetValue(conn, out var share)) return;
-        lock (conn.Monsters) { conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - share.Dps); share.Dps = 0; }
+        lock (conn.Monsters)
+        {
+            conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - share.Dps);
+            if (removeArt)
+                foreach (uint id in share.Art)
+                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
+            ZoneShare.Remove(conn);
+        }
     }
 }
