@@ -304,12 +304,9 @@ static class PortalsFeature
         global::Game.ListPortal(remote, stream, ciphers, conn, id, open.Area, "the portal back", MapPortalListMs);
     }
 
-    internal static (int X, int Y) TownPortalPosition(ClientState conn)
-    {
-        // The connection's spawn follows its latest entrance or waypoint arrival; the standing portal does not.
-        var town = AreaLayouts.For(conn.Layout.Hash, conn.Seed);
-        return town.Near((town.SpawnX + 4, town.SpawnY));
-    }
+    // The connection's spawn follows its latest entrance or waypoint arrival; the standing portal does not.
+    internal static (int X, int Y) TownPortalPosition(ClientState conn) =>
+        conn.Layout.Near((conn.Layout.Anchor.X + 4, conn.Layout.Anchor.Y));
 
     // A Portal Scroll used (C→S 0x58) outside towns and hideouts: one scroll is spent and a portal opens where the player
     // stands, replacing the one there was (the scroll's earlier one, or a map's own portal back). From a map it leads to the
