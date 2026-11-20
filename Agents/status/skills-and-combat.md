@@ -64,6 +64,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Summoned followers stop pathless walk orders and retry when a route becomes available.
+- Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
@@ -80,6 +82,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
   it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
   Transference, a spread when a projectile or a minion makes the kill.
+- Bane and Bane of Condemnation: independent chaos damage over time and linked Hex application. Damage and duration
+  use the Hexes applied to each target. The Bane-specific buff presentation remains open.
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
   Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
   Desperation's life loss, the debuff in Survivors.
@@ -165,6 +169,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
+  The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
+  The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.
+- Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
+  The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
+  Only the default, Celestial and Tentacles grounds fade in and out.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Bow and wand attack gems without a projectile row (Frenzy, Puncture, Power Siphon) fire the held weapon's
@@ -198,10 +207,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
-- Bear Trap's single secondary hit; immobilisation and its decaying debuff remain open.
+- Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem. Docs: [11](../docs/protocol/11-skills.md) §10g.
-- Holy Flame Totem's piercing bolts; consecrated ground remains open. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Holy Flame Totem places without channelling on its owner and fires piercing bolts. Consecrated ground remains open.
+  Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.

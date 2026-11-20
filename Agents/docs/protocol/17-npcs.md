@@ -36,6 +36,12 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 | MinimapIcon | `00` |
 | Transitionable, StateMachine | as for monsters |
 
+`Act2/HelenaSins.ot` has three Transitionable states: 1 hangs below the ledge; 2 climbs up and becomes
+targetable; 3 hides the model, marker and targeting. Rescue uses 2, including on a return to the instance.
+
+`Act5/SinInnocence.ot` creates state 1 with `entrance_avarius` paused and targeting disabled. The 1→2
+update starts the entrance; its animation end enables targeting. Creating state 2 directly is the returning pose.
+
 The NPC component's debug dump (`0x141e7b860`) prints the NPC and the NPCTalk row the client picks for the player
 (`0x141e7d430`): the client chooses the dialogue itself.
 
@@ -43,8 +49,10 @@ Bosses that speak have an NPC component too, after their Transitionable (Captain
 Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and the Sceptre of God's three lieutenants,
 Kaom, Daresso, Utula, Malachai and the three in The Harvest): the monster blob writes it as `00 ff` (no dialogue, no
 component that must be alive). Without it these monsters could not be created at all ([12](12-quests.md) §9–10).
-Act 2's bandit lords (Kraityn, Alira, Oak) add InteractionAction before their NPC, written `00` as for an NPC: they
-are created as hostile unique bosses; their dialogue (help or kill, the bandit choice) is not offered this way.
+Act 2's bandit lords add InteractionAction before their NPC. An NPC delta (reader `0x141e7b780`) carries the same
+two bytes as creation. The solo dialogue's vote uses S→C `0xbe` (writer `0x1421a9f80`): u8 VoteType row plus one
+(zero closes), u8 answered, u8 local voter, u8 number of vote entries. A solo choice has no vote entries. The buttons
+send C→S `0xbd` (sender `0x14026ff10`) with u8 1 for Help or 0 for Kill.
 
 NPC collision uses the same inherited Positioned metadata as the client, including NPCs.dat Id aliases whose
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
@@ -243,6 +251,10 @@ minimum level `+0x14c`, league lists `+0xbe/+0xd2` and item/special predicates.
 Automatic quest selection conservatively accepts only rows with empty extra lists, null item/flag conditions,
 zero minimum level and native neutral context/league selectors (60 / `0x777`). Other rows retain manual selection.
 The raw evidence and decoded `semantics.json`/`equipment.json` stay under ignored `Tools/re/out/gameplay-captures/`.
+
+Lilly's "Virtue Gems" rows 950/951 use an account context, outside the generic automatic selector.
+Row 950 finishes league quest flag 1163; Purchase Items (952) requires that flag, in addition to the character unlock.
+Vendors runs the eligible introduction and saves 1163 when its talk finishes; its gem stock reads the shared unlock.
 
 ### NPCTalk scripts
 

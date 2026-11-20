@@ -108,6 +108,12 @@ public static partial class Game
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
     public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0);
+
+    public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now));
+
+    static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now, int additionalTakenPct)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
@@ -120,12 +126,13 @@ public static partial class Game
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
-        double factor = MonsterDamageTaken(m, spell, now, hit: true);
+        double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
         double withered = m.Withered.Count == 0 ? 0
-            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, hit: true, chaos: true) - factor);
+            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true,
+                increasedPct: additionalTakenPct) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
@@ -143,7 +150,7 @@ public static partial class Game
         mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
             ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                 * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
-            .Scale(m.Effects.DamageTaken(spell));
+            .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
     public static int SelfCriticalReduction(ClientState conn)

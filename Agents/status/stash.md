@@ -80,6 +80,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Tab folders: Create New Folder, moving tabs in and out (C→S 0xd1) and Delete Folder (0xd2) are kept with the stash; a
+  deleted folder stays hidden so the later tabs keep their places (18 "C→S"). Checked offline; not yet in the real client.
 - Unique-parent requests retain registered categories in an offline source fixture; native reopen #998 is unverified.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
@@ -95,6 +97,5 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Stash: a switch to an already loaded tab sends nothing, so it is missed if the player logs out without reopening the
-  stash or moving an item; the special tabs' slot rules, tab folders (the tab order, names and colours are kept,
-  2026-10-22), real guilds for the guild stash and stashes in other towns
+  stash or moving an item; the special tabs' slot rules, real guilds for the guild stash and stashes in other towns
   ([18](../docs/protocol/18-stash.md) "Open").

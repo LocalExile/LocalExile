@@ -12,6 +12,9 @@ using GameServer.Core.World;
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     ImmutableArray<(string Owner, int Rank, T Run)> _subscribers = [];
+    long _revision;
+    /// <summary>Changes when a provider is added or removed, for consumers that retain derived state.</summary>
+    public long Revision => Volatile.Read(ref _revision);
 
     public GameEvent() => GameEventOwners.Register(this);
 
@@ -24,7 +27,12 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
             while (at > 0 && s[at - 1].Rank > rank) at--;
             return s.Insert(at, (owner, rank, run));
         });
-        return new Subscription(() => ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run))));
+        Interlocked.Increment(ref _revision);
+        return new Subscription(() =>
+        {
+            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
+            Interlocked.Increment(ref _revision);
+        });
     }
 
     public IEnumerable<T> All => _subscribers.Select(s => s.Run);
@@ -57,8 +65,11 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
                 yield return (owner, run);
     }
 
-    void GameEventOwners.IOwned.Release(string owner, int rank) =>
-        ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank));
+    void GameEventOwners.IOwned.Release(string owner, int rank)
+    {
+        if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Owner == owner && e.Rank == rank)))
+            Interlocked.Increment(ref _revision);
+    }
 
     int GameEventOwners.IOwned.Count(string owner) => _subscribers.Count(e => e.Owner == owner);
 
@@ -174,6 +185,12 @@ public static class GameEvents
     /// <summary>The player is about to leave the area or the game, with why.</summary>
     public static readonly GameEvent<Func<ClientState, string, Task>> PlayerLeaving = new();
 
+    /// <summary>The character has left the game (a logout, a disconnect; not an area change) and its save is written:
+    /// nothing of that connection writes it again, and a login of the character waits for the subscribers before it
+    /// reads it. The place to replace a character's save. Not run when the last save failed, or for a connection that never
+    /// loaded the character (a refused login).</summary>
+    public static readonly GameEvent<Func<ClientState, Task>> CharacterAtRest = new();
+
     /// <summary>The player's hideout is being furnished: place stations here.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> HideoutReady = new();
 
@@ -222,6 +239,13 @@ public static class GameEvents
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
 
+    /// <summary>Extra worn items counted as stat inputs only: their mods join the character's stat sources and conditions,
+    /// their local defences the armour slots' defences. They host no gems or granted skills, and checks that look for one
+    /// worn item (weapon hit stats, gem requirements, unique mechanics such as Her Embrace) still read the real inventory.
+    /// Rows outside the equipment rows are dropped; ids must be stable and distinct from real items.</summary>
+    public static readonly GameEvent<Func<ClientState, IReadOnlyList<(byte Row, InventoryItem Item)>,
+        IReadOnlyList<(byte Row, InventoryItem Item)>>> ItemStatSources = new();
+
     static readonly System.Collections.Concurrent.ConcurrentDictionary<ushort, GameEvent<Func<ClientState, byte[], Task<bool>>>> Packets = new();
 
     /// <summary>A client message (C→S) with this opcode, the whole message with its opcode, before the Gateway handles it. True: it was
@@ -258,6 +282,11 @@ public static class GameEvents
     public static async Task RunPlayerLeaving(ClientState conn, string why)
     {
         foreach (var (owner, run) in PlayerLeaving.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(PlayerLeaving), () => run(conn, why));
+    }
+
+    public static async Task RunCharacterAtRest(ClientState conn)
+    {
+        foreach (var (owner, run) in CharacterAtRest.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(CharacterAtRest),() => run(conn));
     }
 
     public static async Task RunHideoutReady(ClientState conn)

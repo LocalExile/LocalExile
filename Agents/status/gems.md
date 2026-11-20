@@ -124,6 +124,7 @@ Nothing yet.
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
+  Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
   Cast on Melee Kill releases linked spells on a linked melee attack's kill; it is not yet checked in the client.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
@@ -151,6 +152,7 @@ Nothing yet.
   and its attribute requirements follow the client's own formula (`0x142476710`: `trunc((3 * level_req + 11) *
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).
+  Any gem fits any gem socket; a matching red, green or blue socket adds 10% quality (client tutorial and reminder text).
   Socketing a gem the character is too low or too weak for is refused (0x30, `GemRequirementsUnmet`), and a gem its
   requirements above the character's makes its item inactive (the item's requirements are the highest of its own and its
   gems', `EquipmentStatSources`; lost in PR #175, restored 2026-10-29), as a worn item the character is too low for is: the

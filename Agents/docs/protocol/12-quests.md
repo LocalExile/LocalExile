@@ -500,7 +500,8 @@ the data does not say:
   IncaTreeTransitionBlockers lift and the exit into The Vaal Ruins (IncaTreeTransition) appears.
 - **a2q7**: each bandit lord's death sets his kill flag and drops his amulet; Eramir's "Bandit Amulets" (NPCTalk 95,
   `SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets")`) takes the three: one passive point; "Take the Apex"
-  (offer 17) gives The Apex. The bandit vote (help a lord) is not implemented ([status](../../status/quests.md)).
+  (offer 17) gives The Apex. A solo player can also help a lord and hand in the two rivals' amulets
+  for the corresponding permanent reward; the leader's "Get the Apex" (offer 17) gives The Apex ([status](../../status/quests.md)).
 - **a2q8**: the Ancient Seal (IncaDarknessRelease, tile record; its model is the record's `bossrelease.ao`) →
   `a2q8-UnleashedDarkness`; the Apex door in The Caverns transitions with `a2b-SeenApexReward`; the Dark Altar
   (IncaBossSpawner) takes The Apex (`a2q8-PlacedApex`) and brings the Vaal Oversoul (MV 158, no WorldAreas boss), whose

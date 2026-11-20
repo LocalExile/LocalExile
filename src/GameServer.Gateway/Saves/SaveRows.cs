@@ -215,7 +215,7 @@ public static class SaveRows
         var tabs = Rows(db, "SELECT * FROM stash_tab_headers WHERE stash = $s ORDER BY tab", id).Select(t => new AccountStash.SavedTab(
             t.Text("name")!, (byte)t.Long("type")!.Value, (byte)t.Long("r")!.Value, (byte)t.Long("g")!.Value, (byte)t.Long("b")!.Value, [],
             (uint)t.Long("affinities")!.Value, (ushort?)t.Long("position"), (uint)t.Long("colour")!.Value,
-            unchecked((ulong)t.Long("unique_category")!.Value), (ushort)t.Long("parent")!.Value)).ToList();
+            unchecked((ulong)t.Long("unique_category")!.Value), (ushort)t.Long("parent")!.Value, t.Long("hidden") is 1)).ToList();
         var moduleData = Rows(db, "SELECT key, value FROM stash_module_data WHERE stash = $s ORDER BY key", id)
             .ToDictionary(x => x.Text("key")!, x => x.Text("value")!);
         return new AccountStash.Save(tabs, (int)row.Long("last_tab")!.Value, (uint)row.Long("next_item_id")!.Value, (uint)row.Long("gold")!.Value,
@@ -239,10 +239,10 @@ public static class SaveRows
         for (int i = 0; i < header.Tabs.Count; i++)
         {
             var t = header.Tabs[i];
-            Run(db, "INSERT INTO stash_tab_headers (stash, tab, name, type, r, g, b, affinities, position, colour, unique_category, parent) " +
-                    "VALUES ($s, $t, $n, $ty, $r, $g, $b, $a, $p, $c, $u, $pa)", ("$s", id), ("$t", (long)i), ("$n", t.Name), ("$ty", (long)t.Type),
+            Run(db, "INSERT INTO stash_tab_headers (stash, tab, name, type, r, g, b, affinities, position, colour, unique_category, parent, hidden) " +
+                    "VALUES ($s, $t, $n, $ty, $r, $g, $b, $a, $p, $c, $u, $pa, $h)", ("$s", id), ("$t", (long)i), ("$n", t.Name), ("$ty", (long)t.Type),
                 ("$r", (long)t.R), ("$g", (long)t.G), ("$b", (long)t.B), ("$a", (long)t.Affinities), ("$p", Value(t.Position)),
-                ("$c", (long)t.Colour), ("$u", unchecked((long)t.UniqueCategory)), ("$pa", (long)t.Parent));
+                ("$c", (long)t.Colour), ("$u", unchecked((long)t.UniqueCategory)), ("$pa", (long)t.Parent), ("$h", t.Hidden ? 1L : 0L));
         }
         foreach (var (key, value) in header.ModuleData ?? [])
             Run(db, "INSERT INTO stash_module_data (stash, key, value) VALUES ($s, $k, $v)", ("$s", id), ("$k", key), ("$v", value));
@@ -289,6 +289,7 @@ public static class SaveRows
         string column = owner == Owner.Character ? "character" : "stash";
         string where = inventory is null ? $"{column} = $o" : $"{column} = $o AND inventory = $i";
         (string, object)[] filter = inventory is null ? [("$o", id)] : [("$o", id), ("$i", inventory.Value)];
+        Run(db, $"DELETE FROM item_skin_transfers WHERE target IN (SELECT id FROM items WHERE {where})", filter);
         Run(db, $"DELETE FROM item_mods WHERE item IN (SELECT id FROM items WHERE {where})", filter);
         Run(db, $"DELETE FROM items WHERE {where}", filter);
 
@@ -312,6 +313,12 @@ public static class SaveRows
             object?[] values = ItemValues(item);
             for (int i = 0; i < values.Length; i++) insert.Parameters[$"$c{i}"].Value = Value(values[i]);
             long itemId = (long)insert.ExecuteScalar()!;
+            if (item.SkinTransferSource is { } donor)
+            {
+                if (donor.SkinTransferSource is not null) throw new InvalidDataException("Nested skin transfers are not supported");
+                Run(db, "INSERT INTO item_skin_transfers (target, source) VALUES ($target, $source)",
+                    ("$target", itemId), ("$source", JsonSerializer.Serialize(donor, Json)));
+            }
             for (int i = 0; i < (item.Mods?.Count ?? 0); i++)
             {
                 var m = item.Mods![i];
@@ -356,6 +363,16 @@ public static class SaveRows
         string where = inventory is null ? $"{column} = $o" : $"{column} = $o AND inventory = $i";
         (string, object)[] filter = inventory is null ? [("$o", id)] : [("$o", id), ("$i", inventory.Value)];
         var mods = new Dictionary<long, List<SavedMod>>();
+        var donors = new Dictionary<long, SavedItem>();
+        using (var c = db.Command($"SELECT target, source FROM item_skin_transfers WHERE target IN (SELECT id FROM items WHERE {where})", filter))
+        using (var r = c.ExecuteReader())
+            while (r.Read())
+            {
+                var donor = JsonSerializer.Deserialize<SavedItem>(r.GetString(1), Json)
+                    ?? throw new InvalidDataException("A saved skin-transfer source is null");
+                if (donor.SkinTransferSource is not null) throw new InvalidDataException("Nested skin transfers are not supported");
+                donors.Add(r.GetInt64(0), donor);
+            }
         using (var c = db.Command($"SELECT item, mod, section, stat_values FROM item_mods WHERE item IN (SELECT id FROM items WHERE {where}) ORDER BY item, ord", filter))
         using (var r = c.ExecuteReader())
             while (r.Read())
@@ -393,7 +410,8 @@ public static class SaveRows
                 (ItemInfluence)v.Long("influences")!.Value, v.Bool("split")!.Value, v.Bool("synthesised")!.Value, v.Bool("foreseeing")!.Value,
                 (uint)v.Long("foresee_seed")!.Value, (byte?)v.Long("alternate_quality_type"), original,
                 v.Bool("vestigial") == true, v.Json<HeistBlueprintState>("heist_blueprint"))
-                { MemoryStrands = (byte)v.Long("memory_strands")!.Value, Intangibility = (byte)v.Long("intangibility")!.Value,
+                { SkinTransferSource = donors.GetValueOrDefault(r.Id),
+                    MemoryStrands = (byte)v.Long("memory_strands")!.Value, Intangibility = (byte)v.Long("intangibility")!.Value,
                     RequiredLevel = (int?)v.Long("required_level"), RelicStyle = (byte?)v.Long("relic_style") };
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
