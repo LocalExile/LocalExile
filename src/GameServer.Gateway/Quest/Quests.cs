@@ -676,7 +676,7 @@ public static partial class Quests
     public static class League
     {
         public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, CraftedItemAtBench = 201,
-            AtlasUnlocked = 296, UnlockedMapDevice = 350;
+            AtlasUnlocked = 296, UnlockedMapDevice = 350, VisitedMenagerie = 408;
 
         /// <summary>Kirac's Purchase Items (NPCTalk column 16): the client hides the buy option without it.</summary>
         public const int UsedMapDevice = 348;

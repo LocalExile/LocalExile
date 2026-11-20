@@ -124,6 +124,12 @@ public static partial class Game
     public static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         conn.PlayerSent = true;
+        if (conn.Layout.Hash == StashCatalog.MenagerieHub)
+        {
+            bool visited;
+            lock (conn.Monsters) visited = conn.LeagueQuestFlags.Contains(Quests.League.VisitedMenagerie);
+            if (!visited) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [Quests.League.VisitedMenagerie]);
+        }
         await StartGracePeriod(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
