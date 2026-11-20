@@ -152,7 +152,9 @@ def listen(record, out, callback, wait=600):
 def run(arguments):
     if len(arguments) < 3:
         raise RuntimeError("recorder runner requires the client and its local patching-server argument")
-    client = Path(arguments[0]).resolve()
+    # The checkout is the folder that holds Client/, not where a linked Client/ resolves to (the receiver's socket is
+    # named after this checkout); the mapped image is the resolved file.
+    client = Path(os.path.abspath(arguments[0]))
     if client.name != "Game.patched.exe" or arguments[1] != "--patching-server" or not arguments[2].startswith("127.0.0.1:"):
         raise RuntimeError("the recorder runner only starts the patched client with a local patching server")
     root = client.parents[1]
@@ -161,7 +163,7 @@ def run(arguments):
     library = prepare()
     env = os.environ.copy()
     env["LD_PRELOAD"] = str(library) + ((":" + env["LD_PRELOAD"]) if env.get("LD_PRELOAD") else "")
-    env["LOCALEXILE_CAPTURE_IMAGE"] = str(client)
+    env["LOCALEXILE_CAPTURE_IMAGE"] = str(client.resolve())
     env["LOCALEXILE_CAPTURE_AGENT"] = str(Path(__file__).with_name("walkmaps.js"))
     env["LOCALEXILE_CAPTURE_SOCKET"] = str(socket_path(root))
     runner = env.get("Game_RECORDER_CLIENT_RUNNER", "umu-run")

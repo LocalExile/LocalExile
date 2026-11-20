@@ -100,6 +100,10 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>Scales the gold pile (1: the server's own).</summary>
     public double Gold { get; set; } = 1;
 
+    /// <summary>Scales the chance of a map-related drop (a map; 1: the server's own), as the monster stat
+    /// <c>map_related_item_drop_chance_+%_final_from_league</c> does.</summary>
+    public double MapRelated { get; set; } = 1;
+
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
 
@@ -112,6 +116,28 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 
     /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
     public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
+
+    Action<List<ItemDrops.Drop>>? _transforms;
+
+    /// <summary>True when at least one post-roll transform was registered.</summary>
+    public bool HasTransforms => _transforms is not null;
+
+    /// <summary>Registers a post-roll callback that inspects or mutates the kill's rolled drops before they are
+    /// stacked and placed on the ground. Multiple transforms run in registration order.</summary>
+    public void AddTransform(Action<List<ItemDrops.Drop>> transform)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+        _transforms += transform;
+    }
+
+    /// <summary>Runs every registered post-roll transform on <paramref name="drops"/>, in registration order.
+    /// A transform that throws is logged and skipped so later transforms and drop placement still run.</summary>
+    public void ApplyTransforms(List<ItemDrops.Drop> drops)
+    {
+        if (_transforms is null) return;
+        foreach (var transform in Delegate.EnumerateInvocationList(_transforms))
+            GameEventOwners.Guard(nameof(DropRoll), nameof(ApplyTransforms), () => transform(drops));
+    }
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>
