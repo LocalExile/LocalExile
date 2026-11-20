@@ -2011,6 +2011,7 @@ public static partial class Game
     public static async Task RetargetAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint targetId, long readAt = 0)
     {
+        if (conn.Closed || conn.LeavingArea) return;
         (int X, int Y)? fallbackPos = null;
         if (targetId != PlayerId)
         {
@@ -2049,8 +2050,7 @@ public static partial class Game
                 conn.LockstepHold.Update(aim);
                 if (conn.LockstepSkill.Held)
                 {
-                    if (isMonster) conn.LockstepSkill.Retarget(targetId, aim);
-                    else conn.LockstepSkill.Update(aim);
+                    conn.LockstepSkill.Retarget(isMonster ? targetId : null, aim);
                     if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
                     {
                         ChannelAimedAt(conn, aim.X, aim.Y, at);

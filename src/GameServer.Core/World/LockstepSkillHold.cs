@@ -50,8 +50,8 @@ public sealed class LockstepSkillHold
         if (_held) Aim = aim;
     }
 
-    /// <summary>C→S 0x193: retarget the held skill onto an object at its live cell.</summary>
-    public void Retarget(uint target, (int X, int Y) aim)
+    /// <summary>C→S 0x193: retarget the held skill onto an object (or clear a stale target) at its live cell.</summary>
+    public void Retarget(uint? target, (int X, int Y) aim)
     {
         if (!_held) return;
         Aim = aim;

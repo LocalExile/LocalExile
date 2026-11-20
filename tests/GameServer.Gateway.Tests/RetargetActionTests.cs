@@ -151,6 +151,12 @@ public sealed class RetargetActionTests : IDisposable
         Assert.Equal((122, 95), conn.LockstepSkill.Aim);
         Assert.Equal(0x3009u, conn.LockstepSkill.Target);
 
+        // Retargeting onto a non-monster (self) clears the stale monster target while updating aim.
+        await Game.OnClientMessages("retarget-self", serverStream, serverCiphers,
+            [(InstanceProtocol.RetargetActionId, RetargetPacket(Program.PlayerId))], [], conn);
+        Assert.Equal((100, 100), conn.LockstepSkill.Aim);
+        Assert.Null(conn.LockstepSkill.Target);
+
         conn.LockstepSkill.Clear();
         conn.LockstepHold.Press((105, 100), 0x2909, 0x0400);
         Assert.Equal((105, 100), conn.LockstepHold.Due(walking: true, here: (100, 100)));
