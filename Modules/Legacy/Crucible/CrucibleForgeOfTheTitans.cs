@@ -118,7 +118,9 @@ public static class CrucibleForgeOfTheTitans
         area.Objects.Add(bench);
 
         // 2. CrucibleUniqueForge (Antique Furnace / Scouring Furnace) when rolled on the Remnant.
-        bool hasApplyUnique = area.RemnantMods.Get("map_crucible_contains_forge_that_can_apply_weapon_tree_to_unique") > 0;
+        // Mods 6266 grants value 1 (non-corrupted uniques -> mode 0); Mods 6267 grants value 2 (any unique -> mode 1).
+        int applyUniqueVal = area.RemnantMods.Get("map_crucible_contains_forge_that_can_apply_weapon_tree_to_unique");
+        bool hasApplyUnique = applyUniqueVal > 0;
         bool hasRemoveTree = area.RemnantMods.Get("map_crucible_contains_forge_that_can_remove_weapon_tree") > 0;
         if (hasApplyUnique || hasRemoveTree)
         {
@@ -130,7 +132,7 @@ public static class CrucibleForgeOfTheTitans
 
             uint mode = hasRemoveTree && !hasApplyUnique
                 ? InstanceCrucible.ScouringForgeMode
-                : (area.Uber ? InstanceCrucible.AntiqueForgeCorruptedMode : InstanceCrucible.AntiqueForgeMode);
+                : (applyUniqueVal >= 2 ? InstanceCrucible.AntiqueForgeCorruptedMode : InstanceCrucible.AntiqueForgeMode);
 
             var forge = new WorldObject
             {

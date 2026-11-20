@@ -78,8 +78,9 @@ public static class CrucibleRemnants
     }
 
     /// <summary>
-    /// Rolls a <c>Primeval Remnant</c> (ilvl 80) or <c>Primordial Remnant</c> (ilvl 84) with its combining-forge
-    /// implicit plus 4–6 Domain 33 Crucible map mods, identified and corrupted (matching 3.21 Geode behavior).
+    /// Rolls a <c>Primeval Remnant</c> (ilvl 80, 2–3 prefixes + 2–3 suffixes) or <c>Primordial Remnant</c>
+    /// (ilvl 84, 3–4 prefixes via <c>local_hidden_maximum_prefixes_allowed_+</c> + 2–3 suffixes) with its
+    /// combining-forge implicit, identified and corrupted (matching 3.21 Geode behavior).
     /// </summary>
     public static Item RollRemnant(ItemCatalog.BaseType remnantBase, ItemRolls rolls, bool uber, Random random)
     {
@@ -91,6 +92,8 @@ public static class CrucibleRemnants
             Rarity = ItemRarity.Rare,
         };
         var rolled = rolls.Roll(blank, ItemRarity.Rare, random);
+        if (uber && rolls.AddAffix(rolled, 4, random) is { } extra)
+            rolled = extra;
         return rolled with
         {
             ItemLevel = ilvl,

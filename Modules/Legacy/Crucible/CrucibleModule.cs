@@ -19,7 +19,11 @@ public sealed class CrucibleModule : IModule
         string id = module.Manifest.Id;
         module.Log($"Crucible loaded (XP ×{choices.ExperienceMultiplier:0.##}, geode drop rate ×{choices.GeodeDropRate:0.##})");
 
-        module.Lifetime.Own(new Cleanup(CrucibleForgeOfTheTitans.Clear));
+        module.Lifetime.Own(new Cleanup(() =>
+        {
+            CrucibleForgeOfTheTitans.Clear();
+            CrucibleEncounter.Clear();
+        }));
 
         // 1. Register CrucibleLifeScalingPerLevel monster life scaling stat.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([CrucibleTables.LevelMoreLifeStat], []));
@@ -48,14 +52,37 @@ public sealed class CrucibleModule : IModule
         GameEvents.Packet(InstanceCrucible.CombineRequestId).Add(id, CrucibleForgeOfTheTitans.HandleCombine);
         GameEvents.Packet(InstanceCrucible.UniqueForgeRequestId).Add(id, CrucibleForgeOfTheTitans.HandleUniqueForge);
 
-        // 9. Area generation, world object interaction, and Forge of the Titans drops.
+        // 9. In-zone Crucible Forge: native CrucibleChannel skill (0x5f29) + Forge stats & proximity/waves.
+        GameEvents.Stats.Add(id, CrucibleEncounter.OnStats);
+        GameEvents.GrantedSkills.Add(id, CrucibleEncounter.GrantedSkills);
+        GameEvents.SkillBarBuilding.Add(id, CrucibleEncounter.OnSkillBarBuilding);
+        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(id, (conn, bytes) =>
+            CrucibleEncounter.HandleChannelSkill(conn, InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan()).SkillId));
+        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(id, (conn, bytes) =>
+            CrucibleEncounter.HandleChannelSkill(conn, InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan()).SkillId));
+
+        // 10. Area generation, world object interaction, ticks, kills, leaving, and drops.
         GameEvents.AreaGenerated.Add(id, async conn =>
         {
             await CrucibleForgeOfTheTitans.Enter(conn);
+            await CrucibleEncounter.Enter(conn);
         });
 
         GameEvents.ObjectUse.Add(id, async (conn, use, requestedAt) =>
-            await CrucibleForgeOfTheTitans.UseObject(conn, use, requestedAt));
+            await CrucibleForgeOfTheTitans.UseObject(conn, use, requestedAt)
+            || await CrucibleEncounter.UseObject(conn, use, requestedAt));
+
+        GameEvents.Tick.Add(id, (conn, dt) =>
+            CrucibleEncounter.Tick(conn, dt, choices.ExperienceMultiplier, choices.GeodeDropRate));
+
+        GameEvents.Kill.Add(id, kill =>
+            CrucibleEncounter.OnKill(kill, choices.ExperienceMultiplier, choices.GeodeDropRate));
+
+        GameEvents.PlayerLeaving.Add(id, (conn, _) =>
+        {
+            CrucibleEncounter.OnPlayerLeaving(conn);
+            return Task.CompletedTask;
+        });
 
         GameEvents.Drops.Add(id, CrucibleForgeOfTheTitans.OnDrops);
     }
