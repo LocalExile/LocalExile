@@ -104,6 +104,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [game/surfcaster.md](game/surfcaster.md) | Surfcaster node checklist: fishing-rod crits and cast speed, Ghost of the Deep, reversed chill, monster ailments and flee |
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
 | [game/phrecia-ascendancies.md](game/phrecia-ascendancies.md) | what makes a Phrecia class complete, per-class acceptance |
+| [game/settlers.md](game/settlers.md) | Settlers of Kalguur: why the client drops Kingsmarch's floor and buildings, the village UI that this build never creates, and the objects and commands the server uses instead |
 | [game/juggernaut.md](game/juggernaut.md) | Juggernaut node checklist |
 | [game/slayer.md](game/slayer.md) | Slayer node checklist |
 | [game/hierophant.md](game/hierophant.md) | Hierophant node checklist |

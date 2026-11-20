@@ -140,19 +140,22 @@ public sealed class NpcCatalog
         // Einhar's row: EinharMenagerie has no .ot in the GGPK, and the client drew it without a model.
         [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
-        // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
-        // live with /npc_place.
+        // Kingsmarch (KalguuranSettlersLeague): each NPC stands on the cell its own line of the town room
+        // (Metadata/Terrain/Leagues/Settlers/HubTown/Rooms/kingsmarch.arm) gives it, as offsets from the arrival (590, 655):
+        // the King's Hand 429,624 · Tujen 283,429 · Rog 316,523 · Dannig 493,478 · Faustus 389,625 · Isla 213,547 ·
+        // Sonja the Farmer 367,794 · Raulf 422,664. Gwennen's line is not in that room; she stands by the tavern (395,655,
+        // placed live with /npc_place Gwennen 395 655 225 on 2026-11-19).
         [StashCatalog.Kingsmarch] =
         [
-            new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageDannig", -14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFaustus", 14, 6, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageIsla", -14, 6, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageMayor", -161, -31, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageTujen", -307, -226, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageGwennen", -195, 0, 225 * MathF.PI / 180),
+            new("Metadata/NPC/League/Kalguur/VillageRog", -274, -132, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageDannig", -97, -177, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageFaustus", -201, -30, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageIsla", -377, -108, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageFarmer", -223, 139, 4.0f),
+            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -168, 9, 4.0f),
         ],
         // The Rogue Harbour (HeistHub): Kurai, Faustus, Adiyah, Whakano and the nine rogues in a ring around the arrival
         // (offsets, StashCatalog.FromArrival), to be placed live with /npc_place.

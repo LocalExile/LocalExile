@@ -263,7 +263,9 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine"];
+    // ControlZone, Brackets and Functions deserialize through the same no-op reader as BaseEvents (0x1400f1180, "ret 0"),
+    // so they cost the blob nothing: the league NPCs of Kingsmarch list them (settlers.md).
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "ControlZone", "Brackets", "Functions"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>

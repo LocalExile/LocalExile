@@ -96,6 +96,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Kingsmarch (Settlers of Kalguur): the hub's villagers stand on their room cells and talk, the farm plots grow and
+  harvest (workers, wages, a saved store), the treasury takes gold from Johan's "Fund the Treasury", and the harbour
+  sends crops to the seven ports with travel time, risk and the shipping failure rows. The league's own panels cannot
+  open in this client (its village UI is never built and its gold has no message), so the same actions are commands
+  (`/village`, `/recruit`, `/treasury`, `/port`); the town's floor and buildings come from a client-side doodad patch
+  (`scripts/dev/kingsmarch-doodads.py`), not from the protocol. Mining/smelting, workers in maps and shipping quotas are
+  not written. Source: `Modules/Core/Game/World/KingsmarchTown.cs`, `KingsmarchPort.cs`,
+  [settlers](../docs/game/settlers.md).
+
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
