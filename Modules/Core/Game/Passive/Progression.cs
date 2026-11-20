@@ -680,18 +680,23 @@ public static partial class Game
                 ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes);
         }
 
-        HashSet<ushort> ItemGrantedPassives(IEnumerable<Item> activeItems)
+        HashSet<ushort>? ItemGrantedPassives(IReadOnlyList<Item> activeItems)
         {
+            bool anyTree = false;
+            for (int i = 0; i < activeItems.Count; i++)
+                if (activeItems[i].WeaponPassiveTree is { HasTree: true, Allocation: not 0 }) { anyTree = true; break; }
+            if (!anyTree) return null;
             HashSet<ushort>? granted = null;
             foreach (ushort graphId in ItemModStats.GrantedPassives(activeItems, catalog.Mods))
                 if (!allocated.Contains(graphId) && tree.Find(graphId) is not null)
                     (granted ??= []).Add(graphId);
-            return granted ?? [];
+            return granted;
         }
 
-        void AddItemGrantedAttributes(Dictionary<string, long> target, IEnumerable<Item> activeItems)
+        void AddItemGrantedAttributes(Dictionary<string, long> target, IReadOnlyList<Item> activeItems)
         {
-            foreach (ushort graphId in ItemGrantedPassives(activeItems))
+            if (ItemGrantedPassives(activeItems) is not { } granted) return;
+            foreach (ushort graphId in granted)
                 if (tree.Find(graphId) is { } grantedNode)
                     foreach (var (key, value) in grantedNode.Stats)
                         if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
@@ -769,8 +774,7 @@ public static partial class Game
         // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
         active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
             catalog).ToArray();
-        var itemGrantedPassives = ItemGrantedPassives(active);
-        if (itemGrantedPassives.Count > 0)
+        if (ItemGrantedPassives(active) is { } itemGrantedPassives)
         {
             foreach (ushort graphId in itemGrantedPassives)
                 if (tree.Find(graphId) is { } grantedNode)

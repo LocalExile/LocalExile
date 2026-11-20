@@ -397,15 +397,18 @@ public static class ItemModStats
     }
 
     /// <summary>PassiveSkillGraphIds granted by active items via <c>local_weapon_passive_tree_granted_passive_hash</c>
-    /// (stored as signed 16-bit ints on the mod, cast to unsigned graph ids). Reads per-mod occurrences without summing.</summary>
+    /// (stored as signed 16-bit ints on allocated weapon passive tree nodes, cast to unsigned graph ids).
+    /// Reads per-node occurrences without summing, and skips items without an allocated weapon passive tree.</summary>
     public static IEnumerable<ushort> GrantedPassives(IEnumerable<Item> items, ModCatalog mods)
     {
         foreach (var item in items)
         {
-            if (!LocalCached(item, mods).ContainsKey("local_weapon_passive_tree_granted_passive_hash")) continue;
-            foreach (var (id, value) in Values(item, mods, local: true))
-                if (id == "local_weapon_passive_tree_granted_passive_hash" && value != 0)
-                    yield return unchecked((ushort)value);
+            if (item.WeaponPassiveTree is not { HasTree: true, Allocation: not 0 } tree) continue;
+            foreach (var node in tree.AllocatedNodes())
+                if (mods.ByHash(node.ModHash) is { } row)
+                    for (int s = 0; s < row.Stats.Count && s < node.Values.Count; s++)
+                        if (row.Stats[s].Id == "local_weapon_passive_tree_granted_passive_hash" && node.Values[s] != 0)
+                            yield return unchecked((ushort)node.Values[s]);
         }
     }
 

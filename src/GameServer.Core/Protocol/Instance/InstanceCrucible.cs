@@ -12,8 +12,9 @@ public static class InstanceCrucible
     public const byte CrucibleRulesetRow = 0x89;
     public const byte CrucibleMapRulesetRow = 0x8c;
 
-    /// <summary>ActiveSkills row 1815 (<c>crucible_channel</c>, ActionTypes 1163 <c>CrucibleChannel</c>) HASH16.</summary>
-    public const ushort CrucibleChannelSkillHash = 0x5f29;
+    /// <summary>ActiveSkills row 1815 (<c>crucible_channel</c>, ActionTypes 1163 <c>CrucibleChannel</c>) action id
+    /// (<c>HASH16 0x5f29 &amp; 0x3fff = 0x1f29</c>, matching <c>SkillCatalog</c>'s 14-bit action/skill id space).</summary>
+    public const ushort CrucibleChannelSkillHash = 0x1f29;
 
     // ---- S→C 0x02c9 (CrucibleRules 0x89 sub-messages, 0x141682b90, LE payload) ------------------------------------------
 

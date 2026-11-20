@@ -7,8 +7,85 @@ public class WeaponPassiveTreeTests : IDisposable
     public void Dispose() => TestEnvironment.ReleaseOwnSaves();
 
     [Fact]
-    public void Weapon_passive_tree_round_trips_through_character_and_stash_saves()
+    public void Weapon_passive_tree_wire_packets_and_saves_round_trip()
     {
+        // 1. Mods bit-7 wire layout: unrevealed (HasTree = false) and revealed (HasTree = true).
+        var unrevealedWire = new Item(1, ["Mods"], 0)
+        {
+            ItemLevel = 68, MemoryStrands = 0x11, Intangibility = 0x22,
+            WeaponPassiveTree = new WeaponPassiveTreeState(BalanceItemLevel: 68, Experience: 1234, HasTree: false),
+        };
+        Assert.Equal(
+            "01000000" + "0000" + "44" + "00" + "8000" + "0800" + "00" +
+            "44000000" + "D2040000" + "00" + "11" + "22",
+            Convert.ToHexString(unrevealedWire.Payload()));
+
+        int w0 = WeaponPassiveTreeState.BitIndex(0, 0), w1 = WeaponPassiveTreeState.BitIndex(1, 0), w4 = WeaponPassiveTreeState.BitIndex(2, 1);
+        Assert.Equal((0, 0), WeaponPassiveTreeState.Coordinates(w0));
+        Assert.Equal((2, 1), WeaponPassiveTreeState.Coordinates(w4));
+        var n0 = new WeaponPassiveTreeNode(0x1234, [5, -3]);
+        var n1 = new WeaponPassiveTreeNode(0x5678, [10]);
+        var n4 = new WeaponPassiveTreeNode(0x9abc, []);
+        var wireTree = new WeaponPassiveTreeState(
+            BalanceItemLevel: 84, Experience: 50000, HasTree: true,
+            Layout: (ushort)((1 << w0) | (1 << w1) | (1 << w4)), Allocation: (ushort)((1 << w0) | (1 << w1)),
+            LeftParentConnections: (ushort)(1 << w4), RightParentConnections: (ushort)((1 << w1) | (1 << w4)),
+            PendingCol2: 1, Nodes: [n0, n1, n4]);
+        var revealedWire = new Item(1, ["Mods"], 0)
+        {
+            ItemLevel = 84, MemoryStrands = 0x33, Intangibility = 0x44, WeaponPassiveTree = wireTree,
+        };
+        Assert.Equal(
+            "01000000" + "0000" + "54" + "00" + "8000" + "0800" + "00" +
+            "54000000" + "50C30000" + "01" + "1300" + "0300" + "1000" + "1200" + "FFFF01FFFF" +
+            "3412" + "05" + "7D" + "7856" + "0A" + "BC9A" + "33" + "44",
+            Convert.ToHexString(revealedWire.Payload()));
+        Assert.Equal(n4, wireTree.NodeAt(2, 1));
+        Assert.Null(wireTree.NodeAt(1, 1));
+        Assert.Equal([n0, n1], wireTree.AllocatedNodes().ToArray());
+        Assert.Throws<InvalidDataException>(() => (new Item(1, ["Mods"], 0)
+            { WeaponPassiveTree = new(1, 0, true, Layout: 0x8001, Nodes: [n0, n1]) }).Payload());
+        Assert.Throws<InvalidDataException>(() => (new Item(1, ["Mods"], 0)
+            { WeaponPassiveTree = new(1, 0, true, Layout: 0x0003, Nodes: [n0]) }).Payload());
+
+        // 2. Crucible C→S framing (0x0116, 0x0299, 0x029b), S→C (0x007b 0x4a/0x4b, 0x029a, 0x029c, 0x02c9) and ControlZone blob.
+        byte[] unalloc = Convert.FromHexString("0116" + "000000010000002A00000002000000070000000300000002");
+        byte[] combineReq = Convert.FromHexString("0299" + "00000001000000100000000100000020");
+        byte[] uniqueReq = Convert.FromHexString("029B" + "0000000100000033");
+        Assert.Equal(new InstanceCrucible.WeaponPassiveUnallocate(1, 0x2A, 2, 7, 3, 2), InstanceCrucible.ReadWeaponPassiveUnallocate(unalloc));
+        Assert.Equal(new InstanceCrucible.CombineRequest(1, 0x10, 1, 0x20), InstanceCrucible.ReadCombineRequest(combineReq));
+        Assert.Equal(new InstanceCrucible.UniqueForgeRequest(1, 0x33), InstanceCrucible.ReadUniqueForgeRequest(uniqueReq));
+        var split = InstanceProtocol.SplitClientMessages([.. unalloc, .. combineReq, .. uniqueReq], out var partial, out var unknown);
+        Assert.Equal([26, 18, 10], split.Select(m => m.Bytes.Length).ToArray());
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+        Assert.Equal("007B4A00000001000000000000000000000000", Convert.ToHexString(InstanceCrucible.OpenCombiningUi(uber: true)));
+        Assert.Equal("007B4B00000002000012340000000000000000", Convert.ToHexString(InstanceCrucible.OpenUniqueForgeUi(InstanceCrucible.ScouringForgeMode, 0x1234)));
+        Assert.Equal(
+            "029A000000010000002002000000000000000001000000020000000106",
+            Convert.ToHexString(InstanceCrucible.CombineResult(1, 0x20,
+            [
+                new(0, 0, InstanceCrucible.NodeMutationFlags.UpgradedTier),
+                new(2, 1, InstanceCrucible.NodeMutationFlags.DowngradedTier | InstanceCrucible.NodeMutationFlags.Mutated),
+            ])));
+        Assert.Equal("029C0000000100000033", Convert.ToHexString(InstanceCrucible.UniqueForgeResult(1, 0x33)));
+        Assert.Equal("02C9890100", Convert.ToHexString(InstanceCrucible.ForgeEnterZone()));
+        Assert.Equal("02C9890101", Convert.ToHexString(InstanceCrucible.ForgeLeaveZone()));
+        Assert.Equal("02C9890102", Convert.ToHexString(InstanceCrucible.ForgeLockWeapon()));
+        Assert.Equal("02C98905030000003F", Convert.ToHexString(InstanceCrucible.ForgeCharge(0.5f)));
+        Assert.Equal("02C989020401", Convert.ToHexString(InstanceCrucible.ForgeChannelling(true)));
+        Assert.Equal("02C989020502", Convert.ToHexString(InstanceCrucible.ForgeState(2)));
+        Assert.Equal("02C989050678563412", Convert.ToHexString(InstanceCrucible.ForgeOpenGamepadPopup(0x12345678)));
+        byte[] longRuleset = InstanceProtocol.RulesetMessage(InstanceCrucible.CrucibleMapRulesetRow, new byte[128]);
+        Assert.Equal("02C98C8080", Convert.ToHexString(longRuleset, 0, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InstanceProtocol.RulesetMessage(0x89, new byte[65536]));
+        string[] crucibleDevice = ["Positioned", "BaseEvents", "InteractionAction", "Animated", "TriggerableBlockage", "MinimapIcon", "StateMachine", "ControlZone"];
+        Assert.True(QuestObject.CanSerialize(crucibleDevice, haveStateMachine: true));
+        Assert.Equal(
+            new QuestObject(10, 20, crucibleDevice[..^1]) { StateMachine = new([0, 0, 0], 0) }.Blob(),
+            new QuestObject(10, 20, crucibleDevice) { StateMachine = new([0, 0, 0], 0) }.Blob());
+
+        // 3. Character save (equipment + inventory) and account stash round-trip.
         TestEnvironment.OpenOwnSaves("weapon-passive-tree");
         var catalog = Program.Items;
         var bowType = catalog.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!;
@@ -33,7 +110,6 @@ public class WeaponPassiveTreeTests : IDisposable
         var revealedBow = ItemCatalog.Create(bowType) with { ItemLevel = 84, WeaponPassiveTree = revealedTree };
         var unrevealedBow = ItemCatalog.Create(bowType) with { ItemLevel = 68, WeaponPassiveTree = unrevealedTree };
 
-        // Character save round-trip (equipment + inventory).
         string character = "CrucibleSave" + Guid.NewGuid().ToString("N");
         var saved = new CharacterSaves.Save(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>
         {
@@ -50,7 +126,6 @@ public class WeaponPassiveTreeTests : IDisposable
         Assert.Equal(unrevealedTree, loadedUnrevealed.WeaponPassiveTree);
         Assert.Equal(unrevealedBow.Payload(), loadedUnrevealed.Payload());
 
-        // Account stash round-trip.
         string account = "CrucibleStash" + Guid.NewGuid().ToString("N");
         PlayerInventories.Shape? Shape(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
         var stash = AccountStash.For(account, catalog);
