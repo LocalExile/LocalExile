@@ -1364,6 +1364,12 @@ public static partial class Game
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
+        if (gem.Name is not null && IsBrandSkill(conn, gem.Effect))
+            return await CastBrand(remote, stream, ciphers, conn, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll);
+        if (gem.Name is not null && IsBrandRecall(conn, gem.Effect))
+            return await CastBrandRecall(remote, stream, ciphers, conn, skillId, gem, Current);
+        if (gem.Name is not null && IsBrandsurge(conn, gem.Effect))
+            return await CastBrandsurge(remote, stream, ciphers, conn, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll);
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(conn, gem.Effect))
@@ -1413,6 +1419,8 @@ public static partial class Game
                 conn.RecentEvents.Record(StatConditions.UsedFireSkill, acceptedAt);
             if (SkillsFor(conn).HasType(effect, "Cold"))
                 conn.RecentEvents.Record(StatConditions.UsedColdSkill, acceptedAt);
+            if (SkillsFor(conn).IsBrand(effect))
+                RecordBrandSkillUsedLocked(conn, acceptedAt);
         }
     }
 

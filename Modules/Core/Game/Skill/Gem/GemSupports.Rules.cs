@@ -813,6 +813,8 @@ public static partial class Game
                 chance = (int)Math.Clamp(chance * (1 + (double)siphon * Player("current_power_charges") / 100), 0, 10_000);
             return DisplayedCriticalChance(conn, chance, Player);
         }
+        if (SkillsFor(conn).IsBrand(gem.Effect) || Own("skill_gets_brand_damage_crit_modifiers") != 0)
+            extraIncrease += Player("sigil_critical_strike_chance_+%") + Own("sigil_critical_strike_chance_+%");
         return DisplayedCriticalChance(conn, SpellCriticalStrike.Chance(SkillsFor(conn).SpellCritChance(gem.Effect, gem.Level),
             Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
@@ -884,6 +886,8 @@ public static partial class Game
         // per-charge stats are already in its stats (ChargeEffects), this one only on the skill.
         if (GolemStat(gem.Stats, "critical_strike_multiplier_+_per_power_charge") is int perPower and not 0)
             extra += perPower * GolemStat(player, "current_power_charges");
+        if (SkillsFor(conn).IsBrand(gem.Effect) || GolemStat(gem.Stats, "skill_gets_brand_damage_crit_modifiers") != 0)
+            extra += GolemStat(player, "sigil_critical_strike_multiplier_+") + GolemStat(gem.Stats, "sigil_critical_strike_multiplier_+");
         return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
             ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)
             : conn.Pools.SpellCriticalStrikeMultiplier) + extra, player, gem.Stats);

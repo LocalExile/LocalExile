@@ -724,7 +724,8 @@ public static partial class Game
                 stats[artKey] = art;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
-            int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
+            int supportCastSpeed = (Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0)
+                + BrandCastSpeedBonusPct(conn, effect, playerStats, own);
             int castSpeedTotal = FinalCastSpeedPct(conn, stats, CastSpeedPct(stats) + supportCastSpeed);
             var supportedTiming = GolemStat(own, "base_spell_cast_time_ms_override") is int castBasis and > 0
                 ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal);
@@ -990,6 +991,14 @@ public static partial class Game
                     PlacedSkillCount(conn, supported, placed.Mine));
                 Publish("active_skill_base_area_of_effect_radius", SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get));
                 Publish("active_skill_area_of_effect_radius", (int)SkillRadius(conn, own, true, effect));
+            }
+            if (SkillsFor(conn).IsBrand(effect))
+            {
+                Publish("brands_per_target_limit", BrandMaxPerTarget(playerStats, own));
+                if (GolemStat(own, "base_sigil_repeat_frequency_ms") > 0)
+                    Publish("sigil_repeat_frequency_ms", (int)Math.Round(1000 * BrandActivationSeconds(conn, supported, playerStats)));
+                if (GolemStat(own, "base_secondary_skill_effect_duration") > 0)
+                    Publish("secondary_skill_effect_duration", (int)Math.Round(1000 * BrandDetachedDurationSeconds(playerStats, own)));
             }
             Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
             if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))

@@ -158,6 +158,13 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
+        GameEvents.CompanionTick.Add(id, Rules.TickBrands);
+        GameEvents.PlayerStatSources.Add(id, Rules.BrandPlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => { Rules.ClearBrands(conn); return Task.CompletedTask; });
+        GameEvents.TransientClosing.Add(id, Rules.ClearBrands);
+        GameEvents.GrantedSkillExecutable.Add(id, (_, effectId) => Rules.IsBrandsurgeEffect(effectId));
+        GameEvents.Kill.Add(id, Rules.BrandOnMonsterKill);
+        module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
     }
 }
 
