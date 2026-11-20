@@ -79,6 +79,18 @@ public static partial class Game
             var minion = GolemTargetLocked(owner, id, m, at, now, distance);
             return minion.G is null ? distance : Math.Min(distance, minion.Distance);
         }
+        if (DecoyTarget(m, now) is { } decoy)
+        {
+            if (!ReferenceEquals(conn, decoy.Owner)) return false;
+            if (!ReferenceEquals(m.Target, conn))
+            {
+                (m.LastTarget, m.SwingGeneration) = (null, null);
+                m.ActionGeneration++;
+                if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+                m.Target = conn;
+            }
+            return true;
+        }
         d = TargetDistance(conn, d);
         var t = m.Target;
         bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);

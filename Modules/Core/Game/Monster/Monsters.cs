@@ -774,6 +774,7 @@ public static partial class Game
         // action is already swinging), with the start of the frame the swing began in.
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, double BegunAt)> ArrivedSwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, uint Target, SpawnedMonster Weapon)> WeaponSwings = [];
+        public readonly List<(uint Id, SpawnedMonster Monster, int Action, TotemState.Totem Totem)> DecoySwings = [];
         public readonly List<(uint Id, SpawnedMonster Monster)> BossBars = [];
         public readonly List<PlayerMinions.Attack> MinionSwings = [];
         // What changed on the monsters' chill, freeze and shock (MonsterAilmentChangesLocked), sent before the orders.
@@ -855,7 +856,8 @@ public static partial class Game
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
-                if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
+                var decoy = DecoyTarget(m, now);
+                if (m.Hostile && decoy is null && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
                 // A boss's kit (BossKits): the skill that is ready and reaches the player, else its default swing. Never
                 // while a swing still runs: the attack an order names must stay the one its hit is applied with.
                 if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d);
@@ -866,7 +868,7 @@ public static partial class Game
                     m.BossBarShown = true;
                     plan.BossBars.Add((id, m));
                 }
-                else if (m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
+                else if (decoy is null && m.Aggro && !m.Fleeing && d > 2 * m.AggroRange && !conn.Minions.Owns(id))   // a flee walk is not cut short; a minion keeps following
                 {
                     m.Aggro = false;
                     m.SwingGeneration = null;
@@ -999,6 +1001,11 @@ public static partial class Game
                         plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, target.Approach, now),
                             target.Approach, $"minion chases monster 0x{target.Id:x}"));
                     }
+                    continue;
+                }
+                if (m.Hostile && decoy is { } targetDecoy)
+                {
+                    PlanDecoyTarget(conn, cadence, plan, id, m, targetDecoy.Source, now, (mx, my));
                     continue;
                 }
                 if (PlanRampageWeaponTarget(conn, cadence, plan, id, m, now, (mx, my), d)) continue;
@@ -1314,6 +1321,8 @@ public static partial class Game
             StartMinionSwing(remote, stream, ciphers, conn, attack);
         foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
             _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
+        foreach (var (id, m, action, totem) in plan.DecoySwings)
+            _ = RunDecoySwing(remote, stream, ciphers, conn, cadence, id, m, action, totem);
         conn.Performance.MaybeLog(remote);
     }
 

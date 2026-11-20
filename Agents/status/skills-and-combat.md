@@ -209,7 +209,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem (ordinary monster AI). Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Holy Flame Totem places without channelling on its owner and fires piercing bolts. Consecrated ground remains open.
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.

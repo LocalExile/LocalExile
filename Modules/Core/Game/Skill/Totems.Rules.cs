@@ -117,12 +117,11 @@ public static partial class Game
     /// <summary>Whether a dedicated totem skill has something this module runs behind it: an aura
     /// (<see cref="TotemAuras"/>), Devouring Totem's corpse meal, or a nova spell that hits around the totem
     /// (Shockwave Totem: ActiveSkillType Nova). Read from the skill data, not the player's hit, so Ancestral Bond's
-    /// "deal no damage yourself" does not refuse it. Not run yet, so still refused before cost: Decoy Totem's taunt (the
-    /// monster AI has no totem target), the ancestral melee totems (their reach, owner buffs and parent range) and
-    /// Searing Bond's burning beam.</summary>
+    /// "deal no damage yourself" does not refuse it. This also admits Decoy Totem's taunt. Ancestral melee totems and
+    /// Searing Bond are still refused before cost.</summary>
     static bool TotemDoesSomething(ClientState conn, int effect) =>
         TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
-        || SkillsFor(conn).EffectId(effect) == "DevouringTotem"
+        || SkillsFor(conn).EffectId(effect) is "DevouringTotem" or "DecoyTotem"
         || TotemNova(conn, effect);
 
     static bool TotemNova(ClientState conn, int effect) => SkillsFor(conn).HasType(effect, "Nova")
@@ -197,7 +196,9 @@ public static partial class Game
         byte level = (byte)Math.Clamp(Get("totem_support_gem_level") is > 0 and var supportLevel
             ? supportLevel : SkillsFor(conn).PlayerLevelReq(effect, gemLevel), 1, 100);
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
-        uint life = (uint)Math.Clamp((long)baseLife * (100 + Get("totem_life_+%")) / 100, 1, int.MaxValue);
+        bool decoy = SkillsFor(conn).EffectId(effect) == "DecoyTotem";
+        double lifeScale = decoy ? Math.Max(0, 1 + GolemStat(own, "totem_life_+%_final") / 100.0) : 1;
+        uint life = (uint)Math.Clamp(baseLife * (100L + Get("totem_life_+%")) / 100.0 * lifeScale, 1, int.MaxValue);
         double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
         TotemState.Aura? aura = null;
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.TryGetValue(id, out var source))
@@ -253,7 +254,8 @@ public static partial class Game
             var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
-                SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
+                SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem,
+                DecoyRadius = decoy && grantedId != 0 ? TotemTargetRange(conn, skillId) : 0, BodySize = Math.Max(0, bodySize) };
             int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
                 + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
             placed.Ballista = ballista;
@@ -438,6 +440,7 @@ public static partial class Game
         TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
         if (conn.PlayerLife == 0) return;
+        if (totem.DecoyRadius > 0) { DecoyTotemUseLocked(conn, totem, now, bytes); return; }
         if (totem.Devour is { } devour) { TotemDevourLocked(conn, totem, devour, now, bytes); return; }
         if (totem.Strike is not { } strike || now < strike.NextCast) return;
         double range = TotemTargetRange(conn, totem.SkillId);

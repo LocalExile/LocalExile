@@ -67,6 +67,9 @@ public sealed class TotemState
         public ushort GrantedId => grantedId;
         /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
         public Devour? Devour => devour;
+        public double DecoyRadius { get; init; }
+        public int BodySize { get; init; }
+        public double? TauntAt;
         public int Effect = -1;
         public uint SourceGem;
         public uint SourceHost;
