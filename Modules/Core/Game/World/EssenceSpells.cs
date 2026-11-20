@@ -203,15 +203,17 @@ public static partial class MapEssences
         // chaos pulse has no radius of its own; it rides a hardcoded circle (the shrine ShockNova's 26).
         bool nova = Get("base_is_projectile") != 0;
         int radius = Math.Max(1, SkillArea.Radius(nova ? Get("active_skill_base_area_of_effect_radius") : 26, Get, true));
-        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(spell.Effect) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
+        // The nova's projectiles fly outward well beyond the chilling area's radius; the action's reach is their flight
+        // range, not the impact area (a reach of 6 drew a tiny circle the player could not see).
+        int reach = nova ? Math.Max(radius, 40) : radius;
+        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(spell.Effect) / 1000.0), reach, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
-        if (!nova)
-        {
-            void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
-            Set("active_skill_area_of_effect_radius", radius);
-            Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
-        }
-        else if (Stats.Key("number_of_additional_projectiles") is uint projKey)
+        void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
+        // The client reads the final area radius explicitly (the shrine nova sets it); the base-radius stat alone left
+        // the nova unrendered.
+        Set("active_skill_area_of_effect_radius", radius);
+        Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
+        if (nova && Stats.Key("number_of_additional_projectiles") is uint projKey)
         {
             // The nova's projectile count scales with the essence tier (the tier-7 observation is the maximum); monster
             // and map extra-projectile modifiers add on top through the ordinary mod path.
