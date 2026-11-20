@@ -13,8 +13,8 @@ client draws nothing**), so today there is **damage but no rain**.
 
 - `10141` places nothing in the live client because its dat row (Id 91) has an empty `GroundMarker`, not because it is a
   trigger.
-- The ActiveSkill of `10942` is **1570 `orion_meteor`** (ActionType 1035 = `OrionMeteor`), and **it is the only effect
-  that can build a `Meteor_Rain.ao`**; having no animation slot only means it carries no clip.
+- The ActiveSkill of `10942` is **1570 `orion_meteor`** (ActionType 1035 = `OrionMeteor`), and so are 10943-10946 (the influence, uber and ground-effect versions):
+  **every effect on ActiveSkill 1570 builds the `OrionMeteor` class and its `Meteor_Rain.ao`**; having no animation slot only means it carries no clip.
 
 ## Client data (observed)
 

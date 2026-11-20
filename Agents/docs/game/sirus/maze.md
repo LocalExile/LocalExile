@@ -5,7 +5,8 @@
 **The client has a full maze implementation**: `OrionCircleMazeBlast` (`ActionTypes.HASH16` **0xA4C9 = 42185**) **builds the
 rings itself, one ring after another**, and it builds a warning object of its own named **`meteor_incoming`**; the number of
 rings comes from the **skill stat `orion_circle_maze_number_of_circles` (client id 10845 = our row 10844)**, the total
-duration comes from **`base_secondary_skill_effect_duration` (client id 3249 = our row 3248, the base in ms)**, and the
+duration is **(`skill_effect_duration` + N × `secondary_skill_effect_duration`) / 1000 s** (client ids 360 and 3250,
+read at `0x141d1c4a0`), and the
 centre comes from the position of the entity named **`apparition`**.
 
 > **The stat id convention**: the rows in our `data/tables/Stats.json` are 0-based, and the
@@ -21,7 +22,7 @@ centre comes from the position of the entity named **`apparition`**.
 `ActionStarted(actor, …, skillId = 0x4000 + the effect’s index in GrantedEffectsKeys, …)`, the client looks it up by
 GEPL → GrantedEffect → ActiveSkill **1572** → ActionType **1037**, so **the action class is instantiated**.
 
-The stat ids are as above (rings = client id 10845, base duration = client id 3249, duration per ring = client id 3250
+The stat ids are as above (rings = client id 10845, base duration = client id 360 `skill_effect_duration`, duration per ring = client id 3250
 `secondary_skill_effect_duration`) and the art hashes match (all four are `MiscAnimated` HASH32s, see the table below).
 The rings still do not appear: **the centre needs an entity named `apparition`**, and our apparition is called
 `AtlasExile5ApparitionDetached` — if the name does not match it falls back to `+304`.
@@ -37,7 +38,7 @@ client's own implementation is simply **not running**.
 | Action class | `OrionCircleMazeBlast`, 928 bytes, main vtable `0x1435875A0`, ctor `0x141D1BE60` |
 | Mutually exclusive | **mutually exclusive** with `OrionBeamBomb` (HASH16 **13449**): the canStart predicate refuses to start when it sees 13449 |
 | Number of rings N | **the skill stat `orion_circle_maze_number_of_circles`** (client id **10845** = our row 10844) → `+888` inside the client; the art attribute is one of four, picked by N=1/2/3/≥4, and **all four match a `MiscAnimated` row**: `0x5C9AE98E` → row 3779 `AtlasExileOrionMazeMeteor1Ring` → `meteor_100.ao`, `0xF7E94E3B` → row 3780 `…2Rings` → `meteor_150.ao`, `0x798AE0D7` → row 3781 `…3Rings` → `meteor_200.ao`, `0x29D35DDC` → row 3690 `AtlasExileOrionMazeMeteor` → `maze_meteor.ao` |
-| Total duration | `+840` = (base + N × the duration per ring) / 1000 seconds. The `ConstantStats` of rows 10910-10913 in `GrantedEffectStatSets.json` = `[10844, 3248, 1105, 1107, 1108, 2748]`, the values `[N, 1000, 25, 25, 25, -50]` (that is, our rows: the number of rings / `base_secondary_skill_effect_duration` / to fire / to lightning / to chaos / -50% against summons); row 10914 (5 rings) has one more, `358 = 6000` (`base_skill_effect_duration`) |
+| Total duration | `+840` = (base + N × the duration per ring) / 1000 seconds. The `ConstantStats` of rows 10910-10913 in `GrantedEffectStatSets.json` = `[10844, 3248, 1105, 1107, 1108, 2748]`, the values `[N, 1000, 25, 25, 25, -50]` (that is, our rows: the number of rings / `base_secondary_skill_effect_duration` = the time per ring / to fire / to lightning / to chaos / -50% against summons); row 10914 (5 rings) has one more, `358 = 6000` (`base_skill_effect_duration`) |
 | Damage | 1105/1107/1108 in the same row = 25/25/25 (physical to fire / lightning / chaos), 2748 = -50 (`monster_penalty_against_minions_damage_+%_final_vs_player_minions`); `BaseEffectiveness` 5.625 / 6.563 / 7.5 |
 | Centre | the preparation phase looks for the entity named **`apparition`** and writes its position into `+880`; when it finds none it falls back to `+304` |
 | Number of rings | the effect itself is the "number of rings": 10949 one ring, 10950 two rings, 10951 three rings (each row carries its own `orion_circle_maze_number_of_circles`) |
@@ -146,10 +147,10 @@ dropping straight down and digging a big crater**:
 | # | what to send | field / value | when |
 |---|---|---|---|
 | 1 | one action of type `OrionCircleMazeBlast` (`ActionTypes.HASH16` **42185**, ActiveSkills row 1572 / ActionType 1037) | the skill stat **10844** = the number of rings N (10949/10950/10951 ⇒ N=1/2/3, the value follows the stat set 10910/10911/10912) | at the moment of the cast, right after the existing `Cast(...)` |
-| 2 | the same | the skill stat **3248** = the base milliseconds (1000) ⇒ the client's total duration = (3248 + N×the duration per ring)/1000 s (the 5-ring row has another stat 358 = 6000) | the same |
+| 2 | the same | the skill stats **3248** `base_secondary_skill_effect_duration` = 1000 ms per ring and, on the 5-ring row, **358** `base_skill_effect_duration` = 6000 ⇒ the client's total duration = (`skill_effect_duration` + N × `secondary_skill_effect_duration`)/1000 s | the same |
 | 3 | the action's payload | u32 state = 0, u8 flag = **1**, u32 duration = 0, u32 elapsed = 0, u32 x, u32 y = the maze's centre (in cells) | the same |
 | 4 | the damage | still through the server's `hits.Add(...)`: the landing point = the centre, the damage = `17 + (rings-1)*15`, the trigger moment = the body's contact | unchanged from today |
-| 5 | the art the server still has to draw | the wall `blocking_02.ao` (clip 2 loop, scale 1.5, one every 2.6 cells), the exit `ExitHere.ao`, the centre meteor `destruction_assets/meteors/meteor_rain.ao`, the teleport `maze_warp.ao` | unchanged from today |
+| 5 | the art the server still has to draw | the wall `blocking_02.ao` (clip 2 loop, scale 1.5, one every 2.6 cells), the exit `ExitHere.ao`, the centre meteor `maze_meteor.ao` (`MiscAnimated` 3690), the teleport `maze_warp.ao` | unchanged from today |
 | 6 | the art that can be dropped | the warning meteor `maze_meteor_incoming.ao` — in state 1→2 the client builds a `meteor_incoming` object itself; compare a frame capture first, then remove the server's | after the action is sent |
 
 The points:

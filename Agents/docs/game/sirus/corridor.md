@@ -36,7 +36,7 @@ That clip carries three things at once: `create_corridor` @**0.461 s**, the hand
 
 **observed · the main vtable has 420+ slots** (the interface of the base class `Actions::Action` is extremely wide). This class has 37 slots of its own (31/35/38/40/86/87/96/138/157–173/176/180/207/211/217/250/262/263/314/329/335–338/378); its own methods cluster in `0x141D1D090–0x141D1F2xx`, and the slots inside that address range are: 31 `0x141D1DF90` (start), 35 `0x141D1E1E0` (every frame), 38 `0x141D1D430`, 40 `0x141D1E3D0` (animation event), 86 `0x141D1EC20`, 87 `0x141D1EDB0`, 96 `0x141D1E660`, 138 `0x141D1DE50`, 157 `0x141D1E280`, 158 `0x141D1E460`, 159 `0x141D1E8F0`, 160 `0x141D1E9F0`, 161 `0x141D1EA00`, 163 `0x141D1EFA0`, 180 `0x141D19160`, 211 `0x141D19020`, 250 `0x141D191B0`, 262 `0x141D1A520`, 263 `0x141D1A780`, 378 `0x141D1F220`.
 **The range 176–338 shares the same functions with `OrionBeamBomb`** (the `0x141D18C90` set) ⇒ the two classes have the same source, it is the base class of the "arena beam".
-Note: **you cannot find the overridden slots by diffing the two vtables slot by slot** (`OrionBeamSweep`'s `0x143587090` has a different slot count, the diff gives 256+ differences); use "clusters of function addresses + member offsets" instead.
+Note: **you cannot find the overridden slots by diffing the two vtables slot by slot** (`OrionBeamSweep`'s base vtable `0x143587090` has a different slot count, the diff gives 256+ differences); use "clusters of function addresses + member offsets" instead.
 
 **observed · slot 31 start `0x141D1DF90` (how the direction is decided)**: it first packs the cast target (the u16 at `+282`, the u8 at `+284`, the caster's int at `+136`, the ints at `+720` and the u8 at `+696`) and hands it to `0x1419C73C0` / `0x1404CE9B0`. Then there are two cases:
 
@@ -47,7 +47,7 @@ Note: **you cannot find the overridden slots by diffing the two vtables slot by 
 
 ⇒ **the direction in which the ground spikes appear is picked by the client itself**: the first allowed angle within 60 cells, in steps of 10°.
 
-**observed · slot 40 animation event `0x141D1E3D0`**: it reads the event hash (a u16 at `+56` of the event) and dispatches `0xA38A` → slot 158 (vtable `+1264`), `0xC1A4` (that is the hash 0x41A4 of `beam_left`) → slot 161 (`+1288`, side 0), `0xDBED` (`beam_right`) → slot 161 (side 1), `0xD9CF` → slot 160 (`+1280`); everything else goes to the base class `0x1419E9D30`. ⇒ **the two animation events `beam_left` / `beam_right` are consumed by the corridor class itself**, and the 8 moments of the hand beams (1.173–5.812 s) are bound to them.
+**observed · slot 40 animation event `0x141D1E3D0`**: it reads the event hash (a u16 at `+56` of the event) and dispatches `0xA37A` (`create_corridor`) → slot 158 (vtable `+1264`), `0xC1A4` (that is the hash 0x41A4 of `beam_left`) → slot 161 (`+1288`, side 0), `0xDBED` (`beam_right`) → slot 161 (side 1), `0xD9CF` → slot 160 (`+1280`); everything else goes to the base class `0x1419E9D30`. ⇒ **the two animation events `beam_left` / `beam_right` are consumed by the corridor class itself**, and the 8 moments of the hand beams (1.173–5.812 s) are bound to them.
 
 **observed · slot 158 `0x141D1E460` (event `-23686` = `create_corridor`)**
 The origin is the position of the entity at `+296`; when the byte `+812` is 0, **the direction vector `+804 / +808` = origin − BOSS position**.

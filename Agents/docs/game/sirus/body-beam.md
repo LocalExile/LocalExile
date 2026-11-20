@@ -277,12 +277,5 @@ once the client draws a thin beam leaving the hand by itself, switch the `Effect
 3. **How `sub_141E59F80` writes the attribute into the Effect's bone group** (the official length).
 4. **The official beam has never been seen in the live client**: the reference image shows it leaving the
    hand/weapon, two red rings at the muzzle, floating in the air, a white-orange core with a red edge.
-5. **Which geometry row the official ordinary attack uses**: 332 (`spam_beam.ao`) is the ordinary attack,
-   342–344 (`triple_beam_0{1,2,3}.ao`) are the multi-beam, 359 (`clone_trap_beam.ao`) is the clone's two beams.
-6. **The muzzle rings** (the two red rings of the official ordinary attack) are in `MiscAnimated` as
-   `DieBeamRing{Physical,Cold,Fire,Lightning}{1,2,3}` →
-   `Metadata/Effects/Microtransactions/Rings/die_beam_ring/triple_beam_0{1,2,3}.ao` (they differ from
-   `TripleBeam/triple_beam_0N.ao` by one sound line each); **no `MiscBeams` row references them**, so
-   `ServerBeamEffect` cannot reach them and they can only be sent as **a separate effect entity** (EffectObject).
-7. Whether `then beam_02` really plays the second part depends on whether the official really does two beats in a
+5. Whether `then beam_02` really plays the second part depends on whether the official really does two beats in a
    row; the data says so, but the live client cannot be compared directly.

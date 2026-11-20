@@ -91,7 +91,8 @@ to "it only places".
 
 **Class card (observed)**: class name string `0x143267c88`; the factory `sub_141985CE0` first probes ctx attributes
 876/332/858 to pick a variant, and only if none of them matches does it allocate **832** bytes (`sub_142C8CB50`) and call the
-ctor `sub_141D1AC90` (the shared action ctor `sub_1419E9B10` with type 0x4A62); main vtable **`0x143587090`**, secondary interface
+ctor `sub_141D1AC90` (the shared action ctor `sub_1419E9B10` with type 0x4A62); main vtable **`0x143587090`** (the base's: the second-pass constructor `0x14127EE70` runs the same base and then
+installs `0x14337C8E0`, [sirus-client](../sirus-client.md)), secondary interface
 `[+0xA8] = 0x14323E408`, `[+0x310] = 0`. **The constructor takes no target coordinates at all.**
 
 **7 overridden slots (observed)**: 31 `0x141D1AD80` (start: computes the rate, plays animation **349**, re-anchors itself as
@@ -147,23 +148,25 @@ client as the target table ⇒ the client draws the two lines with the art that 
   (only `DiesAfterTime` + `serialise_position`) ⇒ their visuals can only come from the generic daemon model
   `Animated{animated_object = "Metadata/Monsters/Daemon/Daemon.ao"}`, which **has not been extracted**.
 
-### 3.4 The official art of the apparition beam is `clone_trap_beam.ao` (observed)
+### 3.4 `clone_trap_beam.ao` is the clones' beam art, not the apparition's (observed)
+
+- GrantedEffects 7031 `AtlasExileOrionCloneBeam` has `SkillID` 359, and `GeometryAttack` 359's `Animation` is
+  `MiscAnimated` 3729 below. The apparition's own sweeps (10941, 10967) have `SkillID` 1, whose `GeometryAttack` row
+  names no art, and the apparition's model is `AtlasExile5Apparition.ao` (`MonsterVarieties` 8378/8379).
 
 - `MiscAnimated` row 3729 `AtlasExileOrionCloneBeam` → `Metadata/Effects/Spells/monsters_effects/AtlasExiles/Orion/clone_trap_beam.ao`.
 - Its structure: rig `clone_trap_beam/rig.amd`, `default_animation = "clonetrap_beam"`, mesh `clone_trap_beam/clonebeam.sm`,
   **`BoneGroups: beam_length false jntBnd_beam aux_beam`** (the same as `triple_beam_0N.ao`: the length is pulled by the
   client from the data), particle `clone_trap_beam/clone_trap_beam_length.pet` hung on the `beam_length` bone group, sound
   `…/Sirus/Effects/Beam/TripleBeam3` hung on `jntBnd_beam`, `ScreenShake` 13 / 0.4 s.
-- The apparition's **own** `atlasexile5_beamclone.ao` (a different one from the body's) carries the contact events **and the
+- The clone model `atlasexile5_beamclone.ao` ([clones](clones.md)) carries the contact events **and the
   positions** of `beam_01` / `beam_02`: `beam_01` contact@0.672 position `(-9.46, -91.91, -173.77)`, `beam_02` contact@0.6915
   position `(5.61, -96.42, -179.80)` ⇒ the start point of each hand (model space, 1 unit = 0.01 cell ⇒ about 0.09 cell to
   each side and 1.7 cells in front).
 - But its bone groups hold **no beam bone group** (only root / frameupper / eyes / arms / legs / hands / aura) ⇒ **it does not
   draw the beam either**.
 
-⇒ **The official way the apparition draws its two beams: the server places one `clone_trap_beam.ao` effect entity at each of
-the two contact positions**, not `ServerBeamEffect` row 227 (that one is `fusion_beam.ao`, a 9-cell-wide lava wall, the one
-that means "full screen").
+⇒ The data names no art for the apparition's two beams; §3.5 is how the client builds them.
 
 ### 3.5 The apparition's two beams: there is no daemon → daemon beam code (observed)
 
