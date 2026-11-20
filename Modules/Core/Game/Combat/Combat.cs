@@ -3243,8 +3243,9 @@ public static partial class Game
     }
 
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
-    // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
-    // player is in the area (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking); leaving does not save it.
+    // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for the area visit
+    // (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking, drawing stopped after a visual minute by
+    // SyncInstanceMonsters); leaving does not save it.
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
     public static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         bool byMinion = false, bool byHit = true)

@@ -71,6 +71,9 @@ public sealed record AreaStatsRequest(string Character, string? League, ushort A
 public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life)
 {
     public byte ActorStance { get; init; }
+    /// <summary>When this client was first shown the monster dead; NaN while it is alive. Presentation only: the
+    /// instance keeps the corpse and every corpse skill after the client stops drawing it.</summary>
+    public double DeadSince { get; init; } = double.NaN;
 }
 public sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
 public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,

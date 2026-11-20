@@ -120,7 +120,8 @@ public static partial class Game
         if (VaalSoulsUnpresented(conn)) session.World(PlayerId, () => VaalSoulPresentation(conn), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var position = monster.Walk.Position(now);
-        // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
+        // Match ordinary kills: a corpse stays available to corpse skills, its drawing stops after a visual minute,
+        // and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         // Devour consumes the killing blow's corpse: its object leaves before the kill's loot and quest work.
         bool devoured;
