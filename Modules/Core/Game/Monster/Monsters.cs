@@ -446,6 +446,7 @@ public static partial class Game
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(conn, variety),
             HasDialogue = waitingForBanditChoice,
+            Blocking = variety.PositionedBlocking,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
