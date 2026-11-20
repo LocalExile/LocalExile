@@ -39,6 +39,11 @@ public sealed class QuestObjectsModule : IModule
             await SpawnOpeningTutorial(remote, stream, ciphers, conn);
             await SpawnGlyphQuest(remote, stream, ciphers, conn);
             await SpawnTrialObjects(remote, stream, ciphers, conn);
+            // Existing saves that spoke to HelenaTown before she was gated have HelenaIntroduced without a2q6-HelenaInTown,
+            // leaving Greust's reward unavailable after a2q9-PoisonedTree blocked Baleful Gem drops.
+            if (conn.Layout.Id == Act2Areas.ForestEncampment && ClientHasQuestFlag(conn, "HelenaIntroduced")
+                && !ClientHasQuestFlag(conn, "a2q6-HelenaInTown"))
+                await SetQuestFlags(remote, stream, ciphers, conn, ["a2q6-HelenaInTown"]);
             // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
             await StartQuestArea(remote, stream, ciphers, conn);
             await TickBeacon(conn);
