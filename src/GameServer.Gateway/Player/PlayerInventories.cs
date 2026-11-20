@@ -685,17 +685,12 @@ public sealed partial class PlayerInventories
 
     /// <summary>Whether all of <paramref name="item"/> would fit into <paramref name="row"/> (<see cref="AddStacked"/>),
     /// changing nothing.</summary>
-    public bool Fits(byte row, Item item, Func<Item, Shape?> shapeOf) => Fits(row, item, shapeOf, null);
-
-    /// <summary>Tests capacity after removing the given items from this row, without taking them yet.</summary>
-    public bool Fits(byte row, Item item, Func<Item, Shape?> shapeOf, IReadOnlySet<uint>? taking)
+    public bool Fits(byte row, Item item, Func<Item, Shape?> shapeOf)
     {
         lock (_lock)
         {
             uint id = _nextItemId;
-            var before = ItemsIn(row);
-            var retained = taking is null ? new List<InventoryItem>(before) : before.Where(i => !taking.Contains(i.Id)).ToList();
-            return StackInto(row, retained, item, shapeOf, ref id).Left == 0;
+            return StackInto(row, [.. ItemsIn(row)], item, shapeOf, ref id).Left == 0;
         }
     }
 

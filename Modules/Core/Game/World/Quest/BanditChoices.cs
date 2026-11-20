@@ -22,7 +22,6 @@ public static class BanditChoices
     const string AmuletPath = "Metadata/Items/QuestItems/BanditAmulets/";
     const string EramirReward = "a2q7-QuestRewardTaken";
     const string Delivered = "a2b-DeliveredAmulets";
-    const string SeenApex = "a2b-SeenApexReward";
     const string Fight = "QuestObjects.BanditFight";
     const int ChoiceRange = 16;
     const string AfterFight = "AfterBanditFight";
@@ -215,12 +214,9 @@ public static class BanditChoices
                 return;
             }
             var items = ItemsOf(conn);
-            var removed = claimed.Consumed.Removed.ToLookup(r => r.Row, r => r.Item.Id);
-            const byte main = PlayerInventories.MainInventory;
-            var added = claimed.Apex?.AddedItems ?? [];
-            foreach (byte row in removed.Select(r => r.Key).Concat(added.Count > 0 ? [main] : Array.Empty<byte>()).Distinct())
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row),
-                    [.. removed[row]], row == main ? added : []), "0x00bf bandit quest turn-in");
+            foreach (var row in claimed.Consumed.Removed.GroupBy(r => r.Row))
+                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                    [.. row.Select(r => r.Item.Id)], []), "0x00bf bandit quest turn-in");
             if (clear is not null) await PublishQuestFlags(remote, stream, ciphers, conn, clear, on: false);
             if (set is not null) await PublishQuestFlags(remote, stream, ciphers, conn, set);
             conn.InNpcTalk = true;
@@ -231,58 +227,32 @@ public static class BanditChoices
         finally { conn.QuestGate.Release(); }
     }
 
-    internal sealed record Claim(QuestItems.Consumed Consumed, PlayerInventories.Stacking? Apex, string[] Flags);
-    sealed class NoRoomForApex : Exception;
+    internal sealed record Claim(QuestItems.Consumed Consumed, string[] Flags);
 
-    // Plan the exchange before changing either inventory or flags. The amulets, the Apex, and the
-    // permanent reward are then committed together.
+    // The amulets and the permanent reward are committed together. The Apex is the leader's own
+    // "Get the Apex" row (NPCTalk, reward offer 17), as with Eramir, so a full inventory never blocks the hand-in.
     internal static (Claim? Result, string Reply) ClaimReward(ClientState conn, Bandit bandit)
     {
         var character = CharacterName(conn);
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
-        if (catalog.Find(AmuletPath + "CombinedAmulet") is not { Supported: true, Quest: { Grant: { } haveApex } apexQuest } apex)
-            return (null, "The quest reward is unavailable.");
         string[] rivals = [.. All.Where(b => b != bandit).Select(AmuletId)];
-        try
+        return Saves.Atomically<(Claim?, string)>(() =>
         {
-            return Saves.Atomically<(Claim?, string)>(() =>
-            {
-                var flags = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-                if (Finished(flags.Contains)) return (null, "You have already completed the bandit quest.");
-                if (!flags.Contains(bandit.Ally) || flags.Contains(bandit.Killed))
-                    return (null, $"Offer to help {bandit.Name} before handing in the amulets.");
-                var carried = QuestItems.Carried(items)
-                    .Select(it => (it.Row, it.Item, Type: catalog.ByHash(it.Item.Item.TypeHash)))
-                    .Where(it => it.Type?.Quest?.Remove == Delivered)
-                    .DistinctBy(it => it.Type!.Quest).ToList();
-                if (!rivals.All(id => carried.Any(it => it.Type!.Id == id)))
-                    return (null, "You need to be carrying both rivals' amulets.");
-                var taking = carried.Select(it => it.Item.Id).ToHashSet();
-                if (items.OfferedInPlace().Any(it => taking.Contains(it.Item.Id)))
-                    return (null, "Take the amulets out of the trade window first.");
-
-                var apexItem = ItemCatalog.Create(apex);
-                bool needsApex = !QuestRewardCatalog.Taken(null, apexQuest, flags.Contains);
-                if (needsApex && !items.Fits(PlayerInventories.MainInventory, apexItem, ShapeOf, taking))
-                    return (null, "Free space in your main inventory for the Apex and try again.");
-
-                string[] rewardFlags = [bandit.Reward, Delivered, SeenApex];
-                var consumed = QuestItems.Consume(character, items, item => QuestFlagsOf(conn, item), rewardFlags);
-                if (consumed is null || consumed.Removed.Count < rivals.Length) throw new NoRoomForApex();
-                PlayerInventories.Stacking? placed = null;
-                if (needsApex)
-                {
-                    placed = QuestRewardCatalog.Claim(character, null, apexQuest, items, apexItem, ShapeOf);
-                    if (placed is null) throw new NoRoomForApex();
-                    rewardFlags = [.. rewardFlags, haveApex];
-                }
-                return (new(consumed, placed, rewardFlags), $"{bandit.Name} accepted both amulets. Your reward is ready and you can continue to the Caverns.");
-            });
-        }
-        catch (NoRoomForApex)
-        {
-            return (null, "The exchange could not complete. Free space in your main inventory and try again.");
-        }
+            var flags = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
+            if (Finished(flags.Contains)) return (null, "You have already completed the bandit quest.");
+            if (!flags.Contains(bandit.Ally) || flags.Contains(bandit.Killed))
+                return (null, $"Offer to help {bandit.Name} before handing in the amulets.");
+            var carried = QuestItems.Carried(items)
+                .Select(it => (it.Row, it.Item, Type: catalog.ByHash(it.Item.Item.TypeHash)))
+                .Where(it => it.Type?.Quest?.Remove == Delivered)
+                .DistinctBy(it => it.Type!.Quest).ToList();
+            if (!rivals.All(id => carried.Any(it => it.Type!.Id == id)))
+                return (null, "You need to be carrying both rivals' amulets.");
+            string[] rewardFlags = [bandit.Reward, Delivered];
+            var consumed = QuestItems.Consume(character, items, item => QuestFlagsOf(conn, item), rewardFlags);
+            if (consumed is null) return (null, "Take the amulets out of the trade window first.");
+            return (new(consumed, rewardFlags), $"{bandit.Name} accepted both amulets.");
+        });
     }
 }
