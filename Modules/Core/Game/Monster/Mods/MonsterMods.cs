@@ -170,9 +170,12 @@ public static partial class Game
     public static bool MonsterBlocks(SpawnedMonster m, Random random, bool spell, double now = 0,
         IReadOnlyDictionary<uint, int>? skill = null)
     {
-        if (spell) return false;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
-        int chance = m.Effects.BlockChance - Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        int reduction = Math.Max(0, Skill("support_reduce_enemy_block_and_spell_block_%"));
+        // Monster spell block is not modelled, so without the Block Chance Reduction support a spell never blocks.
+        // When the support is linked, its spell-block half acts on the monster's block chance as a simple approximation.
+        if (spell && reduction == 0) return false;
+        int chance = m.Effects.BlockChance - reduction;
         if (m.OverpoweredUntil > now) chance -= m.OverpoweredPercent;
         if (chance <= 0 || random.Next(100) >= chance) return false;
         if (Skill("apply_overpowered_on_enemy_block_reduced_block_and_spell_block_%") is var overpowered and > 0

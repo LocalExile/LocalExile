@@ -253,6 +253,38 @@ public static partial class Game
                     ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
                     : own.GetValueOrDefault(key) + value;
             }
+        // Energy Leech Support: grants energy shield leech on the supported skill's hits. The gem's own GrantedEffect
+        // stat set is empty, so the leech permyriad is supplied here, scaled by the support gem's level (level 1 ~ 0.7%,
+        // level 20 ~ 1.65%). The existing leech path (LeechOnHitLocked -> LeechSources) already consumes this stat from
+        // the supported skill's stats, so adding it here is enough to make the support functional.
+        foreach (var energyLeechSupport in supports)
+            if (energyLeechSupport.Effect.Id == "SupportEnergyLeech")
+            {
+                int energyLeechLevel = Math.Clamp(energyLeechSupport.Gem.Level, 1, 40);
+                int energyLeechPermyriad = 70 + (energyLeechLevel - 1) * 5;
+                if (Stats.Key("energy_shield_leech_from_any_damage_permyriad") is uint energyLeechKey)
+                    own[energyLeechKey] = own.GetValueOrDefault(energyLeechKey) + energyLeechPermyriad;
+            }
+        // Life Leech Support: grants life leech on the supported skill's hits. The gem's own GrantedEffect stat set is
+        // empty, so the leech permyriad is supplied here, scaled by the support gem's level (level 1 ~ 1.2%, level 20 ~ 2.5%).
+        foreach (var lifeLeechSupport in supports)
+            if (lifeLeechSupport.Effect.Id == "SupportLifeLeech")
+            {
+                int lifeLeechLevel = Math.Clamp(lifeLeechSupport.Gem.Level, 1, 40);
+                int lifeLeechPermyriad = 120 + (lifeLeechLevel - 1) * 7;
+                if (Stats.Key("life_leech_from_any_damage_permyriad") is uint lifeLeechKey)
+                    own[lifeLeechKey] = own.GetValueOrDefault(lifeLeechKey) + lifeLeechPermyriad;
+            }
+        // Mana Leech Support: grants mana leech on the supported skill's hits. The gem's own GrantedEffect stat set is
+        // empty, so the leech permyriad is supplied here, scaled by the support gem's level (level 1 ~ 0.8%, level 20 ~ 1.8%).
+        foreach (var manaLeechSupport in supports)
+            if (manaLeechSupport.Effect.Id == "SupportManaLeech")
+            {
+                int manaLeechLevel = Math.Clamp(manaLeechSupport.Gem.Level, 1, 40);
+                int manaLeechPermyriad = 80 + (manaLeechLevel - 1) * 5;
+                if (Stats.Key("mana_leech_from_any_damage_permyriad") is uint manaLeechKey)
+                    own[manaLeechKey] = own.GetValueOrDefault(manaLeechKey) + manaLeechPermyriad;
+            }
         // Machinations: its "per Keystone" stats count the character's allocated keystones. The chaos gain feeds the
         // plain stats read by damage conversion and resource costs, scoped to this supported skill.
         int? keystones = null;
