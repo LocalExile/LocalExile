@@ -199,7 +199,7 @@ public static partial class Game
         // recovery rate, as the official client shows a cooldown that does not recover during an effect; it resumes at
         // the character's rate when the buff ends (EndTriggeredGuard), which is when TriggerGuardReady accepts a new one.
         lock (conn.Monsters) SingleUseState(conn, gem.Effect, skill)?.Hold(SkillsFor(conn).CooldownMs(gem.Effect, gem.Level));
-        // Built now and marked sent, so later refreshes do not publish it again: every repeat replays the bar animation.
+        // Built now and marked sent, so the native cooldown refresh does not publish it again.
         var held = GuardCooldownEntry(conn, skill, gem.Effect) ?? [];
         session.Enqueue(() => Send(session.remote, session.stream, session.ciphers, held,
             $"0x02bc guard cooldown: held for {duration:0.###} s"));
