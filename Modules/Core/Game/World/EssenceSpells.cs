@@ -1,4 +1,5 @@
 using GameServer.Core;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using static Game;
@@ -149,6 +150,7 @@ public static partial class MapEssences
                 return;
             }
             uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
+            if (spell.Kind is "cold" or "fire" or "lightning") FireNova(conn, daemon, spell);
             await Task.Delay(TimeSpan.FromSeconds(0.5));
             if (!conn.Closed && !conn.LeavingArea)
             {
@@ -254,6 +256,28 @@ public static partial class MapEssences
 
     static IEnumerable<ClientState> PlayersNear(ClientState conn, (int X, int Y) at, double radius) => Members(conn)
         .Where(c => c.PlayerSent && c.PlayerLife > 0 && Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) <= radius);
+
+    /// <summary>The resistance pulse's nova: a ring of the essence's projectiles (Creeping Frost / flame / molten) fired
+    /// through the monster projectile runtime (the Rampage nova pattern), so the client draws them and the server simulates
+    /// their hits on the player. A daemon action alone drew no projectiles — the runtime creates the flying objects.</summary>
+    static void FireNova(ClientState conn, uint daemonId, SpecialSpell spell)
+    {
+        if (daemonId == 0) return;
+        SpawnedMonster? daemon;
+        lock (conn.Monsters) conn.Monsters.TryGetValue(daemonId, out daemon);
+        if (daemon is null || daemon.Dead || daemon.Variety is null) return;
+        var catalog = SkillsFor(conn);
+        string projId = spell.Kind == "lightning" ? "Metadata/Projectiles/MortarMolten" : "Metadata/Projectiles/ArcticBreath";
+        if (catalog.Projectile(projId) is not { } meta) return;
+        int count = ScaledSpellCount(spell.Effect, spell.Tier, 16);
+        var projectile = new SkillCatalog.MonsterProjectileInfo(meta.Id, meta.Speed, false, 1)
+            { Count = count, SpreadRadians = Math.PI * 2 };
+        var attack = BossKits.AttackFor(conn, daemon.Variety, (byte)AreaLevel(conn), spell.Effect, 0x4000);
+        var session = ProjectilesFor(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        var use = MonsterProjectileUse(session, daemonId, daemon, attack, projectile, daemon.ActionGeneration);
+        session.Schedule(ProjectileRuntime.Time(ProjectileWorldTime(conn)), () => !daemon.Dead && !conn.Closed, () => use);
+        Console.WriteLine($"[map-content] essence {spell.Kind} nova: {count} {meta.Id} from daemon 0x{daemonId:x}");
+    }
 
     /// <summary>The resistance pulse: -10% of its element on the players near the rare for the pulse's duration. The same
     /// element's debuff refreshes rather than stacks; the buff (746) is invisible, so the debuff is the stat alone.</summary>
