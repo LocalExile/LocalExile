@@ -683,7 +683,8 @@ public static partial class Quests
 
         /// <summary>Niko met in a map: his Delve options (View Subterranean Chart, Visit Mine Encampment) need it. NPCTalk
         /// columns 15-18 are league quest flag ids (16 required, 18 refused: the first-meeting "Talk to Niko" has 68 there).</summary>
-        public const int DelveEncounterComplete = 68;
+        public const int DelveCraftedDynamite = 19, DelveCraftedFlares = 20, DelveSulphiteUnlocked = 23,
+            DelveEncounterComplete = 68;
 
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
@@ -692,7 +693,7 @@ public static partial class Quests
         public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
-            DelveEncounterComplete, .. WorldPanelPins];
+            DelveSulphiteUnlocked, DelveEncounterComplete, .. WorldPanelPins];
 
         /// <summary>The bits the client keeps for these ids (id − 1).</summary>
         public static IEnumerable<int> Bits(IEnumerable<int> ids) => ids.Where(id => id > 0).Select(id => id - 1);
