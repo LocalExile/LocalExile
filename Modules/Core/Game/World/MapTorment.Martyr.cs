@@ -16,7 +16,7 @@ public static partial class MapTorment
         byte[] Skill, byte[] Action, List<MartyrViewer> Viewers)
     {
         public required ClientState Owner;
-        public bool Resolved, Publishing;
+        public bool DeferredDot, Resolved, Publishing;
     }
 
     // The ordinary 3.29.3c SuicideExplosion action includes equality and the target's signed Positioned radius.
@@ -71,6 +71,28 @@ public static partial class MapTorment
             ? area.MartyrDeaths.GetValueOrDefault(monster.ObjectId) : null;
 
     internal static bool HoldsCorpseLocked(ClientState conn, SpawnedMonster monster) => PendingMartyr(conn, monster) is not null;
+
+    // DotKilled hands a shared ailment kill to its attacker. If that connection leaves before draining its shares,
+    // the resident runner can claim this same pending kill. The two claims use the world's Monsters lock.
+    internal static bool DeferMartyrDot(ClientState owner, SpawnedMonster monster)
+    {
+        lock (owner.Monsters)
+        {
+            if (PendingMartyr(owner, monster) is not { } death) return false;
+            death.Owner = owner;
+            death.DeferredDot = true;
+            owner.KillShares.Enqueue((remote, stream, ciphers) =>
+            {
+                lock (owner.Monsters)
+                {
+                    if (!death.DeferredDot || owner.Closed || owner.LeavingArea) return Task.CompletedTask;
+                    death.DeferredDot = false;
+                }
+                return MonsterKilled(remote, stream, ciphers, owner, monster.ObjectId, monster, byHit: false);
+            });
+            return true;
+        }
+    }
 
     internal static bool ResolveMartyrLocked(ClientState conn, SpawnedMonster monster)
     {
@@ -139,18 +161,32 @@ public static partial class MapTorment
         }
     }
 
-    // A retired killer no longer drains its output. The next resident completes only its outstanding contacts.
+    // A retired killer no longer drains its output. Unclaimed shared DoT kills still need ordinary kill credit.
     static async Task FinishAbandonedMartyrs(ClientState conn, Area area)
     {
-        SpawnedMonster[] abandoned;
+        List<(SpawnedMonster Monster, bool DeferredDot)> abandoned;
         lock (conn.Monsters)
         {
-            if (area.MartyrDeaths.Count == 0) return;
-            abandoned = [.. area.MartyrDeaths.Values.Where(d => !d.Publishing && (d.Owner.Closed || d.Owner.LeavingArea)
-                && (d.Resolved || d.Source.LastHitBy is not { Closed: false, LeavingArea: false } owner || owner.Instance != conn.Instance))
-                .Select(d => d.Source)];
-            foreach (var m in abandoned) ResolveMartyrLocked(conn, m);
+            if (area.MartyrDeaths.Count == 0 || !IsMonsterRunner(conn)) return;
+            abandoned = [];
+            foreach (var d in area.MartyrDeaths.Values)
+            {
+                if (d.Publishing || !d.Owner.Closed && !d.Owner.LeavingArea) continue;
+                if (d.DeferredDot)
+                {
+                    d.DeferredDot = false;
+                    d.Owner = conn;
+                    abandoned.Add((d.Source, true));
+                }
+                else if (d.Resolved || d.Source.LastHitBy is not { Closed: false, LeavingArea: false } owner || owner.Instance != conn.Instance)
+                {
+                    ResolveMartyrLocked(conn, d.Source);
+                    abandoned.Add((d.Source, false));
+                }
+            }
         }
-        foreach (var m in abandoned) await PresentMartyr(conn, m);
+        foreach (var (m, deferredDot) in abandoned)
+            if (deferredDot) await MonsterKilled(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, m.ObjectId, m, byHit: false);
+            else await PresentMartyr(conn, m);
     }
 }

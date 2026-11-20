@@ -76,7 +76,8 @@ public static partial class Game
     {
         if (m.LastHitBy is { } by && !ReferenceEquals(by, conn) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, conn.Instance))
         {
-            by.KillShares.Enqueue((r, s, c) => MonsterKilled(r, s, c, by, id, m, byHit: false));
+            if (!m.CorpseConsumed || !MapTorment.DeferMartyrDot(by, m))
+                by.KillShares.Enqueue((r, s, c) => MonsterKilled(r, s, c, by, id, m, byHit: false));
             return;
         }
         await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
