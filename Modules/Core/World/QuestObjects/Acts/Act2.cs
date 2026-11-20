@@ -108,7 +108,7 @@ sealed class Act2 : Act
                 On.Object(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Near(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Killed(ChamberOfSins2, Act2Monsters.Fidelitas, "a2q6-KilledDemon"),
-                On.Npc(ChamberOfSins2, Act2Objects.HelenaSins, goneWith: "a2q6-HelenaInTown", transitionedBy: "a2q6-KilledDemon"),
+                On.Npc(ChamberOfSins2, Act2Objects.HelenaSins, goneWith: "a2q6-HelenaInTown", transitionedBy: "a2q6-KilledDemon", transitionedTo: 2),
                 On.Chest(ChamberOfSins2, Act2Objects.StrangeDevice, Act2Items.BalefulGem, opensWith: "a2q6-KilledDemon"),
             },
             // a2q4 "Sharp and Cruel": the Weaver (mapboss of SpiderGrove/Rooms/Unique/treasure.arm) drops Maligaro's Spike

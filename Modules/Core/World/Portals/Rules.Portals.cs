@@ -139,11 +139,28 @@ static partial class PortalsRules
         return Task.CompletedTask;
     }
 
-    internal static async Task RemoveMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // A run that ends late names itself: a refused transfer's Done is fire-and-forget, and by the time it runs the
+    // device may have been activated again. Only a connection still showing that run's portals loses them, so the
+    // newer run's six portals and its placement sequence stay (review 2026-11-18: a late failure of run A after B).
+    internal static async Task RemoveMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        MapDevice.OpenMap? run = null)
     {
         List<uint> ids;
-        Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
-        lock (conn.MapPortals) { ids = [.. conn.MapPortals.Keys]; conn.MapPortals.Clear(); }
+        if (run is { } ended)
+        {
+            lock (conn.MapPortals)
+            {
+                if (conn.MapPortalRun?.Run != ended.Run) return;   // a newer run's portals are not this run's to remove
+                Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
+                ids = [.. conn.MapPortals.Keys];
+                conn.MapPortals.Clear();
+            }
+        }
+        else
+        {
+            Interlocked.Increment(ref conn.MapPortalGeneration);   // stops a sequence still placing them
+            lock (conn.MapPortals) { ids = [.. conn.MapPortals.Keys]; conn.MapPortals.Clear(); }
+        }
         uint deviceId = MapDeviceHere(conn)?.Id ?? 0;
         if (ids.Count > 0 && deviceId != 0)
             await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),

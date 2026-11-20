@@ -36,6 +36,12 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 | MinimapIcon | `00` |
 | Transitionable, StateMachine | as for monsters |
 
+`Act2/HelenaSins.ot` has three Transitionable states: 1 hangs below the ledge; 2 climbs up and becomes
+targetable; 3 hides the model, marker and targeting. Rescue uses 2, including on a return to the instance.
+
+`Act5/SinInnocence.ot` creates state 1 with `entrance_avarius` paused and targeting disabled. The 1→2
+update starts the entrance; its animation end enables targeting. Creating state 2 directly is the returning pose.
+
 The NPC component's debug dump (`0x141e7b860`) prints the NPC and the NPCTalk row the client picks for the player
 (`0x141e7d430`): the client chooses the dialogue itself.
 
@@ -245,6 +251,10 @@ minimum level `+0x14c`, league lists `+0xbe/+0xd2` and item/special predicates.
 Automatic quest selection conservatively accepts only rows with empty extra lists, null item/flag conditions,
 zero minimum level and native neutral context/league selectors (60 / `0x777`). Other rows retain manual selection.
 The raw evidence and decoded `semantics.json`/`equipment.json` stay under ignored `Tools/re/out/gameplay-captures/`.
+
+Lilly's "Virtue Gems" rows 950/951 use an account context, outside the generic automatic selector.
+Row 950 finishes league quest flag 1163; Purchase Items (952) requires that flag, in addition to the character unlock.
+Vendors runs the eligible introduction and saves 1163 when its talk finishes; its gem stock reads the shared unlock.
 
 ### NPCTalk scripts
 
