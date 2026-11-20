@@ -71,7 +71,7 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0040 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x1409db680`, `0x140a11c30` |  |
 | 0x0041 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140a11930`, `0x140a11ab0` |  |
 | 0x004a | `0x1435ca0e8` / `0x141fa7300` | ≥ 14 |  | `0x142165f30` |  |
-| 0x004b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140284470` |  |
+| 0x004b | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x140284470` | `CancelBuffId`: right-click a removable buff icon (`BuffDefinitions.Removable == 1`, UI handler `0x1402718c0` → `0x140284470`); `u32 BE` buff instance id (zero-extended from `S→C 0x01c1`/`0x01c2` `u16`); framed (`InstanceEntities.CancelBuffId`) |
 | 0x004d | `0x1435cb2f0` / `0x141f99750` | 9 |  | `0x140aa3880`, `0x140aa6d60` |  |
 | 0x004e | `0x1435ca670` / `0x141f99900` | 5 |  | `0x140adf180`, `0x140aec430` |  |
 | 0x004f | `0x1435ca380` / `0x141f99a50` | 4 |  | `0x140aecf00` |  |

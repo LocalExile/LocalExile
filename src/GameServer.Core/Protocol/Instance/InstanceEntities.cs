@@ -136,6 +136,14 @@ public static class InstanceEntities
     public static byte[] RemoveBuff(uint objectId, ushort buffInstance) =>
         new LoginWriter().U16(RemoveBuffId).U32(objectId).U32(0).U16(0).U16(buffInstance).ToArray();
 
+    /// <summary>C→S 0x4b (6 bytes, 3.29.3c class 0x1431767e8, write 0x140911210, UI right-click handler 0x1402718c0 → 0x140284470):
+    /// the player right-clicked a removable buff icon (BuffDefinitions.Removable == 1). u32 BE buff instance id (zero-extended
+    /// from the u16 buff instance sent by S→C 0x1c1 and removed by S→C 0x1c2).</summary>
+    public const ushort CancelBuffId = 0x4b;
+    public const int CancelBuffLength = 6;
+
+    public static uint ReadCancelBuff(ReadOnlySpan<byte> m) => BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+
     public const ushort CharacterPassivesId = 0x33, AllocatePassiveId = 0x34, MasteryEffectId = 0x35, PanelToggleId = 0x123;
     public const int MasteryEffectLength = 6;
 

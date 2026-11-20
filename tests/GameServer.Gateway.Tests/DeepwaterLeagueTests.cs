@@ -70,6 +70,14 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal(0xab, row);
         Assert.Equal(place[4..], payload);
 
+        // Right-clicking a removable buff (C->S 0x004b, 6 bytes: u32 BE buff instance id) is framed too.
+        byte[] cancelBuff = Convert.FromHexString("004B0000002A");
+        var cancelSplit = InstanceProtocol.SplitClientMessages([.. cancelBuff, .. Tick()], out byte[] cancelPartial, out byte[] cancelUnknown);
+        Assert.Empty(cancelPartial);
+        Assert.Empty(cancelUnknown);
+        Assert.Equal([(ushort)InstanceEntities.CancelBuffId, (ushort)0x1b], cancelSplit.Select(m => m.Id));
+        Assert.Equal(0x2au, InstanceEntities.ReadCancelBuff(cancelSplit[0].Bytes));
+
         // The Lantern's components and its DeepwaterLantern task (GameObjectTasks HASH16 0xc4df, LE) close its blob.
         byte[] light = new byte[16];
         byte[] lantern = new QuestObject(236, 190, ["Positioned", "BaseEvents", "Animated", "Buffs", "StateMachine", "MinimapIcon", "Functions"])

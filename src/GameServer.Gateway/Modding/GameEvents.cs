@@ -223,6 +223,10 @@ public static class GameEvents
     /// answers does nothing.</summary>
     public static readonly GameEvent<Func<NpcOption, Task<bool>>> NpcOption = new();
 
+    /// <summary>The player right-clicked a removable buff icon to cancel it (C→S 0x004b, buff instance id).
+    /// True: this subscriber owned and removed that buff.</summary>
+    public static readonly GameEvent<Func<ClientState, ushort, Task<bool>>> BuffCancel = new();
+
     /// <summary>Whether this subscriber fills the sub-area of an ExtraTerrainFeatures row (by its Id). A gate the layout links
     /// to such a sub-area (<see cref="AreaTransitionObject.Feature"/>) stands only where a subscriber answers true.</summary>
     public static readonly GameEvent<Func<ClientState, string, bool>> FeatureFilled = new();
@@ -336,6 +340,18 @@ public static class GameEvents
         {
             bool taken = false;
             if (await GameEventOwners.Guard(owner, nameof(NpcOption), async () => taken = await run(option)) && taken) return true;
+        }
+        return false;
+    }
+
+    /// <summary>True when a subscriber owned and removed the buff.</summary>
+    public static async Task<bool> RunBuffCancel(ClientState conn, ushort buffInstance)
+    {
+        if (!BuffCancel.Any) return false;
+        foreach (var (owner, run) in BuffCancel.Subscribers(conn))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(BuffCancel), async () => taken = await run(conn, buffInstance)) && taken) return true;
         }
         return false;
     }
