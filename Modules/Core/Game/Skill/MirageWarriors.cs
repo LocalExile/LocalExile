@@ -582,7 +582,7 @@ public static partial class Game
                 var centre = isArea
                     ? MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), warriorPos, aim, radius + weapon.Range)
                     : aim;
-                int splashRadius = !isArea && GolemStat(skillStats, "support_melee_splash_area_of_effect_+%") != 0
+                int splashRadius = !isArea && GolemStat(skillStats, "melee_splash_area_of_effect_+%") != 0
                     || !isArea && GolemStat(skillStats, "melee_splash") != 0
                     ? SkillRadius(conn, 14, skillStats, spell: false, gem.Effect) : 0;
 

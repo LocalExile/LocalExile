@@ -268,9 +268,7 @@ public static partial class Game
     public static int BrandMaxTotal(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
     {
         int total = GolemStat(player, "base_total_number_of_sigils_allowed")
-            + GolemStat(own, "base_total_number_of_sigils_allowed")
-            + GolemStat(player, "number_of_sigils_allowed_+")
-            + GolemStat(own, "number_of_sigils_allowed_+");
+            + GolemStat(own, "base_total_number_of_sigils_allowed");
         if (total <= 0) total = PanelStatDefaults.Default("base_total_number_of_sigils_allowed");
         return Math.Clamp(total, 1, 20);
     }
@@ -466,6 +464,13 @@ public static partial class Game
         if (conn.Closed || conn.LeavingArea || !current() || conn.ActionInterruptionGeneration != recoveryGeneration)
             return false;
 
+        return await ResolveCastBrand(remote, stream, ciphers, conn, skillId, gem, to, recoveryGeneration, current);
+    }
+
+    internal static async Task<bool> ResolveCastBrand(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) to, int recoveryGeneration, Func<bool> current)
+    {
         bool spawned = false;
         await SendWorldBatch(conn, [], admission =>
         {
