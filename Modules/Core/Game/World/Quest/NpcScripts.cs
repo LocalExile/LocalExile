@@ -79,6 +79,7 @@ public static partial class Game
     public static async Task<bool> EndTalkScript(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId,
         SpawnedNpc npc, NpcCatalog.Talk talk)
     {
+        if (await BanditChoices.OpenVote(conn, npcId, npc, talk)) return true;
         if (talk.NextChat is int next && Npcs.Value.TalkOf(npc.Npc, next) is { } page)
         {
             conn.InNpcTalk = true;
@@ -110,7 +111,8 @@ public static partial class Game
             }
             // The fade (Script2 FadeToBlack) is the client's; the move follows after the script's delay.
             if (delay > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(delay, 5)));
-            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, false, AtSpawn: true),
+            bool useShoreEntrance = conn.Layout.Id == KitavaActTen.Docks && area == KitavaActTen.Epilogue;
+            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, false, AtSpawn: !useShoreEntrance),
                 $"{npc.Npc.Name}: {talk.Option} (AreaTransitionTo {area}, {index})");
         }
         return true;

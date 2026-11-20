@@ -304,6 +304,10 @@ character in the map (live 2026-11-18, the same run).
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway
 restart), so the portals left stand at the device again when the player comes back. A new Activate replaces them.
+A map's instance expires six minutes after its last player leaves (`InstanceRegistry.Lifetime`), which the run does not
+see: so before a portal is spent the Gateway asks Auth's instance list, and a click on a run whose instance is gone
+closes the map and its remaining portals with a chat line, instead of spending one on a transfer that cannot arrive
+(live 2026-11-18: the transfer failed, the run closed, and the client kept three portals that did nothing when clicked).
 `/map_portal [type] [created] [open ms] [model]` (dev) places one test portal.
 
 **Timing and order.** The portals left come up one after another, `Game_MAP_PORTAL_GAP_MS` (150) apart; each is listed

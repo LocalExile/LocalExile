@@ -474,7 +474,7 @@ public static partial class Game
             {
                 var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
+                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, FromTrapOrMine = true } };
             });
             return;
         }
@@ -514,7 +514,7 @@ public static partial class Game
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
             var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesMitigated(m, mitigated, spell, now);
+            int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now);
             if (placed.Mine)
             {
                 // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
@@ -550,6 +550,8 @@ public static partial class Game
                     conn.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);
+            if (bear)
+                BearTrapOnHitLocked(m, damage, now, n => GolemStat(player, n), n => GolemStat(placed.Own, n));
         }
     }
 

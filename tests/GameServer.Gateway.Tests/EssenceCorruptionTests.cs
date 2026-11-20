@@ -14,8 +14,10 @@ public sealed class EssenceCorruptionTests
     [Fact]
     public void Corruption_uses_real_essence_groups_tier_caps_and_Stability_outcomes()
     {
+        ChaosBypassEffects();
         LowLifeEffects();
         DecayEffects();
+        ToughnessEffects();
         foreach (var (suffix, element) in new[] { ("Fire", DamageType.Fire), ("Cold", DamageType.Cold), ("Lightning", DamageType.Lightning) })
         {
             var mod = Program.Items.Mods.ById("EssenceDaemonPhysicalAddedAndConvertedTo" + suffix)!;
@@ -189,6 +191,53 @@ public sealed class EssenceCorruptionTests
             [mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70);
     }
 
+    static void ToughnessEffects()
+    {
+        foreach (var (toughness, expected) in new[] { (0, 1d), (16, .86), (100, .5), (184, .35), (200, .33), (327, .23), (19900, 0d) })
+        {
+            var effects = new MonsterModEffects(new Dictionary<string, int> { [Game.MonsterToughness] = toughness });
+            var monster = new SpawnedMonster("toughness", new(0, 0, 0), 60, 8, 10000)
+                { Mods = new([], [], effects) };
+            Assert.Equal(expected, Game.MonsterToughnessFactor(effects), 8);
+            foreach (var type in DamageTypes.ConversionOrder)
+            {
+                var packet = DamagePacket.Of(type, 10000, 10000);
+                Assert.Equal((int)(10000 * expected), Game.MonsterTakesMitigated(monster, packet, false));
+                Assert.Equal((int)(10000 * expected), Game.MonsterTakesMitigated(monster, packet, true));
+                Assert.Equal(10000 * expected, Game.MonsterTakenComponents(monster, packet, false)[type].Min, 6);
+                Assert.Equal(expected, Game.MonsterDotTaken(monster, type), 8);
+            }
+            Assert.Equal(10000u, monster.MaxLife);
+        }
+        var mod = Program.Items.Mods.ById("EssenceDaemonModLifeAndDamageLevel5")!;
+        var set = Game.MonsterModRolls.Value.Create([mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70);
+        Assert.Equal(184, set.Effects[Game.MonsterToughness]);
+        Assert.Equal(.35, Game.MonsterToughnessFactor(set.Effects), 8);
+        var shocked = new SpawnedMonster("shocked tough monster", new(0, 0, 0), 60, 8, 10000) { Mods = set };
+        Assert.NotEmpty(shocked.Ailments.Inflict(DamagePacket.Of(DamageType.Lightning, 10000, 10000), true,
+            shocked.MaxLife, 0, _ => 0, _ => 0, new Random(505)));
+        double shock = shocked.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1);
+        Assert.Equal(.35 * (1 + shock / 100), Game.MonsterDamageTaken(shocked, false, 1), 8);
+        Assert.Equal(.35 * (1 + shock / 100), Game.MonsterDotTaken(shocked, DamageType.Fire, 1), 8);
+        var conn = CombatClient();
+        var variety = Game.Monsters.Find("Metadata/Monsters/OriathanCitizen/OriathanCitizenZombieMale1")!;
+        var hatred = MapEssenceCatalog.All.Single(e => e.Type == 0 && e.Tier == 5);
+        var woe = MapEssenceCatalog.All.Single(e => e.Type == 1 && e.Tier == 5);
+        var greed = MapEssenceCatalog.All.Single(e => e.Type == 2 && e.Tier == 5);
+        foreach (int[] rows in new[] { new[] { hatred.Row, woe.Row, greed.Row }, new[] { hatred.Row, hatred.Row, hatred.Row } })
+        {
+            var combined = MapEssenceCatalog.Mods(conn, variety, 70, rows);
+            Assert.Equal(552, combined.Effects[Game.MonsterToughness]);
+            Assert.Equal(.15, Game.MonsterToughnessFactor(combined.Effects), 8);
+            var common = combined.Mods.Where(m => m.Hash == mod.Hash).ToArray();
+            Assert.Equal(3, common.Length);
+            var rarity = Program.Items.Mods.ById("EssenceDaemonModRarityAndQuantityLevel5")!;
+            Assert.Equal(3, combined.Mods.Count(m => m.Hash == rarity.Hash));
+            Assert.Equal(1500, combined.Effects["from_league_item_rarity_+%_permyriad"]);
+        }
+        conn.Closed = true;
+    }
+
     static ClientState CombatClient() => new(new(1, "essence-combat", 300, 300, 100, 100, null, []), 1, 1)
     { Pools = new(70, 10000, 100, 0, 0), PlayerLife = 10000 };
 
@@ -230,6 +279,31 @@ public sealed class EssenceCorruptionTests
         Assert.Equal(1, Game.MonsterSwingSeconds(conn, monster, 0), 8);
     }
 
+    static void ChaosBypassEffects()
+    {
+        var conn = CombatClient();
+        Dictionary<uint, int> Stats(params (string Name, int Value)[] values) =>
+            values.ToDictionary(v => Program.Stats.Key(v.Name)!.Value, v => v.Value);
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, Stats()));
+        foreach (string flag in new[] { "chaos_damage_does_not_bypass_energy_shield", "virtual_chaos_damage_does_not_bypass_energy_shield" })
+            Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, Stats((flag, 1))));
+        var life = Stats(("chaos_damage_does_not_bypass_energy_shield_while_not_low_life", 1));
+        conn.PlayerLife = conn.PlayerMaxLife / 2 + 1;
+        Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        conn.PlayerLife--;
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        life[Program.Stats.Key("low_life_threshold_%_override")!.Value] = 55;
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        conn.PlayerLife = conn.PlayerMaxLife * 55 / 100 + 1;
+        Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, life));
+        var mana = Stats(("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana", 1));
+        conn.PlayerMana = conn.Pools.Mana / 2 + 1;
+        Assert.False(Game.ChaosDamageBypassesEnergyShield(conn, mana));
+        conn.PlayerMana--;
+        Assert.True(Game.ChaosDamageBypassesEnergyShield(conn, mana));
+        conn.Closed = true;
+    }
+
     static void DecayEffects()
     {
         Assert.Contains("8 seconds", StatDescriptions.Load().For(Game.DecayOnHit)!.Variants[0].Text);
@@ -237,6 +311,18 @@ public sealed class EssenceCorruptionTests
         Assert.False(ClientTables.Table("BuffDefinitions")[766].Bool("IsRecovery"));
         var source = new SpawnedMonster("decay", new(0, 0, 0), 60, 8, 100)
             { Mods = RealMod("DecayOnHitEssenceMonster1") };
+        foreach (int resistance in new[] { -50, 25, 50, 75, 100 })
+        {
+            var resisted = CombatClient();
+            resisted.Pools = resisted.Pools with { ChaosResistance = resistance };
+            var stats = new Dictionary<uint, int>();
+            Game.ApplyMonsterDecayLocked(resisted, 42, source, false, 0, stats);
+            int first = Game.AdvancePlayerDecayLocked(resisted, 1, stats, false, 1);
+            int second = Game.AdvancePlayerDecayLocked(resisted, 2, stats, false, 1);
+            Assert.Equal((int)(500 * (1 - Math.Min(resistance, 75) / 100d)), first + second);
+            Game.ClearPlayerDecay(resisted);
+            resisted.Closed = true;
+        }
         var scaled = source.Mods.Effects.Combine(new Dictionary<string, int>
         {
             ["damage_+%"] = 100, ["chaos_damage_+%"] = 25, ["damage_over_time_+%"] = 25,
