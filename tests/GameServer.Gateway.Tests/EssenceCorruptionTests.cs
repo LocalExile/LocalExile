@@ -17,6 +17,7 @@ public sealed class EssenceCorruptionTests
         ChaosBypassEffects();
         LowLifeEffects();
         DecayEffects();
+        ToughnessEffects();
         foreach (var (suffix, element) in new[] { ("Fire", DamageType.Fire), ("Cold", DamageType.Cold), ("Lightning", DamageType.Lightning) })
         {
             var mod = Program.Items.Mods.ById("EssenceDaemonPhysicalAddedAndConvertedTo" + suffix)!;
@@ -188,6 +189,53 @@ public sealed class EssenceCorruptionTests
         Assert.Equal(MonsterModCatalog.Support.Full, MonsterModCatalog.SupportOf(mod));
         return new MonsterModCatalog(Program.Items.Mods, "data").Create(
             [mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70);
+    }
+
+    static void ToughnessEffects()
+    {
+        foreach (var (toughness, expected) in new[] { (0, 1d), (16, .86), (100, .5), (184, .35), (200, .33), (327, .23), (19900, 0d) })
+        {
+            var effects = new MonsterModEffects(new Dictionary<string, int> { [Game.MonsterToughness] = toughness });
+            var monster = new SpawnedMonster("toughness", new(0, 0, 0), 60, 8, 10000)
+                { Mods = new([], [], effects) };
+            Assert.Equal(expected, Game.MonsterToughnessFactor(effects), 8);
+            foreach (var type in DamageTypes.ConversionOrder)
+            {
+                var packet = DamagePacket.Of(type, 10000, 10000);
+                Assert.Equal((int)(10000 * expected), Game.MonsterTakesMitigated(monster, packet, false));
+                Assert.Equal((int)(10000 * expected), Game.MonsterTakesMitigated(monster, packet, true));
+                Assert.Equal(10000 * expected, Game.MonsterTakenComponents(monster, packet, false)[type].Min, 6);
+                Assert.Equal(expected, Game.MonsterDotTaken(monster, type), 8);
+            }
+            Assert.Equal(10000u, monster.MaxLife);
+        }
+        var mod = Program.Items.Mods.ById("EssenceDaemonModLifeAndDamageLevel5")!;
+        var set = Game.MonsterModRolls.Value.Create([mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70);
+        Assert.Equal(184, set.Effects[Game.MonsterToughness]);
+        Assert.Equal(.35, Game.MonsterToughnessFactor(set.Effects), 8);
+        var shocked = new SpawnedMonster("shocked tough monster", new(0, 0, 0), 60, 8, 10000) { Mods = set };
+        Assert.NotEmpty(shocked.Ailments.Inflict(DamagePacket.Of(DamageType.Lightning, 10000, 10000), true,
+            shocked.MaxLife, 0, _ => 0, _ => 0, new Random(505)));
+        double shock = shocked.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1);
+        Assert.Equal(.35 * (1 + shock / 100), Game.MonsterDamageTaken(shocked, false, 1), 8);
+        Assert.Equal(.35 * (1 + shock / 100), Game.MonsterDotTaken(shocked, DamageType.Fire, 1), 8);
+        var conn = CombatClient();
+        var variety = Game.Monsters.Find("Metadata/Monsters/OriathanCitizen/OriathanCitizenZombieMale1")!;
+        var hatred = MapEssenceCatalog.All.Single(e => e.Type == 0 && e.Tier == 5);
+        var woe = MapEssenceCatalog.All.Single(e => e.Type == 1 && e.Tier == 5);
+        var greed = MapEssenceCatalog.All.Single(e => e.Type == 2 && e.Tier == 5);
+        foreach (int[] rows in new[] { new[] { hatred.Row, woe.Row, greed.Row }, new[] { hatred.Row, hatred.Row, hatred.Row } })
+        {
+            var combined = MapEssenceCatalog.Mods(conn, variety, 70, rows);
+            Assert.Equal(552, combined.Effects[Game.MonsterToughness]);
+            Assert.Equal(.15, Game.MonsterToughnessFactor(combined.Effects), 8);
+            var common = combined.Mods.Where(m => m.Hash == mod.Hash).ToArray();
+            Assert.Equal(3, common.Length);
+            var rarity = Program.Items.Mods.ById("EssenceDaemonModRarityAndQuantityLevel5")!;
+            Assert.Equal(3, combined.Mods.Count(m => m.Hash == rarity.Hash));
+            Assert.Equal(1500, combined.Effects["from_league_item_rarity_+%_permyriad"]);
+        }
+        conn.Closed = true;
     }
 
     static ClientState CombatClient() => new(new(1, "essence-combat", 300, 300, 100, 100, null, []), 1, 1)

@@ -103,8 +103,13 @@ public static class MapEssenceCatalog
     public static MonsterModSet Mods(ClientState conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
     {
         var basis = Game.MonsterModsFor(conn, variety, level, MonsterRarity.Rare, null, false);
-        var rows = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct();
-        var extra = rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
+        var seen = new HashSet<int>();
+        var extra = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods)
+            .Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
+            // Common damage/toughness and reward bonuses belong to every essence, even when their row is shared.
+            // A repeated aura/daemon is still one behaviour, rather than another independently ticking copy.
+            .Where(m => m.Id.StartsWith("EssenceDaemonModLifeAndDamage", StringComparison.Ordinal)
+                || m.Id.StartsWith("EssenceDaemonModRarityAndQuantity", StringComparison.Ordinal) || seen.Add(m.Row))
             .Select(m => m.Roll(ModSection.Implicit, Random.Shared));
         return Game.MonsterModRolls.Value.Create([.. basis.Mods, .. extra], basis.NameWords, MonsterRarity.Rare, level);
     }
