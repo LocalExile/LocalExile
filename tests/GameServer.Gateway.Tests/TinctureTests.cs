@@ -296,6 +296,7 @@ public class TinctureTests
             var stats2 = Game.CharacterStatSources(conn2).Stats;
             Game.AdvanceTincturesLocked(conn2, now: t2 + 0.71, seconds: 0.71, stats2, out double manaDrain, out double lifeDrain, ref deactivated);
             Assert.Equal(1, conn2.TinctureEffects.BurnStacks);
+            Assert.Equal(60, Stat(Game.CharacterStatSources(conn2).Stats, "mana_degeneration_per_minute_%_per_tincture_toxicity"));
             Assert.True(manaDrain > 0);
             Assert.Equal(0, lifeDrain);
 
@@ -335,6 +336,7 @@ public class TinctureTests
             List<uint>? deadIds = null;
             Game.AdvanceTincturesLocked(conn3, now: t3 + 1.42, seconds: 0.71, stats3, out manaDrain, out lifeDrain, ref deadIds);
             Assert.Equal(2, conn3.TinctureEffects.BurnStacks);
+            Assert.Equal(60, Stat(Game.CharacterStatSources(conn3).Stats, "non_lethal_life_loss_%_per_minute_per_tincture_toxicity"));
             Assert.Equal(0, manaDrain);
             Assert.True(lifeDrain > 0);
 

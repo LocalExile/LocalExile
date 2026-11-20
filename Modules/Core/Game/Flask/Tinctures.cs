@@ -520,7 +520,15 @@ public static partial class Game
 
         if (active) Set("using_tincture", 1);
         if (lingering) Set("has_lingering_tincture", 1);
-        if (stacks > 0) Set("current_tincture_toxicity", stacks);
+        if (stacks > 0)
+        {
+            Set("current_tincture_toxicity", stacks);
+            // BuffTemplates TinctureManaBurn / TinctureLifeBurn carry 60 (%/min per stack = 1%/s) so the client's
+            // own mana/life orb tick predicts Mana Burn / Weeping Wounds smoothly between 0x1b1 updates.
+            Set(conn.TinctureEffects.LifeBurn
+                ? "non_lethal_life_loss_%_per_minute_per_tincture_toxicity"
+                : "mana_degeneration_per_minute_%_per_tincture_toxicity", 60);
+        }
         if (stacks >= Tinctures.HighToxicityThreshold) Set("is_high_toxicity", 1);
         if (weaponApplied) Set("tincture_applied", 1);
         if (mainEligible) Set("tincture_applied_to_main_hand", 1);
