@@ -269,15 +269,20 @@ public static class DeepwaterChartStats
         // 3. Dropped Currency → Stacked Decks (excluding Gold, Stacked Decks, Sulphur, and Deepwater items/Ducats).
         if (rules.CurrencyToStackedDecks && catalog.Find(StackedDeckId) is { Supported: true } deckType)
         {
-            for (int i = 0; i < drops.Count; i++)
+            int maxStack = Math.Max(1, (int)deckType.MaxStack);
+            int count = drops.Count;
+            for (int i = 0; i < count; i++)
             {
                 var d = drops[i];
                 if (d.Type.Class != "StackableCurrency") continue;
                 if (d.Type.Id == StackedDeckId || d.Type.Id == SulphurItemId
                     || d.Type.Id.StartsWith(DeepwaterItemPrefix, StringComparison.Ordinal))
                     continue;
-                ushort stack = (ushort)Math.Clamp((int)d.Item.StackSize, 1, Math.Max(1, (int)deckType.MaxStack));
-                drops[i] = new ItemDrops.Drop(ItemCatalog.Create(deckType) with { StackSize = stack }, deckType);
+                int total = Math.Max(1, (int)d.Item.StackSize);
+                int first = Math.Min(total, maxStack);
+                drops[i] = new ItemDrops.Drop(ItemCatalog.Create(deckType) with { StackSize = (ushort)first }, deckType);
+                for (int left = total - first; left > 0; left -= maxStack)
+                    drops.Add(new ItemDrops.Drop(ItemCatalog.Create(deckType) with { StackSize = (ushort)Math.Min(left, maxStack) }, deckType));
             }
         }
 
@@ -287,7 +292,9 @@ public static class DeepwaterChartStats
             for (int i = 0; i < drops.Count; i++)
             {
                 var d = drops[i];
-                if (d.Item.Rarity == ItemRarity.Unique) continue;
+                if (d.Item.Rarity == ItemRarity.Unique || d.Item.Mirrored || d.Item.Corrupted
+                    || d.Type.Components.Contains("Quest"))
+                    continue;
                 int chance = d.Type.Class switch
                 {
                     "Ring" => rules.RingToUniquePct,
@@ -319,9 +326,18 @@ public static class DeepwaterChartStats
             for (int i = 0; i < drops.Count; i++)
             {
                 var d = drops[i];
-                if (d.Item.FracturedCount > 0 || !ItemDrops.EquipmentClasses.Contains(d.Type.Class)) continue;
+                if (d.Item.FracturedCount > 0 || d.Item.Corrupted || d.Item.Mirrored
+                    || d.Item.Influences != ItemInfluence.None || d.Item.Synthesised || !d.Type.CanBeFractured
+                    || !ItemDrops.EquipmentClasses.Contains(d.Type.Class))
+                    continue;
                 if (d.Item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare)) continue;
-                if (!d.Item.Mods.Any(m => m.Section == ModSection.Explicit)) continue;
+                bool hasExplicit = false;
+                var mods = d.Item.Mods;
+                for (int m = 0; m < mods.Count; m++)
+                {
+                    if (mods[m].Section == ModSection.Explicit) { hasExplicit = true; break; }
+                }
+                if (!hasExplicit) continue;
                 if (rules.FracturedChancePct < 100 && rng.Next(100) >= rules.FracturedChancePct) continue;
                 drops[i] = d with { Item = d.Item with { FracturedCount = 1 } };
             }

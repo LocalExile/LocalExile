@@ -492,7 +492,7 @@ public sealed class DeepwaterLeagueTests
         var ringType = catalog.Find("Metadata/Items/Rings/Ring1")!;
         var goldType = catalog.Find(ItemDrops.GoldId)!;
 
-        // 1) Equipment -> Gold + Currency -> Stacked Decks (leaves Gold and Deepwater Ducats intact).
+        // 1) Equipment -> Gold + Currency -> Stacked Decks (splits stacks > MaxStack; leaves Gold and Ducats intact).
         var convertRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["chart_monster_equipment_drops_converted_to_gold_%"] = 100,
@@ -502,7 +502,7 @@ public sealed class DeepwaterLeagueTests
         var convertDrops = new List<ItemDrops.Drop>
         {
             new(rareBelt, beltType),
-            new(ItemCatalog.Create(chaosType) with { StackSize = 2 }, chaosType),
+            new(ItemCatalog.Create(chaosType) with { StackSize = 45 }, chaosType),
             new(ItemCatalog.Create(changelingType) with { StackSize = 1 }, changelingType),
             new(ItemCatalog.Create(goldType) with { StackSize = 50 }, goldType),
         };
@@ -511,9 +511,10 @@ public sealed class DeepwaterLeagueTests
         rollConvert.ApplyTransforms(convertDrops);
         Assert.Equal(ItemDrops.GoldId, convertDrops[0].Type.Id);
         Assert.Equal(DeepwaterChartStats.StackedDeckId, convertDrops[1].Type.Id);
-        Assert.Equal((ushort)2, convertDrops[1].Item.StackSize);
+        Assert.Equal((ushort)20, convertDrops[1].Item.StackSize);
         Assert.Equal(DeepwaterDucats.Changeling, convertDrops[2].Type.Id);
         Assert.Equal(ItemDrops.GoldId, convertDrops[3].Type.Id);
+        Assert.Equal(45, convertDrops.Where(d => d.Type.Id == DeepwaterChartStats.StackedDeckId).Sum(d => (int)d.Item.StackSize));
 
         // 2) No-equipment + no-flask strips equipment & flasks while keeping currency.
         var stripRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
@@ -531,7 +532,7 @@ public sealed class DeepwaterLeagueTests
         Assert.Single(stripDrops);
         Assert.Equal(chaosType.Id, stripDrops[0].Type.Id);
 
-        // 3) Ring -> Unique + Max-quality flask + Fractured + Corrupted.
+        // 3) Ring -> Unique + Max-quality flask + Fractured + Corrupted (preserves Quest Cursed Ducats & Mirrored/Influenced exclusivity).
         var mutateRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["chart_ring_to_unique_ring_%_chance"] = 100,
@@ -539,12 +540,16 @@ public sealed class DeepwaterLeagueTests
             ["map_dropped_items_are_fractured_chance_%"] = 100,
             ["map_items_drop_corrupted"] = 1,
         }, null, voyage: false);
+        var cursedDucatType = catalog.Row(DeepwaterCursedDucats.All[0].BaseRow)!;
         var mutateDrops = new List<ItemDrops.Drop>
         {
             new(ItemCatalog.Create(ringType) with { ItemLevel = 75 }, ringType),
             new(ItemCatalog.Create(flaskType) with { Quality = 0 }, flaskType),
             new(rareBelt with { Corrupted = false, FracturedCount = 0 }, beltType),
             new(ItemCatalog.Create(chaosType) with { StackSize = 1 }, chaosType),
+            new(ItemCatalog.Create(cursedDucatType), cursedDucatType),
+            new(rareBelt with { Mirrored = true, Corrupted = false, FracturedCount = 0 }, beltType),
+            new(rareBelt with { Influences = ItemInfluence.Shaper, Corrupted = false, FracturedCount = 0 }, beltType),
         };
         DeepwaterChartStats.ApplyDropTransforms(mutateDrops, catalog, uniques, in mutateRules, 75, MonsterRarity.Rare, new Random(7));
         Assert.Equal(ItemRarity.Unique, mutateDrops[0].Item.Rarity);
@@ -555,6 +560,11 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal((byte)1, mutateDrops[2].Item.FracturedCount);
         Assert.True(mutateDrops[2].Item.Corrupted);
         Assert.False(mutateDrops[3].Item.Corrupted);
+        Assert.False(mutateDrops[4].Item.Corrupted);
+        Assert.False(mutateDrops[5].Item.Corrupted);
+        Assert.Equal((byte)0, mutateDrops[5].Item.FracturedCount);
+        Assert.Equal((byte)0, mutateDrops[6].Item.FracturedCount);
+        Assert.True(mutateDrops[6].Item.Corrupted);
     }
 
     static byte[] Tick()

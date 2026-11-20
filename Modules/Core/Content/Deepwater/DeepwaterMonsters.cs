@@ -114,8 +114,6 @@ internal static class DeepwaterMonsters
         return plan;
     }
 
-    /// <summary>A biome's scattered packs whose MinLevel is at most the run's level and that have a monster the server
-    /// spawns, with their weights.</summary>
     /// <summary>Picks a supported monster variety Id from <paramref name="biome"/>'s scattered packs (fallback
     /// <c>DeepwaterSandy</c>), for Essence monolith placement inside a Deepwater cell.</summary>
     internal static string? PickVariety(string? biome, int level, Random random)
@@ -132,6 +130,8 @@ internal static class DeepwaterMonsters
         return Monsters.Find(variety.ToString())?.Id;
     }
 
+    /// <summary>A biome's scattered packs whose MinLevel is at most the run's level and that have a monster the server
+    /// spawns, with their weights.</summary>
     static List<(PackCatalog.Pack Pack, int Weight)> Pool(string biome, int level) => [.. (Packs.For(biome)?.Scattered ?? [])
         .Where(p => MinLevels.Value.GetValueOrDefault(p.Pack.Row) <= level && p.Pack.Entries.Any(e => Spawnable(e.Variety)))];
 
