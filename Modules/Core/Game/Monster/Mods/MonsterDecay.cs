@@ -75,17 +75,14 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         bool immune = conn.Immune || chaosImmune || Get("base_cannot_be_damaged") != 0;
         if (immune) { state.Damage.DiscardDamageCarry(); state.TakenCarry = 0; }
-        double factor = immune ? 0 : DamageModel.Mitigate(1, Resistance(conn, DamageType.Chaos), MaxResistance(conn, DamageType.Chaos))
+        double factor = immune ? 0 : DamageModel.Mitigate(1d, Resistance(conn, DamageType.Chaos), MaxResistance(conn, DamageType.Chaos))
             * conn.ElementalAilments.DamageTakenFactor(now, 0) * dotTakenFactor;
         int damage = state.Damage.Advance(now, factor);
         if (!state.Damage.Burning) DecayIcon(conn, state, now);
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.TakenCarry,
             IncomingResourceDefences.LessTakenPct(conn.Pools, Get), typedIncreasedPct: Get("chaos_damage_taken_+%"),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        bool bypass = Get("chaos_damage_does_not_bypass_energy_shield") == 0 && Get("virtual_chaos_damage_does_not_bypass_energy_shield") == 0
-            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_life") != 0
-                && (ulong)conn.PlayerLife * 100 > (ulong)conn.PlayerMaxLife * (uint)LowLifeThresholdPct(player))
-            && !(Get("chaos_damage_does_not_bypass_energy_shield_while_not_low_mana") != 0 && (ulong)conn.PlayerMana * 2 > conn.Pools.Mana);
+        bool bypass = ChaosDamageBypassesEnergyShield(conn, player);
         return IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage, bypass ? 100 : 0, now, ref conn.ChaosDotBypassCarry);
     }
 }

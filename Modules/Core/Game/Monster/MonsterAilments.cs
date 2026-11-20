@@ -21,7 +21,8 @@ public static partial class Game
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
             + PerAilmentTypeTakenPct(m, now)
-            + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
+            + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0))
+        * MonsterToughnessFactor(m.Effects);
 
     /// <summary>Yoke of Suffering: "Enemies take X% increased Damage for each type of Ailment you have inflicted on them".
     /// Each wearer keeps their own value on the monster (SpawnedMonster.SetSourceValue, EnemyDebuffsTick); the enemy

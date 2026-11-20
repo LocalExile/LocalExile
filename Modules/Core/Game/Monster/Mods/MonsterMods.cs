@@ -158,7 +158,7 @@ public static partial class Game
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
         double now = double.NaN)
     {
-        double factor = m.Effects.DamageTaken(spell);
+        double factor = m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects);
         return mitigated.Select((type, range) => range.Scale(type switch
         {
             DamageType.Cold => MonsterColdHitTaken(m, spell, now),
