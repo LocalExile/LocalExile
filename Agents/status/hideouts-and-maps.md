@@ -115,8 +115,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).
-- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
-  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
+- Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
+  rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
+  [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
 - Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
@@ -239,7 +240,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   [12](../docs/protocol/12-quests.md) §5, [13](../docs/protocol/13-items.md) §2).
   Guesses (G in the code): the chart inventories are per character while the tutorial's league flags are per account
   and league; the deck's map owner; the drop, room, implicit and border pools; when charts are consumed.
-  Not applied: the chart stats for objects and conversions; the Active Voyage window (0x72).
+  Chart and border stats apply per cell on Charts and Voyages: pack size, Sulphur, experience, magic extra mods,
+  combat affixes, Soul Eater, free lanterns, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure
+  Anchors, minibosses, rare-monster drops and post-roll drop conversions.
+  Not applied: Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy barrel
+  clusters, highly fishy, and the Active Voyage window (0x72).
   A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
   of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
@@ -296,10 +301,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`,
   `deepwater_*_chance`).
   Charts drop only from these chests ("The Sovereign" for their rolls).
-  Not built: removing Possession by right-clicking its buff, and its monster touches
-  outside torment maps; the Drowned Crawlers' possessed rares; the Brinerot barrels' own monsters and `free` state
-  (plain Brinerots stand in); dungeon areas such as The Submerged Passage, where the port rolls the room but does not
-  place it.
+  Possession can be cancelled by right-clicking its buff icon (`C→S 0x004b`).
+  Not built: Possession monster touches outside torment maps; the Drowned Crawlers' possessed rares; the Brinerot
+  barrels' own monsters and `free` state (plain Brinerots stand in); dungeon areas such as The Submerged Passage, where
+  the port rolls the room but does not place it.
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.

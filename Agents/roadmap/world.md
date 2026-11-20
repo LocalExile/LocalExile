@@ -122,9 +122,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Start** (remaining polish and follow-ups):
   1. Encounter levels: run the levelgen gate on the seed-1 traces of `DeepwaterEncounter` and `DeepwaterEncounterVoyage`
      ([server-side level generation](#server-side-level-generation)).
-  2. Chart & Voyage polish: the Active Voyage window (0x72), Valerie's lantern callout lines (no trigger found), the
-     remaining chart object/conversion stats, rare-class and Anchor chests, the Pointer arrow, and account+league shared
-     Chart Locker / charted storage (`Inventories.__col6` = 1) once an account-wide inventory store exists.
+  2. Chart & Voyage polish: the Active Voyage window (0x72), Valerie's lantern callout lines (no trigger found), the six
+     unsupported chart stats (Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy
+     barrel clusters, highly fishy), the Pointer arrow, and account+league shared Chart Locker / charted storage
+     (`Inventories.__col6` = 1) once an account-wide inventory store exists.
   3. Deferred niche crafting orbs: Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs.
   4. Global `NPCTalk` league-flag enforcement for the other 139 non-Deepwater NPCs (currently opt-in via
      `GameEvents.NpcUsesLeagueFlags` for NPCs 789–795).
