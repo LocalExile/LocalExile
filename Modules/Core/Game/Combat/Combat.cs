@@ -3265,7 +3265,7 @@ public static partial class Game
     {
         await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion, byHit);
         bool martyr;
-        lock (conn.Monsters) martyr = MapTorment.ResolveMartyrLocked(conn, m);
+        lock (conn.Monsters) martyr = MapTorment.CompleteMartyrKillLocked(conn, m);
         if (martyr) await MapTorment.PresentMartyr(conn, m);
         // The map overlay's "X monsters remain" (S→C 0x1a0): one fewer of the area's monsters is alive. Its corpse stays
         // in the roster, so the count is the living ones (MonsterRemaining.cs).

@@ -234,6 +234,10 @@ public sealed class TormentTests
                 70, 30, dagger.Kind, (x, y), rampage.Epoch);
             Assert.NotNull(weaponId);
             var weapon = c.Monsters[weaponId.Value];
+            using var retireDuringKill = GameEvents.Kill.Add("Game", kill =>
+            {
+                if (kill.Monster == host) lifetime.Stop(ex => throw ex);
+            });
             foreach (var (dying, distance) in new[] { (restoredId, 16), (hostId, 17) })
             {
                 var victim = c.Monsters[dying];
@@ -252,12 +256,22 @@ public sealed class TormentTests
                 c.Walk.Teleport(at.X + (distance == 16 ? 17 : 16), at.Y, c.Clock.Elapsed.TotalSeconds);
                 weapon.Walk.Teleport(at.X + (distance == 16 ? weaponEdge + 1 : weaponEdge), at.Y, 0);
                 await Game.MonsterKilled(wire.Remote, wire.Stream, wire.Ciphers, c, dying, victim);
+                if (dying == hostId)
+                {
+                    Assert.False(lifetime.IsActive);
+                    Assert.True(martyrArea.World.DeathCasts[dying].KillCredited);
+                    Assert.True(c.Monsters.ContainsKey(dying));
+                    lifetime = new ModuleLifetime("Game");
+                    Game.CombatLifetime = lifetime;
+                    Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+                }
                 uint atDeath = c.PlayerLife;
                 Assert.Equal(distance == 16, atDeath < lifeBefore);
                 Assert.Equal(distance == 16, weapon.Life < weaponLife);
                 await MapTorment.Tick(c, .25);
                 Assert.Equal(atDeath, c.PlayerLife);
                 Assert.False(c.Monsters.ContainsKey(dying));
+                Assert.DoesNotContain(dying, martyrArea.World.DeathCasts.Keys);
             }
         }
         finally

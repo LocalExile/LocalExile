@@ -1,34 +1,13 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using DotDelivery = MonsterDeathCast.KillDelivery;
 using static Game;
 using static Program;
 
 public static partial class MapTorment
 {
-    sealed record MartyrWeapon(RampageWorld.Actor Actor, SpawnedMonster Monster, (int X, int Y) At)
-    {
-        public byte[]? Hit;
-        public bool Current(ClientState owner) =>
-            ReferenceEquals(RampageWeaponAtLocked(owner, Actor, ProjectileWorldTime(owner)), Monster);
-    }
-
-    sealed record MartyrViewer(ClientState Player, bool Awake, (int X, int Y)? At, GolemState.Golem[] Minions)
-    {
-        public readonly List<(uint Id, SpawnedMonster Target, byte[] Packet)> MinionHits = [];
-        public readonly List<MartyrWeapon> Weapons = [];
-        public MonsterHitOutcome? Hit;
-        public int Epoch = Player.IncomingHitEpoch;
-    }
-
-    sealed record MartyrDeath(SpawnedMonster Source, (int X, int Y) At, MonsterAttack Attack,
-        byte[] Skill, byte[] Action, List<MartyrViewer> Viewers)
-    {
-        public required ClientState Owner;
-        public DotDelivery Dot;
-        public bool DotPlayerKill, Resolved, Publishing;
-    }
-
-    enum DotDelivery { None, RunnerOutput, OwnerQueue, Accepted }
+    internal static bool CurrentWeapon(ClientState owner, MonsterDeathCast.Weapon weapon) =>
+        ReferenceEquals(RampageWeaponAtLocked(owner, weapon.Id, weapon.Epoch, ProjectileWorldTime(owner)), weapon.Monster);
 
     // The ordinary 3.29.3c SuicideExplosion action includes equality and the target's signed Positioned radius.
     static bool InMartyrBlast((int X, int Y) from, (int X, int Y) target, int radius, int body)
@@ -41,7 +20,7 @@ public static partial class MapTorment
     // credited the monster, and its output presents them after the killing blow. All state uses the instance's Monsters lock.
     internal static void MartyrDiedLocked(ClientState conn, SpawnedMonster monster) => CaptureMartyrLocked(conn, monster);
 
-    static MartyrDeath? CaptureMartyrLocked(ClientState conn, SpawnedMonster monster)
+    static MonsterDeathCast? CaptureMartyrLocked(ClientState conn, SpawnedMonster monster)
     {
         uint id = monster.ObjectId;
         if (id == 0 || !monster.Hostile || monster.CorpseConsumed || TormentCatalog.MartyrGrantRow(conn, monster.Mods) is not int row || !CurrentGameWork) return null;
@@ -60,10 +39,10 @@ public static partial class MapTorment
             { Spell = true, SourceEffects = source };
         double now = ProjectileWorldTime(conn);
         var at = monster.Walk.Position(now);
-        var area = Of(conn) ?? Areas.GetValue(conn.Instance, _ => new());
+        var area = Of(conn) ?? Areas.GetValue(conn.Instance, instance => new(instance.World.TormentRewards));
         Remark(conn, area, id, monster); // A restored host can die before the runner's first sight check.
         monster.CorpseConsumed = true; // TormentTouchedMonsterMartyr: base_monster_will_be_deleted_on_death.
-        var viewers = new List<MartyrViewer>();
+        var viewers = new List<MonsterDeathCast.Viewer>();
         foreach (var player in Members(conn).Where(p => p.PlayerSent))
         {
             bool eligible = !player.Paused && !InGracePeriod(player);
@@ -72,28 +51,28 @@ public static partial class MapTorment
             GolemState.Golem[] minions = eligible
                 ? [.. player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).Concat(player.Summons.Fighters.Values)
                     .Where(g => !g.Monster.Dead && InMartyrBlast(at, g.Monster.Walk.Position(now), radius, LivingCollision.Size(g.Monster)))] : [];
-            var viewer = new MartyrViewer(player, player.MonsterViews.ContainsKey(id) && !player.AsleepMonsters.Contains(id), playerHit ? here : null, minions);
+            var viewer = new MonsterDeathCast.Viewer(player, player.MonsterViews.ContainsKey(id) && !player.AsleepMonsters.Contains(id), playerHit ? here : null, minions);
             if (eligible && player.StandingRampageWorld is { Actors.Count: > 0 } world)
             {
                 foreach (var actor in world.Actors.Values)
                 {
-                    if (RampageWeaponAtLocked(player, actor, now) is not { Dead: false, Life: > 0 } weapon) continue;
+                    if (RampageWeaponAtLocked(player, actor.Id, actor.Epoch, now) is not { Dead: false, Life: > 0 } weapon) continue;
                     var target = weapon.Walk.Position(now);
-                    if (InMartyrBlast(at, target, radius, LivingCollision.Size(weapon))) viewer.Weapons.Add(new(actor, weapon, target));
+                    if (InMartyrBlast(at, target, radius, LivingCollision.Size(weapon))) viewer.Weapons.Add(new(actor.Id, actor.Epoch, weapon, target));
                 }
             }
             viewers.Add(viewer);
         }
         byte actorComponent = checked((byte)origin.Components.ToList().IndexOf("Actor"));
-        var death = new MartyrDeath(monster, at, attack, InstanceEntities.ActorSkills(id, actorComponent, [skill]),
-            InstanceProtocol.InstantAction(id, skill.Id, at.X, at.Y, triggered: true), viewers) { Owner = conn };
-        area.MartyrDeaths.Add(id, death);
+        var death = new MonsterDeathCast(monster, at, attack, InstanceEntities.ActorSkills(id, actorComponent, [skill]),
+            InstanceProtocol.InstantAction(id, skill.Id, at.X, at.Y, triggered: true), viewers, conn, CombatLifetime!.Generation);
+        conn.Instance.World.DeathCasts.Add(id, death);
         return death;
     }
 
-    static MartyrDeath? PendingMartyr(ClientState conn, SpawnedMonster monster) =>
-        monster.CorpseConsumed && conn.Instance is not null && Areas.TryGetValue(conn.Instance, out var area)
-            ? area.MartyrDeaths.GetValueOrDefault(monster.ObjectId) : null;
+    static MonsterDeathCast? PendingMartyr(ClientState conn, SpawnedMonster monster) =>
+        monster.CorpseConsumed && conn.Instance?.World.DeathCasts.GetValueOrDefault(monster.ObjectId) is { } cast && cast.Source == monster
+            ? cast : null;
 
     internal static bool HoldsCorpseLocked(ClientState conn, SpawnedMonster monster) => PendingMartyr(conn, monster) is not null;
 
@@ -108,15 +87,16 @@ public static partial class MapTorment
         {
             lock (runner.Monsters)
             {
-                if (death.Dot != DotDelivery.RunnerOutput || runner.Closed || runner.LeavingArea) return Task.CompletedTask;
+                if (!CurrentGameRules || death.Dot != DotDelivery.RunnerOutput || runner.Closed || runner.LeavingArea) return Task.CompletedTask;
                 if (!ClaimDotLocked(runner, death)) return Task.CompletedTask;
             }
             return FinishDotKill(runner, death);
         };
     }
 
-    static bool ClaimDotLocked(ClientState runner, MartyrDeath death)
+    static bool ClaimDotLocked(ClientState runner, MonsterDeathCast death)
     {
+        death.OwnerGeneration = CombatLifetime!.Generation;
         if (death.Dot == DotDelivery.RunnerOutput && death.DotPlayerKill
             && death.Source.LastHitBy is { Closed: false, LeavingArea: false } by && by != runner && by.Instance == runner.Instance)
         {
@@ -126,7 +106,7 @@ public static partial class MapTorment
             {
                 lock (by.Monsters)
                 {
-                    if (death.Dot != DotDelivery.OwnerQueue || by.Closed || by.LeavingArea) return Task.CompletedTask;
+                    if (!CurrentGameRules || death.Dot != DotDelivery.OwnerQueue || by.Closed || by.LeavingArea) return Task.CompletedTask;
                     death.Dot = DotDelivery.Accepted;
                 }
                 return FinishDotKill(by, death);
@@ -138,117 +118,214 @@ public static partial class MapTorment
         return true;
     }
 
-    static Task FinishDotKill(ClientState owner, MartyrDeath death) =>
+    static Task FinishDotKill(ClientState owner, MonsterDeathCast death) =>
         MonsterKilled(owner.Wire.Remote, owner.Wire.Stream, owner.Wire.Ciphers, owner, death.Source.ObjectId, death.Source,
             byMinion: !death.DotPlayerKill, byHit: !death.DotPlayerKill);
 
-    internal static bool ResolveMartyrLocked(ClientState conn, SpawnedMonster monster)
+    internal static bool CompleteMartyrKillLocked(ClientState conn, SpawnedMonster monster)
     {
         if (PendingMartyr(conn, monster) is not { Resolved: false } death) return false;
-        death.Owner = conn;
-        death.Resolved = true;
+        // An asynchronous ordinary kill can finish its rewards after its Game module was replaced.
+        death.KillCredited = true;
+        return TryResolveMartyrLocked(conn, death);
+    }
+
+    static bool TryResolveMartyrLocked(ClientState conn, MonsterDeathCast death)
+    {
+        // Reuse the ordinary hit rules and their current defences for the whole synchronous contact.
+        // If the host is switching, the map runner can take the credited death on its next tick.
+        if (!CurrentGameWork || !CurrentGameRules || !CombatLifetime!.TryRunSynchronous(() =>
+        {
+            death.Owner = conn;
+            death.OwnerGeneration = CombatLifetime.Generation;
+            // The source's projectile or player loop can retire after admission. Each contact below
+            // belongs to its own current recipient in this instance.
+            var previous = ProjectileOutputGuard.Value;
+            ProjectileOutputGuard.Value = null;
+            try { ResolveContactsLocked(conn.Instance, death); }
+            finally { ProjectileOutputGuard.Value = previous; }
+            death.Resolved = true;
+        }))
+        {
+            death.OutputDue = true;
+            return false;
+        }
+        return true;
+    }
+
+    static void ResolveContactsLocked(InstanceState instance, MonsterDeathCast death)
+    {
+        var monster = death.Source;
         foreach (var v in death.Viewers)
         {
             var p = v.Player;
-            if (p.Closed || p.LeavingArea || v.At is null && v.Minions.Length == 0 && v.Weapons.Count == 0) continue;
+            if (p.Closed || p.LeavingArea || p.Instance != instance || v.At is null && v.Minions.Length == 0 && v.Weapons.Count == 0) continue;
             double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
             using var defenceTime = FortificationOf(p).Capture(now);
             foreach (var g in v.Minions)
                 GolemTakeHitLocked(p, g, monster.ObjectId, monster, death.Attack, now, area: true, sourceHits: v.MinionHits);
             foreach (var weapon in v.Weapons)
             {
-                if (weapon.Monster.Dead || weapon.Monster.Life == 0 || !weapon.Current(p)) continue;
+                if (weapon.Monster.Dead || weapon.Monster.Life == 0 || !CurrentWeapon(p, weapon)) continue;
                 var (critical, taken) = HitRampageWeaponLocked(monster, weapon.Monster, death.Attack.Damage, attack: false, now, death.Attack.SourceEffects);
-                weapon.Hit = InstanceProtocol.ActionHit(monster.ObjectId, 0xffff, weapon.Actor.Id,
+                weapon.Hit = InstanceProtocol.ActionHit(monster.ObjectId, 0xffff, weapon.Id,
                     flags: MonsterHitFlags(blocked: false, critical), code: HitCode(taken),
                     angle: HitAngle(weapon.At.X - death.At.X, weapon.At.Y - death.At.Y));
             }
             if (v.At is { } at && p.PlayerLife > 0 && p.IncomingHitEpoch == v.Epoch)
             {
-                v.Hit = CommitMonsterHitLocked(p.Wire.Remote, p, monster.ObjectId, monster, death.Attack, now, at, death.At, checkRange: false);
+                if (CommitMonsterHitLocked(p.Wire.Remote, p, monster.ObjectId, monster, death.Attack, now, at, death.At, checkRange: false) is { } hit)
+                    v.Hit = new(hit.HitPacket, hit.Life, hit.Mana, hit.ManaBefore, hit.Damage, hit.RawDamage, hit.Blocked, hit.Critical,
+                        hit.Recovery is { } r ? (r.Epoch, r.Action, r.Until, r.Seconds) : null, hit.Armour, hit.Spirit);
                 v.Epoch = p.IncomingHitEpoch;
             }
         }
-        return true;
     }
 
     internal static async Task PresentMartyr(ClientState conn, SpawnedMonster monster)
     {
+        var instance = conn.Instance;
         uint id = monster.ObjectId;
-        MartyrDeath death;
-        lock (conn.Monsters)
+        MonsterDeathCast death;
+        long generation;
+        lock (instance.World.Monsters)
         {
-            if (PendingMartyr(conn, monster) is not { Resolved: true, Publishing: false } pending) return;
+            if (!CurrentGameRules || PendingMartyr(conn, monster) is not { Resolved: true } pending) return;
+            generation = CombatLifetime!.Generation;
+            if (pending.Publisher == generation) return;
             death = pending;
-            death.Publishing = true;
+            death.Publisher = generation;
+            death.OutputDue = true;
         }
         try
         {
-            var instance = conn.Instance;
-            await Task.WhenAll(death.Viewers.Select(v => PublishToMember(instance, v.Player, () => Present(v))));
+            await Task.WhenAll(death.Viewers.Select(v => PublishToMember(instance, v.Player, () => PresentDeathCast(instance, death, v))));
+            ClientState[] removals;
+            lock (instance.World.Monsters)
+            {
+                if (!CurrentGameRules || death.Publisher != generation
+                    || death.Viewers.Any(v => !v.Presented && Here(v.Player))) return;
+                death.Removals ??= RetireMonsterLocked(instance, id, Members(conn, instance).Concat(death.Viewers.Select(v => v.Player)));
+                removals = [.. death.Removals];
+            }
+            await Task.WhenAll(removals.Select(p => PublishToMember(instance, p, () =>
+                SendWorldRemoval(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p, id, "[torment] Martyr's Touch exploded", atGate: () =>
+                {
+                    lock (instance.World.Monsters) return death.Removals.Remove(p) ? InstanceProtocol.RemoveObject(id) : null;
+                }))));
+            lock (instance.World.Monsters)
+            {
+                if (!CurrentGameRules || death.Publisher != generation) return;
+                death.Removals.RemoveWhere(p => LeftInstance(instance, p));
+                if (death.Removals.Count == 0) instance.World.DeathCasts.Remove(id);
+            }
         }
         finally
         {
-            try { await Remove(conn, id, "Martyr's Touch exploded"); }
-            finally { lock (conn.Monsters) Areas.GetValue(conn.Instance, _ => new()).MartyrDeaths.Remove(id); }
+            lock (instance.World.Monsters) if (death.Publisher == generation) death.Publisher = 0;
         }
-
-        async Task Present(MartyrViewer v)
-        {
-            var p = v.Player;
-            bool Here() => CurrentGameWork && !p.Closed && !p.LeavingArea && p.Instance == conn.Instance;
-            if (!Here()) return;
-            var w = p.Wire;
-            if (v.Awake) await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, p, id, () =>
-            {
-                lock (p.Monsters)
-                {
-                    if (!p.MonsterViews.ContainsKey(id) || p.AsleepMonsters.Contains(id)) return null;
-                    var records = new List<byte[]> { death.Skill, death.Action };
-                    foreach (var contact in v.MinionHits)
-                        if (p.Monsters.TryGetValue(contact.Id, out var current) && ReferenceEquals(current, contact.Target))
-                            records.Add(contact.Packet);
-                    foreach (var weapon in v.Weapons)
-                        if (weapon.Hit is { } packet && weapon.Current(p)) records.Add(packet);
-                    if (v.Hit is { } hit && p.IncomingHitEpoch == v.Epoch) records.Add(hit.HitPacket);
-                    records.Add(InstanceProtocol.LifeUpdate(id, 0));
-                    return [.. records];
-                }
-            }, still: Here);
-            foreach (var weapon in v.Weapons)
-                if (weapon.Hit is not null && Here()) await SendWorldRecord(p, weapon.Actor.Id, () =>
-                {
-                    lock (p.Monsters) return weapon.Current(p) ? InstanceProtocol.LifeUpdate(weapon.Actor.Id, weapon.Monster.Life) : null;
-                }, still: Here);
-            if (v.Hit is { } outcome && Here() && p.IncomingHitEpoch == v.Epoch)
-                await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
-        }
+        bool Here(ClientState p) => !p.LeavingArea && !LeftInstance(instance, p);
     }
 
-    // A retired killer no longer drains its output. Unclaimed shared DoT kills still need ordinary kill credit.
-    static async Task FinishAbandonedMartyrs(ClientState conn, Area area)
+    // An unclaimed ailment kill still needs ordinary credit. Already resolved deaths retain their pending output
+    // while the map runner changes or the Game assembly is replaced. The original generation owns its output order.
+    static async Task FinishAbandonedMartyrs(ClientState conn)
     {
-        List<(MartyrDeath Death, bool OwesKill)> abandoned;
+        List<(MonsterDeathCast Death, bool OwesKill)> abandoned;
         lock (conn.Monsters)
         {
-            if (area.MartyrDeaths.Count == 0 || !IsMonsterRunner(conn)) return;
+            var deaths = conn.Instance.World.DeathCasts;
+            if (deaths.Count == 0 || !CurrentGameRules || !IsMonsterRunner(conn)) return;
+            long generation = CombatLifetime!.Generation;
             abandoned = [];
-            foreach (var d in area.MartyrDeaths.Values)
+            foreach (var d in deaths.Values)
             {
-                if (d.Publishing || !d.Owner.Closed && !d.Owner.LeavingArea) continue;
+                bool replaced = d.OwnerGeneration != generation;
+                if (d.Publisher == generation || !d.OutputDue && !replaced && !d.Owner.Closed && !d.Owner.LeavingArea) continue;
                 if (d.Dot is DotDelivery.RunnerOutput or DotDelivery.OwnerQueue)
                 {
+                    if (replaced) d.Dot = DotDelivery.RunnerOutput;
                     if (ClaimDotLocked(conn, d)) abandoned.Add((d, true));
                 }
-                else if (d.Resolved || d.Source.LastHitBy is not { Closed: false, LeavingArea: false } owner || owner.Instance != conn.Instance)
+                else if (d.KillCredited || d.Resolved || d.Source.LastHitBy is not { Closed: false, LeavingArea: false } owner || owner.Instance != conn.Instance)
                 {
-                    ResolveMartyrLocked(conn, d.Source);
-                    abandoned.Add((d, false));
+                    if (d.Resolved || TryResolveMartyrLocked(conn, d)) abandoned.Add((d, false));
                 }
             }
         }
         foreach (var (death, owesKill) in abandoned)
             if (owesKill) await FinishDotKill(conn, death);
             else await PresentMartyr(conn, death.Source);
+    }
+
+}
+
+public static partial class Game
+{
+    internal static async Task PresentDeathCast(InstanceState instance, MonsterDeathCast death, MonsterDeathCast.Viewer viewer)
+    {
+        var p = viewer.Player;
+        bool Here() => CurrentGameRules && !p.Closed && !p.LeavingArea && !p.WorldOutput.Closed && p.Instance == instance;
+        bool playerHit, flask;
+        lock (instance.World.Monsters)
+        {
+            if (viewer.Presented || !Here()) return;
+            playerHit = viewer.Hit is not null && viewer.Epoch == p.IncomingHitEpoch;
+            flask = playerHit && viewer.Hit!.Life > 0;
+        }
+        if (flask) await p.FlaskBarGate.WaitAsync();
+        try
+        {
+            WorldObject[] required;
+            lock (instance.World.Monsters)
+            {
+                if (!Here()) return;
+                required = p.LockstepClient && playerHit ? [p.WorldOutput.PublishedObject(PlayerId)] : [];
+            }
+            await SendWorldBatch(p, required, admission =>
+            {
+                lock (instance.World.Monsters)
+                {
+                    if (viewer.Presented || !Here()) return null;
+                    uint id = death.Source.ObjectId;
+                    var records = new WorldRecordBuilder(p, admission);
+                    if (viewer.Awake && p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id))
+                    {
+                        records.Presentation(id, death.Skill);
+                        records.Presentation(id, death.Action);
+                        foreach (var contact in viewer.MinionHits)
+                            if (p.Monsters.TryGetValue(contact.Id, out var current) && current == contact.Target)
+                                records.Presentation(id, contact.Packet);
+                        foreach (var weapon in viewer.Weapons)
+                            if (weapon.Hit is { } packet && MapTorment.CurrentWeapon(p, weapon)) records.Presentation(id, packet);
+                        if (viewer.Hit is { } hit && p.IncomingHitEpoch == viewer.Epoch) records.Presentation(id, hit.HitPacket);
+                        records.Presentation(id, InstanceProtocol.LifeUpdate(id, 0));
+                    }
+                    foreach (var weapon in viewer.Weapons)
+                        if (weapon.Hit is not null && MapTorment.CurrentWeapon(p, weapon))
+                            records.Presentation(weapon.Id, InstanceProtocol.LifeUpdate(weapon.Id, weapon.Monster.Life));
+                    if (viewer.Hit is { } h && p.IncomingHitEpoch == viewer.Epoch)
+                    {
+                        var hit = new MonsterHitOutcome(h.HitPacket, h.Life, h.Mana, h.ManaBefore, h.Damage, h.RawDamage, h.Blocked, h.Critical,
+                            h.Recovery is { } r ? new(r.Epoch, r.Action, r.Until, r.Seconds) : null, h.Armour, h.Spirit);
+                        var w = p.Wire;
+                        // The receiver's send gate accepted this transaction. Its captured output cannot yield or
+                        // return to the old projectile. The recipient can still leave during the commit.
+                        var previous = ProjectileOutputGuard.Value;
+                        ProjectileOutputGuard.Value = () => !p.Closed && !p.LeavingArea && p.Instance == instance;
+                        try { records.Add(CaptureWorldOutput(p, admission, () => PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, hit), flask)); }
+                        finally { ProjectileOutputGuard.Value = previous; }
+                    }
+                    viewer.Presented = true;
+                    return records.Build();
+                }
+            }, still: Here);
+        }
+        finally { if (flask) p.FlaskBarGate.Release(); }
+        if (flask && Here())
+        {
+            var wire = p.Wire;
+            await PublishFlaskChanges(wire.Remote, wire.Stream, wire.Ciphers, p);
+        }
     }
 }

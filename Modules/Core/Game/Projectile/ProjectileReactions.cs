@@ -109,7 +109,7 @@ public static partial class Game
     {
         CommitProjectileKillRewards(session, id, monster, at, random, playerKill);
         bool martyr;
-        lock (session.Conn.Monsters) martyr = MapTorment.ResolveMartyrLocked(session.Conn, monster);
+        lock (session.Conn.Monsters) martyr = MapTorment.CompleteMartyrKillLocked(session.Conn, monster);
         if (martyr) session.Enqueue(() => MapTorment.PresentMartyr(session.Conn, monster));
     }
 
@@ -263,8 +263,12 @@ public static partial class Game
                 changed.Add(item);
         }
         if (changed.Count > 0)
-            session.Packet(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
-                items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
+        {
+            var packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
+                items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed);
+            Automation(conn).Packets.Add(new(packet));
+            QueueFlaskPublication(session);
+        }
     }
 
     public static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)

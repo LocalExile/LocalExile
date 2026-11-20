@@ -31,7 +31,7 @@ public static partial class Game
     public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         CommitAcceptedKillRewardsLocked(conn, victimId, monster, now, playerKill, chargeBatch);
-        if (MapTorment.ResolveMartyrLocked(conn, monster))
+        if (MapTorment.CompleteMartyrKillLocked(conn, monster))
             conn.Minions.OutputQueue.Add(new([], null, victimId, monster, PlayerMinions.OutputKind.MonsterDeathEffect));
     }
 

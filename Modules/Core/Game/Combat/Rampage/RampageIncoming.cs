@@ -5,12 +5,11 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    internal static SpawnedMonster? RampageWeaponAtLocked(ClientState owner, RampageWorld.Actor captured, double now)
+    internal static SpawnedMonster? RampageWeaponAtLocked(ClientState owner, uint id, long epoch, double now)
     {
-        if (captured.Weapon is null || owner.OwnedCombatState is not RampageWorld world
-            || !world.Actors.TryGetValue(captured.Id, out var actor) || actor.Epoch != captured.Epoch
-            || actor.ExpiresAt <= now || !RampageEffectCurrent(owner, captured.Epoch)) return null;
-        return owner.Monsters.GetValueOrDefault(captured.Id);
+        if (owner.OwnedCombatState is not RampageWorld world || !world.Actors.TryGetValue(id, out var actor)
+            || actor.Weapon is null || actor.Epoch != epoch || actor.ExpiresAt <= now || !RampageEffectCurrent(owner, epoch)) return null;
+        return owner.Monsters.GetValueOrDefault(id);
     }
 
     internal static (bool Critical, DamagePacket Taken) HitRampageWeaponLocked(SpawnedMonster attacker,
