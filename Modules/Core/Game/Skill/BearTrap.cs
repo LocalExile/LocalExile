@@ -56,8 +56,9 @@ public static partial class Game
         double slow = state.Effects.Where(e => e.Until > now)
             .Select(e => now < e.RootUntil ? e.Slow : e.Slow * (e.Until - now) / Math.Max(.001, e.Until - e.RootUntil))
             .DefaultIfEmpty().Max();
-        // In 5% steps: each step is a stats message that re-lays the client's walk (07, the lockstep tick), not one a tick.
-        return Math.Max(.01, 1 - Math.Ceiling(slow / 5 - 1e-9) * 5 / 100);
+        // In 20% steps: each step is a stats message that re-lays the client's walk from its cell (07, the lockstep tick),
+        // and 5% steps (16 in 3 s) made a predictive client's monster visibly jitter (live 2026-11-19).
+        return Math.Max(.01, 1 - Math.Ceiling(slow / 20 - 1e-9) * 20 / 100);
     }
 
     public static int BearTrapDamageTaken(SpawnedMonster monster, double now) =>

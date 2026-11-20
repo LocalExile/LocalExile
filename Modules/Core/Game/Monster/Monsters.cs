@@ -898,13 +898,24 @@ public static partial class Game
                     m.LastTarget = null;
                     continue;
                 }
-                // Held by a Bear Trap: its walk or chase stops as a freeze's does, once; it may still attack where it stands.
+                // Held by a Bear Trap: its walk or chase stops, once; it may still attack where it stands. A predictive client
+                // stops on a Move onto its own cell, as a freeze's; a lockstep client takes none, so it gets a knockback's
+                // teleport onto that cell (live 2026-11-19: without one it walked its whole leg at the slowed speed).
                 if (BearTrapHoldStarts(m, now))
                 {
-                    if (now < m.Walk.ArrivesAt || m.LastTarget is not null)
+                    bool walking = now < m.Walk.ArrivesAt || m.LastTarget is not null;
+                    Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) held by a Bear Trap at ({mx}, {my})"
+                        + (walking ? $", its walk to {m.Walk.Destination} stopped" : ""));
+                    if (walking)
                     {
-                        if (conn.LockstepClient) NextPlannedAction(m);
-                        else plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is held by a Bear Trap"));
+                        if (!conn.LockstepClient)
+                            plan.Moves.Add((id, m, NextPlannedAction(m), PlaceMove(plan, m, (mx, my), now), (mx, my), "is held by a Bear Trap"));
+                        else
+                        {
+                            NextPlannedAction(m);
+                            m.Walk.Teleport(mx, my, now);
+                            m.KnockbackPending = (mx, my);
+                        }
                     }
                     m.LastTarget = null;
                     continue;
