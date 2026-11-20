@@ -2811,8 +2811,9 @@ The Spirit chieftains are the first (section 10f).
   its attack time.
   There the hit needs both alive and within reach + 2; it rolls the minion's accuracy (DefaultMonsterStats at its
   level) against the target's evasion, then the target's block, then the target's mitigation (`MonsterTakesRolled`).
-  S→C 0x1af shows the hit (the minion as source, flags 0x4601), the target's Life follows, and a kill gives the
-  player experience and loot through `MonsterKilled` (no on-kill charges: the player did not kill it).
+  S→C 0x1af shows the hit (the minion as source, kind 3, flags 0x4201, code by type), the target's Life follows,
+  and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
+  kill it).
   A minion's hit does not count as the player hitting.
 - End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
   removed a second later (0x2bd).

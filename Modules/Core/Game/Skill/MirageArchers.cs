@@ -16,7 +16,7 @@ public static partial class Game
             if (Stats.Key(name) is uint key) caster.Remove(key);
         return shot with
         {
-            MirageSource = null, CriticalTrigger = null, ClientPredicted = false,
+            MirageSource = null, Mirage = true, CriticalTrigger = null, ClientPredicted = false,
             ActualCaster = caster, Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
             Hit = shot.Hit.Scale(factor), AreaHit = shot.AreaHit?.Scale(factor),
             Ignite = shot.Ignite with { Min = shot.Ignite.Min * factor, Max = shot.Ignite.Max * factor,

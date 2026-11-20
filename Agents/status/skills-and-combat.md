@@ -171,6 +171,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
+  The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
+  The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.
+- Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
+  The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
+  Only the default, Celestial and Tentacles grounds fade in and out.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Bow and wand attack gems without a projectile row (Frenzy, Puncture, Power Siphon) fire the held weapon's
