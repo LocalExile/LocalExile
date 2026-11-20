@@ -81,6 +81,7 @@ public static partial class Game
         conn.TalkingTo = id;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         conn.NpcRewardOffer = null;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
@@ -113,6 +114,11 @@ public static partial class Game
                 conn.NpcFinishFlag = null;
                 await SetQuestFlags(remote, stream, ciphers, conn, [finish]);
             }
+            if (conn.NpcFinishLeagueFlag is int finishLeague)
+            {
+                conn.NpcFinishLeagueFlag = null;
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [finishLeague]);
+            }
             // The row's script decides what follows its talk: the next page, or the end of the dialogue.
             if (conn.NpcTalkScript is { } script)
             {
@@ -128,6 +134,7 @@ public static partial class Game
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
+        conn.NpcFinishLeagueFlag = null;
         conn.NpcTalkScript = null;
         conn.NpcRewardOffer = null;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 object 0: npc dialogue closed (0x85)");
@@ -206,6 +213,7 @@ public static partial class Game
         }
         await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
+        conn.NpcFinishLeagueFlag = usesLeagueFlags ? talk.FinishLeagueFlag : null;
         conn.NpcTalkScript = null;
         var option = new NpcOption(conn, npc.Npc.Name, talk.Category, talk.Option,
             talk.Script, talk.TextAudio.Count > 0, talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer);
@@ -217,6 +225,7 @@ public static partial class Game
             else
             {
                 if (conn.NpcFinishFlag is { } finish) { conn.NpcFinishFlag = null; await SetQuestFlags(remote, stream, ciphers, conn, [finish]); }
+                if (conn.NpcFinishLeagueFlag is int finishLeague) { conn.NpcFinishLeagueFlag = null; await SetLeagueQuestFlags(remote, stream, ciphers, conn, [finishLeague]); }
                 // Let the owning module execute its no-audio script before generic FinishNPCChat consumes it.
                 offeredScript = true;
                 if (await GameEvents.AnyNpcOption(option)) return true;
