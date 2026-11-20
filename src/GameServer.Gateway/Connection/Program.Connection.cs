@@ -428,9 +428,11 @@ public partial class Program
     public const double SyncPublishMilliseconds = 100;
 
     /// <summary>Sends to the player's client (<see cref="Send(string, NetworkStream, ConnectionCiphers, byte[], string?, Func{bool}?, Func{byte[]?}?, string?)"/>).</summary>
+    /// A player made without a connection (Session.None: a tool's, a test's) has nobody to send to.
     public static Task Send(Player conn, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null) =>
-        Send(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, still, atGate, sync);
+        conn.Session.Connected ? Send(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, bytes, log, still, atGate, sync)
+            : Task.CompletedTask;
 
     public static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
@@ -533,8 +535,8 @@ public partial class Program
     /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
-    public static Task<bool> SendBatched(Player conn, Func<Task<bool>> body) =>
-        SendBatched(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, body);
+    public static Task<bool> SendBatched(Player conn, Func<Task<bool>> body) => conn.Session.Connected
+        ? SendBatched(conn.Session.Remote, conn.Session.Stream, conn.Session.Ciphers, body) : body();
 
     public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
     {
