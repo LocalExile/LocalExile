@@ -399,11 +399,8 @@ public sealed partial class AccountStash
             {
                 int reused = _tabs.FindIndex(t => t.Saved is { Type: StashRules.Folder, Hidden: true });
                 if (reused < 0 && _tabs.Count >= ushort.MaxValue) return null;
-                var names = _tabs.Where(t => t.Saved is { Type: StashRules.Folder, Hidden: false }).Select(t => t.Saved.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                int n = 1;
-                while (!names.Add($"Folder {n}")) n++;
-                var made = new SavedTab($"Folder {n}", StashRules.Folder, saved.R, saved.G, saved.B, [], Position: saved.Position ?? (ushort)tab,
-                    Colour: saved.Colour);
+                // As retail's (3.30 capture): every new folder is "New Folder", colourless.
+                var made = new SavedTab("New Folder", StashRules.Folder, 0, 0, 0, [], Position: saved.Position ?? (ushort)tab);
                 if (reused >= 0) _tabs[reused].Saved = made;
                 else _tabs.Add(new TabState(made));
                 result = reused >= 0 ? reused : _tabs.Count - 1;
@@ -494,9 +491,10 @@ public sealed partial class AccountStash
     {
         lock (_lock)
             return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name,
-                t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) ? 0 : InventoryOf(i), t.Saved.Type,
-                t.Saved.R, t.Saved.G, t.Saved.B,
-                Flags: IsPremium(t.Saved.Type) ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) || t.Saved.Type == StashRules.Folder ? 0 : InventoryOf(i),
+                t.Saved.Type, t.Saved.R, t.Saved.G, t.Saved.B,
+                // Retail sends folders with the premium flag and no inventory (3.30 capture), though they have no colour.
+                Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
                 Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
                 Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
                 Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,

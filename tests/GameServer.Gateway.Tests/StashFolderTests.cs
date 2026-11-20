@@ -25,13 +25,13 @@ public class StashFolderTests : IDisposable
 
             int folder = Assert.IsType<int>(stash.MoveToFolder(0, 0));
             Assert.Equal(StashRules.Folder, stash.TabType(folder));
-            Assert.Equal("Folder 1", stash.NameOf(folder));
+            // As retail's record: "New Folder", premium flag, no inventory, no colour.
+            Assert.Equal("New Folder", stash.NameOf(folder));
+            Assert.Equal((InstanceStash.TabFlags.Premium, 0u, 0u), (Record(stash, folder).Flags, Record(stash, folder).Inventory, Record(stash, folder).U2c));
             Assert.Equal(folder, stash.MoveToFolder(1, folder));
             Assert.Null(stash.MoveToFolder(folder, folder));   // no folder in a folder
             Assert.Equal(shown + 1, stash.VisibleCount);
-            // The folder settings offer a name but no colour, and the client sends a folder's rename without the premium flag.
             Assert.True(stash.Rename(folder, "Mine"));
-            Assert.False(Record(stash, folder).Flags.HasFlag(InstanceStash.TabFlags.Premium));
 
             Assert.Equal(ushort.MaxValue, stash.MoveToFolder(1, ushort.MaxValue));
             Assert.True(stash.DeleteFolder(folder));
