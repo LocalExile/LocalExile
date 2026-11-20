@@ -550,12 +550,17 @@ public static partial class MapTorment
         if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
         {
             var skills = origin.Object.Skills;
-            if (refreshSkills && skills is not null && !m.Scripted && m.Attack is { Scripted: false }
-                && AttackSkills(m, skills) is { Count: > 0 } changed)
+            if (refreshSkills)
             {
-                skills = [.. skills.Select(s => changed.GetValueOrDefault(s.Id, s))];
-                byte actor = checked((byte)origin.Object.Components.ToList().IndexOf("Actor"));
-                skillUpdate = InstanceEntities.ActorSkills(id, actor, [.. changed.Values]);
+                var changed = skills is not null && !m.Scripted && m.Attack is { Scripted: false } ? AttackSkills(m, skills) : [];
+                if (changed.Count > 0) skills = [.. skills!.Select(s => changed.GetValueOrDefault(s.Id, s))];
+                skills = TormentCatalog.WithMartyrSkill(conn, m.Mods, skills, out var martyr);
+                if (martyr is not null) changed[martyr.Id] = martyr;
+                if (changed.Count > 0)
+                {
+                    byte actor = checked((byte)origin.Object.Components.ToList().IndexOf("Actor"));
+                    skillUpdate = InstanceEntities.ActorSkills(id, actor, [.. changed.Values]);
+                }
             }
             conn.Instance.World.MonsterOrigins[id] = origin with
             {

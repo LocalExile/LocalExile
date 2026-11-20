@@ -188,6 +188,36 @@ public sealed class TormentTests
             await MapTorment.Tick(owner.Conn, 0.25);
             Assert.Contains(again, JsonSerializer.Deserialize<Dictionary<uint, JsonElement>>(instance.ContentState["Torment/marks"])!.Keys);
             Assert.Equal(touchedMods, touched.Mods.Mods.Count);
+
+            // A Martyr's Touch grants its level-one death skill to both the living actor and a restored actor.
+            var martyrArea = new InstanceState();
+            martyrArea.OpenedWith(instance.Map!);
+            var martyr = TormentCatalog.All.Single(s => s.Variety == "Metadata/Monsters/Spirit/TormentedMartyr");
+            int x = layout.SpawnX, y = layout.SpawnY;
+            martyrArea.ContentState["Torment/spirits"] = JsonSerializer.Serialize(new[] { new MapTorment.Spirit { Row = martyr.Row, X = x, Y = y } });
+            await using var witness = await ScarabEncounterTests.Wire.Open(martyrArea, layout, seed);
+            var c = witness.Conn;
+            martyrArea.World.Runner = c;
+            c.Clock.Start();
+            c.Walk.Teleport(x, y, 0);
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            var wire = c.Wire;
+            uint hostId = await Game.SpawnMonster(wire.Remote, wire.Stream, wire.Ciphers, c, zombie, 70, MonsterRarity.Normal,
+                x, y, mods: MonsterModSet.None, unrisen: false, placement: Game.MonsterPlacement.Established);
+            var before = martyrArea.World.MonsterOrigins[hostId].Object.Skills!.Select(s => (s.Id, s.EffectsPerLevelRow)).ToArray();
+            uint deathRow = (uint)Assert.Single(Program.Items.Mods.ById("TormentTouchedMonsterMartyr")!.GrantedEffectLevels);
+            Assert.DoesNotContain(before, s => s.EffectsPerLevelRow == deathRow);
+            await MapTorment.Enter(c);
+            await MapTorment.Tick(c, .25);
+            var host = c.Monsters[hostId];
+            var live = martyrArea.World.MonsterOrigins[hostId].Object.Skills!;
+            var grant = Assert.Single(live, s => s.EffectsPerLevelRow == deathRow);
+            Assert.Equal(before, live.Where(s => s.Id != grant.Id).Select(s => (s.Id, s.EffectsPerLevelRow)));
+            Assert.DoesNotContain(host.Kit, s => s.Attack.SkillId == grant.Id);
+            var saved = Assert.Single(SavedMonster.Save([host], 0));
+            uint restoredId = await Game.RestoreMonster(wire.Remote, wire.Stream, wire.Ciphers, c, zombie, saved);
+            var restored = martyrArea.World.MonsterOrigins[restoredId].Object.Skills!;
+            Assert.Equal(live.Select(s => (s.Id, s.EffectsPerLevelRow)), restored.Select(s => (s.Id, s.EffectsPerLevelRow)));
         }
         finally
         {

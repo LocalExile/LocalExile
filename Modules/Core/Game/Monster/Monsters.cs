@@ -372,6 +372,7 @@ public static partial class Game
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(conn, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(conn, variety, level, skills);
+        skills = TormentCatalog.WithMartyrSkill(conn, mods, skills, out _);
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
