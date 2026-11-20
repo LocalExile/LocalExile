@@ -196,11 +196,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- The bandit vote (a2q7's help path: talking to a bandit lord opens the client's vote panel through
-  `DispatchRulesetEvent(BanditCallVote)`, VoteType/VoteState) is not implemented; its messages are not
-  reverse-engineered.
-  The lords are hostile and the choice comes from the kills (the campaign runner kills all three); the help rewards'
-  stats (QuestStaticRewards 4–6) apply once their flags are set.
+- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
+  rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
 

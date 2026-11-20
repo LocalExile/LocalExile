@@ -17,9 +17,6 @@ static class Act2Monsters
     public const string GreatWhiteBeast = "Metadata/Monsters/Beasts/BeastBossWhite";                // 116
     public const string Fidelitas = "Metadata/Monsters/DemonFourLegged/BossFourLeggedDemon";        // 154 Fidelitas, the Mourning
     public const string Weaver = "Metadata/Monsters/Spiders/SpiderBossWeaver";                      // 979
-    public const string Kraityn = "Metadata/Monsters/BanditLeaderDexInt/BanditLeaderKraityn";       // 37 Kraityn, Scarbearer
-    public const string Alira = "Metadata/Monsters/BanditLeaderInt/BanditLeaderAlira";              // 33 Alira Darktongue
-    public const string Oak = "Metadata/Monsters/BanditLeaderStrDex/BanditLeaderOak";               // 42 Oak, Skullbreaker
     public const string VaalOversoul = "Metadata/Monsters/IncaShadowBoss/BossIncaShadow";           // 158
 }
 
@@ -30,10 +27,6 @@ static class Act2Items
     public const string BalefulGem = "Metadata/Items/QuestItems/PoisonSkillGem";                    // 1543
     public const string MaligarosSpike = "Metadata/Items/QuestItems/PoisonSpear";                   // 1542
     public const string GoldenHand = "Metadata/Items/QuestItems/GoldenHand";                        // 1544
-    public const string KraitynsAmulet = "Metadata/Items/QuestItems/BanditAmulets/DexAmulet";       // 1539
-    public const string AlirasAmulet = "Metadata/Items/QuestItems/BanditAmulets/IntAmulet";         // 1538
-    public const string OaksAmulet = "Metadata/Items/QuestItems/BanditAmulets/StrAmulet";           // 1540
-    public const string Apex = "Metadata/Items/QuestItems/BanditAmulets/CombinedAmulet";            // 1541 The Apex (Eramir's offer 17)
 }
 
 /// <summary>Act 2's quest objects (rooms and tiles; QuestObjectTypes places them).</summary>
@@ -63,6 +56,17 @@ static class Act2Objects
 /// </summary>
 sealed class Act2 : Act
 {
+    static Quest BanditQuest()
+    {
+        var quest = new Quest("a2q7");
+        foreach (var bandit in BanditChoices.All)
+        {
+            quest.Add(On.Killed(bandit.Area, bandit.Variety, bandit.Killed));
+            quest.Add(On.Drops(bandit.Area, bandit.Variety, BanditChoices.AmuletId(bandit)));
+        }
+        return quest;
+    }
+
     public override int Number => 2;
 
     public override IReadOnlyList<Quest> Table =>
@@ -136,21 +140,8 @@ sealed class Act2 : Act
                 On.Blocker(Wetlands, Act2Objects.TreeBlocker, 4, "a2q9-PoisonedTree"),
                 On.Exit(Wetlands, VaalRuins, "a2q9-PoisonedTree"),
             },
-            // a2q7 "Deal with the Bandits" (and a2q1–a2q3, the help quests): the three lords (MV 37, 33, 42: Monster with NPC
-            // and InteractionAction) drop their amulets when they die; picking one up sets its hold flag and its kill flag
-            // (extra_flag), which the kill sets too (Eramir's rows read the kill flags). Eramir's "Bandit Amulets" (NPCTalk 95,
-            // SetQuestFlag("a2q7-QuestRewardTaken", "a2b-DeliveredAmulets")) takes the three (their remove_flag): one passive
-            // point (QuestStaticRewards 8); "Take the Apex" is offer 17, The Apex (a2b-SeenApexReward). The help path (the
-            // bandit vote) is not implemented: the lords are hostile and the choice comes from the kills.
-            new Quest("a2q7")
-            {
-                On.Killed(BrokenBridge, Act2Monsters.Kraityn, "a2b-KilledDexBandit"),
-                On.Drops(BrokenBridge, Act2Monsters.Kraityn, Act2Items.KraitynsAmulet),
-                On.Killed(WesternForest, Act2Monsters.Alira, "a2b-KilledIntBandit"),
-                On.Drops(WesternForest, Act2Monsters.Alira, Act2Items.AlirasAmulet),
-                On.Killed(Wetlands, Act2Monsters.Oak, "a2b-KilledStrBandit"),
-                On.Drops(Wetlands, Act2Monsters.Oak, Act2Items.OaksAmulet),
-            },
+            // Solo choices defer combat until challenged. Victories and the all-kill hand-in keep the usual quest rules.
+            BanditQuest(),
             // a2q8 "Shadow of the Vaal": the Ancient Seal in The Vaal Ruins (IncaDarknessRelease, tile record
             // dungeon_bossrelease_v01_01_ball_replacement) releases the darkness (a2q8-UnleashedDarkness: the client lifts the
             // IncaDarknessReleaseBlockers; The Northern Forest, The Dread Thicket, The Caverns and The Ancient Pyramid open).

@@ -217,9 +217,8 @@ So:
    `a2b-Killed{Str,Int,Dex}Bandit` flags set) is Ralakesh's avatar, Greust when all three died or no bandit quest was
    done. The client's own lines say so: Eramir's `EramirRalakeshQuestOak`/`…Alira`/`…Kraityn`/`…Greust` and Helena's
    `HelenaOn…Quest` ("He truly believed that if he stood against Oak…").
-   Nothing on the server sets the `a2b-Killed…Bandit` flags yet but `/quest_flag` (the campaign's quest engine sets
-   them on the bandit lords' kills; their help-or-kill dialogue is not offered), and an instance's boss follows the first
-   character to enter it: others who join that instance meet the same boss.
+   The campaign's quest engine sets the kill flags. An instance's boss follows the first character to enter it, and
+   other players who join the instance meet the same boss.
    **Not placed** (the check below lists them with the reason): Marceus the Defaced (The Marketplace) is a tile's
    statue spawner (`Spawner_StoneStatueLargeMaleBoss`) that wakes as the player comes near, and tile spawners are not
    among the generated quest objects (`AreaObjects.QuestTypes`); The Solaris Temple Level 2's three Banners have their

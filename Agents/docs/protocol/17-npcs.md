@@ -49,8 +49,10 @@ Bosses that speak have an NPC component too, after their Transitionable (Captain
 Merveil, the Siren's `seawitchillusion/Merveil`; Piety, General Gravicius and the Sceptre of God's three lieutenants,
 Kaom, Daresso, Utula, Malachai and the three in The Harvest): the monster blob writes it as `00 ff` (no dialogue, no
 component that must be alive). Without it these monsters could not be created at all ([12](12-quests.md) §9–10).
-Act 2's bandit lords (Kraityn, Alira, Oak) add InteractionAction before their NPC, written `00` as for an NPC: they
-are created as hostile unique bosses; their dialogue (help or kill, the bandit choice) is not offered this way.
+Act 2's bandit lords add InteractionAction before their NPC. An NPC delta (reader `0x141e7b780`) carries the same
+two bytes as creation. The solo dialogue's vote uses S→C `0xbe` (writer `0x1421a9f80`): u8 VoteType row plus one
+(zero closes), u8 answered, u8 local voter, u8 number of vote entries. A solo choice has no vote entries. The buttons
+send C→S `0xbd` (sender `0x14026ff10`) with u8 1 for Help or 0 for Kill.
 
 NPC collision uses the same inherited Positioned metadata as the client, including NPCs.dat Id aliases whose
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
