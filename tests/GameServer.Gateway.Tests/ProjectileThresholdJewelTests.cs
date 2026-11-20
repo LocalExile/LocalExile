@@ -54,6 +54,8 @@ public sealed class ProjectileThresholdJewelTests
         Assert.True(fan.Nova);
         Assert.Equal(Math.PI, fan.Angle(2, 4, 10), 4);
         stats["support_parallel_projectile_number_of_points_per_side"] = 1;
-        Assert.Null(Volley("EtherealKnivesAltX").NativeVolley);
+        var parallel = Volley("EtherealKnivesAltX").NativeVolley!;
+        Assert.NotNull(parallel.Layout);
+        Assert.False(parallel.Nova);
     }
 }

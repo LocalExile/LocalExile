@@ -67,6 +67,8 @@ Nothing yet.
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
   Barrage Support paces direct bow and wand shots from the resolved count and the firing clip. Each shot can hit the same enemy. Movement and hit recovery stop the remaining shots.
+  Volley and Greater Volley release from distinct firing points. Extra arrows share each point’s spread.
+  Linked Barrage shots sweep the points in order. Position, direction and blocked side launches have Gateway coverage.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.

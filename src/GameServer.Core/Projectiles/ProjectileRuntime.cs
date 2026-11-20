@@ -47,19 +47,31 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (spread is > 0 and < Math.PI && use.Profile.AimSpreadDistance > 0)
             spread = 2 * Math.Atan(Math.Tan(spread / 2) * use.Profile.AimSpreadDistance
                 / Math.Max(.001, (use.Aim - use.Origin).Length));
+        var volley = use.Profile.NativeVolley;
+        var launches = use.ProjectileTargets is null ? volley?.Layout?.Invoke(use) : null;
+        if (launches is not null && launches.Length != count)
+            throw new ArgumentException("Launch count must match initial projectile count.", nameof(use));
+        int admitted = 0;
         bool sharedSeries = use.Profile.SequentialDelay > 0 && use.Profile.ShareSequentialHits && count > 1;
         if (sharedSeries) pendingEmissions.Add(emission);
         for (int i = 0; i < count; i++)
         {
-            double angle = use.Profile.NativeVolley is { } volley ? volley.Angle(i, count, (use.Aim - use.Origin).Length)
+            var launch = launches?[i] ?? default;
+            var origin = use.Origin + launch.Offset;
+            bool clear = !launch.CheckSourcePath || world.TraceTerrain(use.LaunchSource, origin) is null;
+            int index = admitted;
+            if (clear) admitted++;
+            double angle = launches is not null ? launch.Angle : volley is not null ? volley.Angle(i, count, (use.Aim - use.Origin).Length)
                 : random is not null ? spread * (random.NextDouble() - .5) : count <= 1 ? 0 : spread *
                 (i / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? count : count - 1) - .5);
             var direction = (use.Aim - use.Origin).Unit.Rotate(angle);
             long group = use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 ? ++sequence : emission;
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
+            if (launch.Offset != default)
+                projectileUse = projectileUse with { Origin = origin, Aim = use.Aim + launch.Offset };
             if (unresolved.ReturnRolls is { } rolls)
-                projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[i]) };
+                projectileUse = projectileUse with { Profile = ResolveReturn(unresolved, rolls[index]) };
             if (use.ProjectileTargets is { } destinations)
             {
                 var target = destinations[i];
@@ -70,12 +82,12 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             if (use.ProjectileSpeeds is { } projectileSpeeds)
                 projectileUse = projectileUse with { ProjectileSpeeds = null,
                     Profile = projectileUse.Profile with { Speed = projectileSpeeds[i] } };
-            int index = i;
+            bool last = i == count - 1;
             void Emit()
             {
-                if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
-                if (use.CanEmit?.Invoke() != false)
-                    Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
+                if (sharedSeries && last) pendingEmissions.Remove(emission);
+                if (clear && use.CanEmit?.Invoke() != false)
+                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index);
             }
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
             else Emit();

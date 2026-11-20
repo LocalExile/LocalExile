@@ -2091,7 +2091,7 @@ max(min(atan(k × width / aim distance), min(2π, k × 120°) / (n − 1)), 0.14
 `total_projectile_spread_angle_override` world units, else 60 (fitted to 175 live Spark volleys). A fixed spread
 replaces that step with max(fixed, 0)° / (n − 1): it is −1, so no spread, with `projectile_remove_default_spread`, else
 `fixed_projectile_spread`. The Gateway spreads every client-predicted spell this way (`ProjectileNativeVolley`,
-`ClientDrawnVolley`); parallel is not ported yet and keeps the server's own fan.
+`ClientDrawnVolley`). The [Volley support layout](25-gem-supports.md#parallel-firing-points) spreads each firing point separately.
 
 Random directions: the setup fills a six-word key when the release asks for it (the plain release `0x141bb6a10` does)
 and `random_projectile_direction` is set: [sequence `+0x11a`, `+0x11c`, `+0x2d0`, `+0x458`, the owner's `+0x88`, slot

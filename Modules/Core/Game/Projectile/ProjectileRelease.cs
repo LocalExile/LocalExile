@@ -29,18 +29,21 @@ public static partial class Game
     /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
     public static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
     {
-        if (get("support_parallel_projectile_number_of_points_per_side") != 0) return profile;
-        return profile with
+        var fan = new ProjectileNativeVolley
         {
-            NativeVolley = new()
-            {
-                Width = get("total_projectile_spread_angle_override") is > 0 and var width
-                    ? width / 10.869565 : 60 / 10.869565,
-                FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
-                SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
-                Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
-            }
+            Width = get("total_projectile_spread_angle_override") is > 0 and var width ? width / 10.869565 : 60 / 10.869565,
+            FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
+            SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
+            Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
         };
+        if (ParallelFiringPoints.From(get) is { } points)
+        {
+            // A per-target action has already assigned the individual rays.
+            if (profile.NativeVolley?.Angles is not null) return profile;
+            bool random = get("random_projectile_direction") != 0;
+            return profile with { NativeVolley = fan with { Layout = use => points.Groups(use, fan, random) } };
+        }
+        return profile with { NativeVolley = fan };
     }
 
     public static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
@@ -265,9 +268,8 @@ public static partial class Game
                     if (barrage is null) return use;
                     string effect = SkillsFor(conn).EffectId(gem.Effect)!;
                     bool atCursor = ProjectileEndsAtAim(effect) || GatewayProjectileSkillProfiles.IsKineticBolt(effect);
-                    var at = ProjectileSession.Vector(conn.Walk.Position(ProjectileWorldTime(conn)));
-                    var angles = barrage.Angles(use.Aim - at, sequence, use.Profile.Count, atCursor);
-                    return use with { Profile = use.Profile with { NativeVolley = new() { Angles = angles } } };
+                    return use with { Profile = use.Profile with { NativeVolley = new()
+                        { Layout = shot => barrage.Launches(shot.Aim - shot.LaunchSource, sequence, shot.Profile.Count, atCursor) } } };
                 });
             }
         }
@@ -350,7 +352,6 @@ public static partial class Game
     // notable, else 150 cells; a return, 0x141bb5570, flies back to the caster's cell and that range on), its object
     // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
-    // shortcut: parallel keeps the server's fan until it is ported.
     public static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
@@ -586,7 +587,8 @@ public static partial class Game
         }
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
-            { Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
+            { LaunchSource = ProjectileSession.Vector(at), Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch),
+                Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(conn, session, skillId, gem, variation, Get, Player, Own);
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }

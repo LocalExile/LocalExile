@@ -82,6 +82,8 @@ public sealed record ProjectileNativeVolley
     public bool Nova { get; init; }
     /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bbbd10).</summary>
     public IReadOnlyList<double>? Angles { get; init; }
+    /// <summary>Optional initial placements supplied by the action for the final release count and aim.</summary>
+    public Func<ProjectileUse, ProjectileLaunch[]>? Layout { get; init; }
 
     public double Angle(int index, int count, double distance)
     {
@@ -233,9 +235,13 @@ public sealed record ProjectileProfile(string Id)
     public bool HidePredictedVisual { get; init; }
 }
 
+public readonly record struct ProjectileLaunch(ProjectileVector Offset, double Angle, bool CheckSourcePath = false);
+
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
     int Team, ProjectileVector Origin, ProjectileVector Aim)
 {
+    /// <summary>Source of placement traces when the contact point is displaced from the actor.</summary>
+    public ProjectileVector LaunchSource { get; init; } = Origin;
     public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
     public object? Payload { get; init; }

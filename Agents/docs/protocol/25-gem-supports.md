@@ -311,6 +311,22 @@ not gain the buff, and its more damage does not reach damage over time.
 The native catalogue includes historical and placeholder variants; their presence does not make them obtainable.
 Do not describe the entire support catalogue as mechanically complete.
 
+### Parallel firing points
+
+Volley Support supplies two points per side and Greater Volley four. Both publish an X spacing of 80 world units.
+The simultaneous action (3.29.3c, `0x141bbb460`) divides the projectile count over the centre and paired sides.
+Each point receives the quotient. Pairs nearest the centre receive the remainder two at a time, then the centre
+receives the odd arrow. Each group shifts the source and aim together before applying its own spread. The Gateway
+checks the path from the firing source to each side origin with the area's projectile grid. A blocked group
+consumes no emitted ordinals. See the [layout and placement evidence](../re/projectiles/emission-admission.md#61-candidate-geometry-remains-separate-from-admitted-identity).
+
+Direct Barrage uses a different order (`0x141bb3c90`). It rounds one perpendicular X step to whole cells,
+then sweeps from the negative to the positive side. A partial final pass is centred and skips the middle when its
+length is even. The firing actor and its input aim both receive the slot offset before the ordinary per-shot
+spread sample (`0x141bae74c`). With 13 shots and four points per side the passes are −4 through +4, then
+−2, −1, +1, +2. Independent paid Gateway casts cover both supports and overlap with walls and targets. Visual
+placement and obstruction of a displaced Barrage actor still need a real-client comparison.
+
 ## Damage-taken trigger execution
 
 3.29.3c `SupportCastWhenDamageTaken` GEPL level 1 has 250% cost and 250 ms cooldown; its stat set has

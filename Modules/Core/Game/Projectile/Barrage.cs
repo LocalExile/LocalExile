@@ -3,7 +3,7 @@ using GameServer.Core.Projectiles;
 public static partial class Game
 {
     sealed record BarrageAttack(int Action, double Start, double Duration, int Count, AnimationClip Fire,
-        bool CannotCancelBeforeContact, int SpreadPercent, bool NoSpread)
+        bool CannotCancelBeforeContact, int SpreadPercent, bool NoSpread, ParallelFiringPoints? Points, bool ExtraEndVolleys)
     {
         public double Windup => Duration * .4;
         public double Interval => Duration * .6 / Count;
@@ -24,15 +24,18 @@ public static partial class Game
 
         // Each fire clip samples three pairs of offsets around a point 100 cells along the aim (0x141bae62c).
         // The new aim is an integer grid point 150 cells out, or at cursor distance for ground-targeted shots.
-        public double[] Angles(ProjectileVector aim, ushort sequence, int count, bool atCursor)
+        public ProjectileLaunch[] Launches(ProjectileVector aim, ushort sequence, int count, bool atCursor)
         {
-            var angles = new double[count];
-            var forward = aim.Unit * 100;
+            var launches = new ProjectileLaunch[count];
+            var sideStep = Points?.GridStep(aim) ?? default;
             double heading = Math.Atan2(aim.Y, aim.X);
             float distance = atCursor ? (float)aim.Length : 150;
             float width = NoSpread ? 0 : (100 + SpreadPercent) / 100f * 120;
             for (int i = 0; i < count; i++)
             {
+                int slot = Points?.SweepSlot(i, count, ExtraEndVolleys) ?? 0;
+                var offset = sideStep * slot;
+                var forward = (aim + offset).Unit * 100;
                 var random = new AnimationVariantSelector.NativeRandom([sequence, 0, 0, (uint)i + 1]);
                 float x = 0, y = 0;
                 for (int sample = 0; sample < 3; sample++)
@@ -44,9 +47,9 @@ public static partial class Game
                 float dx = MathF.Floor((float)forward.X + .5f) + Offset(x, width);
                 float dy = MathF.Floor((float)forward.Y + .5f) + Offset(y, width);
                 float scale = distance / MathF.Sqrt(dx * dx + dy * dy);
-                angles[i] = Math.Atan2((int)(dy * scale), (int)(dx * scale)) - heading;
+                launches[i] = new(offset, Math.Atan2((int)(dy * scale), (int)(dx * scale)) - heading);
             }
-            return angles;
+            return launches;
         }
     }
 
@@ -72,7 +75,8 @@ public static partial class Game
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         return new(action, start, seconds, count, Animations.ContactClip(ao, name),
             Get("cannot_cancel_skill_before_contact_point") != 0, Get("barrage_support_projectile_spread_+%"),
-            Get("no_barrage_projectile_spread") != 0);
+            Get("no_barrage_projectile_spread") != 0, ParallelFiringPoints.From(Get),
+            Get("barrage_final_volley_fires_x_additional_projectiles_simultaneously") != 0);
     }
 
     static bool? BarrageAllowsMove(ClientState conn, double at)

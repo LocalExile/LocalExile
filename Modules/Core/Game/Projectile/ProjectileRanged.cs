@@ -114,7 +114,8 @@ public static partial class Game
             // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
             HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn
         };
-        var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
+        var caster = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
+        var origin = caster;
         var target = ProjectileSession.Vector(aim);
         // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
         // 5.5 cells, a wand's tip 7.5), else 1.5 cells ahead; never past half way to the aim, so a close target
@@ -125,7 +126,7 @@ public static partial class Game
         profile = clientDrawn ? ClientDrawnProfile(conn, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
         return new(profile, new(PlayerId, session.Conn.ProjectileEpoch), new(PlayerId, session.Conn.ProjectileEpoch), 1,
             origin, target)
-            { Payload = shot, ReturnAnchor = new(PlayerId, session.Conn.ProjectileEpoch) };
+            { LaunchSource = caster, Sequence = sequence, Payload = shot, ReturnAnchor = new(PlayerId, session.Conn.ProjectileEpoch) };
     }
 
     // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.
