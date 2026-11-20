@@ -547,8 +547,7 @@ static class PerfBench
         using var __ = wire;
         // 10,000 more life: the crowd kills the character in about 15 s, and a death's frame is not the resume's.
         conn.God = true;
-        // A robe with a Righteous Fire gem (Game_PERF_RF=0: none): its timers are what replayed the paused frames on the
-        // resume (each a tick per paused frame, in one area step). The skill itself is not turned on here.
+        // A robe with a Righteous Fire gem worn (Game_PERF_RF=0: none). The skill itself is not turned on here.
         if (Environment.GetEnvironmentVariable("Game_PERF_RF") != "0")
         {
             var items = Game.ItemsFor(conn);
@@ -558,8 +557,8 @@ static class PerfBench
             uint robe = inventories.NewItemId();
             inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(robe, 0, 0,
                 ItemCatalog.Create(items.Find("Simple Robe")!) with { Sockets = [new ItemSocket(SocketColour.Red, created)] }));
-            // The character does not meet the gem's requirements: exempt (as a mod may).
-            GameEvents.RequirementExemptions.Add("perf", c => ReferenceEquals(c, conn) ? [robe] : []);
+            // The character does not meet the gem's requirements: exempt, as the Game module (the player's league lists it).
+            GameEvents.RequirementExemptions.Add("Game", c => ReferenceEquals(c, conn) ? [robe] : []);
         }
         var area = StartArea(conn);
         await Task.Delay(TimeSpan.FromSeconds(5));
