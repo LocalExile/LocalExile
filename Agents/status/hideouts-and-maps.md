@@ -291,17 +291,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   Verified live (3.29.3d, 2026-11-20): Sovereign stairs with no white hover glow, below-deck stashes and crafting
   bench, `LQF 1834` boat unlock, Ship Graveyard Fairgraves and Vesper awakening, all five upgrade turn-ins with
   `Stage2..6` props, Auto-Lanterns (`LQF 1841`) and final-lantern Adrenaline, Kishara's Rest `#29 → #30` with Cressie
-  and Velka, Velka Bloodline (`Descendancy#15`) reload preserving Dredge loot and extraction, and Vesper's revive scene.
+  and Velka, Velka Bloodline (`Descendancy#15`) reload preserving Dredge loot and extraction, Vesper's revive scene,
+  rotated charts, free-lantern cells, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure Anchors,
+  and drop conversions (Stacked Decks, Gold, Corrupted).
   Deferred crafting orbs: Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs.
 - **Allflame encounters in ordinary areas:** an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot
   Plunder rooms the level generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that
   opens once they are dead for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's
   Craiceann's Call, Possession or Sailor's Lantern (`Modules/Core/Content/Deepwater`, `DeepwaterEncounters.cs`,
-  `DeepwaterBuffs.cs`). Verified live 2026-11-19 in 1_2_1 and 1_1_4_1; a Standard character gets none. The trigger
-  distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`,
+  `DeepwaterBuffs.cs`).
+  Verified live 2026-11-19 in 1_2_1 and 1_1_4_1; a Standard character gets none.
+  The trigger distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`,
   `deepwater_*_chance`).
   Charts drop only from these chests ("The Sovereign" for their rolls).
-  Possession can be cancelled by right-clicking its buff icon (`C→S 0x004b`).
+  Possession can be cancelled by right-clicking its buff icon (`C→S 0x004b`, verified live 2026-11-20).
   Not built: Possession monster touches outside torment maps; the Drowned Crawlers' possessed rares; the Brinerot
   barrels' own monsters and `free` state (plain Brinerots stand in); dungeon areas such as The Submerged Passage, where
   the port rolls the room but does not place it.
