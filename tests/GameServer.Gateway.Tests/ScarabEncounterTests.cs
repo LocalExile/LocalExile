@@ -160,7 +160,7 @@ public sealed class ScarabEncounterTests
             var boxInstance = new InstanceState();
             boxInstance.OpenedWith(new("StrongboxOwner", opening.Area, ambushMods));
             var boxStats = boxInstance.AreaStats(() => Game.ComposeMapAreaStats(ambushMods, opening.Area.Tier, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
-            uint boxSeed = ServerLevels.PlayableSeed(opening.Area.Id, 0x56a104, opening.Area.Level, boxStats);
+            uint boxSeed = ServerLevels.PlayableSeed(opening.Area.Id, 0x56a105, opening.Area.Level, boxStats);
             var boxLayout = AreaLayouts.For(opening.Area.Hash16, boxSeed);
             await using var boxOwner = await Wire.Open(boxInstance, boxLayout, boxSeed);
             await using var boxPeer = await Wire.Open(boxInstance, boxLayout, boxSeed);
@@ -226,6 +226,24 @@ public sealed class ScarabEncounterTests
             Assert.DoesNotContain(storm.Actor, boxInstance.World.MonsterOrigins.Keys);
             await MapStrongboxes.Tick(boxPeer.Conn, lastImpact + TimeSpan.FromSeconds(6));
             Assert.Empty(Boxes()[firstBox.Index].Firestorms);
+            var flameblast = Program.Items.Mods.ById("ChestSupporterVaalFlameblast")!;
+            var flameBox = vessels.First(b => b.Mods.Any(m => m.Hash == flameblast.Hash));
+            boxOwner.Conn.Walk.Teleport(flameBox.X, flameBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(flameBox.Id, 0, 1, 0), 0));
+            var blast = Assert.Single(Boxes()[flameBox.Index].Flameblasts);
+            Assert.Equal("Metadata/Monsters/Daemon/ChestDaemonVaalFlameblast", boxOwner.Conn.Monsters[blast.Actor].Variety!.Id);
+            Assert.DoesNotContain(blast.Actor, Boxes()[flameBox.Index].Guards);
+            var castStart = TimeSpan.FromTicks(blast.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, castStart + TimeSpan.FromMilliseconds(999));
+            Assert.Equal(0, Boxes()[flameBox.Index].Flameblasts[0].Landed);
+            for (int burst = 1; burst <= 4; burst++)
+            {
+                await MapStrongboxes.Tick(boxPeer.Conn, castStart + TimeSpan.FromSeconds(burst));
+                Assert.Equal(burst, Boxes()[flameBox.Index].Flameblasts[0].Landed);
+            }
+            await MapStrongboxes.Tick(boxOwner.Conn, castStart + TimeSpan.FromSeconds(5));
+            Assert.Empty(Boxes()[flameBox.Index].Flameblasts);
+            Assert.DoesNotContain(blast.Actor, boxInstance.World.MonsterOrigins.Keys);
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
             var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2"), Slot("ScarabEssence4")], Program.Items.Mods);

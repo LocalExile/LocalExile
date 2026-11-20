@@ -28,6 +28,7 @@ public static partial class MapStrongboxes
         /// <summary>The daemons' later waves (StrongboxDaemons.cs), released into <see cref="Pending"/> when due.</summary>
         public List<Wave> Waves { get; init; } = [];
         public List<VaalFirestorm> Firestorms { get; init; } = [];
+        public List<VaalFlameblast> Flameblasts { get; init; } = [];
         /// <summary>Normal 0, magic 1 or rare 2 (<see cref="StrongboxMods.RollRarity"/>).</summary>
         public byte Rarity { get; init; }
         /// <summary>The rolled explicit mods; the type's own (implicit) mods are not kept here.</summary>
@@ -60,9 +61,11 @@ public static partial class MapStrongboxes
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
+        public readonly HashSet<ClientState> Visitors = [];
         public bool[]? VesselFloor;
         public volatile bool Active;
         public FirestormSkill? FirestormSkill;
+        public FlameblastSkill? FlameblastSkill;
         /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
         public readonly Dictionary<uint, GroundPatch> Zones = [];
     }
@@ -71,6 +74,7 @@ public static partial class MapStrongboxes
     {
         public readonly HashSet<uint> Boxes = [];
         public readonly HashSet<uint> Casts = [];
+        public readonly HashSet<(uint Source, long Started)> PositionWatches = [];
         public long? Entered;
     }
     sealed record KeptView(long? Entered, uint[] Boxes, uint[] Casts);
@@ -192,7 +196,7 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0);
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0);
 
     static void Keep(ClientState conn, Area area)
     {
@@ -214,6 +218,7 @@ public static partial class MapStrongboxes
         try
         {
             ViewFor(conn).Entered ??= entered.Ticks;
+            lock (conn.Monsters) area.Visitors.Add(conn);
             if (area.Boxes is null)
             {
                 if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
@@ -227,7 +232,11 @@ public static partial class MapStrongboxes
                     Keep(conn, area);
                 }
             }
-            foreach (var box in area.Boxes) await Present(conn, box);
+            foreach (var box in area.Boxes)
+            {
+                WatchVesselPositions(conn, area, box);
+                await Present(conn, box);
+            }
         }
         finally { area.Gate.Release(); }
     }
@@ -385,11 +394,18 @@ public static partial class MapStrongboxes
             return;
         }
         box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
-        var storm = type?.Id == ExquisiteVessel ? PrepareFirestorm(conn, area, type, box) : null;
+        var spell = type?.Id == ExquisiteVessel ? PrepareVesselSpell(conn, area, type, box) : null;
         area.Boxes![box.Index] = box;
         Keep(conn, area);
+        if (spell.HasValue)
+        {
+            // Area entry can finish before the party's public player record arrives.
+            lock (conn.Monsters)
+                foreach (var member in area.Visitors.Concat(Members(conn)).Distinct())
+                    WatchVesselPositions(member, area, box);
+        }
         foreach (var member in Members(conn)) await Present(member, box, true);
-        if (storm is not null) await ShowFirestorm(conn, area, box, storm);
+        if (spell is { } prepared) await ShowVesselCast(conn, area, box, prepared.Cast, prepared.Skill);
         await SpawnPending(conn, area, box);
         if (StrongboxCatalog.Find(box.Type) is { } exiled
             && StrongboxMods.Stat(ItemsFor(conn).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
@@ -589,8 +605,11 @@ public static partial class MapStrongboxes
         await area.Gate.WaitAsync();
         try
         {
-            foreach (var box in boxes.Where(b => b.Firestorms.Count > 0))
-                await TickFirestorms(conn, area, box, now);
+            foreach (var box in boxes)
+            {
+                if (box.Firestorms.Count != 0) await TickFirestorms(conn, area, box, now);
+                if (box.Flameblasts.Count != 0) await TickFlameblasts(conn, area, box, now);
+            }
             bool hasZones;
             lock (area.Zones) hasZones = area.Zones.Count > 0;
             if (hasZones || ZoneShare.TryGetValue(conn, out var share) && (share.Dps > 0 || share.Art.Count > 0))
@@ -662,6 +681,11 @@ public static partial class MapStrongboxes
 
     public static void Leave(ClientState conn)
     {
+        if (Areas.TryGetValue(conn.Instance, out var area))
+            lock (conn.Monsters) area.Visitors.Remove(conn);
+        var view = ViewFor(conn);
+        lock (conn.Monsters)
+            foreach (var watch in view.PositionWatches) conn.Walk.EndPositionWatch(watch);
         conn.Instance.ContentState.TryRemove(ViewKey(conn), out _);
         Presented.Remove(conn);
         LeaveZones(conn);

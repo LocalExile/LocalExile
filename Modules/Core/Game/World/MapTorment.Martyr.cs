@@ -262,70 +262,37 @@ public static partial class MapTorment
 
 public static partial class Game
 {
-    internal static async Task PresentDeathCast(InstanceState instance, MonsterDeathCast death, MonsterDeathCast.Viewer viewer)
+    internal static Task PresentDeathCast(InstanceState instance, MonsterDeathCast death, MonsterDeathCast.Viewer viewer)
     {
         var p = viewer.Player;
-        bool Here() => CurrentGameRules && !p.Closed && !p.LeavingArea && !p.WorldOutput.Closed && p.Instance == instance;
-        bool playerHit, flask;
-        lock (instance.World.Monsters)
+        uint id = death.Source.ObjectId;
+        return PublishInstanceContact(instance, p, viewer.Hit is null ? null : viewer.Epoch, viewer.Hit is { Life: > 0 }, (admission, flask) =>
         {
-            if (viewer.Presented || !Here()) return;
-            playerHit = viewer.Hit is not null && viewer.Epoch == p.IncomingHitEpoch;
-            flask = playerHit && viewer.Hit!.Life > 0;
-        }
-        if (flask) await p.FlaskBarGate.WaitAsync();
-        try
-        {
-            WorldObject[] required;
-            lock (instance.World.Monsters)
+            if (viewer.Presented) return null;
+            var records = new WorldRecordBuilder(p, admission);
+            if (viewer.Awake && p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id))
             {
-                if (!Here()) return;
-                required = p.LockstepClient && playerHit ? [p.WorldOutput.PublishedObject(PlayerId)] : [];
+                records.Presentation(id, death.Skill);
+                records.Presentation(id, death.Action);
+                foreach (var contact in viewer.MinionHits)
+                    if (p.Monsters.TryGetValue(contact.Id, out var current) && current == contact.Target)
+                        records.Presentation(id, contact.Packet);
+                foreach (var weapon in viewer.Weapons)
+                    if (weapon.Hit is { } packet && MapTorment.CurrentWeapon(p, weapon)) records.Presentation(id, packet);
+                if (viewer.Hit is { } hit && p.IncomingHitEpoch == viewer.Epoch) records.Presentation(id, hit.HitPacket);
+                records.Presentation(id, InstanceProtocol.LifeUpdate(id, 0));
             }
-            await SendWorldBatch(p, required, admission =>
+            foreach (var weapon in viewer.Weapons)
+                if (weapon.Hit is not null && MapTorment.CurrentWeapon(p, weapon))
+                    records.Presentation(weapon.Id, InstanceProtocol.LifeUpdate(weapon.Id, weapon.Monster.Life));
+            if (viewer.Hit is { } h && p.IncomingHitEpoch == viewer.Epoch)
             {
-                lock (instance.World.Monsters)
-                {
-                    if (viewer.Presented || !Here()) return null;
-                    uint id = death.Source.ObjectId;
-                    var records = new WorldRecordBuilder(p, admission);
-                    if (viewer.Awake && p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id))
-                    {
-                        records.Presentation(id, death.Skill);
-                        records.Presentation(id, death.Action);
-                        foreach (var contact in viewer.MinionHits)
-                            if (p.Monsters.TryGetValue(contact.Id, out var current) && current == contact.Target)
-                                records.Presentation(id, contact.Packet);
-                        foreach (var weapon in viewer.Weapons)
-                            if (weapon.Hit is { } packet && MapTorment.CurrentWeapon(p, weapon)) records.Presentation(id, packet);
-                        if (viewer.Hit is { } hit && p.IncomingHitEpoch == viewer.Epoch) records.Presentation(id, hit.HitPacket);
-                        records.Presentation(id, InstanceProtocol.LifeUpdate(id, 0));
-                    }
-                    foreach (var weapon in viewer.Weapons)
-                        if (weapon.Hit is not null && MapTorment.CurrentWeapon(p, weapon))
-                            records.Presentation(weapon.Id, InstanceProtocol.LifeUpdate(weapon.Id, weapon.Monster.Life));
-                    if (viewer.Hit is { } h && p.IncomingHitEpoch == viewer.Epoch)
-                    {
-                        var hit = new MonsterHitOutcome(h.HitPacket, h.Life, h.Mana, h.ManaBefore, h.Damage, h.RawDamage, h.Blocked, h.Critical,
-                            h.Recovery is { } r ? new(r.Epoch, r.Action, r.Until, r.Seconds) : null, h.Armour, h.Spirit);
-                        var w = p.Wire;
-                        // The receiver's send gate accepted this transaction. Its captured output cannot yield or
-                        // return to the old projectile. The recipient can still leave during the commit.
-                        var previous = ProjectileOutputGuard.Value;
-                        ProjectileOutputGuard.Value = () => !p.Closed && !p.LeavingArea && p.Instance == instance;
-                        try { records.Add(CaptureWorldOutput(p, admission, () => PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, hit), flask)); }
-                        finally { ProjectileOutputGuard.Value = previous; }
-                    }
-                    viewer.Presented = true;
-                    return records.Build();
-                }
-            }, still: Here);
-        }
-        finally { if (flask) p.FlaskBarGate.Release(); }
-        if (flask && Here())
-        {
-            var wire = p.Wire;
-            await PublishFlaskChanges(wire.Remote, wire.Stream, wire.Ciphers, p);
-        }
+                var hit = new MonsterHitOutcome(h.HitPacket, h.Life, h.Mana, h.ManaBefore, h.Damage, h.RawDamage, h.Blocked, h.Critical,
+                    h.Recovery is { } r ? new(r.Epoch, r.Action, r.Until, r.Seconds) : null, h.Armour, h.Spirit);
+                records.Add(CaptureInstanceHit(p, admission, id, hit, flask));
+            }
+            viewer.Presented = true;
+            return records.Build();
+        });
     }
 }

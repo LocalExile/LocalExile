@@ -148,6 +148,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   The exact spiral, first-impact timing and graphical presentation still need client evidence.
   [Path of Building's Vaal Firestorm definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua)
 
+- The Vaalsmithed Flameblast prefix grants `ChestVaalFlameblast` to its own shared caster. At area level 84 its native
+  spell has 477–716 base fire damage, 5% critical chance and 50% chance to ignite. Its description calls for an explosion
+  every three stages through stage 15. Each stage gives 200% more hit damage and 110% more ailment damage.
+  The server holds the target at the vessel and counts the first stage after one cast interval. With the native 500 ms
+  base and 50% more cast speed this lands five times, one second apart. The 45-cell base radius from Path of Building,
+  the native −2 cells per stage after the first and 80% increased area give radii of 54, 46, 38, 30 and 22 cells.
+  Entering partway exposes only the remaining hits. Each observer receives the native action once while it is active.
+  Timed contacts keep the player's cell when a new route or teleport replaces it. Pending hit and removal records
+  survive a rules reload while a recipient is waiting for its send gate. Both vessel spells share a critical roll across their player targets and repeated hits. Firestorm uses its native 6%.
+  The target, first landing, elapsed animation for a late observer and exact radii still need a graphical client check.
+  Allied minions and animated weapons remain outside the vessel hit path.
+  [Path of Building's Vaal Flameblast definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua)
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped

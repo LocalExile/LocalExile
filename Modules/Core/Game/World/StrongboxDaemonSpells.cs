@@ -18,7 +18,7 @@ using static Program;
 /// <item>The random-curse daemon: one of its curses on the players near the box for the curse's duration.</item>
 /// <item>ChestSummonSandstormDaemon (Deshret's Storm): sandstorms (physical ground) around the box, in its waves.</item>
 /// </list>
-/// The Exquisite Vaal Vessel's Firestorm runs on the shared instance clock (StrongboxVaalFirestorm.cs).
+/// Exquisite Vaal Vessel casts run on the shared instance clock (StrongboxVesselSpells.cs).
 /// </summary>
 public static partial class MapStrongboxes
 {
@@ -194,7 +194,7 @@ public static partial class MapStrongboxes
 
     /// <summary>The daemon at the box, sending its skill's action so the client plays it; 0 when it cannot be created.</summary>
     static async Task<uint> Show(ClientState conn, string daemon, int effect, int actorLevel,
-        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at, Action<uint>? admitted = null)
+        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at, Action<uint>? admitted = null, bool play = true, SpellCastTiming? timing = null)
     {
         var catalog = SkillsFor(conn);
         if (Monsters.Find(daemon) is not { Supported: true } variety || catalog.ActionHash(effect) is not ushort hash) return 0;
@@ -202,6 +202,7 @@ public static partial class MapStrongboxes
         var stats = new Dictionary<uint, int>(nativeStats);
         var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(effect) / 1000.0), DefaultRadius, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
+        timing?.ApplyTo(stats, Stats);
         if (catalog.FindMonsterSkill(skillId, effect, actorLevel, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
         var (remote, stream, ciphers) = conn.Wire;
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)actorLevel, MonsterRarity.Normal, at.X, at.Y,
@@ -214,7 +215,7 @@ public static partial class MapStrongboxes
                 admitted?.Invoke(actor);
             });
         if (id == 0) return 0;
-        await PlayDaemon(conn, id, skillId, at, daemon, shared: admitted is not null);
+        if (play) await PlayDaemon(conn, id, skillId, at, daemon, shared: admitted is not null);
         return id;
     }
 
@@ -265,13 +266,12 @@ public static partial class MapStrongboxes
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 
     /// <summary>A spell hit on the players within the radius, through the player's own defences (as a shrine's spell).</summary>
-    static Task HitPlayers(ClientState source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet, long? due = null)
+    static Task HitPlayers(ClientState source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet)
     {
         return Task.WhenAll(PlayersNear(source, at, radius).ToArray().Select(Hit));
 
         async Task Hit(ClientState conn)
         {
-            if (due is long landing && (ViewFor(conn).Entered is not long entered || entered > landing)) return;
             int amount = (int)Math.Clamp(packet.Roll(Random.Shared).MinTotal, 0, int.MaxValue);
             if (amount <= 0 || conn.Immune || InGracePeriod(conn) || !TrySyntheticEnemyHit(conn, type, amount, block: true, spell: true, suppress: true, out var hit)) return;
             if (hit.Damage > 0)

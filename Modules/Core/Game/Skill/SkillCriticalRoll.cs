@@ -6,17 +6,19 @@
 /// That allocation order is local policy, not a claim about the official server's random-number stream.</summary>
 public sealed class SkillCriticalRoll(int extraRolls)
 {
-    int? value;
+    public int ExtraRolls { get; } = extraRolls;
+    [System.Text.Json.Serialization.JsonInclude]
+    public int? Value { get; private set; }
 
     public bool Check(int chancePerMyriad, Random random)
     {
         if (chancePerMyriad <= 0) return false;
-        if (value is null)
+        if (Value is null)
         {
             int first = random.Next(10_000);
-            value = extraRolls == 0 ? first : extraRolls > 0
+            Value = ExtraRolls == 0 ? first : ExtraRolls > 0
                 ? Math.Min(first, random.Next(10_000)) : Math.Max(first, random.Next(10_000));
         }
-        return value.Value < Math.Min(chancePerMyriad, 10_000);
+        return Value.Value < Math.Min(chancePerMyriad, 10_000);
     }
 }

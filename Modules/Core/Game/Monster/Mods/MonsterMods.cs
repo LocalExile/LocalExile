@@ -58,12 +58,12 @@ public static partial class Game
 
     static DamagePacket MonsterModHit(SpawnedMonster m, MonsterModEffects? sourceEffects, DamagePacket rolled, uint playerLife,
         uint playerMaxLife, Random random, out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN,
-        bool cannotCrit = false, int additionalCritical = 0)
+        bool cannotCrit = false, int additionalCritical = 0, SkillCriticalRoll? skillRoll = null)
     {
         var e = sourceEffects ?? m.Effects;
-        // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
+        // A spell's base and the target's Brittle add to the monster's chance, all in hundredths of a percent.
         int chance = e.CriticalChance + additionalCritical;
-        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
+        critical = !cannotCrit && chance > 0 && (skillRoll?.Check(chance, random) ?? random.Next(10_000) < chance);
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
