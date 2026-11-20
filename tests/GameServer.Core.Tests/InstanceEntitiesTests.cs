@@ -687,26 +687,6 @@ public class InstanceEntitiesTests
     }
 
     [Fact]
-    public void Positioned_fixed_height_marker_uses_negative_world_z_steps_across_all_objects()
-    {
-        const float z = -117.1875f; // 15 steps above sea level -> marker = +15, float z = -117.1875
-        const int expectedMarker = 15;
-        static void AssertFixedHeight(byte[] blob, int markerOffset)
-        {
-            Assert.Equal(expectedMarker, BitConverter.ToInt32(blob, markerOffset));
-            Assert.Equal(z, BitConverter.ToSingle(blob, markerOffset + 4));
-        }
-
-        // Object header (2) + Positioned x/y/rot/team/f0/f1 (16) = offset 18.
-        AssertFixedHeight(new AreaTransitionObject(10, 20, 0x7ad2, Height: z).Blob(), 18);
-        AssertFixedHeight(new WaypointObject(10, 20, Height: z).Blob(), 18);
-        AssertFixedHeight(new QuestObject(10, 20, ["Positioned"], Height: z).Blob(), 18);
-        AssertFixedHeight(new ShrineObject(10, 20, Height: z).Blob(), 18);
-        AssertFixedHeight(new NpcObject(10, 20, NpcObject.BaseComponents, Height: z).Blob(), 18);
-        AssertFixedHeight(new ProjectileObject("Metadata/Projectiles/BurningArrow", 10, 20, Height: -15).Blob(), 18);
-    }
-
-    [Fact]
     public void Outside_a_town_the_area_transition_has_no_compact_int()
     {
         // 0x141e5fdc0 reads the int only when the current area is a town (WorldAreas +0x14): The Coast's exit to The Mud

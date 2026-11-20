@@ -91,6 +91,14 @@ public sealed class MonsterCatalog(string folder = "data")
 
     private readonly Lazy<Dictionary<string, int?>?> _corpse = new(LoadCorpse);
 
+    /// <summary>The variety's DeathFromDegen clip clears the body at another time than its Death clip (client.db's
+    /// monster_takehit death_unblockByKind_DeathFromDegen: five Faridun Flesh Hulks, 166 ms against 150).</summary>
+    public bool DegenDeathClipDiffers(string id) => _degenDeath.Value.Contains(id);
+
+    private readonly Lazy<HashSet<string>> _degenDeath = new(() =>
+        [.. ClientTables.TableOrEmpty("monster_takehit").Where(r => !r.IsNull("death_unblockByKind_DeathFromDegen"))
+            .Select(r => r.Text("variety")!)]);
+
     static Dictionary<string, int?>? LoadCorpse()
     {
         if (ClientTables.TableOrNull("monster_takehit") is not { } table) return null;

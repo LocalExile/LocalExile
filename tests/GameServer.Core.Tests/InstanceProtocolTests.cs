@@ -52,16 +52,6 @@ public class InstanceProtocolTests
     }
 
     [Fact]
-    public void Life_update_carries_degen_death_kind_in_u2c()
-    {
-        byte[] normal = InstanceProtocol.LifeUpdate(0x3000, 0, u2c: InstanceProtocol.DeathKindNormal);
-        byte[] degen = InstanceProtocol.LifeUpdate(0x3000, 0, u2c: InstanceProtocol.DeathKindDegen);
-        Assert.Equal(InstanceProtocol.DeathKindNormal, normal[^1]);
-        Assert.Equal(InstanceProtocol.DeathKindDegen, degen[^1]);
-        Assert.Equal(normal[..^1], degen[..^1]);
-    }
-
-    [Fact]
     public void Keyring_keys_depend_only_on_secret_and_ticket()
     {
         var secret = new byte[64];

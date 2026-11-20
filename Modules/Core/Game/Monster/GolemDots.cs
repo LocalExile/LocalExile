@@ -63,7 +63,7 @@ public static partial class Game
         {
             m.Life = (uint)Math.Max(0, (long)m.Life - lifeDamage);
             conn.Minions.OutputQueue.Add(new([], "golem damage over time", golem.Id, m, PlayerMinions.OutputKind.Life,
-                DeathKind: m.Life == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal));
+                DeathKind: DotDeathKind(m, m.Life)));
         }
         if (m.Life == 0 || !GolemCurrent(conn, golem))
         {

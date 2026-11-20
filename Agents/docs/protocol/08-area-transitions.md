@@ -141,11 +141,11 @@ must end with .ao", `0x141dab410`); its bit1 form is a `Data/MiscAnimated.dat` r
   at (256.5, 168.5); live the player reads (256, 170) there.
 - rotation: Positioned's float `+0x29c`. The plane must face across the gate, so 90° or 270° (the room's R270); live,
   **π/2** matches the real game. The sign convention is not derived yet.
-- **height:** Positioned flags0 bit2 (`0x04`) adds i32 `+0x290` (steps of 7.8125) and f32 `+0x2b4` (world z); when
+- **height:** Positioned flags0 bit2 (`0x04`) adds i32 `+0x290` (−z / 7.8125) and f32 `+0x2b4` (world z); when
   `+0x290` ≠ `0x7fffffff` the client uses that z instead of the terrain height (`0x141e36520`, `0x141e38b40`). Sent as
-  −45 and **−351.04**. Without it the arch's base sat on the terrain and the beam hid its top.
+  45 and **−351.04**. Without it the arch's base sat on the terrain and the beam hid its top.
 
-The server's blob: Positioned `84010000 E6000000 DB0FC93F 0000 04 00 D3FFFFFF 1F85AFC3`, Animated `01 49000000` + the
+The server's blob: Positioned `84010000 E6000000 DB0FC93F 0000 04 00 2D000000 1F85AFC3`, Animated `01 49000000` + the
 path. Dev command in the Gateway: `/transition [pos [here | x y | +dx +dy] | rot <degrees> | z <z | none> | model
 <path | none> | index <n>]` re-creates the first area transition with that change (`index` is the AreaTransition compact int,
 sent in towns only, §2). Every position the client has seen stays

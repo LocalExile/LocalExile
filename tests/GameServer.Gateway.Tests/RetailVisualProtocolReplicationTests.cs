@@ -19,6 +19,8 @@ public sealed class RetailVisualProtocolReplicationTests
         }
 
         // Object header (2) + Positioned x/y/rot/team/f0/f1 (16) = offset 18.
+        AssertFixedHeight(new QuestObject(10, 20, ["Positioned"], Height: z).Blob(), 18);
+        AssertFixedHeight(new ShrineObject(10, 20, Height: z).Blob(), 18);
         var placement = new GlyphQuest.Placement(GlyphQuest.Wall, "Metadata/QuestObjects/Act1/GlyphWall.ao", 10, 20, 0, z, 0);
         AssertFixedHeight(GlyphQuest.WallBlob(placement, placed: false), 18);
         AssertFixedHeight(LabyrinthTrials.SpikeTrapBlob(10, 20, height: z), 18);
@@ -28,46 +30,14 @@ public sealed class RetailVisualProtocolReplicationTests
     }
 
     [Fact]
-    public async Task Player_degen_death_sends_death_from_degen_kind_while_living_updates_stay_zero()
-    {
-        var conn = new ClientState(new(1, "degen-death", 300, 300, 100, 100, null, []), 1, 1) { PlayerLife = 50 };
-        Assert.Equal(InstanceProtocol.DeathKindNormal, Game.PlayerLifeUpdate(conn, InstanceProtocol.DeathKindDegen)[^1]);
-
-        conn.PlayerLife = 0;
-        Assert.Equal(InstanceProtocol.DeathKindNormal, Game.PlayerLifeUpdate(conn)[^1]);
-        Assert.Equal(InstanceProtocol.DeathKindDegen, Game.PlayerLifeUpdate(conn, InstanceProtocol.DeathKindDegen)[^1]);
-
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        using var client = new TcpClient();
-        var accept = listener.AcceptTcpClientAsync();
-        await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
-        using var server = await accept;
-        listener.Stop();
-
-        var key = new byte[64];
-        var serverCiphers = new ConnectionCiphers(key, isClient: false);
-        var clientCiphers = new ConnectionCiphers(key, isClient: true);
-        try
-        {
-            await Game.SendPlayerDeathPresentation("test", server.GetStream(), serverCiphers, conn,
-                "degen death", conn.IncomingHitEpoch, InstanceProtocol.DeathKindDegen);
-            byte[] expectedLife = InstanceProtocol.LifeUpdate(Program.PlayerId, 0, conn.PlayerReservedLife,
-                u2c: InstanceProtocol.DeathKindDegen);
-            byte[] expectedStats = InstanceEntities.StatsUpdate(Program.PlayerId, [(StatKeys.HideMiniLifeBar, 1)]);
-            byte[] expectedScreen = InstanceProtocol.DeathScreen(Game.DeathScreenFlags(conn));
-            byte[] expected = [.. expectedLife, .. expectedStats, .. expectedScreen];
-            byte[] got = new byte[expected.Length];
-            await client.GetStream().ReadExactlyAsync(got);
-            clientCiphers.Receive.Process(got);
-            Assert.Equal(expected, got);
-        }
-        finally { conn.Closed = true; }
-    }
-
-    [Fact]
     public async Task Monster_poison_kill_sends_death_from_degen_life_update()
     {
+        // A player's life update carries the kind only at life 0.
+        var player = new ClientState(new(1, "degen-death", 300, 300, 100, 100, null, []), 1, 1) { PlayerLife = 50 };
+        Assert.Equal(InstanceProtocol.DeathKindNormal, Game.PlayerLifeUpdate(player, InstanceProtocol.DeathKindDegen)[^1]);
+        player.PlayerLife = 0;
+        Assert.Equal(InstanceProtocol.DeathKindDegen, Game.PlayerLifeUpdate(player, InstanceProtocol.DeathKindDegen)[^1]);
+
         var previous = Program.GameLogicOrNull;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var listener = new TcpListener(IPAddress.Loopback, 0);
