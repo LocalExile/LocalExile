@@ -245,6 +245,30 @@ public static partial class MapTorment
         await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
     }
 
+    /// <summary>Right-click cancellation (C→S 0x004b): ends the possessing spirit whose buff instance is
+    /// <paramref name="buffInstance"/>, removing its icon and Grip stats.</summary>
+    public static async Task<bool> CancelBuff(ClientState conn, ushort buffInstance)
+    {
+        if (buffInstance == 0 || !Possessed.TryGetValue(conn, out var possession)) return false;
+        int spiritRow;
+        lock (possession)
+        {
+            int index = possession.Spirits.FindIndex(p => p.Buff == buffInstance);
+            if (index < 0) return false;
+            spiritRow = possession.Spirits[index].Row;
+            possession.Spirits.RemoveAt(index);
+            possession.Stats = null;
+        }
+        var w = conn.Wire;
+        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
+            InstanceEntities.RemoveBuff(PlayerId, buffInstance), "torment: possession cancelled");
+        using var fresh = new PlayerStatScope(conn, fresh: true);
+        lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
+        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
+        Console.WriteLine($"[torment] {CharacterName(conn)} cancelled possession ({TormentCatalog.ByRow(spiritRow)?.Variety ?? $"#{spiritRow}"})");
+        return true;
+    }
+
     /// <summary>The player stat source (GameEvents.PlayerStatSources): each possessing spirit's Possessed buff (35% more
     /// damage, attack, cast and movement speed: TormentPossessed) and its Grip's stats that a player has; the Grip's
     /// monster-only stats (drops, the monster flags) are left out. Nothing when no spirit possesses the player.</summary>
