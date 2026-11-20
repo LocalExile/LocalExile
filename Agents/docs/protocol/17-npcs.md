@@ -352,9 +352,11 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   (`0x140740840`) and otherwise shows the ordinary buy window; item and placement messages are the shop's (0x88, 0x8a).
   The shown items are the client's 55 `HiddenItem` rows `…Gamble` ("Random One Hand Sword" … "Random Conqueror Idol",
   BaseItemTypes 5187–5241), drawn with the mystery art; a purchase must answer with another item, which need not have the
-  shown item's size. Prices are poewiki's 3.29 formulas; item level, rarity, unique chance, sockets and affix tiers follow
-  its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
-  Faustus in the hideout). Not done: the alt price floor (the account's highest character in the league).
+  shown item's size. Prices are poewiki's 3.29 formulas, with the 3.29 alt price floor
+  (`max(level, min(highestLeagueLevel − 20, 68))` across the account's characters in the same league, starting at main
+  level 25 and capping at the level-68 price at level 88); item level, rarity, unique chance, sockets and affix tiers
+  follow its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
+  Faustus in the hideout).
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
 
 ## 6. Dev commands

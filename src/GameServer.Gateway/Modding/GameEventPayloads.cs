@@ -33,17 +33,30 @@ public sealed record NpcOption(ClientState Conn, string Npc, string Category, st
 }
 
 /// <summary>A gamble window as it opens (<see cref="GameEvents.Gambles"/>).</summary>
-public sealed class GambleWindow(ClientState conn, string npc, int characterLevel)
+public sealed class GambleWindow
 {
-    public ClientState Conn { get; } = conn;
+    public GambleWindow(ClientState conn, string npc, int characterLevel) : this(conn, npc, characterLevel, characterLevel) { }
+
+    public GambleWindow(ClientState conn, string npc, int characterLevel, int priceLevel)
+    {
+        Conn = conn;
+        Npc = npc;
+        CharacterLevel = characterLevel;
+        PriceLevel = Math.Max(characterLevel, priceLevel);
+    }
+
+    public ClientState Conn { get; }
 
     public IPlayer Player => Program.PlayerOf(Conn);
 
     /// <summary>The NPC's <c>NPCs</c> id.</summary>
-    public string Npc { get; } = npc;
+    public string Npc { get; }
 
-    /// <summary>The level the prices and the items go by.</summary>
-    public int CharacterLevel { get; } = characterLevel;
+    /// <summary>The character's level, which rolled item levels and offer unlock levels go by.</summary>
+    public int CharacterLevel { get; }
+
+    /// <summary>The level prices go by: at least <see cref="CharacterLevel"/>, raised to the account's league floor for a lower-level character.</summary>
+    public int PriceLevel { get; }
 
     /// <summary>What the window offers, in order.</summary>
     public List<GambleOffer> Offers { get; } = [];
