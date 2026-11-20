@@ -17,12 +17,14 @@ public static partial class MapStrongboxes
     public sealed record Wave(long AtTicks, List<AreaPopulation.Spawn> Spawns);
 
     /// <summary>The summon skills the guard mods already cover (their <c>summoned_monster_rarity</c> stats, the warbands)
-    /// or that are not guards (the Vaal temple's side-area boss).</summary>
+    /// or that are hazards.</summary>
     static readonly HashSet<string> CoveredSummons = new(StringComparer.Ordinal)
     {
         "ChestSummonNormalMonsters", "ChestSummonMagicMonsters", "ChestSummonRareMonsters", "ChestSummonRareMonstersUniqueChest2",
         "ChestSummonRareMonstersUniqueChest3", "ChestSummonRareMonstersUniqueChest4", "ChestSummonFireWarband",
         "ChestSummonColdWarband", "ChestSummonLightningWarband", "ChestSummonChaosWarband", "ChestSummonAdditionalPack",
+        // The Vaal vessel implicit already specifies the three normal packs of this grant.
+        "ChestSummonNormalMonstersTriggerable",
         // Hazards, not guards (StrongboxDaemonSpells.cs).
         "ChestSummonSandstormDaemon",
     };
@@ -105,11 +107,18 @@ public static partial class MapStrongboxes
         return waves;
     }
 
+    // Alternate minion 598 names a game-object register, without a MonsterVarieties row or server weights.
+    // Our vessel pool weights each distinct supported boss of a WorldAreas.IsVaalArea once.
+    static readonly Lazy<int[]> VaalSideBosses = new(() => [.. ClientTables.Table("WorldAreas")
+        .Where(area => area.Bool("IsVaalArea")).SelectMany(area => area.Ints("Bosses_MonsterVarietiesKeys")).Distinct()
+        .Where(row => Monsters.Find(row.ToString()) is { Supported: true })]);
+
     /// <summary>The monsters a summon skill may bring, as supported MonsterVarieties rows.</summary>
     static int[] SummonPool(ClientState conn, string skill, int? variety, int level, Random random)
     {
         IEnumerable<int> rows;
         if (variety is int v) rows = [v];
+        else if (skill == "ChestSummonVaalSideAreaBoss") return VaalSideBosses.Value;
         else if (SummonStandIns.TryGetValue(skill, out var ids) || SummonAliases.TryGetValue(skill, out ids))
             rows = ids.Select(id => Monsters.Find(id)?.Row ?? -1);
         // Ashes of the Condemned's stream: the Tormented Spirits of the area level (TormentSpirits).

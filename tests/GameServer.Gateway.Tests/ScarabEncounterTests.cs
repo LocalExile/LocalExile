@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
@@ -147,43 +149,65 @@ public sealed class ScarabEncounterTests
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
             var ambushSlot = Slot("ScarabStrongboxNew1");
-            var ambushMods = catalog.Of([ambushSlot], Program.Items.Mods);
+            var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
+            var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
+            var mapSlot = new MapDevice.Slot(key.Hash, key.Class, key.Name, key.Row, [vesselMod], 0)
+                { BaseId = key.Id, Rarity = ItemRarity.Rare };
+            var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([mapSlot, ambushSlot], null, Program.Items.Mods, out _));
+            Assert.Equal((17, 84), (opening.Area.Tier, opening.Area.Level));
+            var ambushMods = opening.Mods;
             Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
             var boxInstance = new InstanceState();
-            boxInstance.OpenedWith(new("StrongboxOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, ambushMods));
-            boxInstance.AreaStats(() => Compose(ambushMods));
-            await using var boxOwner = await Wire.Open(boxInstance, layout, seed);
-            await using var boxPeer = await Wire.Open(boxInstance, layout, seed);
+            boxInstance.OpenedWith(new("StrongboxOwner", opening.Area, ambushMods));
+            var boxStats = boxInstance.AreaStats(() => Game.ComposeMapAreaStats(ambushMods, opening.Area.Tier, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
+            uint boxSeed = ServerLevels.PlayableSeed(opening.Area.Id, 0x56a104, opening.Area.Level, boxStats);
+            var boxLayout = AreaLayouts.For(opening.Area.Hash16, boxSeed);
+            await using var boxOwner = await Wire.Open(boxInstance, boxLayout, boxSeed);
+            await using var boxPeer = await Wire.Open(boxInstance, boxLayout, boxSeed);
             await MapStrongboxes.Enter(boxOwner.Conn);
             MapStrongboxes.Box[] Boxes() => System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(boxInstance.ContentState["Ambush/boxes"])!;
             var boxes = Boxes();
-            Assert.Equal(MapStrongboxes.Count(boxOwner.Conn, 70).Count, boxes.Length);
-            Assert.True(boxes.Length >= 4); // the four scarab boxes plus any natural Ambush roll
+            var vessels = boxes.Where(b => b.Type == MapStrongboxes.ExquisiteVessel).ToArray();
+            Assert.Equal(10, vessels.Length);
+            Assert.All(vessels, b => { Assert.True(b.Corrupted); Assert.Equal(2, b.Rarity); Assert.NotEmpty(b.Mods); });
+            int ordinaryBoxes = boxes.Length - vessels.Length;
+            Assert.Equal(MapStrongboxes.Count(boxOwner.Conn, opening.Area.Level).Count, ordinaryBoxes);
+            Assert.True(ordinaryBoxes >= 4);
             await MapStrongboxes.Enter(boxPeer.Conn);
             Assert.Equal(boxes.Select(b => b.Id), Boxes().Select(b => b.Id));
-            Assert.All(boxes, b => Assert.True(layout.Walkable!(b.X, b.Y)));
-            var firstBox = boxes[0];
+            Assert.All(boxes, b => Assert.True(boxLayout.Walkable!(b.X, b.Y)));
+            var firstBox = vessels[0];
             boxOwner.Conn.Walk.Teleport(firstBox.X, firstBox.Y, 0);
             Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(firstBox.Id, 0, 1, 0), 0));
-            var active = Boxes()[0];
+            var active = Boxes()[firstBox.Index];
             Assert.Equal(1, active.Phase);
             Assert.NotEmpty(active.Guards);
             Assert.Empty(active.Pending);
             int guardCount = boxOwner.Conn.Monsters.Count;
             Assert.True(await MapStrongboxes.Use(boxPeer.Conn, new(firstBox.Id, 0, 1, 0), 0));
             Assert.Equal(guardCount, boxOwner.Conn.Monsters.Count);
+            var sideBosses = ClientTables.Table("WorldAreas").Where(a => a.Bool("IsVaalArea"))
+                .SelectMany(a => a.Ints("Bosses_MonsterVarietiesKeys")).ToHashSet();
+            uint vesselBoss = Assert.Single(active.Guards, id => boxOwner.Conn.Monsters[id] is
+                { Rarity: MonsterRarity.Unique, Variety: { } v } && sideBosses.Contains(v.Row));
+            Assert.Contains(active.Guards, id => boxOwner.Conn.Monsters[id].Rarity == MonsterRarity.Normal);
             lock (boxOwner.Conn.Monsters)
-                foreach (uint guard in active.Guards) { boxOwner.Conn.Monsters[guard].Dead = true; boxOwner.Conn.Monsters[guard].Life = 0; }
+                foreach (uint guard in active.Guards.Where(id => id != vesselBoss)) { boxOwner.Conn.Monsters[guard].Dead = true; boxOwner.Conn.Monsters[guard].Life = 0; }
             await MapStrongboxes.Tick(boxOwner.Conn);
-            Assert.Equal(2, Boxes()[0].Phase);
+            Assert.Equal(1, Boxes()[firstBox.Index].Phase);
+            Assert.Empty(boxInstance.Ground.All());
+            boxOwner.Conn.Monsters[vesselBoss].Dead = true;
+            boxOwner.Conn.Monsters[vesselBoss].Life = 0;
+            await MapStrongboxes.Tick(boxOwner.Conn);
+            Assert.Equal(2, Boxes()[firstBox.Index].Phase);
             int rewardCount = boxInstance.Ground.All().Count();
             Assert.True(rewardCount > 0);
             await MapStrongboxes.Tick(boxPeer.Conn);
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
             MapStrongboxes.Leave(boxOwner.Conn);
             await MapStrongboxes.Enter(boxOwner.Conn);
-            Assert.Equal(firstBox.Id, Boxes()[0].Id);
-            Assert.Equal(2, Boxes()[0].Phase);
+            Assert.Equal(firstBox.Id, Boxes()[firstBox.Index].Id);
+            Assert.Equal(2, Boxes()[firstBox.Index].Phase);
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));

@@ -15,6 +15,7 @@ using static Program;
 public static partial class MapStrongboxes
 {
     public const string Content = "Ambush", CountStat = "map_num_extra_strongboxes";
+    public const string ExquisiteVessel = "Metadata/Chests/StrongBoxes/VaalEmpoweredChest";
     public const string Reopen = "Ambush.HiddenCompartments", Discernment = "Ambush.Discernment", Containment = "Ambush.Containment",
         Potency = "Ambush.Potency";
     const string SaveKey = "Ambush/boxes";
@@ -58,6 +59,7 @@ public static partial class MapStrongboxes
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
+        public bool[]? VesselFloor;
         /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
         public readonly List<Zone> Zones = [];
     }
@@ -136,10 +138,13 @@ public static partial class MapStrongboxes
         return StrongboxCatalog.Roll(level, hardMode, mods, random);
     }
 
-    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count)
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count) => Positions(layout, seed, count, out _);
+
+    static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count, out bool[]? reach)
     {
+        reach = null;
         if (count <= 0 || layout.Walkable is not { } walk) return [];
-        var reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
+        reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
         if (reach is null) return [];
         var random = new Random(unchecked((int)(seed ^ 0x414d4255)));
         var candidates = new List<(int X, int Y)>();
@@ -182,7 +187,7 @@ public static partial class MapStrongboxes
                     area.Boxes = JsonSerializer.Deserialize<List<Box>>(saved) ?? [];
                 else
                 {
-                    area.Boxes = Plan(conn);
+                    area.Boxes = Plan(conn, area);
                     Keep(conn, area);
                 }
             }
@@ -191,23 +196,36 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
-    static List<Box> Plan(ClientState conn)
+    static List<Box> Plan(ClientState conn, Area area)
     {
         var boxes = new List<Box>();
         int level = AreaLevel(conn);
         var (count, roll) = Count(conn, level);
-        if (count <= 0)
+        var mods = AreaMods(conn);
+        int vessels = mods.Get("map_spawn_additional_empowered_vaal_chests");
+        if (count + vessels <= 0)
         {
             Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}: Ambush roll {roll} → 0");
             return boxes;
         }
-        var mods = AreaMods(conn);
         var random = new Random(unchecked((int)(conn.Seed ^ 0x53544258)));
         bool hardMode = LeagueFor(conn).HardMode;
         bool corrupted = mods.Get("map_strongboxes_are_corrupted") != 0;
         var catalog = ItemsFor(conn).Mods;
         double unique = UniqueChance * Math.Max(0, 100 + mods.Get("map_strongboxes_chance_to_be_unique_+%")) / 100.0;
-        foreach (var (x, y) in Positions(conn.Layout, conn.Seed, count))
+        var positions = Positions(conn.Layout, conn.Seed, count + vessels, out var reachable);
+        if (vessels > 0) area.VesselFloor = reachable;
+        // Reserve the map's explicit vessels on a cramped layout. Other boxes keep their original positions and rolls
+        // when there is room for both.
+        int ordinary = Math.Max(0, positions.Count - vessels);
+        void Place(StrongboxCatalog.Definition type, byte rarity, bool isCorrupted, (int X, int Y) at)
+        {
+            boxes.Add(new(conn.Instance.World.NewMonsterId(), boxes.Count, at.X, at.Y, type.Id)
+            {
+                Rarity = rarity, Corrupted = isCorrupted, Mods = Kept(StrongboxMods.Roll(catalog, type, rarity, level, mods, random)),
+            });
+        }
+        foreach (var (x, y) in positions.Take(ordinary))
         {
             // map_area_contains_unique_strongbox: the area's first box is unique.
             bool forced = boxes.Count == 0 && mods.Get("map_area_contains_unique_strongbox") != 0;
@@ -223,15 +241,16 @@ public static partial class MapStrongboxes
             if (Pick(level, hardMode, mods, random) is { } type)
             {
                 byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
-                var rolled = StrongboxMods.Roll(ItemsFor(conn).Mods, type, rarity, level, mods, random);
-                boxes.Add(new(conn.Instance.World.NewMonsterId(), boxes.Count, x, y, type.Id)
-                {
-                    Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted,
-                });
+                Place(type, rarity, corrupted, (x, y));
             }
         }
+        if (vessels > 0)
+        {
+            var vessel = StrongboxCatalog.All.Single(t => t.Id == ExquisiteVessel);
+            foreach (var at in positions.Skip(ordinary)) Place(vessel, 2, true, at);
+        }
         Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}{(hardMode ? " (HardMode weights)" : "")}: " +
-            $"Ambush roll {roll} → {count}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
+            $"Ambush roll {roll} → {count}, Exquisite Vaal Vessels {vessels}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
         return boxes;
     }
 
@@ -480,21 +499,44 @@ public static partial class MapStrongboxes
         }.Where(e => e.Value != 0).ToDictionary(e => e.Key, e => e.Value);
         var extraMods = effects.Count == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(effects));
         int quantity = Both("strongbox_monsters_item_quantity_+%");
+        var layout = conn.Layout;
+        bool[]? floor = null;
+        if (box.Type == ExquisiteVessel)
+        {
+            // Restored boxes rebuild the same connected component from the box itself.
+            area.VesselFloor ??= AreaPopulation.Reachable(layout.GridW, layout.GridH, layout.Walkable!, (box.X, box.Y))
+                ?? throw new InvalidDataException($"Vessel {box.Id} has no walkable cell at ({box.X}, {box.Y})");
+            floor = area.VesselFloor;
+        }
         while (box.Pending.Count > 0 && !conn.Closed && !conn.LeavingArea)
         {
             var spawn = box.Pending[0];
             if (Monsters.Find(spawn.Variety.ToString()) is not { } variety) return;
-            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, spawn.Rarity, spawn.X, spawn.Y,
-                unrisen: false, alone: false, extraMods: extraMods, owned: (_, monster) =>
+            var at = (spawn.X, spawn.Y);
+            if (floor is not null)
+            {
+                int size = Math.Clamp(variety.ObjectSize - 1, 0, 127);
+                bool Floor(int x, int y) => floor[y * layout.GridW + x] && layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y));
+                var blockers = conn.MonsterPlacementBlockers(0);
+                if (!CollisionEscape.Clear(at, layout.GridW, layout.GridH, Floor, blockers, size))
+                {
+                    if (CollisionEscape.Find(at, layout.GridW, layout.GridH, Floor, blockers, moverSize: size) is not { } cell) return;
+                    at = cell;
+                }
+            }
+            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, spawn.Rarity, at.X, at.Y,
+                unrisen: false, alone: false, extraMods: extraMods, placement: floor is null ? MonsterPlacement.Proposed : MonsterPlacement.Established,
+                owned: (guard, monster) =>
                 {
                     monster.Aggro = true;
                     // Item quantity of the guards' own drops, as the Sulphite enrage's (UtilityFlasks.ItemQuantityFactor).
                     if (quantity != 0) monster.EncounterStats = new Dictionary<string, int> { [MapSulphite.EnragedQuantity] = quantity * 100 };
+                    // The world owns this guard before its create is written to the opening player's connection.
+                    box.Guards.Add(guard);
+                    box.Pending.RemoveAt(0);
+                    Keep(conn, area);
                 });
             if (id == 0) return;
-            box.Guards.Add(id);
-            box.Pending.RemoveAt(0);
-            Keep(conn, area);
         }
     }
 

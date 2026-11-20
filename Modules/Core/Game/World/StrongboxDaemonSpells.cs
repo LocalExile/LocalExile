@@ -18,7 +18,7 @@ using static Program;
 /// <item>The random-curse daemon: one of its curses on the players near the box for the curse's duration.</item>
 /// <item>ChestSummonSandstormDaemon (Deshret's Storm): sandstorms (physical ground) around the box, in its waves.</item>
 /// </list>
-/// The Vaal daemons only roll on Vaal-empowered chests (the <c>vaal_empowered</c> tag), which no strongbox has.
+/// The Exquisite Vaal Vessel's <c>vaal_empowered</c> spells are tracked separately in the world roadmap.
 /// </summary>
 public static partial class MapStrongboxes
 {

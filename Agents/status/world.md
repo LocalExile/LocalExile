@@ -125,13 +125,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   and the Firestorm daemon sent its single rank. Their visual effects at those ranks still need a client run.
   Gems with experience drop at a random level up to 20;
   Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
-  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
-  "Vaal Vessels"). Currency changes a closed
+  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles). Currency changes a closed
   box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
   unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). Our own:
   `__col2` as the item count, Jumbled Abundance's one-in-four, the freeze's one second, stand-ins for the summons the
   tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
   [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
+
+- Exquisite Vaal Vessels are additional rare, corrupted strongboxes. The corruption implicit adds one and the Valdo
+  affix adds ten alongside ordinary Ambush boxes. Gateway checks on a tier-17 Valdo Map at area level 84 matched the
+  object creates for the opener, another player and re-entry. The chest implicit supplies three ordinary packs and its
+  daemon summons one unique guard. The box waits for that guard even when another player takes over after a disconnect.
+  The server chooses uniformly among the 39 supported bosses listed by Vaal side areas in 3.29.3c. Alternate minion 598
+  gives a game-object register key and no selection weights. The six Vaalsmithed prefix spells, the Blade Vortex suffix
+  spell, the Valdo map completion reward and a graphical client run are still open. GGG described the three packs and
+  side-area guard for the Vaal Temple vessel, which shares this chest implicit, in the
+  [3.17 patch notes](https://www.pathofexile.com/forum/view-thread/3229187).
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
