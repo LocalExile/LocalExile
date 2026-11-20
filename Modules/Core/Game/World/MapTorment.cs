@@ -611,22 +611,42 @@ public static partial class MapTorment
         return true;
     }
 
+    // A committed instance event belongs to each remaining viewer, even when its original projectile or runner retires.
+    static async Task PublishToMember(InstanceState instance, ClientState player, Func<Task> publish)
+    {
+        bool Current() => CurrentGameRules && !player.Closed && !player.LeavingArea && player.Instance == instance;
+        var previous = ProjectileOutputGuard.Value;
+        ProjectileOutputGuard.Value = Current;
+        try
+        {
+            if (Current()) await publish();
+        }
+        catch (Exception ex) when (ex is IOException { InnerException: System.Net.Sockets.SocketException }
+            || ex is ObjectDisposedException && !player.Wire.Stream.CanWrite)
+        {
+            Console.WriteLine($"[gateway] {player.Wire.Remote} Torment output failed: {ex.Message}");
+            FailWorldOutput(player);
+        }
+        finally { ProjectileOutputGuard.Value = previous; }
+    }
+
     static async Task Remove(ClientState conn, uint id, string why)
     {
         if (Areas.TryGetValue(conn.Instance, out var area)) lock (area.Marks) area.SpiritMonsters.Remove(id);
+        var instance = conn.Instance;
+        var shown = new List<ClientState>();
         lock (conn.Monsters)
         {
             if (conn.Monsters.Remove(id, out var m)) { m.Dead = true; m.Life = 0; ++m.ActionGeneration; }
-            conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
+            instance.World.MonsterOrigins.TryRemove(id, out _);
+            foreach (var p in Members(conn))
+            {
+                if (p.MonsterViews.Remove(id)) shown.Add(p);
+                p.AsleepMonsters.Remove(id);
+            }
         }
-        var removals = new List<Task>();
-        foreach (var p in Members(conn))
-        {
-            bool shown;
-            lock (p.Monsters) { shown = p.MonsterViews.Remove(id); p.AsleepMonsters.Remove(id); }
-            if (shown) { var w = p.Wire; removals.Add(SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, $"[torment] 0x{id:x} removed: {why}")); }
-        }
-        await Task.WhenAll(removals);
+        await Task.WhenAll(shown.Select(p => PublishToMember(instance, p, () =>
+            SendWorldRemoval(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p, id, $"[torment] 0x{id:x} removed: {why}"))));
     }
 
     /// <summary>Per kill: a touched or possessed monster's more items from the map

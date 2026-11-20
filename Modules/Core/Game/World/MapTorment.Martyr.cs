@@ -154,7 +154,8 @@ public static partial class MapTorment
         }
         try
         {
-            await Task.WhenAll(death.Viewers.Select(Present));
+            var instance = conn.Instance;
+            await Task.WhenAll(death.Viewers.Select(v => PublishToMember(instance, v.Player, () => Present(v))));
         }
         finally
         {
