@@ -149,12 +149,11 @@ public class InstanceEntitiesTests
     {
         const string header = "01B2" + "00003000" + "00000000" + "0000";
         // Retail 0x141fe58a0: kinds 0/1 carry u32 index + f32 speed (21 B), kinds 2/3 carry f32 speed only (17 B),
-        // and kind >= 4 carries no trailing fields (13 B).
+        // and kind >= 4 throws "Bad packet: InstanceClientAnimationUpdate".
         byte[] k0 = InstanceProtocol.AnimationUpdate(0x3000, 0, 5, 1f);
         byte[] k1 = InstanceProtocol.AnimationUpdate(0x3000, 1, 7, 2f);
         byte[] k2 = InstanceProtocol.AnimationUpdate(0x3000, 2, 99, 0.5f);
         byte[] k3 = InstanceProtocol.AnimationUpdate(0x3000, 3, 99, 3f);
-        byte[] k4 = InstanceProtocol.AnimationUpdate(0x3000, 4, 99, 1f);
 
         Assert.Equal(21, k0.Length);
         Assert.Equal(header + "00" + "00000005" + "3F800000", Convert.ToHexString(k0));
@@ -164,15 +163,14 @@ public class InstanceEntitiesTests
         Assert.Equal(header + "02" + "3F000000", Convert.ToHexString(k2));
         Assert.Equal(17, k3.Length);
         Assert.Equal(header + "03" + "40400000", Convert.ToHexString(k3));
-        Assert.Equal(13, k4.Length);
-        Assert.Equal(header + "04", Convert.ToHexString(k4));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InstanceProtocol.AnimationUpdate(0x3000, 4, 99, 1f));
 
         Assert.Equal(21, InstanceProtocol.AnimationUpdateLength(0));
         Assert.Equal(21, InstanceProtocol.AnimationUpdateLength(1));
         Assert.Equal(17, InstanceProtocol.AnimationUpdateLength(2));
         Assert.Equal(17, InstanceProtocol.AnimationUpdateLength(3));
-        Assert.Equal(13, InstanceProtocol.AnimationUpdateLength(4));
-        Assert.Equal(13, InstanceProtocol.AnimationUpdateLength(255));
+        Assert.Equal(-1, InstanceProtocol.AnimationUpdateLength(4));
+        Assert.Equal(-1, InstanceProtocol.AnimationUpdateLength(255));
     }
 
     [Fact]
@@ -477,9 +475,10 @@ public class InstanceEntitiesTests
 
         // Explicit 0x09 (bit0 | bit3) with a parent yields the same 0x0D flags and byte layout.
         Assert.Equal(blob, (effect with { AnimatedFlags = 0x09 }).Blob());
-        // Explicit 0x09 without a parent omits bit 0x04 and the attachment record.
+        // Explicit 0x09 or 0x0D without a parent omits bit 0x04 and the attachment record.
         byte[] unattached = (effect with { AnimatedFlags = 0x09, Parent = 0 }).Blob();
         Assert.Equal(0x09, unattached[40]);
+        Assert.Equal(unattached, (effect with { AnimatedFlags = 0x0D, Parent = 0 }).Blob());
     }
 
     [Fact]

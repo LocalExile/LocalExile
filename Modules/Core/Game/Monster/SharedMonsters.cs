@@ -484,6 +484,7 @@ public static partial class Game
                 case InstanceProtocol.AnimationUpdateId:
                     if (bytes.Length - at < 13) return false;
                     length = InstanceProtocol.AnimationUpdateLength(bytes[at + 12]);
+                    if (length < 0) return false;
                     break;
                 case InstanceEntities.RemoveBuffId:
                     length = 14;

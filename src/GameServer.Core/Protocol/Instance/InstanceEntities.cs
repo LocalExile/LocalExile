@@ -22,6 +22,12 @@ public static class InstanceEntities
     {
         Span<byte> b = path.Length <= 256 ? stackalloc byte[path.Length] : new byte[path.Length];
         for (int i = 0; i < path.Length; i++) b[i] = (byte)path[i];
+        return Murmur2(b);
+    }
+
+    /// <summary>MurmurHash2 (32-bit, seed 0) over bytes (0x140df6e10).</summary>
+    public static uint Murmur2(ReadOnlySpan<byte> b)
+    {
         const uint m = 0x5bd1e995;
         uint h = (uint)b.Length;
         int p = 0;
@@ -129,6 +135,14 @@ public static class InstanceEntities
     /// <summary>S→C 0x1c2 (class 0x1435e8418, read 0x141fe65f0): object header, u16 buff instance: the buff ends.</summary>
     public static byte[] RemoveBuff(uint objectId, ushort buffInstance) =>
         new LoginWriter().U16(RemoveBuffId).U32(objectId).U32(0).U16(0).U16(buffInstance).ToArray();
+
+    /// <summary>C→S 0x4b (6 bytes, 3.29.3c class 0x1431767e8, write 0x140911210, UI right-click handler 0x1402718c0 → 0x140284470):
+    /// the player right-clicked a removable buff icon (BuffDefinitions.Removable == 1). u32 BE buff instance id (zero-extended
+    /// from the u16 buff instance sent by S→C 0x1c1 and removed by S→C 0x1c2).</summary>
+    public const ushort CancelBuffId = 0x4b;
+    public const int CancelBuffLength = 6;
+
+    public static uint ReadCancelBuff(ReadOnlySpan<byte> m) => BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
 
     public const ushort CharacterPassivesId = 0x33, AllocatePassiveId = 0x34, MasteryEffectId = 0x35, PanelToggleId = 0x123;
     public const int MasteryEffectLength = 6;
@@ -256,6 +270,26 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] ComponentUpdate(uint entityId, byte componentIndex, byte[] data) =>
         new LoginWriter().U16(ComponentUpdateId).U32(entityId).U32(0).U16(0).Blob([componentIndex, .. data]).ToArray();
+
+    public const ushort AddTaskId = 0x2c2, UpdateTaskId = 0x2c3, RemoveTaskId = 0x2c5;
+
+    /// <summary>
+    /// S→C 0x2c2 (world group, read 0x141fe6e90, world handler 0x14218ddf0): world header, u16 GameObjectTasks HASH16
+    /// (big-endian here, unlike the creation blob's task list), blob16 the task's own data. Entity 0 adds a task to the
+    /// world; an id the client has no factory for is fatal ("Unrecognised task serialised by server").
+    /// </summary>
+    public static byte[] AddTask(uint entityId, ushort task, byte[] data) => TaskMessage(AddTaskId, entityId, task, data);
+
+    /// <summary>S→C 0x2c3: the same layout as 0x2c2; replaces a running task's data (an unknown one logs "Client task not
+    /// found for server task update").</summary>
+    public static byte[] UpdateTask(uint entityId, ushort task, byte[] data) => TaskMessage(UpdateTaskId, entityId, task, data);
+
+    /// <summary>S→C 0x2c5: world header and the u16 task id (the message holds nothing else; byte order as 0x2c2's, M).</summary>
+    public static byte[] RemoveTask(uint entityId, ushort task) =>
+        new LoginWriter().U16(RemoveTaskId).U32(entityId).U32(0).U16(0).U16(task).ToArray();
+
+    static byte[] TaskMessage(ushort id, uint entityId, ushort task, byte[] data) =>
+        new LoginWriter().U16(id).U32(entityId).U32(0).U16(0).U16(task).Blob(data).ToArray();
 
     /// <summary>S→C 0x2bc to an object's StateMachine (reader 0x141e42a90): all its shared states and timers again
     /// (<see cref="StateMachineData.Write"/>); the client runs the events of every state whose value changed.</summary>
@@ -585,17 +619,26 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
     /// resolved by 0x1424fe990): a gate's "teleportN-&lt;key&gt;", e.g. BrutusAreaName "The Warden's Quarters".</summary>
     public uint? Label { get; init; }
 
+    /// <summary>Optional trailing StateMachine component (reader 0x141e42430; 00 00 for zero shared states and timers).</summary>
+    public StateMachineData? StateMachine { get; init; }
+
     /// <summary>Components that read data, in the order the client deserializes them for this type (traced live
     /// 2026-10-16: Positioned, BaseEvents (no data), Animated, AreaTransition (live vtable 0x143479f98), Stats,
     /// ObjectMagicProperties, MinimapIcon, InteractionAction, then two components the loop does not reach).</summary>
     public static readonly string[] ComponentOrder =
         ["Positioned", "Animated", "AreaTransition", "Stats", "ObjectMagicProperties", "MinimapIcon", "InteractionAction"];
 
-    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob: exactly
-    /// <see cref="ComponentOrder"/>. Types that add components (e.g. Transitionable) cannot: see
-    /// AreaTransitionCatalog.Resolve in the Gateway.</summary>
-    public static bool CanSerialize(IEnumerable<string> components) =>
-        components.Where(c => c != "BaseEvents").SequenceEqual(ComponentOrder);
+    /// <summary>Whether a type with these components (BaseEvents reads nothing) can use this blob:
+    /// <see cref="ComponentOrder"/> or <see cref="ComponentOrder"/> followed by a trailing <c>StateMachine</c>. Types
+    /// that add other components (e.g. Transitionable) cannot: see AreaTransitionCatalog.Resolve in the Gateway.</summary>
+    public static bool CanSerialize(IEnumerable<string> components)
+    {
+        var list = components.Where(c => c != "BaseEvents").ToArray();
+        return list.SequenceEqual(ComponentOrder)
+            || list.Length == ComponentOrder.Length + 1
+                && list[..ComponentOrder.Length].SequenceEqual(ComponentOrder)
+                && list[^1] == "StateMachine";
+    }
 
     public byte[] Blob()
     {
@@ -634,6 +677,7 @@ public sealed record AreaTransitionObject(int GridX, int GridY, ushort Destinati
                 case "InteractionAction": w.U8(0); break;
             }
         }
+        StateMachine?.Write(w);
         w.U8(0);            // tasks
         return w.ToArray();
     }
@@ -951,7 +995,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native fields
         w.U8(0).U8(1);
         // Animated (0x141e5afd0) reads bit0 (.ao path), then bit2 (0x04 bone attachment), then bit3 (0x08 animation id/0/speed).
-        byte animatedFlags = (byte)(AnimatedFlags | 0x01 | (Parent != 0 ? 0x04 : 0));
+        byte animatedFlags = (byte)((AnimatedFlags & ~0x04) | 0x01 | (Parent != 0 ? 0x04 : 0));
         w.U8(animatedFlags).WStr32(AnimatedObject);
         if (Parent != 0)
             w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
