@@ -32,9 +32,9 @@ public static partial class MapEssences
     const string GrabEndArt = "Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_end.ao";
 
     /// <summary>One special spell a released rare casts: its daemon effect, what it does (cold/fire/lightning resistance
-    /// pulse, chaos degen pulse, or grab), the pulse nova art, the resistance value / chaos dps / duration from the skill's
-    /// stats at the rare's level, and its repeat cooldown.</summary>
-    sealed record SpecialSpell(int Effect, string Kind, string Art, int Value, double Dps, double Duration, double Cooldown);
+    /// pulse, chaos degen pulse, or grab), the daemon variety whose action plays the pulse nova, the resistance value /
+    /// chaos dps / duration from the skill's stats at the rare's level, and its repeat cooldown.</summary>
+    sealed record SpecialSpell(int Effect, string Kind, string Daemon, int Value, double Dps, double Duration, double Cooldown);
 
     sealed class CastState
     {
@@ -87,7 +87,7 @@ public static partial class MapEssences
                 };
                 // The pulse's cast time is its repeat interval; the cooldown holds the next cast.
                 double cooldown = Math.Max(Math.Max(0, skills.CooldownMs(effect, effectLevel) / 1000.0), skills.CastMs(effect) / 1000.0);
-                list.Add(new(effect, kind, PulseArt(kind), value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
+                list.Add(new(effect, kind, daemon.Daemon, value, Get("base_chaos_damage_to_deal_per_minute") / 60.0,
                     Get("base_skill_effect_duration") / 1000.0, cooldown));
             }
         }
@@ -147,7 +147,7 @@ public static partial class MapEssences
                 Console.WriteLine($"[map-content] essence grab by 0x{monster.ObjectId:x} at ({trapAt.X}, {trapAt.Y})");
                 return;
             }
-            uint fx = SpawnEffect(conn, at, spell.Art);
+            uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
             await Task.Delay(TimeSpan.FromSeconds(0.5));
             if (!conn.Closed && !conn.LeavingArea)
             {
@@ -156,7 +156,7 @@ public static partial class MapEssences
                 else await ResDebuff(conn, at, range, spell);
             }
             await Task.Delay(TimeSpan.FromSeconds(1.5));
-            RemoveEffect(conn, fx);
+            RemoveDaemon(conn, daemon);
             Console.WriteLine($"[map-content] essence {spell.Kind} pulse by 0x{monster.ObjectId:x} at ({at.X}, {at.Y})");
         }
         catch (Exception ex)
@@ -185,6 +185,53 @@ public static partial class MapEssences
         if (id == 0) return;
         lock (conn.Monsters)
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
+    }
+
+    /// <summary>The pulse nova: the essence's daemon at the rare plays its RepeatedPulse action, so the native client
+    /// selects, scales and animates the nova (the shrine nova pattern — a standalone pulse effect object draws nothing).
+    /// The skill carries the nova's radius; the daemon is friendly, invulnerable and out of the AI, removed when the pulse
+    /// ends. The grab uses effect objects instead (its demon_grasp art is a ground trap, not a caster nova).</summary>
+    static async Task<uint> ShowPulseDaemon(ClientState conn, SpecialSpell spell, (int X, int Y) at, uint summoner)
+    {
+        var catalog = SkillsFor(conn);
+        if (Monsters.Find(spell.Daemon) is not { Supported: true } variety || catalog.ActionHash(spell.Effect) is not ushort hash) return 0;
+        ushort skillId = (ushort)(hash & 0x3fff);
+        var stats = catalog.EffectStats(spell.Effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // The pulse has no base radius stat of its own; the nova rides a hardcoded circle (the shrine ShockNova's 26).
+        int radius = SkillArea.Radius(26, Get, true);
+        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(spell.Effect) / 1000.0), radius, DamagePacket.Empty) { Spell = true };
+        foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
+        void Set(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }
+        Set("active_skill_area_of_effect_radius", radius);
+        Set("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(Get, true));
+        if (catalog.FindByRow(skillId, spell.Effect, 1, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
+        var (remote, stream, ciphers) = conn.Wire;
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)AreaLevel(conn), MonsterRarity.Normal, at.X, at.Y,
+            friendly: true, log: false, alone: false, scripted: true, ownedSkills: [skill], placement: MonsterPlacement.Established,
+            owned: (_, m) =>
+            {
+                m.NoRewards = true; m.Attack = null; m.SummonerId = summoner;
+                m.EncounterStats = new Dictionary<string, int> { ["base_cannot_be_damaged"] = 1 };
+            });
+        if (id == 0) return 0;
+        await SendWorldRecord(remote, stream, ciphers, conn, id,
+            [.. InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skillId, 0xffff, conn.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(id)],
+            $"essence pulse daemon {spell.Daemon} {spell.Kind}, radius {radius}");
+        return id;
+    }
+
+    static void RemoveDaemon(ClientState conn, uint id)
+    {
+        if (id == 0) return;
+        lock (conn.Monsters)
+            if (conn.Monsters.Remove(id, out var monster))
+            {
+                monster.Dead = true; monster.Life = 0; monster.ActionGeneration++;
+                conn.MonsterViews.Remove(id); conn.AsleepMonsters.Remove(id);
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "essence pulse daemon ends", id, monster,
+                    PlayerMinions.OutputKind.Remove, WorldId: id, RemovesObject: true));
+            }
     }
 
     static IEnumerable<ClientState> PlayersNear(ClientState conn, (int X, int Y) at, double radius) => Members(conn)
