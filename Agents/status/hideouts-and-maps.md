@@ -121,8 +121,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage and Decay, the imprisoned pack (mini monoliths
   that release the pack's magic monsters with the rare), the imprisoned monster entities at the crystals (+0x104 carries
   the monster id, so the gold name/mod/essence panel draws) and the release daemon spells (the hit-kit summons and damage
-  spells work; the resistance/chaos pulses and the Envy grab are wired as kit specials but fight the auto-attack and draw no
-  cast animation — core kit support needed, #1206);
+  spells work; the resistance/chaos pulses and the Envy grab cast as spell effect objects on their own timer alongside the
+  rare's AI, the grab a demon-grasp ground trap — visuals pending live verification, #1206);
   the 3.29 Atlas essence cluster applies (monolith count via the CoreLeagues Essence row, additional-essence and
   3-additional chances, higher tier, Amplified Energies' max-tier, the Essence Rare Chance essence-modded rare drop, the
   Remnant-of-Corruption chance and Crystal Resonance's map-boss essence inheritance with its essence drops); the

@@ -603,27 +603,28 @@ is added to the monster's mods alongside the stat mods so the essence shows on h
 is dropped from the rare's kit (`BossKits.AttackFor`), so three essences would cast nothing through it: Misery's
 `RepeatedPulseDegen` (5996) and `EssenceDaemonProximityShield` (2842), Envy's `EssenceDaemonGrab` (2929), and the
 resistance pulses `RepeatedPulseCold`/`Fire`/`Lightning` (5990/5995/5992 — Hatred/Anger/Wrath's nova damage is the *other*
-daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). `EssenceKit` keeps these as kit specials marked with an
-`EssenceSpellInfo` (MonsterAttack.EssenceSpell): the rare's own AI casts them (`BossKits.Choose`), and at the contact
-`MapEssences.EssenceSpellContact` lands the effect on the players near the rare instead of a hit. The rare's rig has no
-`RepeatedPulse`/`DominusGrab` clip, so the contact manifests the essence's daemon (whose rig does) **attached to the rare's
-root bone** (the IzaroGoddess pattern: it rides the rare, adds no blocker, friendly/invulnerable/out of AI/no bar) and plays
-its skill action — the pulse self-centred (nova around the rare), the grab aimed at the player so the hand appears there.
-The rare keeps its default attack as a ready (cooldown 0) kit entry, so it fights between the spells' cooldowns instead of
-re-casting the last spell every tick (`BossKits.Choose` falls back to `monster.Attack`). An earlier version manifested a
-standalone daemon in the rare's cell (it blocked the rare's walk) and then cast on the rare's own rig (no clip); both are
-gone. The grab is a ground trap: it appears where the player stood at the cast, and after a 1 s windup only a player still
-inside its radius is pulled to the rare — stepping out evades it. The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db,
-TargetType 4); the grab is ActiveSkill 373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its
-repeat interval (4 s), so the kit special plays a short cast (Seconds capped at 1 s) on that cooldown. The stats at level:
-resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen `base_chaos_damage_to_deal_per_minute` (4989 at 83,
-≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The resistance debuff is a refreshing player stat
-source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its `BuffVisualsKey` is 0 `invisible`, so the debuff is
-the stat alone, no icon); the chaos degen goes through `TrapDegenPerSecond` after chaos resistance with buff 100
-`monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds` / `plague_degen.epk`); the grab teleports the player to
-the rare with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`), evaded by moving out of reach
-before the contact. The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are
-not cast.
+daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). These are **not** kit specials: a non-hit special in the
+kit fights the auto-attack (`BossKits.Choose` falls back to `monster.Attack`, re-casting the last spell every tick), stalls
+the rare and desyncs its position on the client, and the rare's rig has no `RepeatedPulse`/`DominusGrab` clip so the cast
+draws no animation. Instead a periodic caster in the essence tick casts them on their own cooldown while the released rare
+lives, independent of its AI (which fights normally with its default attack and the hit/summon spells); cooldowns live on the
+instance area (`Area.Casting`) so several players' ticks cast a spell once. The visual is the client's own spell art spawned
+as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`), not a
+monster action or a daemon — an earlier standalone daemon blocked the rare's walk, and an attached daemon still drew nothing.
+The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4):
+`Metadata/Effects/Spells/pulses/icepulse|firepulse|lightningpulse|chaospulse.ao` (MiscAnimated 1011/1013/1012/1072) at the
+rare, then the debuff/degen on the players near it. The grab (ActiveSkill 373 `dominus_grab`, ActionType 203 `DominusGrab`
+0xb975) is a ground trap: the essence `demon_grasp` circle + hand
+(`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao` / `demon_grasp.ao`, MiscAnimated
+1025/1024) appear where the target stood; after a 1 s windup the grasp end (`demon_grasp_end.ao`, 1026) plays and a target
+still inside the circle is pulled to the rare — stepping out evades it. The pulse's cast time is its repeat interval (4 s).
+The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
+`base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
+resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
+`BuffVisualsKey` is 0 `invisible`, so the debuff is the stat alone, no icon); the chaos degen goes through
+`TrapDegenPerSecond` after chaos resistance with buff 100 `monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds`
+/ `plague_degen.epk`); the grab teleports with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`).
+The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are not cast.
 
 **How the replica stands (2026-11-20).** The monolith, its mini crystals, the three activations, the essence drops from
 the released rare and the rare's periodic essence spells are implemented (`MapEssences.cs`, `EssenceCorruption.cs`,
@@ -670,24 +671,25 @@ is added to the monster's mods alongside the stat mods so the essence shows on h
 is dropped from the rare's kit (`BossKits.AttackFor`), so three essences would cast nothing through it: Misery's
 `RepeatedPulseDegen` (5996) and `EssenceDaemonProximityShield` (2842), Envy's `EssenceDaemonGrab` (2929), and the
 resistance pulses `RepeatedPulseCold`/`Fire`/`Lightning` (5990/5995/5992 — Hatred/Anger/Wrath's nova damage is the *other*
-daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). `EssenceKit` keeps these as kit specials marked with an
-`EssenceSpellInfo` (MonsterAttack.EssenceSpell): the rare's own AI casts them (`BossKits.Choose`), and at the contact
-`MapEssences.EssenceSpellContact` lands the effect on the players near the rare instead of a hit. The rare's rig has no
-`RepeatedPulse`/`DominusGrab` clip, so the contact manifests the essence's daemon (whose rig does) **attached to the rare's
-root bone** (the IzaroGoddess pattern: it rides the rare, adds no blocker, friendly/invulnerable/out of AI/no bar) and plays
-its skill action — the pulse self-centred (nova around the rare), the grab aimed at the player so the hand appears there.
-The rare keeps its default attack as a ready (cooldown 0) kit entry, so it fights between the spells' cooldowns instead of
-re-casting the last spell every tick (`BossKits.Choose` falls back to `monster.Attack`). An earlier version manifested a
-standalone daemon in the rare's cell (it blocked the rare's walk) and then cast on the rare's own rig (no clip); both are
-gone. The grab is a ground trap: it appears where the player stood at the cast, and after a 1 s windup only a player still
-inside its radius is pulled to the rare — stepping out evades it. The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db,
-TargetType 4); the grab is ActiveSkill 373 `dominus_grab` (ActionType 203 `DominusGrab` 0xb975). The pulse's cast time is its
-repeat interval (4 s), so the kit special plays a short cast (Seconds capped at 1 s) on that cooldown. The stats at level:
-resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen `base_chaos_damage_to_deal_per_minute` (4989 at 83,
-≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The resistance debuff is a refreshing player stat
-source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its `BuffVisualsKey` is 0 `invisible`, so the debuff is
-the stat alone, no icon); the chaos degen goes through `TrapDegenPerSecond` after chaos resistance with buff 100
-`monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds` / `plague_degen.epk`); the grab teleports the player to
-the rare with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`), evaded by moving out of reach
-before the contact. The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are
-not cast.
+daemon effect, `EssenceArcticBreathNova` etc., which the kit keeps). These are **not** kit specials: a non-hit special in the
+kit fights the auto-attack (`BossKits.Choose` falls back to `monster.Attack`, re-casting the last spell every tick), stalls
+the rare and desyncs its position on the client, and the rare's rig has no `RepeatedPulse`/`DominusGrab` clip so the cast
+draws no animation. Instead a periodic caster in the essence tick casts them on their own cooldown while the released rare
+lives, independent of its AI (which fights normally with its default attack and the hit/summon spells); cooldowns live on the
+instance area (`Area.Casting`) so several players' ticks cast a spell once. The visual is the client's own spell art spawned
+as an **effect object** (the strongbox ground-effect pattern, broadcast via the output queue + `AnimationUpdate`), not a
+monster action or a daemon — an earlier standalone daemon blocked the rare's walk, and an attached daemon still drew nothing.
+The pulses are self-centred novas (ActiveSkill 898 `repeated_pulse`, ActionType 526 `RepeatedPulse` 0xe7db, TargetType 4):
+`Metadata/Effects/Spells/pulses/icepulse|firepulse|lightningpulse|chaospulse.ao` (MiscAnimated 1011/1013/1012/1072) at the
+rare, then the debuff/degen on the players near it. The grab (ActiveSkill 373 `dominus_grab`, ActionType 203 `DominusGrab`
+0xb975) is a ground trap: the essence `demon_grasp` circle + hand
+(`Metadata/Effects/Spells/monsters_effects/essence/demon_grasp/demon_grasp_circle.ao` / `demon_grasp.ao`, MiscAnimated
+1025/1024) appear where the target stood; after a 1 s windup the grasp end (`demon_grasp_end.ao`, 1026) plays and a target
+still inside the circle is pulled to the rare — stepping out evades it. The pulse's cast time is its repeat interval (4 s).
+The stats at level: resistance `base_<type>_damage_resistance_%` = -10 for 3000 ms; degen
+`base_chaos_damage_to_deal_per_minute` (4989 at 83, ≈83 dps before resistance) for 2500 ms; grab cast 1000 ms, no damage. The
+resistance debuff is a refreshing player stat source with `BuffDefinitions` 746 `essence_elemental_damage_taken` (its
+`BuffVisualsKey` is 0 `invisible`, so the debuff is the stat alone, no icon); the chaos degen goes through
+`TrapDegenPerSecond` after chaos resistance with buff 100 `monster_aura_essence_daemon_degen` (visual 102, `degeneration.dds`
+/ `plague_degen.epk`); the grab teleports with the gate's `0x01b7` (`InstanceProtocol.Teleport` under `ProjectileMutation`).
+The proximity shield (2842) and Desolation's boulder throw (12734, its impact 12735 is in the kit) are not cast.
