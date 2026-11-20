@@ -38,6 +38,15 @@ public sealed class IdolsModule : IModule
             request.Opening = opening with { Mods = IdolRules.With(opening.Mods, stats) };
             Console.WriteLine($"[gateway] {conn.Wire.Remote} {CharacterName(conn)}: {idols.Count} Idol(s) add {stats.Count} stat(s) to {opening.Area.Name}");
         });
+        // Faustus's gamble window has an Idols tab.
+        GameEvents.Gambles.Add(id, window =>
+        {
+            if (!IdolRules.GamblesIdols(window.Npc)) return;
+            var conn = window.Conn;
+            foreach (var (shown, idol, gold) in IdolRules.GambleOffers(ItemsFor(conn), window.CharacterLevel, window.PriceLevel))
+                window.Offers.Add(new(shown, gold,
+                    random => IdolRules.Gamble(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), idol, window.CharacterLevel, random), "Idols"));
+        });
         if (choices.DropRate > 0)
             GameEvents.Drops.Add(id, roll =>
             {

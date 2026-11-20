@@ -111,4 +111,74 @@ public static class IdolRules
         if (pool.Count == 0 || uniques.Create(pool[random.Next(pool.Count)], random) is not { } made) return null;
         return made with { ItemLevel = (byte)Math.Clamp(level, 1, 100), Identified = false };
     }
+
+    // ---- Gambling ------------------------------------------------------------------------------------------------------
+
+    /// <summary>Faustus, in Kingsmarch and in the hideout: the Idols are gambled at the Kingsmarch black market only.</summary>
+    public static bool GamblesIdols(string npc) => npc.StartsWith("Metadata/NPC/League/Kalguur/VillageFaustus", StringComparison.Ordinal);
+
+    // The client's "Random … Idol" rows (HiddenItem, BaseItemTypes 5236 to 5241) and the Idol each gives.
+    static readonly (string Shown, string Idol)[] GambleBases =
+    [
+        ("Metadata/Items/Relics/AtlasRelic1x1Gamble", "Metadata/Items/Relics/AtlasRelic1x1"),
+        ("Metadata/Items/Relics/AtlasRelic1x2Gamble", "Metadata/Items/Relics/AtlasRelic1x2"),
+        ("Metadata/Items/Relics/AtlasRelic2x1Gamble", "Metadata/Items/Relics/AtlasRelic2x1"),
+        ("Metadata/Items/Relics/AtlasRelic1x3Gamble", "Metadata/Items/Relics/AtlasRelic1x3"),
+        ("Metadata/Items/Relics/AtlasRelic3x1Gamble", "Metadata/Items/Relics/AtlasRelic3x1"),
+        ("Metadata/Items/Relics/AtlasRelic2x2Gamble", "Metadata/Items/Relics/AtlasRelic2x2"),
+    ];
+
+    // GoldPriceMultiFromTag: the client's gold value multiplier of each Idol size (atlas_relic_small 1.2 to
+    // atlas_relic_very_large 2.5), by Tags Id.
+    static readonly Lazy<Dictionary<string, double>> GoldMultipliers = new(() =>
+    {
+        var result = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (!ClientTables.Has("GoldPriceMultiFromTag") || !ClientTables.Has("Tags")) return result;
+        var tags = ClientTables.Table("Tags");
+        foreach (var row in ClientTables.Table("GoldPriceMultiFromTag"))
+            if (row.IntOrNull("Tag") is int tag && tags.Row(tag)?.Text("Id") is { } id) result[id] = row.Real("Multiplier");
+        return result;
+    });
+
+    /// <summary>
+    /// The gold price of gambling for an Idol. GGG's is not published: ours is the 3.29 ring price at the window's
+    /// pricing level (poewiki's formula, 90.74 × 1.047^L, L from 4 to 83) times the Idol size's GoldPriceMultiFromTag
+    /// multiplier.
+    /// </summary>
+    public static uint GamblePrice(ItemCatalog.BaseType idol, int priceLevel)
+    {
+        double multiplier = idol.Tags.Select(t => GoldMultipliers.Value.GetValueOrDefault(t)).DefaultIfEmpty(0).Max();
+        double ring = 90.74 * Math.Pow(1.047, Math.Clamp(priceLevel, 4, 83));
+        return (uint)Math.Max(1, Math.Truncate(ring * (multiplier > 0 ? multiplier : 1)));
+    }
+
+    /// <summary>The Idol offers of a gamble window: the sizes whose drop level the character has reached, priced at
+    /// <paramref name="priceLevel"/> (defaulting to <paramref name="characterLevel"/>).</summary>
+    public static IEnumerable<(ItemCatalog.BaseType Shown, ItemCatalog.BaseType Idol, uint Gold)> GambleOffers(
+        ItemCatalog catalog, int characterLevel, int? priceLevel = null)
+    {
+        int pricing = Math.Max(characterLevel, priceLevel ?? characterLevel);
+        foreach (var (shown, idol) in GambleBases)
+            if (catalog.Find(shown) is { Supported: true } s && s.Id == shown && catalog.Find(idol) is { Supported: true } i && i.Id == idol
+                && i.DropLevel <= characterLevel)
+                yield return (s, i, GamblePrice(i, pricing));
+    }
+
+    /// <summary>
+    /// A gambled Idol of this base, identified: one in <see cref="UniqueShare"/> a unique of the base when it has one, else
+    /// two in three rare (gambling gives rares more often than drops do) and the rest magic, at the character's level
+    /// (68 at least, 83 at most) plus 0 to 2.
+    /// </summary>
+    public static Item? Gamble(ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques, ItemCatalog.BaseType idol, int characterLevel, Random random)
+    {
+        int itemLevel = Math.Clamp(characterLevel, idol.DropLevel, 83) + random.Next(3);
+        if (random.Next(UniqueShare) == 0)
+        {
+            var pool = uniques.All.Where(d => d.BaseTypeId == idol.Id).ToList();
+            if (pool.Count > 0 && uniques.Create(pool[random.Next(pool.Count)], random) is { } made)
+                return made with { ItemLevel = (byte)itemLevel, Identified = true };
+        }
+        var item = ItemCatalog.Create(idol, random: random) with { ItemLevel = (byte)itemLevel };
+        return rolls.Roll(item, random.Next(3) == 0 ? ItemRarity.Magic : ItemRarity.Rare, random) with { Identified = true };
+    }
 }
