@@ -42,10 +42,10 @@ ports and never starts a client.
 
 **A whole idle stack**: `scripts/perf/stack.ps1 [-Configuration Release]` starts the built Auth, Patch and Gateway on
 PortBase+1 â€¦ +6, and after they are ready records each one's private bytes (its commit), working set and CPU time over
-an idle minute (`-IdleSeconds`). `scripts/perf/watch.ps1` does the same for a Gateway under `dotnet watch` (as
-`live.ps1` runs it by default) and lists every process of that tree. Neither binds the default ports or starts a client.
-Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000, watch.ps1
-23010, startup.ps1 23020, which do not overlap), and leaves the shell's location and environment as they were.
+an idle minute (`-IdleSeconds`).
+It does not bind the default ports or start a client.
+Each perf script takes `-PortBase`, a block of 10 ports of the worktree's own (defaults: stack.ps1 23000,
+startup.ps1 23020, which do not overlap), and leaves the shell's location and environment as they were.
 
 **In-process scenarios**: `scripts/perf/PerfBench`, a console tool (not a test: it waits on real time) that reaches the
 Gateway's and the game module's internals:
@@ -168,7 +168,7 @@ single-player cost counts eight times. Measured against `contrib/server-perf` (c
 | Idle stack, private (stack.ps1: Auth / Patch / Gateway) | 483 MB (33 / 19 / 431) | 113-115 MB (11 / 18 / 84-86) |
 | Idle stack, working set | 507 MB | 203-205 MB |
 | Idle stack, CPU | 47-78 ms per minute | 47-78 ms per minute (timer noise) |
-| `dotnet watch` beside the Gateway (watch.ps1, before any edit) | +223 MB private, +444 MB working set, +235 ms CPU per minute | none with `live.ps1 -Release` or `-NoHotReload` |
+| `dotnet watch` beside the Gateway (watch.ps1, before any edit) | +223 MB private, +444 MB working set, +235 ms CPU per minute | none: `live.ps1` no longer runs it (the servers restart, modules hot reload) |
 | Oodle worker (Node, ooz-wasm) after a generation | 78 MB private, for the Gateway's life | stops a minute after the last generation (+55 ms on the next one) |
 | One player (test host): startup / town / combat area / boss area, GC heap | 527 / 718 / 809 / 830 MB | 187 / 273 / 361 / 379 MB |
 | â€¦ the same, private bytes | 568 / 761 / 855 / 877 MB | 223 / 311 / 401 / 412 MB |
@@ -197,7 +197,7 @@ What changed:
 - **Level generation's files** come from `data/game-files.zip` (`GamePack`), extracted once, not from the GGPK: no
   bundle decoder or decompressed chunks stay in memory. Nothing is shared between stacks, whose code and tables may
   differ.
-- **`live.ps1 -Release`** runs the Release builds without `dotnet watch`; the monster AI is 1.6-2.3x faster there, the
+- **`live.ps1 -Release`** runs the Release builds; the monster AI is 1.6-2.3x faster there, the
   memory the same (the `single` scenario within 1 MB).
 
 Tried and dropped: `DOTNET_gcConcurrent=0`, `DOTNET_TieredPGO=0`, `DOTNET_GCConserveMemory=9`, `DOTNET_GCHighMemPercent`,
@@ -208,10 +208,6 @@ allocation, not JIT code quality).
 
 ## Recommendations (tooling decisions, not made here)
 
-- **Agent stacks without hot reload.** `live.ps1` runs Debug builds under `dotnet watch` by default (+223 MB and
-  ~0.25 s CPU per minute per stack before the first edit, more after one). An agent's stack that does not need hot
-  reload can start with `-Release` (or `-NoHotReload`); making that the default for agent sessions is the launcher's
-  decision.
 - **One Oodle decoder per machine** was not done: worktrees may run different code and tables, so a shared decoder would
   have to be stateless and version-agnostic. The per-stack worker now runs only around generations instead.
 

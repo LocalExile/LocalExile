@@ -52,22 +52,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   its `crafter` mode with `/item_give` (an item crafter's bases, mod pools and English stat descriptions, and the item
   it composed: [item-crafter.md](../docs/dev/item-crafter.md)), its `labyrinth [yyyy-mm-dd | seed]` mode (a day's four
   Labyrinths: rooms with their map positions, connections and secrets, `LabyrinthDay.Listing`), and the dev host's `accounts`.
-  Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
+  Checked on a real setup: `-Stop` ending the servers, every argument kind's values, and
   the account list from the real save database.
   Code: `scripts/dev/live.ps1`, `Modules/Core/Game/Player/Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 10, [10](../docs/protocol/10-chat-and-commands.md) §4,
   [dev-server.md](../docs/dev-server.md).
-- Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
-  which applies saved code edits to the running server; `HotReload.cs` logs each applied edit and tells players in
-  chat when a save starts a reload, when it is applied, when it fails to compile (first three errors, from
-  `dotnet watch`'s output), when it changes nothing, and when the edit needs a restart.
-  Live, with the client in game and no disconnect: Gateway edits applied in 9-18 s (the Burning Arrow fix among
-  them), a Core edit in 0.08 s, two files saved together as one reload, a broken save kept the old code and listed its
-  errors (5 shown as 3 + "2 more"), and the fix applied.
-  A removed member restarted the Gateway as expected; switching to and from `-NoHotReload` stops a Gateway that is
-  still loading.
-  Code: `scripts/dev/live.ps1`, `HotReload.cs`.
-  Docs: [GettingStarted](../GettingStarted.md) step 10 (hot reload), [live testing](../docs/dev/live-testing.md).
+- No compiling in game, and hot reload for modules and mods only: every build precompiles the servers, modules and mods
+  to machine code (crossgen2 after the compiler, Debug and Release alike, `Directory.Build.targets`), and each module or
+  mod version loads into a context that keeps it (precompiled code is used only there) with every method compiled
+  before its `Load`. The servers restart instead of hot reloading (`live.ps1` no longer runs `dotnet watch`).
+  Bench (200 monsters): run-time compiles on an area entry 10,966 to 1,851 and on a first Righteous Fire 1,500 to 307;
+  what is left is the framework's generic code used with framework types only. A reloaded version stays in memory until
+  a restart.
+  Code: `Directory.Build.targets`, `ModLoadContext.cs`, `scripts/dev/live.ps1`.
+  Docs: [live testing](../docs/dev/live-testing.md) ("hot reload").
 - Client control distinguishes explicit password login from a remembered native form submission.
   Password replacement clears the outgoing saved-credential flag and retains the Remember Password preference.
   A remembered-form regression reaches character selection through normal Auth; saved-login preservation is mocked.
@@ -100,7 +98,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   the Strand matches in tile hash, both grids, cell heights, doodads and transitions.
   Code: `scripts/dev/platform-linux.ps1`, `scripts/walkmaps/proton.py`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
-  collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
+  load context of its own per version and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
   applies that file when a launcher rewrites it).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
@@ -127,13 +125,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
-  dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
-  context being freed.
-  Live (2026-11-12, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules and
-  freed every old one, seven times in a row: at rest, in a fight, and after a death and a new entry into the same
+  dependency arriving later and reloading its dependent, a failed load leaving no hook, and the watcher.
+  Live (2026-11-12, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules
+  seven times in a row: at rest, in a fight, and after a death and a new entry into the same
   instance; movement went on and a buried monster rose for the new rules afterwards.
-  Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
-  remain free, and collected contexts release their copied files.
+  Assemblies load from a private temporary disk copy; original build outputs remain free, and a later start removes
+  the copies.
   Unit-tested: the copies' cleanup (`ModCopyTests`), user settings over the declared defaults (`ModSettingsTests`), a
   user's module changes over the leagues' lists, and a module lifetime's stop releasing what it owns (`ModuleLifetimeTests`).
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).

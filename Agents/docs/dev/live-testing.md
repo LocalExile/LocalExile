@@ -91,7 +91,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   the Gateway does in 0x27). The levelgen server (`lg.ps1`) needs no port: its named pipe is per checkout.
 - **What is stopped.** `live.ps1` stops only this checkout's processes: servers whose command line, executable or cmd
   wrapper names a path inside the checkout (it starts them with absolute paths; a worktree nested in it under
-  `.claude\worktrees\` is another checkout), with everything they started (a watched Gateway's `dotnet watch` tree, but
+  `.claude\worktrees\` is another checkout), with everything they started (an older run's `dotnet watch` tree, but
   not the MSBuild nodes and compiler server its builds start, which every build shares); clients started from this
   checkout's `Client\` path (each checkout reaches the shared client through its own junction, so the path it was
   started by tells checkouts apart; Windows' image name resolves the junction) and, among those, the session's by the
@@ -176,46 +176,29 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   a Gateway about 0.75 GB right after start, Auth and Patch under 0.05 GB. Check the free commit
   (`(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory`) before opening another client.
 
-## Changing the Gateway while it runs (hot reload)
+## Changing code while the stack runs (hot reload)
 
-`live.ps1` runs the Gateway under `dotnet watch` unless `-NoHotReload` is given
-([GettingStarted](../../GettingStarted.md) step 10).
+The servers (Gateway, Auth, Patch) have no hot reload: an edit to `src/` is a rebuild and restart,
+`live.ps1 -Only Gateway` (the client drops to the login screen; Auth keeps the session). Modules and mods do hot reload.
 These are suggestions that have worked well, for people and agents alike; use your judgment.
 
-- **Try saving before restarting.** Most behaviour edits (packet handlers, damage, drops, AI, chat commands) apply to
-  the running Gateway in about 15 s, and the player stays in game. A restart costs the player a login and the walk
-  back to what they were testing.
-- **Check that it applied.** `logs\live-gateway.log` gets `[gateway] hot reload: <file> saved` and then
-  `[gateway] hot reload #n applied in x.yz seconds`; players see the same two lines in chat.
-  `dotnet watch`'s own lines (`File updated`, `changes applied`, compile errors) are in `logs\live-gateway.err`.
-- **A compile error leaves the old code running.** `dotnet watch` reports it in `live-gateway.err` and waits for the
-  next save; nothing restarts. Players read "Hot-reload failed: n compile error(s)" in chat with the first three
-  errors (file, line, code). Fixing it and saving again is usually all that is needed; when the fix brings the code
-  back to what is running, `dotnet watch` applies nothing and players read "no code changes to apply".
-- **Group a multi-file change.** Each save that compiles starts a reload, so a half-done change across several files
-  can apply in between. Writing the files in quick succession (or in one tool call) keeps it to one reload.
-- **Know what needs more than a save.** Static fields and catalogs (`Items`, `Skills`, `Lazy<>` caches) keep the values
-  they were built with; new static fields start empty, not with their initializer. Per-connection setup (the chat
-  command table, character preparation) runs again on the next area change, which is a new connection. A loop that is
-  already running keeps its old body until it returns. For these, an area change or `live.ps1 -Only Gateway` helps.
-- **Some edits restart on their own.** A changed method signature or a removed member cannot be applied;
-  `dotnet watch` prints `Restart is needed to apply the changes`, rebuilds and restarts the Gateway, and the player
-  is back at the login screen (the Gateway tries to say so in chat first). It can be kind to tell the person playing
-  before saving such an edit. `dotnet watch` does not build the modules, so the restarted Gateway builds those older
-  than itself before it loads them (`StaleModules`); an older module would otherwise fail only when it runs, with a
-  `MissingFieldException` or `MissingMethodException`. A module that does not build is named in the log. `live.ps1`
-  builds all modules and mods first, in one parallel build, and records it in the Gateway's `bin\` (`modules-checked`),
-  so that start does not build them again.
 - **A module's edit needs only its own build.** `dotnet build <Module>.csproj -p:BuildProjectReferences=false` reloads
-  that module and leaves the Gateway running. It compiles against the Gateway's DLL on disk, so a member added only by a
-  hot reload is not visible to it until a restart.
-- **A reload wave costs one collection.** Forced collections stop every player's tick, so `UnloadCollector` runs one
-  pass after the last unload or load of a wave: rounds half a second apart for as long as they free load contexts (six
-  for a reload of the game module, whose own context goes last). While the game module reloads its old rules keep running, until the new
-  ones replace them; the other modules' hooks are absent between their unload and load.
-- **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
+  that module (and those that depend on it) and leaves the Gateway running; the player stays in game. Chat and
+  `live-gateway.log` say `[modules] loaded <id> …`, or why the new build did not load (the old one keeps running).
+- **Everything is compiled before it runs.** Every build precompiles the servers, the modules and mods to machine code
+  (crossgen2, `Directory.Build.targets`); what is left to compile on a first use in game is the framework's generic code
+  used with framework types only (`Dictionary<byte, uint>`, LINQ over tuples), which the runtime looks for only in the
+  framework's own images. A loaded module or mod also has
+  every method prepared before its `Load` runs (`[modules] <id>: n methods compiled in x ms`). A cold build of
+  everything takes about two minutes; a module's own build seconds.
+- **Reloaded versions stay in memory.** The runtime only uses precompiled code in a load context that is never
+  unloaded, so each version of a module stays loaded, inert, until the Gateway restarts. A long session of reloads of
+  the game module grows the Gateway's memory; a restart frees it.
+- **State starts over.** A reload starts the module's state over; static fields and catalogs of the Gateway keep theirs.
+  While the game module reloads its old rules keep running until the new ones replace them; the other modules' hooks
+  are absent between their unload and load.
+- **Tests while it runs.** The running Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
-- **Auth and Patch are not watched.** Changes there still need `live.ps1 -Only Auth` or `-Only Patch`.
 
 ## What a good run looks like
 
