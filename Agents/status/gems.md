@@ -73,11 +73,12 @@ Nothing yet.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
-  Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
+  Ordinary multi-trap and multi-mine throws scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
-  Locus mines inside three metres of their owner remain armed. Detonate Mines checks the same distance before starting
+  Locus throws spread their mines across a 100° arc at a minimum radius of 20 cells. Templars release the same
+  cells in reverse order. Terrain limits each landing. Locus mines inside three metres of their owner remain armed. Detonate Mines checks the same distance before starting
   its cooldown. Ordinary mines can still detonate under the player.
-  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
+  Flight and arming times, other multi-throw patterns and the charges' critical bonuses remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).

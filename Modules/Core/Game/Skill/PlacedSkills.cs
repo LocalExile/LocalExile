@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -131,7 +132,7 @@ public static partial class Game
         return total;
     }
 
-    // Where each trap or mine of one use lands. One lands on the aim. Several scatter at random around it: within
+    // Ordinary trap and mine landings. One lands on the aim. Several scatter at random around it: within
     // throw_traps_in_circle_radius when the support gives one (Cluster Traps, Swift Assembly), otherwise (Multiple
     // Traps, Minefield) within a small radius that grows with their number, 4 cells and 2 more for each. They cluster
     // near the aim with a few outliers: the distance is the radius times a uniform roll to the power 1.5, so about
@@ -251,6 +252,13 @@ public static partial class Game
                 int circle = Get("throw_traps_in_circle_radius");
                 int limit = PlacedSkillLimit(conn, gem, admission.Mine);
                 if (count <= 0 || limit <= 0) return null;
+                LocusMineArc? arc = null;
+                if (admission.Mine && count > 1 && Get("support_locus_mine_throw_mines_in_an_arc") != 0)
+                {
+                    from = conn.Walk.Position(AreaTime(conn));
+                    bool reverse = SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId == (int)CharacterClass.Templar;
+                    arc = new(from, aim, count, reverse);
+                }
                 var context = ReservationContext(conn, admission.Skill);
                 var reserve = admission.Mine ? SupportedReservation(conn, admission.Skill) : null;
                 var offense = CapturePlacedDamage(conn, admission.Skill, gem);
@@ -279,9 +287,8 @@ public static partial class Game
                 bool committed = false;
                 for (int i = 0; i < count; i++)
                 {
-                    // Several from one use scatter around the aim; one that would land off the walkable ground lands on it.
-                    var point = PlacedThrowPoint(aim, count, circle, Random.Shared);
-                    if (!conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
+                    var point = arc?.Landing(i, conn.Layout) ?? PlacedThrowPoint(aim, count, circle, Random.Shared);
+                    if (arc is null && !conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
                     uint id = conn.TakeObjectId();
                     double land = now + flight;
                     var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, point, admission.Mine, land + .5,

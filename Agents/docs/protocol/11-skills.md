@@ -2955,6 +2955,12 @@ A trap or mine removed in the packet that starts its action vanishes without sho
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues eligible mines in arming order. The first goes off at once, each later one
 `base_mine_detonation_time_ms` (250) after the one before, at 10% more detonation speed per mine already in the sequence.
+The 3.29.3c throw action (`0x141963f10`) reads `support_locus_mine_throw_mines_in_an_arc` for a multi-mine use.
+It spreads the cells evenly across 100° around the throw direction, at the aim distance or 20 cells, whichever is greater.
+The direction uses the centre of the displacement cell. PlayerClass base ID 5 (Templar) reverses the release order.
+For each mine it rounds the endpoint and projects it onto the segment from the thrower to the cursor.
+A sideways sweep keeps the last walkable cell visible from the thrower. If none qualifies, a second sweep starts
+at the thrower. Both stop at a projectile-blocking cell. A single mine keeps the ordinary aimed cell.
 Locus Mine Support stores `support_locus_mine_cannot_detonate_mines_within_X_units = 30` on its mines (3.29.3c).
 The 3.29.3c gem text bars detonation within three metres of the owner. The Gateway includes the boundary in this radius
 and uses the owner's current cell for the Actor availability bit, admission and detonation. A mine that is too close
