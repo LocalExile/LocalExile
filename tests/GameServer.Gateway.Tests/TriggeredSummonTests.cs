@@ -113,6 +113,59 @@ public sealed class TriggeredSummonTests
             Assert.Equal(3, f.Conn.Summons.Fighters.Count); Assert.Equal(action, f.Conn.ActionCount);
         }
     }
+
+    [Fact]
+    public async Task Desecrate_creates_corpses_with_nonzero_wire_life_then_zeroes_them()
+    {
+        using var f = new Fixture();
+        ushort source = f.Equip(("Desecrate", 20)).First();
+        var wire = new ConnectionCiphers(new byte[64], false);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, wire)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            Assert.True(await Game.Desecrate("test", f.Stream, wire, f.Conn, source, (100, 100), () => true, triggered: true));
+            Assert.Equal(5, f.Conn.Summons.Corpses.Count);
+            foreach (uint id in f.Conn.Summons.Corpses)
+            {
+                var corpse = f.Conn.Monsters[id];
+                var origin = f.Conn.Instance.World.MonsterOrigins[id];
+                Assert.True(corpse.Dead);
+                Assert.Equal(0u, corpse.Life);
+                Assert.Equal(1u, origin.Object.Life);
+                Assert.Equal(0u, f.Conn.MonsterViews[id].Life);
+                byte[] expected =
+                [
+                    .. InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob()),
+                    .. InstanceProtocol.EnterWakeZone(id),
+                    .. InstanceProtocol.LifeUpdate(id, 0),
+                ];
+                Assert.Contains(packets, p => p.SequenceEqual(expected));
+            }
+
+            // Guard in SpawnMonster: an owned spawn with damagedLife: 0 still puts life 1 in 0x02bb and zeroes it after.
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            uint guarded = await Game.SpawnMonster("test", f.Stream, wire, f.Conn, zombie, 1, MonsterRarity.Normal,
+                100, 100, damagedLife: 0, mods: MonsterModSet.None, unrisen: false,
+                owned: (_, m) => { m.Dead = true; m.Life = 0; m.NoRewards = true; });
+            Assert.NotEqual(0u, guarded);
+            var guardedOrigin = f.Conn.Instance.World.MonsterOrigins[guarded];
+            Assert.Equal(1u, guardedOrigin.Object.Life);
+            Assert.Equal(0u, f.Conn.MonsterViews[guarded].Life);
+            byte[] guardedExpected =
+            [
+                .. InstanceEntities.CreateObject(guarded, guardedOrigin.Type, guardedOrigin.Object.Blob()),
+                .. InstanceProtocol.EnterWakeZone(guarded),
+                .. InstanceProtocol.LifeUpdate(guarded, 0),
+            ];
+            Assert.Contains(packets, p => p.SequenceEqual(guardedExpected));
+        }
+        finally
+        {
+            Program.Outgoing = outgoing;
+        }
+    }
     internal sealed class Fixture : IDisposable
     {
         readonly string save = Path.Combine(Path.GetTempPath(), $"animated-admission-{Guid.NewGuid():N}.db");
