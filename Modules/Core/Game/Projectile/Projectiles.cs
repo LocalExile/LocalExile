@@ -603,7 +603,8 @@ public static partial class Game
             // ImpactAnimationIds: Fireball's fireball_explode), as a monster's does. Without one the object was only
             // removed, so a triggered, totem, trap or mine Fireball showed no explosion, while the client plays it for
             // its own cast (live 2026-11-17).
-            if (presentation.ImpactClip is null && !presentation.StayOnImpact && p.Use.Payload is ProjectileOffense
+            if (value.Kind == ProjectileEventKind.End && presentation.ImpactClip is null && !presentation.StayOnImpact
+                && p.Use.Payload is ProjectileOffense
                 && SkillsFor(Conn).Clips(p.Profile.Id)?.Impact is { } rigImpact)
                 presentation = presentation with
                 {

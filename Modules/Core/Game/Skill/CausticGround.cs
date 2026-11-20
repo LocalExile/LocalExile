@@ -29,6 +29,8 @@ public sealed record GroundArt(string[] Pieces, int PieceRadius)
 public static partial class Game
 {
     // The stretch of time a monster has already taken caustic ground damage for, and the fraction carried to its next tick.
+    // shortcut: the ground that ticks first charges the stretch, not the strongest one (a mirage's or a totem's ground
+    // under the player's); keep the highest rate per stretch if such overlaps matter.
     sealed class CausticCover
     {
         public long Until;
@@ -76,7 +78,7 @@ public static partial class Game
             double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
             if (duration <= 0) return;
             double dps = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player).Suppressed
-                ? 0 : ChaosGroundDps(Get, Own, null);
+                ? 0 : ChaosGroundDps(Get, Own, "caustic_arrow_damage_+%") * (shot.Mirage ? MirageDamageFactor(own) : 1);
             int worn = SkillCosmeticStat(Conn, shot.Gem, "ground_caustic_art_variation");
             PlaceCausticGround(value.Position, SkillArea.Radius(20, Get, false), duration, dps,
                 (worn > 0 ? GroundArt.Of("CausticCloud", worn) : null) ?? GroundArt.Of("CausticCloud", CausticArrowGroundVariation));

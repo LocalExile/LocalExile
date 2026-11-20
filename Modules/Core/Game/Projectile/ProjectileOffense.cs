@@ -74,6 +74,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }
     public Game.SupportedGem? MirageSource { get; init; }
+    /// <summary>A Mirage Archer's shot: damage it deals later (Caustic Arrow's ground) takes the mirage's less damage.</summary>
+    public bool Mirage { get; init; }
     /// <summary>The client spawns this use's primary projectiles itself (its own skill use), so the server sends no object
     /// for them; continuation children still get one.</summary>
     public bool ClientPredicted { get; init; }
