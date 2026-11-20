@@ -72,6 +72,8 @@ public sealed partial class DeepwaterModule : IModule
         /// <summary>When the deck next checks whether this player became its map owner (DeepwaterHub.TickDeck).</summary>
         public double NextOwnerCheck;
         public Func<Task>? Confirm;
+        /// <summary>True while this connection is reloading the same encounter instance in place (e.g., choosing a Bloodline).</summary>
+        public bool SameInstanceReload;
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
@@ -206,7 +208,14 @@ public sealed partial class DeepwaterModule : IModule
             DeepwaterBuffs.Forget(conn);
             DeepwaterUpgrades.ForgetAdrenaline(conn);
             DeepwaterLanterns.ForgetAuto(conn);
-            // Leaving a run any way but the Bathysphere ends it as a failure.
+            var state = _states.GetOrCreateValue(PlayerOf(conn));
+            if (conn.PendingTransfer is { New: false } transfer
+                && transfer.Area == conn.Layout.Hash
+                && (transfer.Instance == conn.InstanceNumber || transfer.Instance == 0))
+                state.SameInstanceReload = true;
+            // Leaving a run any way but the Bathysphere ends it as a failure, except a same-instance reload (e.g., choosing a Bloodline).
+            if (state.SameInstanceReload && conn.LeavingArea) return;
+            state.SameInstanceReload = false;
             if (RunOf(conn) is { Phase: not DeepwaterRun.RunPhase.Ended }) await RunFailed(module, conn, $"left ({reason})");
         });
         // Inventory 113 takes only Dredge items, through an open capsule window; a Dredge item goes nowhere else but the
