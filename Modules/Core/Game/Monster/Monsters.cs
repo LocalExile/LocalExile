@@ -383,6 +383,8 @@ public static partial class Game
             : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
         if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
+        bool waitingForBanditChoice = !friendly && BanditChoices.In(conn) is { } bandit
+            && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(conn, bandit);
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? variety.StateMachine;
         uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
@@ -391,6 +393,7 @@ public static partial class Game
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(conn, variety),
+            HasDialogue = waitingForBanditChoice,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
@@ -503,7 +506,7 @@ public static partial class Game
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
                 // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
                 LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Yugul.Phases(conn, variety) ?? Arakaali.Phases(conn, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
-                EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
+                EntranceGrace = waitingForBanditChoice || !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             };
             MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);
@@ -850,8 +853,16 @@ public static partial class Game
             // Entry protection: hostile monsters neither chase nor swing while the player stands protected on the arrival cell.
             bool protectedEntry = InGracePeriod(conn);
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
+            var bandit = BanditChoices.In(conn);
+            bool banditHeld = bandit is not null && BanditChoices.Held(conn, bandit);
             foreach (var (id, m) in conn.Monsters)
             {
+                if (bandit is not null && m.Variety?.Id == bandit.Variety && m.Hostile)
+                {
+                    m.EntranceGrace = banditHeld && !m.Aggro
+                        && conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin) && origin.Object.HasDialogue;
+                    if (m.EntranceGrace) continue;
+                }
                 // Out of the wake zone the client's copy stands frozen (07 §3); the server's stands too (KeepWakeZone
                 // ended its walk) and gets no order until it is back, or the return's 0x128 would put the copy wherever
                 // the estimate walked meanwhile (live 2026-11-03: 162 cells, in one jump).
