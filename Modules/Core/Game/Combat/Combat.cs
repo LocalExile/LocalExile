@@ -2275,6 +2275,8 @@ public static partial class Game
         // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
         // (GroundSlamWave); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
+        int frostboltCap = ring ? Stat("ice_nova_number_of_frost_bolts_to_cast_on") : 0;
+        double frostboltMore = 1;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
@@ -2291,14 +2293,33 @@ public static partial class Game
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
             (int X, int Y) end = fissure ? VolcanicFissureSweep.End(conn.Layout, from, to, radius) : default;
             double reachLimit = wave ? waveLength : fissure ? Dist(from, end) : radius;
-            var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
+            // Ice Nova of Frostbolts expands from up to N active player Frostbolt projectiles near the aimed point,
+            // with its native damage multiplier, instead of only expanding once around the caster.
+            List<(int X, int Y)> centres = [centre];
+            if (frostboltCap > 0)
+            {
+                var frostbolts = ProjectilesFor(remote, stream, ciphers, conn).Runtime.Projectiles
+                    .Where(p => p.Use.Owner.Id == PlayerId
+                        && p.Profile.Id.Contains("FrostBolt", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => (X: (int)Math.Round(p.Position.X), Y: (int)Math.Round(p.Position.Y)))
+                    .Where(p => Dist(to, p) <= Math.Max(60, radius + 30))
+                    .OrderBy(p => Dist(to, p))
+                    .Take(frostboltCap)
+                    .ToList();
+                if (frostbolts.Count > 0)
+                {
+                    centres = frostbolts;
+                    frostboltMore = Math.Max(0, 1 + Stat("ice_nova_damage_when_cast_on_frostbolt_+%_final") / 100.0);
+                }
+            }
+            var found = centres.SelectMany(c => conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: fissure
-                    ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, centre)))
+                    ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
                     && e.Distance <= reachLimit
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
-                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
+                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))))
                 .ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
@@ -2486,6 +2507,7 @@ public static partial class Game
                         };
                     }
                     var contactHit = profile.Hit;
+                    if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     if (waveCloseDamage != 0 && victim < reach.Length)
                         contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
