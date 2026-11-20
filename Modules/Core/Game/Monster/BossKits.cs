@@ -127,13 +127,26 @@ public static class BossKits
     public const int PietyBeamEffect = 5003;
 
     /// <summary>Avarius and Innocence (<c>transitionable_num_states = 3</c>) must start in state 1, not their final state 3:
-    /// the client's <c>AvariusSuperProjectile</c> admission check (0x141a3775a) refuses to run when Transitionable is 3.</summary>
+    /// the client's <c>AvariusSuperProjectile</c> admission check (0x141a3775a) refuses to run when Transitionable is 3.
+    /// Amarissa and Ambrosia (<c>SeaWitchBossDaughter.ot</c>) have <c>Targetable = false</c> until state 2, and Merveil
+    /// Form 1 starts in state 1 so stepping 1 → 2 on aggro triggers her native <c>MerveilStartFight</c> dialogue.</summary>
     public static byte StartState(MonsterCatalog.Variety variety, byte otherwise) =>
         variety.Id is "Metadata/Monsters/AvariusCasticus/AvariusCasticus"
             or "Metadata/Monsters/AvariusCasticus/AvariusCasticusDivine"
             or "Metadata/Monsters/AvariusCasticus/AvariusCasticusMap"
             or "Metadata/Monsters/AvariusCasticus/AvariusCasticusDivineMap"
-            ? (byte)1 : otherwise;
+            or "Metadata/Monsters/seawitchillusion/BossMerveil"
+            ? (byte)1
+        : variety.Id is "Metadata/Monsters/Seawitch/SeaWitchBossSpark"
+            or "Metadata/Monsters/Seawitch/SeaWitchBossFirestorm"
+            ? (byte)2
+        : otherwise;
+
+    /// <summary>Shared StateMachine overrides for kit bosses at spawn: Brutus's <c>brute.ot</c> gates his chain-hook
+    /// dialogue (<c>BrutusChainRandom</c>) behind <c>dialogue_lines == 1</c>.</summary>
+    public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
+        variety.Id == "Metadata/Monsters/Brute/BossBrute"
+            ? variety.StateMachine?.Set("dialogue_lines", 1) : null;
 
     /// <summary>The granted effect row a boss's kit entry came from for <paramref name="attack"/>, or −1.</summary>
     public static int EffectOf(SpawnedMonster monster, MonsterAttack attack)
@@ -201,6 +214,8 @@ public static class BossKits
                 ? Math.Min(Math.Max(variety.AttackRange, variety.AggroRange), variety.AttackRange * (1 + distPct / 100d))
                 : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
+        if (projectile is not null && !spell && reach < 45)
+            reach = Math.Max(reach, Math.Min(Math.Max(variety.AggroRange, 45), 45));
         var summon = catalog.MonsterSummon(effect, actorLevel);
         bool dualWielding = variety.Weapons.Any(l => l.Slot == 1 && l.Stance is not (9 or 10));
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)

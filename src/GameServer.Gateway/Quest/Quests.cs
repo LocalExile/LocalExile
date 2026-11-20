@@ -171,6 +171,9 @@ public static partial class Quests
     /// then. Using it is a <see cref="UsedRule"/>.</summary>
     public sealed record ObjectRule(string Area, string ObjectType, string? TransitionedBy) : Rule
     {
+        /// <summary>Optional flag that returns a transitioned object back to state 1 once set (Prisoner's Gate's
+        /// SpikeBlockage closes on <c>a1q9-RoadBlocked</c> and reopens on <c>a1q9-RoadOpened</c>).</summary>
+        public string? UntransitionedBy { get; init; }
         /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e65ae0) stops at
         /// every Positioned body with a size, open or not (the Apex door, object_size 6, live 2026-11-04).</summary>
         public bool GoneWhenTransitioned { get; init; }
@@ -221,6 +224,8 @@ public static partial class Quests
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);
         public static Rule UsedWith(string area, string objectType, string[] needs, params string[] flags) => new UsedRule(area, objectType, flags, needs);
         public static Rule Object(string area, string objectType, string? transitionedBy = null) => new ObjectRule(area, objectType, transitionedBy);
+        public static Rule Object(string area, string objectType, string? transitionedBy, string? untransitionedBy) =>
+            new ObjectRule(area, objectType, transitionedBy) { UntransitionedBy = untransitionedBy };
         public static Rule Door(string area, string objectType, string openedBy) =>
             new ObjectRule(area, objectType, openedBy) { GoneWhenTransitioned = true };
         public static Rule Spawns(string area, string objectType, string variety) => new SpawnRule(area, objectType, variety);

@@ -3129,10 +3129,26 @@ public static partial class Game
 
     // A boss whose variety has the big life bar (MonsterVarieties BossHealthBar) shows it at the top of the screen once it
     // aggroes: its StateMachine's boss_life_bar (Metadata/Monsters/BossLifeBar.ot) and aggro (Hillock's aggro effect) go to 1.
-    public static Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn) =>
-        SendWorldRecord(remote, stream, ciphers, conn, id, [],
+    public static async Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn)
+    {
+        await SendWorldRecord(remote, stream, ciphers, conn, id, [],
             $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1",
             atGate: () => BossLifeBarRecord(conn, id, m));
+        if (m.Variety?.Id == "Metadata/Monsters/Brute/BossBrute")
+        {
+            ushort line = (ushort)Random.Shared.Next(898, 905); // BrutusIntroRandom..BrutusIntro7
+            await Send(remote, stream, ciphers, InstanceNpcs.TextAudio(id, 7, line),
+                $"0x01c7 Brutus intro dialogue {line}");
+        }
+        else if (m.Variety?.Id == "Metadata/Monsters/seawitchillusion/BossMerveil")
+        {
+            int transition = m.Variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+            if (transition >= 0)
+                await SendWorldRecord(remote, stream, ciphers, conn, id,
+                    InstanceEntities.TransitionableUpdate(id, (byte)transition, 2),
+                    $"0x02bc Merveil 0x{id:x} fight intro Transitionable → 2");
+        }
+    }
 
     internal static byte[]? BossLifeBarRecord(ClientState conn, uint id, SpawnedMonster m)
     {
@@ -3142,7 +3158,9 @@ public static partial class Game
                 || m.Variety is not { } v || m.States is not { } states) return null;
             int index = v.ComponentsOrBase.ToList().IndexOf("StateMachine");
             if (index < 0) return null;
-            m.States = states.Set("boss_life_bar", 1).Set("aggro", 1);
+            var next = states.Set("boss_life_bar", 1).Set("aggro", 1);
+            if (v.Id == "Metadata/Monsters/Brute/BossBrute") next = next.Set("dialogue_lines", 1);
+            m.States = next;
             return InstanceEntities.StateMachineUpdate(id, (byte)index, m.States);
         }
     }
