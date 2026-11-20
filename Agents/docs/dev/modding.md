@@ -198,22 +198,18 @@ Gateway's log does with `[mods]`.
 
 - A reload starts the mod's state over: its fields and statics are new. What it saved (its settings, its own files) stays.
 - The assemblies and symbols load from a private disk copy under the system temporary directory, so a build can
-  overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
-  with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
-  a retained context or a failed file removal is logged. No client files are involved.
+  overwrite the originals while the mod runs. Each version loads into a load context that is never unloaded: the runtime
+  ignores precompiled code in a collectible one, so an unloaded version stays in memory, inert, until the Gateway
+  restarts (its copy is removed at a later start). Before its entries' `Load` runs, every method of a version is compiled
+  (`[mods] <id>: n methods compiled in x ms`), so nothing of it compiles on a first call in game; a mod built in
+  `Mods/Source/` is precompiled at build time as the modules are (`Directory.Build.targets`). No client files are involved.
 - `/mod` lists the loaded mods first, with their version, kind and hook count, then why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
   restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
   Gateway also applies that file when another program (a launcher) rewrites it.
-- After an unload the Gateway checks that the mod's load context was freed, and logs
-  `an unloaded mod (<id>) is still in memory` when its collections stopped freeing anything: a thread, timer or task of the mod still runs, or
-  something outside the mod holds one of its objects. Stop what the mod started in `Dispose`. Work per connection
-  belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`, and a `ConditionalWeakTable` keyed by a connection or an
-  instance holds the mod until its key goes: empty it in `Dispose`. To find what holds one, take `dotnet-gcdump collect`
-  of the Gateway after the line and look for objects whose type's module is the old private copy
-  (`localexile-mod-copy\<folder>`); `dotnet-dump`'s `gcroot` misses the compiler's collection classes and lists the
-  runtime's weak handles for statics as roots. Attaching either while modules unload crashed the runtime here.
+- An unloaded version gets no more calls from the server (its hooks go with it), but what it started itself keeps
+  running: stop it in `Dispose`. Work per connection belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`.
 
 Suggestions while working on a mod with the client in game: `dotnet build Mods\Source\<Name>` and watch the chat line;
 `live.ps1` builds every mod in `Mods\Source\` before it starts the Gateway (one that fails to build is left out with a
