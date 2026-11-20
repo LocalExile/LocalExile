@@ -1352,7 +1352,7 @@ public static partial class Game
         }
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
         if (locationInstant) return true;
-        if (gem.Name is not null && (SkillsFor(conn).EffectId(gem.Effect) is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines"))
+        if (gem.Name is not null && IsDetonateMines(SkillsFor(conn).EffectId(gem.Effect)))
         { lock (conn.Monsters) DetonateMinesLocked(conn, AreaTime(conn)); return true; }
         if (placedAdmission is { } placed)
             return await PlaceSkill(remote, stream, ciphers, conn, from, to, placed, recoveryGeneration, Current);

@@ -75,6 +75,8 @@ Nothing yet.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
+  Locus mines inside three metres of their owner remain armed. Detonate Mines checks the same distance before starting
+  its cooldown. Ordinary mines can still detonate under the player.
   Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.

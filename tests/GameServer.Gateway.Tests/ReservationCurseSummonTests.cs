@@ -51,6 +51,40 @@ public sealed partial class ReservationCurseSummonTests
         Assert.Equal(17, ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 0));
     }
 
+    static void VerifyLocusDetonation(PlacedSkills.Placed ordinary)
+    {
+        var conn = SpellTotemExecutionTests.Connection("LocusDistance");
+        conn.Walk.Teleport(100, 100, 0);
+        var stats = Program.Skills.EffectStats(Program.Skills.EffectRow("SupportLocusMine"), 1)
+            .ToDictionary(p => p.Item1, p => p.Item2);
+        Assert.Equal(30, stats[Program.Stats.Key("support_locus_mine_cannot_detonate_mines_within_X_units")!.Value]);
+        var edge = ordinary with { Id = 10, At = (118, 124), Own = stats, DetonateAt = double.PositiveInfinity };
+        conn.Placed.All.Add(edge.Id, edge);
+        Assert.False(Game.CanDetonateMines(conn));
+        Game.DetonateMinesLocked(conn, 0);
+        Assert.True(double.IsPositiveInfinity(edge.DetonateAt));
+
+        var outside = edge with { Id = 11, At = (119, 124) };
+        var underfoot = ordinary with { Id = 12, At = (100, 100), DetonateAt = double.PositiveInfinity };
+        conn.Placed.All.Add(outside.Id, outside);
+        conn.Placed.All.Add(underfoot.Id, underfoot);
+        Assert.True(Game.CanDetonateMines(conn));
+        Game.DetonateMinesLocked(conn, 0);
+        Assert.True(double.IsPositiveInfinity(edge.DetonateAt));
+        Assert.Equal(0, outside.DetonateAt);
+        Assert.Equal(Game.MineSequenceGap(250, 1), underfoot.DetonateAt);
+        conn.Walk.Teleport(99, 100, 0);
+        Game.DetonateMinesLocked(conn, 0);
+        Assert.Equal(underfoot.DetonateAt + Game.MineSequenceGap(250, 2), edge.DetonateAt);
+        var expired = outside with { Id = 13, Until = 2, DetonateAt = double.PositiveInfinity };
+        var fresh = outside with { Id = 14, Until = 10, DetonateAt = double.PositiveInfinity };
+        conn.Placed.All.Add(expired.Id, expired);
+        conn.Placed.All.Add(fresh.Id, fresh);
+        Game.DetonateMinesLocked(conn, 5);
+        Assert.True(double.IsPositiveInfinity(expired.DetonateAt));
+        Assert.Equal(5, fresh.DetonateAt);
+    }
+
     [Fact]
     public async Task SkeletonsUseTheirOwnLimitExpireAndHaveNativeCombatSkills()
     {
@@ -216,6 +250,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(landedBytes, landing.Count);
             Game.DetonateMinesLocked(conn, 4);
             Assert.Equal(4, mine.DetonateAt);
+            VerifyLocusDetonation(mine);
             var animatedHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
             await Game.UnsocketGem("test", wire.Stream, wire.Ciphers, conn,
                 new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), animatedHost.Id, 0));

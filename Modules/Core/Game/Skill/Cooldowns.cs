@@ -171,7 +171,9 @@ public static partial class Game
         {
             using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             ticket = null;
-            if (SkillsFor(conn).EffectId(effect) is TwisterEffect or CatStealthCryEffect) return false;
+            string? effectId = SkillsFor(conn).EffectId(effect);
+            if (effectId is TwisterEffect or CatStealthCryEffect) return false;
+            if (IsDetonateMines(effectId) && !CanDetonateMines(conn)) return false;
             SingleUseCooldownState? state = null;
             StanceAdmissionPlan? stancePlan = null;
             int key = skillId is ushort requestedKey ? CooldownKey(conn, effect, requestedKey) : effect;
@@ -183,7 +185,7 @@ public static partial class Game
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(conn, effect, id)
                     ?? TravelSkillsExceptDashDisabled(conn, effect, id)
                 : ActorSkillDisabled(conn, effect)) is not null) return false;
-            if (skillId is ushort requestedSkill && StanceCatalog.IsSource(SkillsFor(conn).EffectId(effect)))
+            if (skillId is ushort requestedSkill && StanceCatalog.IsSource(effectId))
             {
                 if (CurrentStanceSourceLocked(conn, requestedSkill, effect) is not { } stanceSource) return false;
                 plan = CooldownPlan(conn, stanceSource.Supported, CharacterPlayerStats(conn));

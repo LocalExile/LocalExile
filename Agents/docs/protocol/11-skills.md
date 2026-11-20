@@ -2953,8 +2953,14 @@ A triggered trap or mine whose skill is a projectile spell releases it from the 
 It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
-One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
-(250) after the one before, at 10% more detonation speed per mine already in the sequence.
+One Detonate Mines use queues eligible mines in arming order. The first goes off at once, each later one
+`base_mine_detonation_time_ms` (250) after the one before, at 10% more detonation speed per mine already in the sequence.
+Locus Mine Support stores `support_locus_mine_cannot_detonate_mines_within_X_units = 30` on its mines (3.29.3c).
+The 3.29.3c gem text bars detonation within three metres of the owner. The Gateway includes the boundary in this radius
+and uses the owner's current cell for the Actor availability bit, admission and detonation. A mine that is too close
+when its queued turn arrives stays armed for a later press. An expired mine cannot start a cooldown or extend the sequence.
+Check exact equality, moving across the edge during a sequence
+and Skitterbot activation against a graphical client.
 Held cadence was 5/6 of the computed throw time for both kinds (0.39 s against 0.45 s, 0.246 s against 0.275 s).
 
 ## 10i. Warcry release: timing and release effects

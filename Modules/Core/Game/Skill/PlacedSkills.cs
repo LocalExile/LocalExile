@@ -398,15 +398,28 @@ public static partial class Game
     public static double MineSequenceGap(int milliseconds, int prior) =>
         (milliseconds > 0 ? milliseconds : 250) / 1000d / (1 + .1 * Math.Max(0, prior));
 
-    // One use detonates every mine in sequence, in the order they arm: the first at once, each later one after its gap.
+    static bool IsDetonateMines(string? effect) => effect is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines";
+
+    // The radius belongs to the mine's supported skill at placement. Ordinary mines can detonate under the owner.
+    static bool MineAllowsDetonation(ClientState conn, PlacedSkills.Placed mine, double now)
+    {
+        if (now >= mine.Until) return false;
+        int minimum = GolemStat(mine.Own, "support_locus_mine_cannot_detonate_mines_within_X_units");
+        if (minimum == 0) return true;
+        var owner = conn.Walk.Position(now);
+        long dx = (long)mine.At.X - owner.X, dy = (long)mine.At.Y - owner.Y;
+        return dx * dx + dy * dy > (long)minimum * minimum;
+    }
+
+    // One use queues eligible mines in arming order: the first at once, each later one after its gap.
     // A mine that is not armed yet goes off once it is. A use during a running sequence adds the new mines to its end
     // and keeps its speed; a use after the last queued mine has gone off starts a new sequence.
     public static void DetonateMinesLocked(ClientState conn, double now)
     {
-        bool running = conn.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
+        bool running = conn.Placed.All.Values.Any(p => p.Mine && now < p.Until && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? conn.Placed.NextChain : now;
         int prior = running ? conn.Placed.Chain : 0;
-        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
+        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt) && MineAllowsDetonation(conn, p, now))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
             int time = GolemStat(mine.Own, "base_mine_detonation_time_ms");
@@ -420,8 +433,10 @@ public static partial class Game
         conn.Placed.Chain = prior;
     }
 
-    public static bool CanDetonateMines(ClientState conn) =>
-        conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(conn));
+    public static bool CanDetonateMines(ClientState conn) => CanDetonateMines(conn, AreaTime(conn));
+
+    static bool CanDetonateMines(ClientState conn, double now) =>
+        conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= now && MineAllowsDetonation(conn, p, now));
 
     static void LandPlacedRecordsLocked(ClientState conn, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -612,6 +627,12 @@ public static partial class Game
                     if (conn.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(conn, placed, bytes); continue; }
                     LandPlacedRecordsLocked(conn, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && !MineAllowsDetonation(conn, placed, now))
+                    {
+                        // A queued mine can be too close when its turn arrives. Leave it armed for a later use.
+                        if (placed.DetonateAt <= now) placed.DetonateAt = double.PositiveInfinity;
+                        continue;
+                    }
                     bool skitter = false;
                     if (!placed.SkitterTriggered)
                     {
@@ -646,7 +667,7 @@ public static partial class Game
                     conn.Placed.Leaving.Remove(leaving);
                 }
                 if (conn.Placed.Dirty) PlacedResourcesLocked(conn, bytes);
-                bool detonation = CanDetonateMines(conn);
+                bool detonation = CanDetonateMines(conn, now);
                 if (detonation != conn.Placed.DetonationPublished)
                 {
                     bytes.World(PlayerId, InstanceEntities.PlayerSkillsChange(PlayerId, [], [], canDetonateMines: detonation));
