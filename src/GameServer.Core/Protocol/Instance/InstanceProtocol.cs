@@ -430,15 +430,23 @@ public static class InstanceProtocol
             .U32(BitConverter.SingleToUInt32Bits(seconds)).U8(animationType).U8(checkInterruption ? (byte)1 : (byte)0).ToArray();
 
     /// <summary>
-    /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group; the handler maps it and 0x26f/0x270/0x271 to the
-    /// Animated component's <c>0x141e5d440</c>): object header, u8 kind, then per kind — 0/1: u32 animation index
-    /// (+0x24) and u32 float bits (+0x28), 2: u32 float bits (+0x2c), 3: u32 float bits (+0x28). Kind 0 calls
-    /// <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation count, so a
-    /// wrong index is ignored rather than fatal (live 2026-10-25).
+    /// S→C 0x1b2 "InstanceClientAnimationUpdate" (world group, read <c>0x141fe58a0</c>; the handler maps it and
+    /// 0x26f/0x270/0x271 to the Animated component's <c>0x141e5d440</c>): object header (12 B), u8 kind, then per
+    /// kind — 0/1: u32 animation index (+0x24) and u32 float bits (+0x28) (21 B total); 2: u32 float bits (+0x2c)
+    /// (17 B total); 3: u32 float bits (+0x28) (17 B total); ≥4 throws "Bad packet: InstanceClientAnimationUpdate".
+    /// Kind 0 calls <c>0x141dbdbc0</c> ("play animation"), which bails when the index is past the actor's animation
+    /// count, so a wrong index is ignored rather than fatal (live 2026-10-25).
     /// </summary>
-    public static byte[] AnimationUpdate(uint objectId, byte kind, uint index, float speed) =>
-        new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind).U32(index)
-            .U32(BitConverter.SingleToUInt32Bits(speed)).ToArray();
+    public static int AnimationUpdateLength(byte kind) => kind <= 1 ? 21 : kind <= 3 ? 17 : -1;
+
+    public static byte[] AnimationUpdate(uint objectId, byte kind, uint index = 0, float speed = 1f)
+    {
+        if (kind > 3) throw new ArgumentOutOfRangeException(nameof(kind), kind, "S→C 0x1b2 AnimationUpdate only accepts kinds 0..3");
+        var w = new LoginWriter().U16(AnimationUpdateId).U32(objectId).U32(0).U16(0).U8(kind);
+        if (kind <= 1) w.U32(index).U32(BitConverter.SingleToUInt32Bits(speed));
+        else w.U32(BitConverter.SingleToUInt32Bits(speed));
+        return w.ToArray();
+    }
 
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
