@@ -368,8 +368,11 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     }
     public Task WorldFrameEnded(Player player, double nextFrameStart) =>
         Rules.LockstepFrameEnded(player, nextFrameStart);
-    public void WritingWorldDelta(Player player, IReadOnlyList<AreaDelta.Record> delta) =>
+    public void WritingWorldDelta(Player player, IReadOnlyList<AreaDelta.Record> delta)
+    {
         Rules.CorpseDeathsWritten(player, delta);
+        Rules.CorpsePresentationWritten(player, delta);
+    }
     public Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player player, long readAt) =>
         Rules.OnClientMessages(messages, unknown, player, readAt);
 

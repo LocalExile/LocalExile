@@ -52,6 +52,19 @@ public sealed class AreaDelta(GameArea area)
         Add(entity, bytes, log, Kind.Remove);
     }
 
+    /// <summary>Take an object out of one player's view without retiring it in the area: the entity and its records stay
+    /// for the others and for a later joiner, so a rule can stop drawing something the area still has (a corpse whose
+    /// visual hold ended, for example). Unlike <see cref="Add(uint, byte[], string?, Kind, Player?, Player?)"/> with
+    /// <c>only</c>, this does not clear the area's components or the object's replay for other viewers.</summary>
+    public void AddViewRemoval(uint entity, byte[] bytes, Player viewer, string? log = null)
+    {
+        area.AssertOwner();
+        var record = new Record(entity, bytes, log, OrderOf(bytes), Kind.Remove, Only: viewer);
+        // A removal in the frame of a create waits, as it does for an authoritative removal.
+        if (created.Contains(entity)) held.Add(record);
+        else records.Add(record);
+    }
+
     public void Add(Record record)
     {
         area.AssertOwner();
@@ -109,9 +122,11 @@ public sealed class AreaDelta(GameArea area)
 
     /// <summary>A world record (u16 id, u32 object, u32 order key, u16 checkpoint) as it is: its order from its header.</summary>
     public void Add(uint entity, byte[] bytes, string? log = null, Kind kind = Kind.World, Player? except = null, Player? only = null) =>
-        Add(new(entity, bytes, log, kind == Kind.Message || bytes.Length < 12 ? WorldOrder.First
-            : new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)),
-                System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10))), kind, except, only));
+        Add(new(entity, bytes, log, kind == Kind.Message ? WorldOrder.First : OrderOf(bytes), kind, except, only));
+
+    static WorldOrder OrderOf(byte[] bytes) => bytes.Length < 12 ? WorldOrder.First
+        : new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)),
+            System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10)));
 
     /// <summary>The frame's records, taken for its end; what waited for a create of this frame starts the next.</summary>
     public IReadOnlyList<Record> Take()
