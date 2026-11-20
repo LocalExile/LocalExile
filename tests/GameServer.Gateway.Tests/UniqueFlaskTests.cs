@@ -72,9 +72,16 @@ public class UniqueFlaskTests
         Assert.False(Freezes(critical: false));
 
         // Increased critical chance against Blinded enemies adds to Bottled Faith and Profane Ground.
-        var target = new SpawnedMonster("blinded", new(10, 10, 0), 0, 0, 100);
+        var target = new SpawnedMonster("blinded", new(10, 10, 0), 0, 0, 100) { Hostile = true };
         conn.Monsters[7] = target;
         conn.FlaskGrounds.SetBlinded(7, true, () => 99);
+        // The grounds are zones of the area (AreaZones), which a player outside a socket does not have: it gets one, the
+        // grounds go in, and the area's movement places the target inside them.
+        var area = new GameArea(1);
+        typeof(AreaFrames).GetProperty(nameof(AreaFrames.Area))!.SetValue(conn.Frames, area);
+        typeof(Game).GetMethod("SyncFlaskGroundZones", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(null, [conn]);
+        area.Zones.Update(new Dictionary<EntityId, (int X, int Y)> { [new(7)] = (10, 10) }, moved: true);
         StartFlask(conn, FlaskGrounds.VsConsecratedCriticalStat, 100);
         var critical = Game.SpellCriticalChanceVsGround(conn, extra => 500 + (int)extra * 5, blinded: 200);
         Assert.Equal(2000, Game.CriticalChanceOn(conn, 7, 500, 1500, critical));
