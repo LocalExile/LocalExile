@@ -87,6 +87,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Tick.Add(module.Manifest.Id, MapHarbinger.Tick);
         GameEvents.Kill.Add(module.Manifest.Id, MapHarbinger.Kill);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapHarbinger.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapHarbinger.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapHarbinger.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapBeyond.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapBeyond.Enter);
