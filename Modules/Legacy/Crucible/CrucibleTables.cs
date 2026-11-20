@@ -70,7 +70,7 @@ public sealed class CrucibleTables
     public sealed record EndgamePackRow(int Row, string Tier, int[] Weights, int MinPack, int Weight, bool IsBossTier);
 
     /// <summary>Cached world object metadata for Crucible objects.</summary>
-    public sealed record ObjectTypeInfo(string Type, IReadOnlyList<string> Components, StateMachineData? States, int Size, bool Blocking);
+    public sealed record ObjectTypeInfo(string Type, IReadOnlyList<string> Components, StateMachineData? States, int Size, bool Blocking, bool HasStationaryCollision = false);
 
     public IReadOnlyList<SkillRow> Skills { get; }
     public IReadOnlyDictionary<int, SkillRow> SkillByModRow { get; }
@@ -154,7 +154,8 @@ public sealed class CrucibleTables
             {
                 int size = int.TryParse(row.Text("positioned_object_size"), out int s) ? s : 1;
                 bool blocking = ObjectTypes.Flag(row, "positioned_blocking") == true;
-                objects[type] = new(type, ObjectTypes.Components(row), ObjectTypes.StateMachine(row, shared), size, blocking);
+                bool hasCollision = row.BoolOrNull("positioned") == true;
+                objects[type] = new(type, ObjectTypes.Components(row), ObjectTypes.StateMachine(row, shared), size, blocking, hasCollision);
             }
         }
         // Fallback descriptors for CrucibleDevice and CrucibleCombiningBench when absent from client.db object_types

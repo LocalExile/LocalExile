@@ -72,6 +72,36 @@ public sealed class CrucibleModule : IModule
             CrucibleEncounter.HandleChannelUpdate(conn));
         GameEvents.Packet(InstanceProtocol.ChannelEndId).Add(id, (conn, _) =>
             CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate));
+        // Lockstep equivalents (0x018e/0x018f start, 0x0192 update, 0x0195/0x0196 release) for local/auto-lockstep clients.
+        GameEvents.Packet(InstanceProtocol.LockstepMoveStartId).Add(id, (conn, bytes) =>
+        {
+            var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
+            if (click.SkillId != CrucibleEncounter.CrucibleChannelSkillId && click.SkillId != InstanceCrucible.CrucibleChannelSkillHash)
+                return Task.FromResult(false);
+            conn.NoteLockstepClient(conn.Wire.Remote);
+            conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
+            return CrucibleEncounter.HandleChannelSkill(conn, click.SkillId, (ushort)(conn.LockstepSequence | 0x8000), click.Flags);
+        });
+        GameEvents.Packet(InstanceProtocol.LockstepUseOnObjectId).Add(id, (conn, bytes) =>
+        {
+            var use = InstanceProtocol.ReadLockstepUseOnObject(bytes);
+            if (use.SkillId != CrucibleEncounter.CrucibleChannelSkillId && use.SkillId != InstanceCrucible.CrucibleChannelSkillHash)
+                return Task.FromResult(false);
+            conn.NoteLockstepClient(conn.Wire.Remote);
+            conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
+            return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, (ushort)(conn.LockstepSequence | 0x8000), use.Flags);
+        });
+        GameEvents.Packet(InstanceProtocol.LockstepMoveUpdateId).Add(id, (conn, _) =>
+            CrucibleEncounter.HandleChannelUpdate(conn));
+        GameEvents.Packet(InstanceProtocol.LockstepMoveStopId).Add(id, (conn, _) =>
+            CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate));
+        GameEvents.Packet(InstanceProtocol.LockstepSkillStopId).Add(id, (conn, bytes) =>
+        {
+            ushort skill = InstanceProtocol.ReadLockstepSkillStop(bytes);
+            return skill == CrucibleEncounter.CrucibleChannelSkillId || skill == InstanceCrucible.CrucibleChannelSkillHash
+                ? CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate)
+                : Task.FromResult(false);
+        });
 
         // 10. Area generation, world object interaction, ticks, kills, leaving, and drops.
         GameEvents.AreaGenerated.Add(id, async conn =>

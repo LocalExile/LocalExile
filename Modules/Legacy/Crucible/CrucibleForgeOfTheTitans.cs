@@ -255,8 +255,15 @@ public static class CrucibleForgeOfTheTitans
             wake: true, awaitBirth: false);
         if (info.Blocking)
         {
-            var (size, hull) = StationaryCollision.Resolve(obj.Type);
-            if (size >= 0) conn.SetBlocker(obj.Id, obj.X, obj.Y, size, hull);
+            if (info.HasStationaryCollision)
+            {
+                var (size, hull) = StationaryCollision.Resolve(obj.Type);
+                if (size >= 0) conn.SetBlocker(obj.Id, obj.X, obj.Y, size, hull);
+            }
+            else
+            {
+                conn.SetBlocker(obj.Id, obj.X, obj.Y, Math.Max(0, info.Size - 1), null);
+            }
         }
         shown.Add(obj.Id);
     }

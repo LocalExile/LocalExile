@@ -29,7 +29,7 @@ public static class CrucibleEncounter
     const double FullChargeSeconds = 5.0;
     const double ChannelReleaseGraceSeconds = 0.75;
 
-    enum Phase { Idle, Channeling, Active, Completed }
+    enum Phase { Idle, Channeling, Spawning, Active, Completed }
 
     sealed class WorldObj
     {
@@ -63,6 +63,7 @@ public static class CrucibleEncounter
         public double LastChannelPingAt;
         public bool AutoChannel;
         public bool ChannelActionActive;
+        public ushort ChannelSequence;
         public int ThemeTagIndex = -1;
 
         // Spawned encounter monsters
@@ -237,8 +238,15 @@ public static class CrucibleEncounter
             wake: true, awaitBirth: false);
         if (blocking)
         {
-            var (size, hull) = StationaryCollision.Resolve(obj.Type);
-            if (size >= 0) conn.SetBlocker(obj.Id, obj.X, obj.Y, size, hull);
+            if (CrucibleTables.Current.Objects.TryGetValue(obj.Type, out var info) && !info.HasStationaryCollision)
+            {
+                conn.SetBlocker(obj.Id, obj.X, obj.Y, Math.Max(0, info.Size - 1), null);
+            }
+            else
+            {
+                var (size, hull) = StationaryCollision.Resolve(obj.Type);
+                if (size >= 0) conn.SetBlocker(obj.Id, obj.X, obj.Y, size, hull);
+            }
         }
         view.Presented.Add(obj.Id);
     }
@@ -309,7 +317,7 @@ public static class CrucibleEncounter
         if (skillId != CrucibleChannelSkillId && skillId != InstanceCrucible.CrucibleChannelSkillHash) return false;
         if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return true;
         var (remote, stream, ciphers) = conn.Wire;
-        if (encounter.Phase is Phase.Active or Phase.Completed)
+        if (encounter.Phase is Phase.Spawning or Phase.Active or Phase.Completed)
         {
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
             return true;
@@ -339,6 +347,7 @@ public static class CrucibleEncounter
                 }
                 encounter.AutoChannel = false;
                 encounter.ChannelActionActive = true;
+                encounter.ChannelSequence = sequence;
                 encounter.LastChannelPingAt = now;
                 startedAction = true;
                 await BeginChannelingLocked(conn, encounter);
@@ -393,7 +402,7 @@ public static class CrucibleEncounter
             await PlayerOf(conn).Tell("This Crucible Forge has already been completed.");
             return true;
         }
-        if (encounter.Phase == Phase.Active)
+        if (encounter.Phase is Phase.Spawning or Phase.Active)
         {
             await PlayerOf(conn).Tell("Defeat the molten Crucible monsters to complete the Forge.");
             return true;
@@ -584,14 +593,17 @@ public static class CrucibleEncounter
         int areaLevel;
         int themeTag;
         bool endChannelAction;
+        ushort channelSequence;
         List<WorldObj> spawnPoints;
         await encounter.Gate.WaitAsync();
         try
         {
             if (encounter.Phase != Phase.Channeling) return;
-            encounter.Phase = Phase.Active;
+            encounter.Phase = Phase.Spawning;
             endChannelAction = encounter.ChannelActionActive;
+            channelSequence = encounter.ChannelSequence;
             encounter.ChannelActionActive = false;
+            encounter.ChannelSequence = 0;
             chargePct = Math.Clamp((int)Math.Round(encounter.Charge * 100f), 10, 100);
             areaLevel = encounter.AreaLevel;
             themeTag = encounter.ThemeTagIndex;
@@ -607,7 +619,12 @@ public static class CrucibleEncounter
 
         var (remote, stream, ciphers) = conn.Wire;
         if (endChannelAction)
+        {
+            if (conn.LockstepClient && channelSequence != 0)
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                    InstanceProtocol.ChannelFinished(PlayerId, channelSequence), $"0x01ae CrucibleChannel end (seq 0x{channelSequence:x4})");
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), "0x01ac CrucibleChannel end");
+        }
 
         await SendStates(conn, encounter.AllObjects);
         await BroadcastRules(conn, InstanceCrucible.ForgeChannelling(false), "0x02c9 CrucibleRules channelling=0");
@@ -655,10 +672,19 @@ public static class CrucibleEncounter
             }
         }
 
+        bool alreadyCleared;
+        await encounter.Gate.WaitAsync();
+        try
+        {
+            encounter.Phase = Phase.Active;
+            lock (conn.Monsters) alreadyCleared = encounter.Monsters.Count == 0;
+        }
+        finally { encounter.Gate.Release(); }
+
         Console.WriteLine($"[crucible] {CharacterName(conn)} released Forge at {chargePct}% ({diffName}, theme={theme.Tag}): spawned {spawned} monsters");
         await PlayerOf(conn).Tell($"Crucible Forge unleashed ({diffName}, {chargePct}%): defeat {spawned} molten {theme.Tag} monsters!");
 
-        if (spawned == 0)
+        if (spawned == 0 || alreadyCleared)
             await CompleteEncounter(conn, encounter, xpMultiplier, geodeDropRate);
     }
 
