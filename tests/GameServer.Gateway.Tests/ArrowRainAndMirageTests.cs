@@ -2800,6 +2800,63 @@ public class ArrowRainAndMirageTests
         }
         items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
         Assert.Equal(baseline, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
+        if (skill == "Split Arrow") await VerifyBarrageNovaLanding();
+    }
+
+    static async Task VerifyBarrageNovaLanding()
+    {
+        using var b = new Battle("Split Arrow", "Arrow Nova Support", "Barrage Support");
+        var c = b.Conn;
+        c.LockstepClient = true;
+        c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
+        var items = Game.ItemsOf(c);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        var gem = Game.GemSkillEffects(c).Single();
+        var aim = (X: 100, Y: 175);
+        b.Enemy.Walk.Teleport(aim.X + 18, aim.Y, 0);
+        foreach (bool barrage in new[] { false, true })
+        {
+            items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = barrage ? [3] : [2, 1] });
+            double start = barrage ? 20 : 10;
+            c.Clock.Start();
+            Assert.True(await Game.CastGemSkill("nova", b.Stream, b.Ciphers, c, gem.Id, (100, 100), aim,
+                sequence: 0x8013, actionToken: c.ActionCount, swingAt: start));
+            c.Clock.Stop();
+            var carriers = new HashSet<long>();
+            var arrows = new SortedDictionary<long, ProjectileEntity>();
+            int hits = 0;
+            uint life = b.Enemy.Life;
+            for (int step = 0; step <= 400; step++)
+            {
+                b.Session.AdvanceTo(ProjectileRuntime.Time(start + step / 200d));
+                foreach (var p in b.Session.Runtime.Projectiles)
+                {
+                    if (p.ParentId == 0) carriers.Add(p.Id);
+                    else arrows.TryAdd(p.Id, p);
+                }
+                if (b.Enemy.Life < life) hits++;
+                life = b.Enemy.Life;
+            }
+            long carrier = Assert.Single(carriers);
+            int count = barrage ? 15 : 11;
+            Assert.Equal(count, arrows.Count);
+            Assert.All(arrows.Values, p => Assert.Equal(carrier, p.ParentId));
+            long first = arrows.Values.First().CreatedAt;
+            int i = 0;
+            foreach (var arrow in arrows.Values)
+            {
+                double fraction = barrage ? i / (double)(count - 1) : i / (double)count;
+                double radians = barrage ? -Math.Tau * fraction : Math.PI / 2 + Math.Tau * fraction;
+                Assert.Equal(first + ProjectileRuntime.Time(barrage ? .4 * fraction : 0), arrow.CreatedAt);
+                Assert.Equal(Math.Cos(radians), arrow.Direction.X, 6);
+                Assert.Equal(Math.Sin(radians), arrow.Direction.Y, 6);
+                Assert.Equal(aim.X, arrow.Use.Origin.X, 6);
+                Assert.Equal(aim.Y, arrow.Use.Origin.Y, 6);
+                i++;
+            }
+            Assert.Equal(barrage ? count : 1, arrows.Values.Select(p => p.EmissionId).Distinct().Count());
+            Assert.Equal(barrage ? 2 : 1, hits);
+        }
     }
 
     [Fact]

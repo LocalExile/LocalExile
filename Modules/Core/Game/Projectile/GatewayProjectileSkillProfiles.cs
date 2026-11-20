@@ -116,7 +116,8 @@ public static class GatewayProjectileSkillProfiles
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
-        if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0) p = ArrowNovaChildren(p);
+        if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0)
+            p = ArrowNovaChildren(p, get("projectiles_nova") != 0 && get("projectiles_barrage") != 0);
 
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
@@ -273,7 +274,7 @@ public static class GatewayProjectileSkillProfiles
     // that lands at the aim and releases the skill's whole volley in a circle from there. Frida 2026-11-04 (Split
     // Arrow, 18 arrows): all children started on one cell and the directions were exactly 20 degrees apart, the first
     // on the aim ray; the client drew both the payload and the children, and the payload dealt no damage.
-    static ProjectileProfile ArrowNovaChildren(ProjectileProfile parent)
+    static ProjectileProfile ArrowNovaChildren(ProjectileProfile parent, bool barrage)
     {
         var child = parent with
         {
@@ -298,9 +299,21 @@ public static class GatewayProjectileSkillProfiles
             Pierce = 0, CannotPierce = true, Fork = 0, Chain = 0, Split = 0, CannotSplit = true,
             EndArea = null, EndAreaReasons = null, EndAreaOnReturnTurnaround = false,
             ContactArea = null, ContactTargets = null,
-            EndEmission = new(child, Radial: true) { Delay = ProjectileRuntime.Time(0.221) }
+            EndEmission = new(child, Radial: true)
+            {
+                Delay = ProjectileRuntime.Time(.221),
+                Sweep = barrage ? PlayerArrowNovaSweep : null
+            }
         };
     }
+
+    // 3.29.3c: the Barrage rain action starts at the aim relative to the landing cell. At the aimed
+    // cell this is +X. The player Positioned flags select the negative turn over 400 ms.
+    static readonly ProjectileSweep PlayerArrowNovaSweep = new(ProjectileRuntime.Time(.4), -Math.Tau, payload =>
+    {
+        var landing = new ProjectileVector(Math.Floor(payload.Position.X + .5), Math.Floor(payload.Position.Y + .5));
+        return (payload.Use.Aim - landing).Unit;
+    });
 
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<string, int> get, bool spell)
     {

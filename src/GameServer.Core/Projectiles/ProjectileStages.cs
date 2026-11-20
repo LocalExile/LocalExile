@@ -61,6 +61,21 @@ public sealed partial class ProjectileRuntime
     {
         var child = recipe.Child;
         Validate(child);
+        if (recipe.Sweep is { } sweep && child.Count > 1)
+        {
+            var startDirection = sweep.StartDirection(parent);
+            var origin = parent.Position;
+            double distance = parent.Distance;
+            for (int i = 0; i < child.Count; i++)
+            {
+                double fraction = i / (double)(child.Count - 1);
+                var direction = startDirection.Rotate(sweep.Radians * fraction);
+                void Emit() => SpawnChild(parent, child, ++sequence, origin, direction, distance);
+                if (i == 0) Emit();
+                else Schedule(Now + (long)Math.Round(sweep.Duration * fraction), Emit);
+            }
+            return;
+        }
         if (parent.ChildEmission == 0) parent.ChildEmission = ++sequence;
         var baseDirection = recipe.BaseDirection?.Invoke(parent) ?? parent.Direction;
         for (int i = 0; i < child.Count; i++)
@@ -69,13 +84,18 @@ public sealed partial class ProjectileRuntime
                 : recipe.Radial ? Math.Tau * i / child.Count + parent.EmissionNumber * 2.399963229728653
                 : child.Count <= 1 ? 0 : child.SpreadRadians * (i / (double)(child.Count - 1) - .5);
             var direction = recipe.RandomDirections ? parent.Direction.Rotate(angle) : baseDirection.Rotate(angle);
-            var use = parent.Use with { Profile = child, Origin = parent.Position,
-                Aim = parent.Position + direction * child.Range };
-            var spawned = Spawn(use, parent.UseId, parent.ChildEmission, parent.Id, parent.Position, direction);
-            // Point Blank/Far Shot measure the whole continuation, not just the child's own segment.
-            spawned.Distance = parent.Distance;
+            SpawnChild(parent, child, parent.ChildEmission, parent.Position, direction, parent.Distance);
         }
         parent.EmissionNumber++;
+    }
+
+    void SpawnChild(ProjectileEntity parent, ProjectileProfile child, long emission,
+        ProjectileVector origin, ProjectileVector direction, double distance)
+    {
+        var use = parent.Use with { Profile = child, Origin = origin, Aim = origin + direction * child.Range };
+        var spawned = Spawn(use, parent.UseId, emission, parent.Id, origin, direction);
+        // Point Blank/Far Shot measure the whole continuation from the original release.
+        spawned.Distance = distance;
     }
 
     void TargetedHits(ProjectileEntity p, ProjectileActor primary, ProjectileTargetedRecipe recipe)

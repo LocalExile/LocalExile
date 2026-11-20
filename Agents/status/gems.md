@@ -127,7 +127,8 @@ Nothing yet.
   Arrow Nova fires one payload arrow to the aim and then the skill's whole volley in a circle from there (18 arrows
   20 degrees apart for Split Arrow in the same capture); the official rain rig stands at the caster's cell and plays
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
-  documented in [25](../docs/protocol/25-gem-supports.md).
+  documented in [25](../docs/protocol/25-gem-supports.md). With Barrage Support, the ground arrows sweep one turn
+  over 400 ms and the first and last can hit the same enemy in the local server. Live verification is pending.
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
   Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
   Cast on Melee Kill releases linked spells on a linked melee attack's kill; it is not yet checked in the client.

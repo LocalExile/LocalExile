@@ -187,7 +187,13 @@ stand at the player, not at the bow's release point). The
 rig's `Animated` bit3 id is 6 at the caster and 0 at the landing, and the attachment record sends kind 0 and mask 3
 (`EffectObject.AnimationId`, `AttachKind`, `AttachFlags`); sending 0 on both ends played the landing backwards. The
 landing comes 415 ms after the use and the nova 221 ms later; `ArrowNovaChildren` uses `EndEmission.Delay` and takes
-the shared modifier pass's extra arrows. Not built: the per-child launch order.
+the shared modifier pass's extra arrows.
+
+With Barrage Support, the 3.29.3c rain action starts a 400 ms spiral at the landing. The first child fires immediately
+and the last closes the turn. For N children the time and signed angle steps are 400 ms / (N − 1) and −360° / (N − 1)
+for the player flags the server sends. When landing on the aimed cell the first ray is +X, regardless of the bow's
+direction. Each step emits one child with fresh hit history. Timing and heading come from the client action
+(`0x141ba7d17`, `0x141bb6690`, `0x141bb6940`); repeated hits were checked in the local server.
 
 Red and blue supports whose stats had no consumer now apply too: Maim's `maim_on_hit_%` maims for 4 s and a maimed
 monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physical damage and 30% reduced movement

@@ -53,11 +53,14 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public bool UpdateTimer { get; init; }
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
+/// <summary>Emit one independent shot per heading, including both ends of the signed sweep.</summary>
+public sealed record ProjectileSweep(long Duration, double Radians, Func<ProjectileEntity, ProjectileVector> StartDirection);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
+    public ProjectileSweep? Sweep { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
