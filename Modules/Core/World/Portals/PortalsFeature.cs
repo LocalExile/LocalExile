@@ -6,9 +6,10 @@ using static Program;
 
 static class PortalsFeature
 {
-    // What the chat says when a run can no longer be entered and its portals are closed with it.
-    const string MapInstanceGone = "The map's instance is gone: the portals closed. Activate the map device again.";
-    const string MapNotEntered = "The map could not be entered: the portals closed. Activate the map device again.";
+    // What the chat says when a run can no longer be entered and its portals are closed with it: the client's own
+    // BackendErrors texts (InstanceDoesNotExist, FailedToConnectToInstance).
+    const string MapInstanceGone = "The instance does not exist.";
+    const string MapNotEntered = "Failed to connect to instance";
 
     static MapDevice.Origin? MapReturnOrigin(ClientState conn) =>
         MapDevice.ForInstance(conn) is { } map ? map.ReturnTo ?? map.Entrance : null;
@@ -60,8 +61,11 @@ static class PortalsFeature
             if (!conn.MapPortals.ContainsKey(use.TargetId) || conn.MapPortalRun?.Run != run.Run) return;
         string character = run.Owner;
         // The map's instance is gone (it expired while the hideout stood empty): the run ends here, before a portal is
-        // spent on a transfer that cannot arrive and the rest are left behind (live 2026-11-18).
-        if (run.Instance != 0 && await AreaInstances.Gone(conn, run.Area.Hash16, run.Instance))
+        // spent on a transfer that cannot arrive and the rest are left behind (live 2026-11-18). It asks for the open map's
+        // instance, not the run this connection's portals were placed with (still 0 for a guest who saw them before the
+        // first portal was taken).
+        ulong instance = MapDevice.OpenOf(character) is { } open && open.Run == run.Run ? open.Instance : 0;
+        if (instance != 0 && await AreaInstances.Gone(conn, run.Area.Hash16, instance))
         {
             lock (conn.MapPortals)
                 if (conn.MapPortalRun?.Run != run.Run) return;   // another Activate replaced them meanwhile
