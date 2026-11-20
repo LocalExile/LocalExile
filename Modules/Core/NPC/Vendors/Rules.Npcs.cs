@@ -6,13 +6,23 @@ static partial class VendorsRules
 {
     internal static readonly Lazy<VendorRecipes> VendorSales = new(() => new(Items));
 
+    static bool HasAvailableReward(ClientState conn, NpcCatalog.Npc npc, int offer)
+    {
+        var flags = Quests.Names(PlayerQuestFlags(conn));
+        if (!GameEvents.UsesNpcLeagueFlags(conn, npc))
+            return Npcs.Value.HasAvailableReward(npc, offer, flags);
+        HashSet<int> leagueFlags;
+        lock (conn.Monsters) leagueFlags = [.. conn.LeagueQuestFlags];
+        return Npcs.Value.HasAvailableReward(npc, offer, flags, leagueFlags);
+    }
+
     internal static async Task ClaimNpcReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint itemId,
         byte row = PlayerInventories.MainInventory)
     {
         if (conn.NpcRewardOffer is not int offer || !conn.NpcRewardItems.TryGetValue(itemId, out var reward)) return;
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
-        if (npc is null || !Npcs.Value.HasAvailableReward(npc.Npc, offer, Quests.Names(PlayerQuestFlags(conn)))) return;
+        if (npc is null || !HasAvailableReward(conn, npc.Npc, offer)) return;
         var catalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);
@@ -44,7 +54,7 @@ static partial class VendorsRules
         if (conn.NpcRewardOffer is not int offer || conn.NpcRewardItems.Count == 0) return;
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
-        if (npc is null || !Npcs.Value.HasAvailableReward(npc.Npc, offer, Quests.Names(PlayerQuestFlags(conn)))) return;
+        if (npc is null || !HasAvailableReward(conn, npc.Npc, offer)) return;
         var catalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);
