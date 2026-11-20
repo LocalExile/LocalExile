@@ -133,33 +133,17 @@ public static partial class Game
         uint inventory = stash.InventoryOf(tab);
         byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
         var sent = TabsSentOf(conn, stash);
-        // Every loaded tab makes each later stash open slower by its item count (the panel walks them all as it shows), so
-        // when the player picks a tab the others the panel doesn't show are unloaded (0xc1), and the tab list goes out
-        // again with them marked not loaded, so the panel asks for them (0xc7) when shown again. Never during the first
-        // open's two requests (the shown tab would go), and never the tabs with shop currency (PreloadsForPrices).
-        // A Unique collection shows its hidden categories too; keep that parent's registered children with it.
-        var unload = chosen && !forcedOpen
-            ? sent.Where(o => o != tab
-                && (stash.TabType(tab) != StashRules.Unique || stash.UniqueParent(o) != tab)
-                && (stash.IsGuild || !PreloadsForPrices(stash.TabType(o), stash.Inventory(o).Items, ItemsFor(conn)))).ToList()
-            : [];
-        foreach (int other in unload)
-        {
-            sent.Remove(other);
-            await Send(remote, stream, ciphers, InstanceInventories.RemoveInventory(stash.InventoryOf(other), manager),
-                $"0x00c1 unload stash tab {other} inventory {stash.InventoryOf(other)} (the panel shows tab {tab})");
-        }
+        // Keep every visited tab's inventory registered for this connection (18-stash.md §4): the panel caches each built
+        // page (+0x58) and shows it again without sending 0xc7 (0x140a86290), and 0x136 only clears pages for kind 2
+        // (Trade, 0x140a87e90). Unloading a visited tab with 0xc1 removes its inventory from the manager so hovering a
+        // cursor item over it fails 0x141d65f80 -> 0x141d65830 (red placement overlay, manual 0x2a blocked) while
+        // Ctrl+click (0xe0/0xe1) still routes by tab index. Area entry still preloads only shop-currency tabs
+        // (PreloadsForPrices).
         if (sent.Add(tab))
         {
             var (slot, items) = stash.Inventory(tab);
             await Send(remote, stream, ciphers, InstanceInventories.AddInventory(inventory, slot, manager, items),
                 $"0x00c0 stash tab {tab} inventory {inventory} ({slot.Width} x {slot.Height}): {items.Count} item(s)");
-        }
-        if (unload.Count > 0)
-        {
-            var tabs = stash.Records(null, sent);
-            await Send(remote, stream, ciphers, InstanceStash.TabList(tabs, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal),
-                $"0x0136 stash tab list again ({tabs.Count} tabs): {unload.Count} unloaded tab(s) marked not loaded");
         }
         await Send(remote, stream, ciphers, InstanceStash.TabLoaded(tab, inventory, stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
         foreach (int child in stash.UniqueChildren(tab)) await SendUniqueChild(remote, stream, ciphers, conn, stash, child);
@@ -193,12 +177,10 @@ public static partial class Game
         }
     }
 
-    /// <summary>The client's set of inventories: a tab switch unloads the other tabs (0xc1), but the panel keeps the page
-    /// of every tab it has shown and shows it again without asking (no 0xc7), so the player can act on a tab this
-    /// connection no longer has. A 0xbf for an inventory the client no longer has aborts the game ("Got an inventory set
-    /// change for an inventory that isn't in the set", #605, #710), and the panel had the tab marked not loaded, so it
-    /// drops that tab's 0xbfs until it is told the tab is loaded again. Both go out here, before the 0xbf
-    /// (SendTabChange).</summary>
+    /// <summary>Registers a stash tab's inventory (0xc0 + 0xc8) before a 0xbf when this connection has not sent it yet
+    /// (for example an affinity Ctrl+click or a Map/Unique parent drop routed into an unopened child). A 0xbf for an
+    /// inventory the client does not have aborts the game ("Got an inventory set change for an inventory that isn't in the
+    /// set", #605, #710).</summary>
     static async Task EnsureTabLoaded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab)
     {
         var sent = TabsSentOf(conn, stash);
@@ -206,14 +188,13 @@ public static partial class Game
         var (slot, items) = stash.Inventory(tab);
         byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
         await Send(remote, stream, ciphers, InstanceInventories.AddInventory(stash.InventoryOf(tab), slot, manager, items),
-            $"0x00c0 stash tab {tab} inventory {stash.InventoryOf(tab)} (again: the panel still shows it)");
+            $"0x00c0 stash tab {tab} inventory {stash.InventoryOf(tab)} (registered before change)");
         await Send(remote, stream, ciphers, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
-            stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded again");
+            stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded");
     }
 
-    /// <summary>A change to a stash tab's items (S→C 0xbf). Every one goes out through here: the tab is loaded again first
-    /// when a tab switch unloaded it (EnsureTabLoaded), and the message names the server's inventory id for the tab, not
-    /// one the client sent.</summary>
+    /// <summary>A change to a stash tab's items (S→C 0xbf). Every one goes out through here: an unopened tab is registered
+    /// first (EnsureTabLoaded), and the message names the server's inventory id for the tab, not one the client sent.</summary>
     public static async Task SendTabChange(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab,
         IReadOnlyList<uint> gone, IReadOnlyList<InventoryItem> now, string? label)
     {
