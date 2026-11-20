@@ -84,32 +84,31 @@ public static partial class Game
                 (worn > 0 ? GroundArt.Of("CausticCloud", worn) : null) ?? GroundArt.Of("CausticCloud", CausticArrowGroundVariation));
         }
 
-        /// <summary>Where a ground's pieces go: one in the middle and rings around it out to the radius, each piece at its
-        /// own size (±10%), a little off its place and turned its own way. A ground no larger than a piece is one piece
-        /// scaled to it. Radii are in cells.</summary>
+        /// <summary>Where a ground's pieces go: one in the middle and one ring of at most six around it out to the radius,
+        /// each piece at its own size (±10%), a little off its place and turned its own way. A ground no larger than a
+        /// piece is one piece scaled to it. Radii are in cells.</summary>
         internal static List<(ProjectileVector Offset, double Radius, float Rotation)> GroundPieces(double radius,
             double piece, Random random)
         {
             var pieces = new List<(ProjectileVector, double, float)>();
             float Turn() => (float)(random.NextDouble() * Math.Tau);
-            if (piece <= 0 || radius <= piece * 1.15)
+            // At most seven objects per ground, however large: every piece is a server object with its own packets, and
+            // a Caustic Arrow build with GMP lays several grounds per attack. Larger grounds get larger pieces instead
+            // (radius / 2.85 keeps a ring of six closing on the middle piece and on each other).
+            double size = Math.Max(piece, radius / 2.85);
+            if (piece <= 0 || radius <= size * 1.15)
             {
                 pieces.Add((default, radius, Turn()));
                 return pieces;
             }
-            pieces.Add((default, piece, Turn()));
-            // The art fades towards its rim, so the outer ring sits 0.85 of a piece inside the radius.
-            double outer = radius - piece * .85;
-            int rings = Math.Clamp((int)Math.Ceiling(outer / (piece * 1.1)), 1, 3);
-            for (int ring = 1; ring <= rings; ring++)
-            {
-                double distance = outer * ring / rings, start = random.NextDouble() * Math.Tau;
-                int count = Math.Max(3, (int)Math.Ceiling(Math.Tau * distance / (piece * 1.3)));
-                for (int i = 0; i < count; i++)
-                    pieces.Add((new ProjectileVector(distance * (.92 + random.NextDouble() * .16), 0)
-                            .Rotate(start + Math.Tau * (i + (random.NextDouble() - .5) * .3) / count),
-                        piece * (.9 + random.NextDouble() * .2), Turn()));
-            }
+            pieces.Add((default, size, Turn()));
+            // The art fades towards its rim, so the ring sits 0.85 of a piece inside the radius.
+            double distance = radius - size * .85, start = random.NextDouble() * Math.Tau;
+            int count = Math.Clamp((int)Math.Ceiling(Math.Tau * distance / (size * 1.3)), 3, 6);
+            for (int i = 0; i < count; i++)
+                pieces.Add((new ProjectileVector(distance * (.92 + random.NextDouble() * .16), 0)
+                        .Rotate(start + Math.Tau * (i + (random.NextDouble() - .5) * .3) / count),
+                    size * (.9 + random.NextDouble() * .2), Turn()));
             return pieces;
         }
 
