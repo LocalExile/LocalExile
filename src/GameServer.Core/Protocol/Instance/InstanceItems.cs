@@ -121,6 +121,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public HeistBlueprintState? HeistBlueprint { get; init; }
     /// <summary>Mods flag bit 7 (0x0080): weapon/shield passive skill tree (0x1424bd880 / 0x1424bdb90).</summary>
     public WeaponPassiveTreeState? WeaponPassiveTree { get; init; }
+    /// <summary>StoredExperience component (vtable 0x143648350, read 0x141ebaec0): u32 LE stored experience (e.g. Magmatic Ore).</summary>
+    public uint StoredExperience { get; init; }
 
     /// <summary>Hinekora's Lock: the item is in the foreseeing state. Sent as the Mods component's flag bit 8
     /// (0x0100); the client reads it at item +0x2c0 and shows the purple glow and the Lock tooltip text.</summary>
@@ -152,7 +154,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "StoredExperience"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -240,6 +242,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20. Stored tinctures are inactive.
                 case "Tincture": w.U8(0); break;
                 case "Stack": w.U16(StackSize); break;                // 0x1423fb5f0
+                case "StoredExperience": w.U32(StoredExperience); break; // 0x141ebaec0 (vtable 0x143648350 slot 5): u32 LE
                 // 0x1423fa9d0 (write 0x1423fa920): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
                 case "Map": w.U8(0).U8(0).U8(0); break;

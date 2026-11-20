@@ -237,7 +237,7 @@ public static class GameEvents
     public static readonly GameEvent<Action<VendorSaleQuote>> VendorQuote = new();
 
     /// <summary>A currency item applied to another item (C→S 0x71 / 0x72), when no built-in currency handled it. First non-null result wins.</summary>
-    public static readonly GameEvent<Func<ClientState, Item, ItemCatalog.BaseType, Random, Item?>> CurrencyApply = new();
+    public static readonly GameEvent<Func<ClientState, Item, ItemCatalog.BaseType, Item?, Random, Item?>> CurrencyApply = new();
 
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
@@ -359,12 +359,12 @@ public static class GameEvents
             GameEventOwners.Guard(owner, nameof(VendorQuote), () => run(quote));
     }
 
-    public static Item? RunCurrencyApply(ClientState conn, Item target, ItemCatalog.BaseType currency, Random random)
+    public static Item? RunCurrencyApply(ClientState conn, Item target, ItemCatalog.BaseType currency, Item? currencyItem, Random random)
     {
         foreach (var (owner, run) in CurrencyApply.Subscribers(conn))
         {
             Item? result = null;
-            if (GameEventOwners.Guard(owner, nameof(CurrencyApply), () => result = run(conn, target, currency, random))
+            if (GameEventOwners.Guard(owner, nameof(CurrencyApply), () => result = run(conn, target, currency, currencyItem, random))
                 && result is not null)
                 return result;
         }

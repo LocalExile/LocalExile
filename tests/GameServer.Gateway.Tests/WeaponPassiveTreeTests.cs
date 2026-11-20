@@ -109,22 +109,32 @@ public class WeaponPassiveTreeTests : IDisposable
 
         var revealedBow = ItemCatalog.Create(bowType) with { ItemLevel = 84, WeaponPassiveTree = revealedTree };
         var unrevealedBow = ItemCatalog.Create(bowType) with { ItemLevel = 68, WeaponPassiveTree = unrevealedTree };
+        var oreType = catalog.Find("Metadata/Items/Currency/CurrencyAddCrucibleExperience")!;
+        var magmaticOre = ItemCatalog.Create(oreType) with { StoredExperience = 25000 };
+        Assert.EndsWith("A8610000", Convert.ToHexString(magmaticOre.Payload()));
 
         string character = "CrucibleSave" + Guid.NewGuid().ToString("N");
         var saved = new CharacterSaves.Save(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>
         {
             [PlayerInventories.Weapon1] = [new(1, 0, 0, CharacterSaves.ToSaved(revealedBow, catalog.Mods))],
-            [PlayerInventories.MainInventory] = [new(2, 0, 0, CharacterSaves.ToSaved(unrevealedBow, catalog.Mods))],
+            [PlayerInventories.MainInventory] =
+            [
+                new(2, 0, 0, CharacterSaves.ToSaved(unrevealedBow, catalog.Mods)),
+                new(3, 2, 0, CharacterSaves.ToSaved(magmaticOre, catalog.Mods)),
+            ],
         });
         CharacterSaves.Write(character, saved);
         var loaded = CharacterSaves.Load(character)!;
         var loadedRevealed = CharacterSaves.FromSaved(loaded.Inventories![PlayerInventories.Weapon1][0].Item, catalog);
         var loadedUnrevealed = CharacterSaves.FromSaved(loaded.Inventories![PlayerInventories.MainInventory][0].Item, catalog);
+        var loadedOre = CharacterSaves.FromSaved(loaded.Inventories![PlayerInventories.MainInventory][1].Item, catalog);
 
         Assert.Equal(revealedTree, loadedRevealed.WeaponPassiveTree);
         Assert.Equal(revealedBow.Payload(), loadedRevealed.Payload());
         Assert.Equal(unrevealedTree, loadedUnrevealed.WeaponPassiveTree);
         Assert.Equal(unrevealedBow.Payload(), loadedUnrevealed.Payload());
+        Assert.Equal(25000u, loadedOre.StoredExperience);
+        Assert.Equal(magmaticOre.Payload(), loadedOre.Payload());
 
         string account = "CrucibleStash" + Guid.NewGuid().ToString("N");
         PlayerInventories.Shape? Shape(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
@@ -210,11 +220,13 @@ public class WeaponPassiveTreeTests : IDisposable
             Assert.Single(rewards);
             Assert.Equal(["test-sell-bonus"], recipes);
 
-            var orbType = catalog.Find("Metadata/Items/Currency/CurrencyRerollRare")!;
+            var oreType = catalog.Find("Metadata/Items/Currency/CurrencyAddCrucibleExperience")!;
+            var oreItem = ItemCatalog.Create(oreType) with { StoredExperience = 12345 };
             Item? applied;
-            using (GameEvents.CurrencyApply.Add(owner, (_, target, _, _) => target with { Quality = 17 }))
+            using (GameEvents.CurrencyApply.Add(owner, (_, target, _, currencyItem, _) =>
+                target with { Quality = (byte)(currencyItem?.StoredExperience == 12345 ? 17 : 0) }))
             {
-                applied = GameEvents.RunCurrencyApply(conn, bow, orbType, new Random(1));
+                applied = GameEvents.RunCurrencyApply(conn, bow, oreType, oreItem, new Random(1));
             }
             Assert.NotNull(applied);
             Assert.Equal(17, applied!.Quality);

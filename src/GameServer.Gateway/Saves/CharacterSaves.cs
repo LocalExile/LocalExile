@@ -61,6 +61,7 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RequiredLevel { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedWeaponPassiveTree? WeaponPassiveTree { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public uint StoredExperience { get; init; }
     }
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
@@ -634,7 +635,8 @@ public static class CharacterSaves
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
             RelicStyle = i.RelicStyle,
-            WeaponPassiveTree = i.WeaponPassiveTree is null ? null : ToSaved(i.WeaponPassiveTree, mods) };
+            WeaponPassiveTree = i.WeaponPassiveTree is null ? null : ToSaved(i.WeaponPassiveTree, mods),
+            StoredExperience = i.StoredExperience };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -661,6 +663,7 @@ public static class CharacterSaves
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle,
             WeaponPassiveTree = s.WeaponPassiveTree is null ? null : FromSaved(s.WeaponPassiveTree, catalog.Mods),
+            StoredExperience = s.StoredExperience,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.

@@ -1269,7 +1269,7 @@ public static partial class Game
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
     /// Random.Shared normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
-    static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random)
+    static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random, Item? currencyItem = null)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var type = ItemsFor(conn).ByHash(currencyTypeHash);
@@ -1334,7 +1334,7 @@ public static partial class Game
             _ => type is not null && CurrencyEffects.TryAction(ItemsFor(conn), RollsFor(conn), target, type, random,
                     out var byAction, UniquesFor(conn).RollsOf(target))
                 ? byAction
-                : type is not null ? GameEvents.RunCurrencyApply(conn, target, type, random) : null,
+                : type is not null ? GameEvents.RunCurrencyApply(conn, target, type, currencyItem, random) : null,
         };
     }
 
@@ -1380,7 +1380,7 @@ public static partial class Game
             ? RollsFor(conn).ApplyLock(target.Item, random)
             : target.Item.Mirrored || target.Item.Vestigial ? null
             : target.Item.Corrupted && type?.Id != Wisdom && !CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") ? null
-            : CurrencyResult(conn, target.Item, used.Item.TypeHash, random);
+            : CurrencyResult(conn, target.Item, used.Item.TypeHash, random, used.Item);
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
         if (foreseeing && type?.Id != CurrencyEffects.HinekorasLock)
