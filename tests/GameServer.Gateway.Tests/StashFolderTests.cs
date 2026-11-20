@@ -14,6 +14,9 @@ public class StashFolderTests : IDisposable
         var catalog = new ItemCatalog("data");
         TestEnvironment.OpenOwnSaves("stashfolder");
         string account = "StashFolder" + Guid.NewGuid().ToString("N");
+        // Both messages must frame, or the inbox drops them as unknown bytes before any handler runs.
+        Assert.Equal(InstanceStash.MoveTabLength, InstanceProtocol.KnownClientLength(InstanceStash.MoveTabId));
+        Assert.Equal(InstanceStash.DeleteFolderLength, InstanceProtocol.KnownClientLength(InstanceStash.DeleteFolderId));
         try
         {
             var stash = AccountStash.For(account, catalog);
@@ -26,10 +29,9 @@ public class StashFolderTests : IDisposable
             Assert.Equal(folder, stash.MoveToFolder(1, folder));
             Assert.Null(stash.MoveToFolder(folder, folder));   // no folder in a folder
             Assert.Equal(shown + 1, stash.VisibleCount);
-            // Folders are premium: the folder settings rename and recolour them.
+            // The folder settings offer a name but no colour, and the client sends a folder's rename without the premium flag.
             Assert.True(stash.Rename(folder, "Mine"));
-            Assert.True(stash.SetColour(folder, 0xff112233));
-            Assert.True(Record(stash, folder).Flags.HasFlag(InstanceStash.TabFlags.Premium));
+            Assert.False(Record(stash, folder).Flags.HasFlag(InstanceStash.TabFlags.Premium));
 
             Assert.Equal(ushort.MaxValue, stash.MoveToFolder(1, ushort.MaxValue));
             Assert.True(stash.DeleteFolder(folder));

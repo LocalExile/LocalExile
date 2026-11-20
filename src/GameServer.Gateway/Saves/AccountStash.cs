@@ -351,18 +351,19 @@ public sealed partial class AccountStash
         return moved;
     }
 
-    /// <summary>Every tab but the free normal ones (StashType 0) is premium, as bought tabs and folders (16) are in the real
+    /// <summary>Every tab but the free normal ones (StashType 0) and folders (16) is premium, as bought tabs are in the real
     /// game: the tab settings then offer the name and colour (record flag 0x02).</summary>
-    static bool IsPremium(byte type) => type != 0;
+    static bool IsPremium(byte type) => type is not (0 or 16);
 
-    /// <summary>Renames a premium tab (C→S 0xcd). False for no such tab, a tab that is not premium or an empty name.</summary>
+    /// <summary>Renames a premium tab or a folder (C→S 0xcd; the settings send it for either, 0x14025b9b0). False for no
+    /// such tab, another tab that is not premium or an empty name.</summary>
     public bool Rename(int tab, string name)
     {
         name = name.Trim();
         if (name.Length is 0 or > 64) return false;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type)) return false;
+            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type) && _tabs[tab].Saved.Type != StashRules.Folder) return false;
             if (_tabs[tab].Saved.Name == name) return true;
             _tabs[tab].Saved = _tabs[tab].Saved with { Name = name };
         }

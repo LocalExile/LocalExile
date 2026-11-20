@@ -755,7 +755,7 @@ public static partial class Game
                     (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
                 await SendTabListAgain(remote, stream, ciphers, conn, kind);
             }
-            else if (id == InstanceStash.DeleteFolderId && bytes.Length >= 5)
+            else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
             {
                 var (kind, folder) = InstanceStash.ReadDeleteFolder(bytes);
                 if (kind == InstanceStash.Guild && conn.Ssf) continue;

@@ -172,6 +172,7 @@ public static class InstanceStash
     /// <summary>C→S 0xd2 (5 bytes, the class of 0xc7; sent by the folder settings' "Delete Folder", 0x14025c5c0, after it
     /// cleared the folder from the tabs in it on its own side): u16 BE folder tab, u8 kind.</summary>
     public const ushort DeleteFolderId = 0xd2;
+    public const int DeleteFolderLength = 5;
 
     public static (byte Kind, ushort Folder) ReadDeleteFolder(ReadOnlySpan<byte> m) => (m[4], (ushort)(m[2] << 8 | m[3]));
 
