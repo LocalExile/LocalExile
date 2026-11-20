@@ -72,17 +72,31 @@ public static class InstanceMapDevice
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7] != 0, m[8], m[9]);
 
     /// <summary>C→S 0xe4 (into) and 0xe5 (out): Ctrl + click with the map device open, for the items that are not Atlas
-    /// Idols — a map goes this way. Writers `0x14216e300` (0xe4) and `0x14216e5d0` (0xe5), serializer `0x141f9eac0`:
-    /// u32 BE item id, u8 flags (bit 0 of +0x24, bit 1 of +0x26), u8 +0x28, u8 +0x29, u8 (bit 7 set: into the device; the
-    /// low 7 bits are +0x27), u16 BE the open map device object's +0x7b (0 when it has none). 12 bytes.</summary>
+    /// Idols — a map goes this way. Both are 12 bytes with u32 BE item id at +2 and u16 BE open map device object's +0x7b
+    /// at +10, but their flag/direction packing differs:
+    /// <list type="bullet">
+    /// <item>0xe4 (sender <c>0x14216e300</c>, writer <c>0x141f9eac0</c>): byte 6 packs bit 0 (+0x24) and bit 1 (+0x26),
+    /// bytes 7..8 are +0x28/+0x29, byte 9 packs bit 7 (+0x25, into device) | low 7 bits (+0x27).</item>
+    /// <item>0xe5 (sender <c>0x14216e5d0</c>, writer <c>0x141f9eef0</c>): byte 6 packs bit 0 (+0x24), bit 1 (+0x25, into
+    /// device) and bit 2 (+0x26), bytes 7..8 are +0x28/+0x29, byte 9 is plain +0x27.</item>
+    /// </list></summary>
     public const ushort MoveIntoDeviceId = 0x00e4, MoveOutOfDeviceId = 0x00e5;
     public const int MoveItemLength = 12;
 
     public sealed record ItemClick(uint ItemId, byte Flags, byte Flags2, byte Flags3, bool IntoDevice, ushort Device);
 
-    public static ItemClick ReadItemClick(ReadOnlySpan<byte> m) =>
-        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..6]), m[6], m[7], m[8], (m[9] & 0x80) != 0,
-            BinaryPrimitives.ReadUInt16BigEndian(m[10..12]));
+    public static ItemClick ReadItemClick(ReadOnlySpan<byte> m)
+    {
+        ushort id = BinaryPrimitives.ReadUInt16BigEndian(m);
+        uint itemId = BinaryPrimitives.ReadUInt32BigEndian(m[2..6]);
+        ushort device = BinaryPrimitives.ReadUInt16BigEndian(m[10..12]);
+        if (id == MoveOutOfDeviceId)
+        {
+            byte flags = (byte)((m[6] & 0x01) | ((m[6] & 0x04) >> 1));
+            return new(itemId, flags, m[7], m[8], (m[6] & 0x02) != 0, device);
+        }
+        return new(itemId, m[6], m[7], m[8], (m[9] & 0x80) != 0, device);
+    }
 
     /// <summary>C→S 0xf6: a Voidstone clicked into (or out of) an Atlas socket with the map device open
     /// (0x1407bf070 → 0x14216eac0). Writer 0x141f993f0: u32 BE item id, u8, u8 (both 0 on the live

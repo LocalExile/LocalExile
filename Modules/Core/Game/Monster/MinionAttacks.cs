@@ -38,18 +38,6 @@ public static partial class Game
         return best;
     }
 
-    /// <summary>
-    /// A fighting minion's hit at its swing's contact, under the Monsters lock: both still there and the target in reach,
-    /// the minion's accuracy (DefaultMonsterStats at its level) against the target's evasion, the target's block
-    /// (Stalwart), then the attack's damage (the minion's own, with the player's minion modifiers it was summoned with)
-    /// mitigated by the target as any hit. It is the minion's hit, not the player's (no hit-recently). Null when it did not
-    /// land.
-    /// </summary>
-    public static (MonsterHit Hit, int Damage)? MinionHitLocked(ClientState conn, uint id, SpawnedMonster m, MinionTarget target,
-        double now, Random random) =>
-        MinionHitTargetLocked(conn, id, m, target.Id, target.Monster, now, random, checkReach: true) is { } landed
-            ? (landed.Hit, landed.Damage) : null;
-
     internal static byte[] MinionActionHit(uint attacker, uint target, byte code, byte angle) =>
         InstanceProtocol.ActionHit(attacker, 0xffff, target,
             flags: MonsterHitFlags(blocked: false, critical: false), kind: 0x03, code: code, angle: angle);
@@ -82,7 +70,7 @@ public static partial class Game
     }
 
     // A fighting minion attacks its target: its skill aimed at it (0x1ab with the target's id, as a monster's swing at the
-    // player), and at the contact point (half the attack time) the hit lands (MinionHitLocked): 0x1af from the minion, then
+    // player), and at the contact point (half the attack time) the hit lands (MinionHitTargetLocked): 0x1af from the minion, then
     // the target's hit and death as for the player's hits. Its kills give the player their experience, items and quest
     // progress, but are not his for his on-kill effects.
     static void StartMinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

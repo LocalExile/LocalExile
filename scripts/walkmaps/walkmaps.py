@@ -329,6 +329,11 @@ def save_generation(out, gen):
     if not gen.get("area"):
         return
     stem = os.path.join(out, f"{gen['area']}_seed{gen['seed']}")
+    # The terrain plugin states the Gateway sent with this load (the Deepwater grid): levelgen generates with them.
+    area = current_area(out)
+    if (area is not None and area.get("pluginStates") and area["id"] == gen["area"]
+            and str(area["seed"]) == str(gen["seed"])):
+        gen["pluginStates"] = area["pluginStates"]
     with open(stem + ".gen.json.tmp", "w", encoding="utf-8") as f:
         json.dump(gen, f)
     replace(stem + ".gen.json.tmp", stem + ".gen.json")
