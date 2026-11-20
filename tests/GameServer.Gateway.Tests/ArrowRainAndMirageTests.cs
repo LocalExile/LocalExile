@@ -2800,7 +2800,59 @@ public class ArrowRainAndMirageTests
         }
         items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
         Assert.Equal(baseline, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
-        if (skill == "Split Arrow") await VerifyBarrageNovaLanding();
+        if (skill == "Split Arrow")
+        {
+            await VerifyBarrageNovaLanding();
+            VerifyBallistaBarrage();
+        }
+    }
+
+    static void VerifyBallistaBarrage()
+    {
+        foreach (var (skill, count, contact) in new[] { ("Split Arrow", 11, 66), ("Siege Ballista", 7, 66), ("Shrapnel Ballista", 9, 83) })
+        {
+            using var b = new Battle(skill == "Split Arrow" ? [skill, "Ballista Totem Support", "Barrage Support"]
+                : [skill, "Barrage Support"]);
+            var c = b.Conn;
+            c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 2;
+            c.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
+            var gem = Game.GemSkillEffects(c).Single();
+            var source = Game.SupportedSkill(c, gem.Id);
+            var variety = Game.TotemVariety(c, gem.Effect)!;
+            var totem = new TotemState.Totem(777, gem.Id, (108, 100), 100, 20, null, varietyId: variety.Id)
+            { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem, Ballista = true };
+            c.Totems.Place(totem, 1, 0);
+            Game.BindTotemSource(c, totem);
+            var proxy = Game.TotemProxy(c, gem.Id)!;
+            var stats = proxy.Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal(count, stats[StatKeys.VirtualTotalArrows]);
+            Assert.Equal(count, stats[StatKeys.VirtualTotalProjectiles]);
+            var action = new List<byte>();
+            c.Clock.Start();
+            Game.TickSpellTotemsLocked("ballista-barrage", b.Stream, b.Ciphers, c, action);
+            c.Clock.Stop();
+            Assert.NotEmpty(action);
+            Assert.Equal(1, totem.Sequence);
+            double duration = Game.TotemAttackSeconds(c, gem.Id);
+            double start = totem.NextCast - duration, interval = duration * .6 / count;
+            long first = ProjectileRuntime.Time(start + duration * .4 + interval * contact / 200);
+            // An equipment bonus arriving during windup applies when the actor starts its next attack.
+            c.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 5;
+            var fired = new Dictionary<long, long>();
+            for (int i = 0; i < count; i++)
+            {
+                long due = first + i * ProjectileRuntime.Time(interval);
+                b.Session.AdvanceTo(due - 1);
+                Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.Use.Emitter.Id == totem.Id && p.VolleyIndex == i);
+                b.Session.AdvanceTo(due);
+                foreach (var p in b.Session.Runtime.Projectiles.Where(p => p.ParentId == 0 && p.Use.Emitter.Id == totem.Id))
+                    fired.TryAdd(p.EmissionId, p.CreatedAt);
+                if (i == 1) c.ActionCount++; // A new owner action does not interrupt the ballista.
+                if (i == 2 && skill == "Siege Ballista") totem.DiedAt = due / (double)ProjectileRuntime.QuantaPerSecond;
+            }
+            int expected = skill == "Siege Ballista" ? 3 : count;
+            Assert.Equal(Enumerable.Range(0, expected).Select(i => first + i * ProjectileRuntime.Time(interval)), fired.Values.Order());
+        }
     }
 
     static async Task VerifyBarrageNovaLanding()

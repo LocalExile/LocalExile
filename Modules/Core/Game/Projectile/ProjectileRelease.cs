@@ -160,7 +160,7 @@ public static partial class Game
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
         double acceptedAt = contact?.Start ?? swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         double attackTime = attack ? SupportedAttackSeconds(conn, skillId, sequence) : 0;
-        var barrage = attack ? PlayerBarrage(conn, skillId, gem.Effect, action, acceptedAt, attackTime) : null;
+        var barrage = attack ? DirectBarrage(conn, skillId, gem.Effect, action, acceptedAt, attackTime) : null;
         if (barrage is not null && conn.LockstepClient) BarrageAttacks.AddOrUpdate(conn, barrage);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
@@ -260,20 +260,26 @@ public static partial class Game
                             SupportedSkill(conn, skillId).Stats, aim, sequence, left);
                     var use = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
                         cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more, attackContact: barrage?.Fire.Point);
-                    if (barrage is not null)
-                        use = use with { Profile = use.Profile with { SequentialDelay = ProjectileRuntime.Time(barrage.Interval) },
-                            CanEmit = Firing };
-                    // Kinetic Bolt chooses its zig-zag legs from the shot ordinal of a sequential attack.
-                    use = ClientDrawnVolley(conn, session, skillId, gem, use, sequence, (uint)left);
-                    if (barrage is null) return use;
-                    string effect = SkillsFor(conn).EffectId(gem.Effect)!;
-                    bool atCursor = ProjectileEndsAtAim(effect) || GatewayProjectileSkillProfiles.IsKineticBolt(effect);
-                    return use with { Profile = use.Profile with { NativeVolley = new()
-                        { Layout = shot => barrage.Launches(shot.Aim - shot.LaunchSource, sequence, shot.Profile.Count, atCursor) } } };
+                    return DirectProjectileVolley(conn, session, skillId, gem, use, sequence, (uint)left, barrage, Firing);
                 });
             }
         }
         return Task.CompletedTask;
+    }
+
+    static ProjectileUse DirectProjectileVolley(ClientState conn, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, ProjectileUse use,
+        ushort sequence, uint repeatsLeft, BarrageAttack? barrage, Func<bool> firing)
+    {
+        if (barrage is not null)
+            use = use with { Profile = use.Profile with { SequentialDelay = ProjectileRuntime.Time(barrage.Interval) }, CanEmit = firing };
+        // Kinetic Bolt chooses its zig-zag legs from the shot ordinal of a sequential attack.
+        use = ClientDrawnVolley(conn, session, skillId, gem, use, sequence, repeatsLeft);
+        if (barrage is null) return use;
+        string effect = SkillsFor(conn).EffectId(gem.Effect)!;
+        bool atCursor = ProjectileEndsAtAim(effect) || GatewayProjectileSkillProfiles.IsKineticBolt(effect);
+        return use with { Profile = use.Profile with { NativeVolley = new()
+            { Layout = shot => barrage.Launches(shot.Aim - shot.LaunchSource, sequence, shot.Profile.Count, atCursor) } } };
     }
 
     // A spell's projectiles are the client's own (ClientPredicted): the server spreads them as the client's volley

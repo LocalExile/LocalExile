@@ -300,6 +300,10 @@ is 66/200 of a firing clip. The shot ordinal seeds the two spread offsets (`0x14
 Move can interrupt early startup or later firing clips. The first fire clip is protected, and subsequent clips
 use their contact and lock-cancelling events (`0x141bad750`). Released arrows remain in flight and can each hit
 the same enemy. Power Siphon's per-target selection and Arrow Nova's payload have separate release paths.
+The ballista's `0x4000` skill record carries the projectile totals used by this action. Its own ACT maps
+`BarrageFireMain` to the firing clip. DexterityTotem and Siege Ballista contact at 66/200 ms, Shrapnel Ballista
+at 83/200 ms. Extra `effect` tracks on the same ACT entry leave that body contact intact. The area Gateway
+sends a changed skill record before the next attack and retains the in-flight attack's count.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.

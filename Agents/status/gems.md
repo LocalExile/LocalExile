@@ -66,7 +66,8 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
-  Barrage Support paces direct bow and wand shots from the resolved count and the firing clip. Each shot can hit the same enemy. Movement and hit recovery stop the remaining shots.
+  Barrage Support paces direct bow and wand shots from the resolved count and the firing clip. Each shot can hit the same enemy. Movement and hit recovery stop the player’s remaining shots.
+  Ballistas use their own firing clips and keep shooting when the owner moves. Their projectile counts and attack timing have Gateway coverage.
   Volley and Greater Volley release from distinct firing points. Extra arrows share each point’s spread.
   Linked Barrage shots sweep the points in order. Position, direction and blocked side launches have Gateway coverage.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).

@@ -86,14 +86,22 @@ def item_types(doc):
 
 def monster_contacts(doc):
     monsters, clips, frames, clocks = [], [], [], []
-    for m, (variety, value) in enumerate(doc.items()):
-        monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks"))})
-        clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
-        for pool, entries in value["pools"].items():
+
+    def add_pools(m, pools):
+        for pool, entries in pools.items():
             for i, c in enumerate(entries):
                 clip = len(clips)
                 clips.append({"monster": m, "pool": pool, **child("monster", m, i, c, skip=("contacts",))})
-                frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]} for k, f in enumerate(c.get("contacts") or [])]
+                frames.extend({"clip": clip, "ord": k, "ms": f[0], "position": f[1]}
+                              for k, f in enumerate(c.get("contacts") or []))
+
+    for m, (variety, value) in enumerate(doc.items()):
+        monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks", "layered_effect_pools"))})
+        clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
+        add_pools(m, value["pools"])
+    # Frame rows refer to numeric clip IDs. Append newly recognised layered ACT entries after the original corpus.
+    for m, value in enumerate(doc.values()):
+        add_pools(m, value.get("layered_effect_pools", {}))
     return {"monster_contacts": monsters, "monster_contact_clips": clips, "monster_contact_clip_frames": frames,
             "monster_melee_clocks": clocks}
 

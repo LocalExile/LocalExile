@@ -55,13 +55,14 @@ public static partial class Game
 
     static readonly RuleTable<ClientState, BarrageAttack> BarrageAttacks = new();
 
-    static BarrageAttack? PlayerBarrage(ClientState conn, ushort skill, int effect, int action, double start, double seconds)
+    static BarrageAttack? DirectBarrage(ClientState conn, ushort skill, int effect, int action, double start, double seconds,
+        TotemState.Totem? totem = null)
     {
         var own = SupportedSkill(conn, skill).Stats;
         if (GolemStat(own, "projectiles_barrage") == 0) return null;
         var player = CharacterPlayerStats(conn);
         int Get(string key) => GolemStat(own, key) + GolemStat(player, key);
-        // These shapes own the volley at the landing point, around the source or per target. The player
+        // These shapes own the volley at the landing point, around the source or per target. The actor
         // plays a start clip and one fire clip per projectile only on the direct attack path (0x141ba5600).
         if (Get("projectiles_rain") != 0 || Get("projectiles_nova") != 0
             || Get("base_number_of_projectiles_in_spiral_nova") != 0 || Get("power_siphon_fire_at_all_targets") != 0
@@ -70,10 +71,22 @@ public static partial class Game
         var weapon = AnimationWeaponProfileFor(conn);
         int count = ResolveProjectilePanelParameters(effect)!.Resolve(Get, 1, weapon.Bow).Count;
         if (count <= 1) return null;
-        string name = weapon.Bow ? "barrage_bow" : weapon.DualWield ? "barrage_wand_wand"
-            : weapon.Shield ? "barrage_wand_shield" : "barrage_wand";
-        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        return new(action, start, seconds, count, Animations.ContactClip(ao, name),
+        AnimationClip fire;
+        if (totem is null)
+        {
+            string name = weapon.Bow ? "barrage_bow" : weapon.DualWield ? "barrage_wand_wand"
+                : weapon.Shield ? "barrage_wand_shield" : "barrage_wand";
+            string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+            fire = Animations.ContactClip(ao, name);
+        }
+        else
+        {
+            var clip = SkillsFor(conn).MonsterContact(totem.VarietyId, "BarrageFireMain", totem.Sequence);
+            if (clip?.ContactMs is not int contact)
+                throw new InvalidOperationException($"Missing Barrage fire contact for {totem.VarietyId}.");
+            fire = new(clip.LengthMs, contact, clip.Point, clip.Index);
+        }
+        return new(action, start, seconds, count, fire,
             Get("cannot_cancel_skill_before_contact_point") != 0, Get("barrage_support_projectile_spread_+%"),
             Get("no_barrage_projectile_spread") != 0, ParallelFiringPoints.From(Get),
             Get("barrage_final_volley_fires_x_additional_projectiles_simultaneously") != 0);

@@ -8,6 +8,7 @@ public static partial class Game
 {
     internal static bool NativeProjectileTotem(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "HolyFlameTotem";
     static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
+    static readonly RuleTable<TotemState.Totem, GrantedSkill> BallistaActorSkills = new();
     public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
@@ -56,7 +57,9 @@ public static partial class Game
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }
 
-    public static GrantedSkill? TotemProxy(ClientState conn, ushort skill)
+    public static GrantedSkill? TotemProxy(ClientState conn, ushort skill) => TotemProxy(conn, skill, null);
+
+    static GrantedSkill? TotemProxy(ClientState conn, ushort skill, double? attackTime)
     {
         var gem = SupportedSkill(conn, skill);
         var payload = new Dictionary<uint, int>(gem.Stats);
@@ -71,11 +74,19 @@ public static partial class Game
         if (SkillsFor(conn).IsAttack(gem.Effect))
         {
             foreach (var (key, value) in WeaponStats(conn, WeaponFor(conn), CharacterPlayerStats(conn))) payload[key] = value;
-            double attackSeconds = TotemAttackSeconds(conn, skill);
+            double attackSeconds = attackTime ?? TotemAttackSeconds(conn, skill);
             payload[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(100 * (WeaponFor(conn).AttackMs / (attackSeconds * 1000) - 1));
             payload[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / attackSeconds);
             if (Stats.Key("main_hand_weapon_type") is uint weaponType)
                 payload[weaponType] = WeaponTypeStats.Of(ActiveMainHand(conn)?.Type?.Class);
+            if (GolemStat(gem.Stats, "is_ranged_attack_totem") != 0)
+            {
+                var inputs = MergeSkillStats(CharacterPlayerStats(conn), gem.Stats);
+                ApplyProjectilePanelStats(gem.Effect, payload, inputs, ArrowsFor(conn, gem.Effect));
+                // The firing action reads these spread controls directly from the proxy skill.
+                foreach (string name in new[] { "no_barrage_projectile_spread", "barrage_support_projectile_spread_+%" })
+                    if (Stats.Key(name) is uint key && inputs.TryGetValue(key, out int value)) payload[key] = value;
+            }
         }
         var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
         return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
@@ -146,6 +157,17 @@ public static partial class Game
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
+            if (totem.Ballista)
+            {
+                // The same placed actor can begin its next attack with a different weapon speed or arrow count.
+                var next = TotemProxy(conn, totem.SkillId, seconds)!;
+                if (!BallistaActorSkills.TryGetValue(totem, out var sent) || sent.EffectsPerLevelRow != next.EffectsPerLevelRow
+                    || sent.StatSetsPerLevelRow != next.StatSetsPerLevelRow || !sent.Stats!.SequenceEqual(next.Stats!))
+                {
+                    bytes.World(totem.Id, InstanceEntities.PlayerSkillsChange(totem.Id, [next], []));
+                    BallistaActorSkills.AddOrUpdate(totem, next);
+                }
+            }
             bool arc = SkillsFor(conn).EffectId(gem.Effect) == "Arc";
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, 0x0408, targetObjectId: arc ? target.Key : null));
@@ -178,14 +200,23 @@ public static partial class Game
                 });
                 continue;
             }
-            session.Schedule(ProjectileRuntime.Time(totem.NextCast),
-                () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem),
-                () =>
-                {
-                    var use = CaptureGemProjectile(conn, session, totem.SkillId, gem, aim,
-                        CaptureSkillCriticalRoll(conn, totem.SkillId), sequence, totem: totem);
-                    return ClientDrawnVolley(conn, session, totem.SkillId, gem, use, sequence, 0);
-                });
+            var barrage = totem.Ballista ? DirectBarrage(conn, totem.SkillId, gem.Effect, sequence, now, seconds, totem) : null;
+            bool CanFire() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem)
+                && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+            ProjectileUse Capture()
+            {
+                var use = CaptureGemProjectile(conn, session, totem.SkillId, gem, aim,
+                    CaptureSkillCriticalRoll(conn, totem.SkillId), sequence, totem: totem, attackContact: barrage?.Fire.Point);
+                return DirectProjectileVolley(conn, session, totem.SkillId, gem, use, sequence, 0, barrage, CanFire);
+            }
+            if (barrage is null)
+                session.Schedule(ProjectileRuntime.Time(totem.NextCast), CanFire, Capture);
+            else
+            {
+                // The firing clips, count and directions belong to the action the proxy just announced.
+                var use = Capture();
+                session.Schedule(ProjectileRuntime.Time(now + barrage.FirstContact), CanFire, () => use);
+            }
         }
     }
 }

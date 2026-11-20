@@ -59,8 +59,8 @@ $manifest = @(
     # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
     # v6 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 6; Needs = @('tables', 'object-types')
-       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
+       Args = @('scripts/re/monster_contacts.py'); Version = 7; Needs = @('tables', 'object-types')
+       UsedBy = 'monster contact frames including layered ACT effects, variety AO clip clocks with slow spans and ACT budgets, projectile release points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'

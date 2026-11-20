@@ -76,7 +76,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Greater and Awakened Spell Echo still need native checks, including Storm Call's impact size on successive repeats.
   Check Arrow Nova with Barrage Support on a live client, including the first and last landing arrows against one target.
   Check Volley and Greater Volley at walls on a live client, including the firing actor with Barrage Support.
-  Proxy Barrage sequences, simultaneous jewel endpoint volleys and panel DPS still need verification.
+  Check Ballista Barrage playback on both supported clients, including its muzzle and changes to arrow count between attacks.
+  Other proxy Barrage sequences, simultaneous jewel endpoint volleys and panel DPS still need verification.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
   Check Spellblade's panel and per-hand rounding live; Varunastra's off-hand support selection is open.

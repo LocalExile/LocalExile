@@ -1,0 +1,22 @@
+-- Generated table monster_contact_clip_frames: 20 new, 0 changed, 0 removed row(s) in 3.29.3c. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "monster_contact_clip_frames" ("_row", "clip", "ord", "ms", "position") VALUES
+(12838, 47251, 0, 1145, NULL),
+(12839, 47251, 1, 1176, NULL),
+(12840, 47251, 2, 1227, NULL),
+(12841, 47251, 3, 1245, NULL),
+(12842, 47251, 4, 1288, NULL),
+(12843, 47251, 5, 1307, NULL),
+(12844, 47251, 6, 1347, NULL),
+(12845, 47251, 7, 1371, NULL),
+(12846, 47251, 8, 1403, NULL),
+(12847, 47251, 9, 1440, NULL),
+(12848, 47252, 0, 1145, NULL),
+(12849, 47252, 1, 1176, NULL),
+(12850, 47252, 2, 1227, NULL),
+(12851, 47252, 3, 1245, NULL),
+(12852, 47252, 4, 1288, NULL),
+(12853, 47252, 5, 1307, NULL),
+(12854, 47252, 6, 1347, NULL),
+(12855, 47252, 7, 1371, NULL),
+(12856, 47252, 8, 1403, NULL),
+(12857, 47252, 9, 1440, NULL);

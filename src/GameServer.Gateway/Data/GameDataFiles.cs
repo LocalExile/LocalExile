@@ -89,7 +89,7 @@ public static class GameDataFiles
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 11, "class rig animation indices, spell cancellation events, contact frames, named event times, clip lengths and each stance's ordinary and stat-qualified projectile casts"),
-        ("monster-contacts", 6, "monster clip contact frames, variety AO slow spans, ACT budgets and explicit clock metadata availability"),
+        ("monster-contacts", 7, "monster clip contacts, layered ACT effects, variety AO slow spans, ACT budgets and clock metadata availability"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),

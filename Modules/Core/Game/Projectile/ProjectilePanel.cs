@@ -4,13 +4,16 @@ public static partial class Game
 {
     // These are native description inputs, projected only onto the outgoing skill record.
     // Never put final counts back into supported/raw stats and resolve quantity modifiers twice.
-    public static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats)
+    public static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats) =>
+        ApplyProjectilePanelStats(effect, stats, stats, ArrowsForSkill(effect));
+
+    static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats, IReadOnlyDictionary<uint, int> inputs, bool bow)
     {
         var groundRain = ArrowRainDefinition(Skills.EffectId(effect));
         if ((groundRain?.Parameters ?? ResolveProjectilePanelParameters(effect)) is not { } parameters) return;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Get(string name) => Stats.Key(name) is uint key ? inputs.GetValueOrDefault(key) : 0;
         ProjectileProfile profile;
-        bool arrows = groundRain is not null || ArrowsForSkill(effect);
+        bool arrows = groundRain is not null || bow;
         try { profile = parameters.Resolve(Get, 1, arrows); }
         catch (InvalidOperationException ex)
         {

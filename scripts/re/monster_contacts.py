@@ -78,7 +78,7 @@ def fetch_ao_chain(paths, fetch_missing=True):
     return known
 
 
-def root_assignments(text):
+def root_assignments(text, layered=None):
     """`Key = "value";` entries of the .act's root block only, first one wins. A nested stance's entries (a weapon or
     phase stance) apply in that stance, not to the type: taking the last entry at any depth had given 191 varieties
     another stance's pool (review 2026-10-30). An entry that names an effect after its clips (`Key = "a,b" effect
@@ -99,8 +99,16 @@ def root_assignments(text):
                 i += 4
             elif i + 3 < len(body) and body[i + 1] == "=" and body[i + 2].startswith('"') and body[i + 3] == "effect":
                 end = body.index(";", i + 3) if ";" in body[i + 3:] else len(body)
-                if all(t.startswith('"') for t in body[i + 4:end]):
+                tail = body[i + 3:end]
+                if all(t.startswith('"') for t in tail[1:]):
                     out.setdefault(body[i], body[i + 2][1:-1].strip())
+                elif body[i] not in out and len(tail) % 3 == 0 and all(
+                        flag == "effect" and path.startswith('"') and clip.startswith('"')
+                        for flag, path, clip in zip(tail[::3], tail[1::3], tail[2::3])):
+                    # BarrageFireMain can attach both the default and cosmetic per-arrow effect to one body clip.
+                    out[body[i]] = body[i + 2][1:-1].strip()
+                    if layered is not None:
+                        layered.add(body[i])
                 i = end + 1
             else:
                 i += 1
@@ -109,10 +117,10 @@ def root_assignments(text):
         return {}
 
 
-def act_pools(text, keys, budgets=False):
+def act_pools(text, keys, budgets=False, layered=None):
     """{key: [(clip, optional budget seconds), ...]} for supported root-block pools, and the .ao the act animates.
     A single unsupported entry rejects the whole pool: removing one would change sequence-seeded selection."""
-    entries = root_assignments(text)
+    entries = root_assignments(text, layered)
     pools = {}
     for key in keys:
         value = entries.get(key)
@@ -221,7 +229,8 @@ def main():
     if fetch_missing:
         fetch(acts)
         fetch(aos)
-    parsed = {act: act_pools(read_text(act) or "", keys) for act in acts}
+    layered = {act: set() for act in acts}
+    parsed = {act: act_pools(read_text(act) or "", keys, layered=layered[act]) for act in acts}
     melee_pools = {act: act_pools(read_text(act) or "", ["Melee"], budgets=True)[0].get("Melee") for act in acts}
     act_aos = {ao for _, ao in parsed.values() if ao}
     all_aos = fetch_ao_chain(aos + sorted(act_aos), fetch_missing)
@@ -278,7 +287,10 @@ def main():
                         pool.append(entry_clip)
                     recorded[k] = pool
                 if recorded:
+                    attached = {name: recorded.pop(name) for name in sorted(layered[act]) if name in recorded}
                     entry = {"act": act, "ao": ao, "amd": amd, "pools": recorded}
+                    if attached:
+                        entry["layered_effect_pools"] = attached
                     break
             for act in key[0]:
                 names = melee_pools[act]
@@ -306,7 +318,7 @@ def main():
             cache[key] = entry
         if cache[key]:
             out[row["Id"]] = cache[key]
-            pools_written += len(cache[key]["pools"])
+            pools_written += len(cache[key]["pools"]) + len(cache[key].get("layered_effect_pools", {}))
         if n % 2000 == 0:
             print(f"  {n}/{len(variants)}", file=sys.stderr, flush=True)
     with open(dest + ".tmp", "w", encoding="utf-8") as f:
