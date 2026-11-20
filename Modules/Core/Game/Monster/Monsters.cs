@@ -2001,8 +2001,24 @@ public static partial class Game
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
             at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
         }
+        // A summoned spell-caster (an essence's Energy Locus, a totem) keeps its spell on the skill's cooldown as a kit
+        // special, instead of re-casting it every attack cycle as a default swing (a spell-only variety is not a kit boss,
+        // so without this its spell fires every cast-time seconds). Melee summons keep their default swing.
+        var catalog = SkillsFor(conn);
+        var kit = new List<MonsterKitSkill>();
+        foreach (int ef in variety.GrantedEffects ?? [])
+        {
+            if (!catalog.IsSpell(ef)) continue;
+            int efLevel = catalog.MaxLevelAt(ef, m.Level);
+            double cd = catalog.CooldownMs(ef, efLevel) / 1000.0;
+            if (cd <= 0) continue;
+            var attack = BossKits.AttackFor(conn, variety, m.Level, ef, (ushort)(0x4000 + kit.Count));
+            if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
+            kit.Add(new(ef, attack, cd));
+        }
         for (int k = 0; k < summon.Count; k++)
             await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
+                extraKit: kit.Count > 0 ? kit : null,
                 owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
