@@ -11,38 +11,49 @@ public static partial class MapStrongboxes
         public HashSet<uint>? Removals { get; set; }
         public uint Actor { get; set; }
         public int Landed { get; set; }
+        internal virtual (int X, int Y) Target(Box box) => (box.X, box.Y);
     }
 
     public sealed record VesselHit(uint Player, int Epoch, MonsterHitOutcome Result);
 
     sealed record VesselImpact(MonsterAttack Attack, DamagePacket AilmentBase);
-    sealed record VesselSpell(int Effect, ushort Action, int ActorLevel, Dictionary<uint, int> Stats,
-        SpellCastTiming Timing, DamagePacket Damage, int Critical)
+    sealed record VesselSkill(int Effect, ushort Action, int ActorLevel, Dictionary<uint, int> Stats,
+        MonsterAttack ActionRecord, int Critical, SpellCastTiming? Timing = null)
     {
-        public double Seconds => Timing.DurationSeconds!.Value;
+        public double Seconds => ActionRecord.Seconds;
         public int Required(string name) => Stats[Program.Stats.Key(name)!.Value];
         public int Get(string name) => Program.Stats.Key(name) is uint key ? Stats.GetValueOrDefault(key) : 0;
         public VesselImpact Impact(int radius, int hitMore = 0, int ailmentMore = 0) =>
-            new(new MonsterAttack(Action, Seconds, radius, Damage.Scale(1 + hitMore / 100d))
-                { Spell = true, Ranged = true, Ailments = IncomingAilmentSettings(Get) }, Damage.Scale(1 + ailmentMore / 100d));
+            new(ActionRecord with { Range = radius, Damage = ActionRecord.Damage.Scale(1 + hitMore / 100d),
+                Ailments = IncomingAilmentSettings(Get) }, ActionRecord.Damage.Scale(1 + ailmentMore / 100d));
     }
 
-    static VesselSpell ReadVesselSpell(ClientState conn, string name)
+    static VesselSkill ReadVesselSpell(ClientState conn, string name)
     {
         var catalog = SkillsFor(conn);
         int effect = catalog.EffectRow(name), level = AreaLevel(conn);
         var native = GolemData.Skill(catalog, effect, level);
         int castMs = catalog.CastMs(effect);
         int moreSpeed = native.Stats.GetValueOrDefault(Stats.Key("active_skill_cast_speed_+%_final")!.Value);
-        return new(effect, (ushort)(catalog.ActionHash(effect)!.Value & 0x3fff), level, native.Stats,
-            SpellCastTiming.Calculate(castMs, moreSpeed), Packet(native.Stats, "spell").Scale(native.Multiplier), native.Crit);
+        ushort action = (ushort)(catalog.ActionHash(effect)!.Value & 0x3fff);
+        var timing = SpellCastTiming.Calculate(castMs, moreSpeed);
+        var attack = new MonsterAttack(action, timing.DurationSeconds!.Value, DefaultRadius, Packet(native.Stats, "spell").Scale(native.Multiplier))
+            { Spell = true, Ranged = true };
+        return new(effect, action, level, native.Stats, attack, native.Crit, timing);
     }
 
-    static (VesselCast Cast, VesselSpell Skill)? PrepareVesselSpell(ClientState conn, Area area, StrongboxCatalog.Definition type, Box box)
+    static (VesselCast Cast, VesselSkill Skill)? PrepareVesselSpell(ClientState conn, Area area, StrongboxCatalog.Definition type, Box box)
     {
         // The Vaalsmithed prefixes share one native mod family. The suffix has its own family.
         foreach (var (_, daemon, effects) in Daemons(conn, type, box))
         {
+            if (effects.Contains(VaalCausticArrowEffect))
+            {
+                var skill = area.CausticArrowSkill ??= ReadCausticArrow(conn, daemon);
+                var cast = PrepareCausticArrow(conn, box, daemon, skill);
+                box.CausticArrows.Add(cast);
+                return (cast, skill.Skill);
+            }
             if (effects.Contains(VaalFirestormEffect))
             {
                 var skill = area.FirestormSkill ??= ReadFirestorm(conn);
@@ -69,13 +80,19 @@ public static partial class MapStrongboxes
         foreach (var storm in box.Firestorms.Where(s => s.Landed < s.Ground.Length))
         {
             var skill = area.FirestormSkill ??= ReadFirestorm(player);
-            Watch(storm, storm.Ground.Length, skill.Spell.Timing.DurationMilliseconds!.Value * TimeSpan.TicksPerMillisecond,
+            Watch(storm, storm.Ground.Length, skill.Spell.Timing!.Value.DurationMilliseconds!.Value * TimeSpan.TicksPerMillisecond,
                 skill.DelayMs * TimeSpan.TicksPerMillisecond);
         }
         foreach (var blast in box.Flameblasts)
         {
             var skill = area.FlameblastSkill ??= ReadFlameblast(player);
             Watch(blast, skill.Bursts.Length, skill.BurstTicks, skill.BurstTicks);
+        }
+
+        foreach (var cast in box.CausticArrows.Where(c => c.Landed < c.Steps.Length))
+        {
+            var skill = area.CausticArrowSkill ??= ReadCausticArrow(player, cast.Daemon);
+            Watch(cast, cast.Steps.Length, skill.ReleaseTicks + skill.StepTicks, skill.StepTicks);
         }
 
         void Watch(VesselCast cast, int count, long first, long interval)
@@ -110,18 +127,18 @@ public static partial class MapStrongboxes
         }
     }
 
-    static async Task ShowVesselCast(ClientState conn, Area area, Box box, VesselCast cast, VesselSpell skill, bool play = true)
+    static async Task ShowVesselCast(ClientState conn, Area area, Box box, VesselCast cast, VesselSkill skill, bool play = true)
     {
         if (cast.Actor == 0)
             await Show(conn, cast.Daemon, skill.Effect, skill.ActorLevel, skill.Stats, (box.X, box.Y),
-                id => { cast.Actor = id; Keep(conn, area); }, play, skill.Timing);
+                id => { cast.Actor = id; Keep(conn, area); }, play, skill.Timing, skill.ActionRecord, cast.Target(box));
         else if (play)
-            await PlayDaemon(conn, cast.Actor, skill.Action, (box.X, box.Y), cast.Daemon, shared: true);
+            await PlayDaemon(conn, cast.Actor, skill.Action, (box.X, box.Y), cast.Target(box), cast.Daemon, shared: true);
     }
 
     // All current recipients and the cast advance in one combat commit, before one peer's socket can interrupt another.
-    static async Task<bool> LandVesselImpact(ClientState conn, Area area, Box box, VesselCast cast, VesselSpell skill,
-        VesselImpact impact, (int X, int Y) at, long due)
+    static async Task<bool> LandVesselImpact(ClientState conn, Area area, Box box, VesselCast cast, VesselSkill skill,
+        VesselImpact impact, (int X, int Y) at, long due, Func<ClientState, (int X, int Y), (int X, int Y)?>? contact = null)
     {
         var instance = conn.Instance;
         double landing = due / (double)TimeSpan.TicksPerSecond;
@@ -153,9 +170,11 @@ public static partial class MapStrongboxes
                         || player.PlayerLife == 0 || player.Immune || InGracePeriod(player)) continue;
                     double now = player.Clock.Elapsed.TotalSeconds;
                     var here = player.Walk.WatchedPosition((box.Id, cast.Started), landing);
-                    if (Distance(here, at) > impact.Attack.Range) continue;
+                    if (contact is null && Distance(here, at) > impact.Attack.Range) continue;
+                    var source = contact is null ? at : contact(player, here);
+                    if (source is not { } from) continue;
                     var hit = CommitMonsterHitLocked(player.Wire.Remote, player, cast.Actor, conn.Monsters[cast.Actor],
-                        impact.Attack, now, here, at, false, MonsterActionSequence, impact.AilmentBase, skill.Critical, cast.CriticalRoll);
+                        impact.Attack, now, here, from, false, MonsterActionSequence, impact.AilmentBase, skill.Critical, cast.CriticalRoll);
                     if (hit is not null) cast.Pending.Add(new(player.PeerId, player.IncomingHitEpoch, hit));
                 }
                 cast.Landed++;

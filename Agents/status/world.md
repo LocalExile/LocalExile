@@ -161,6 +161,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   Allied minions and animated weapons remain outside the vessel hit path.
   [Path of Building's Vaal Flameblast definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua)
 
+- The Vaalsmithed Caustic Arrow prefix grants `ChestVaalCausticArrow` to the vessel's bow daemon. Its native data gives
+  five extra projectiles in a nova, unconditional pierce, hits that cannot be evaded, 60% physical-to-chaos conversion
+  and six seconds of caustic ground. The attack uses four times the monster's base weapon damage and 70% of its normal
+  attack rate. The projectile row gives 700 world units per second and a two-cell contact radius. One volley can hit each
+  player once. The shared instance keeps its clipped paths, hit recipients and trail through runner changes and rules reloads.
+  Overlapping patches deal one chaos ground rate. The player's chaos resistance, damage immunity and energy shield bypass
+  apply. The ground art comes from `CausticCloud` variation 14. The 20-cell ground radius follows Path of Building.
+  [Path of Building's Vaal Caustic Arrow definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_dex.lua#L3795-L3821)
+
+  The server aims the first ray toward the opener and uses the shared monster half-attack contact when the daemon has
+  no measured clip. It advances each arrow in five-cell legs with a 30-degree bend over a 40-cell cycle, placing ground
+  every ten cells and at a wall or range end. The grid and projectile blockers are sampled when the box opens. Players
+  joining after release see the surviving ground and take only the remaining contacts. The exact release frame, curve,
+  trail spacing, an additional impact area and the client-drawn volley still need graphical evidence.
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped

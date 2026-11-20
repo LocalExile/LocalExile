@@ -9,7 +9,7 @@ public static partial class MapStrongboxes
     // Kept with the box. The actor, due times and ground object ids belong to one cast across runner changes.
     public sealed record VaalFirestorm(long Started, double Angle, string Daemon, uint[] Ground) : VesselCast(Started, Daemon);
 
-    sealed record FirestormSkill(VesselSpell Spell, int DelayMs, int GroundMs, int Meteors, int FallRadius,
+    sealed record FirestormSkill(VesselSkill Spell, int DelayMs, int GroundMs, int Meteors, int FallRadius,
         VesselImpact Impact, double GroundDps);
 
     static FirestormSkill ReadFirestorm(ClientState conn)
@@ -41,7 +41,7 @@ public static partial class MapStrongboxes
         foreach (var storm in box.Firestorms.ToArray())
         {
             if (!await PublishVesselHits(conn, area, storm)) return;
-            long first = storm.Started + skill.Spell.Timing.DurationMilliseconds!.Value * TimeSpan.TicksPerMillisecond;
+            long first = storm.Started + skill.Spell.Timing!.Value.DurationMilliseconds!.Value * TimeSpan.TicksPerMillisecond;
             if (now.Ticks < first)
             {
                 await ShowVesselCast(conn, area, box, storm, skill.Spell);

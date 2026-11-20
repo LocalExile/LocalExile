@@ -28,6 +28,7 @@ public static partial class MapStrongboxes
         /// <summary>The daemons' later waves (StrongboxDaemons.cs), released into <see cref="Pending"/> when due.</summary>
         public List<Wave> Waves { get; init; } = [];
         public List<VaalFirestorm> Firestorms { get; init; } = [];
+        public List<VaalCausticArrow> CausticArrows { get; init; } = [];
         public List<VaalFlameblast> Flameblasts { get; init; } = [];
         /// <summary>Normal 0, magic 1 or rare 2 (<see cref="StrongboxMods.RollRarity"/>).</summary>
         public byte Rarity { get; init; }
@@ -66,6 +67,7 @@ public static partial class MapStrongboxes
         public volatile bool Active;
         public FirestormSkill? FirestormSkill;
         public FlameblastSkill? FlameblastSkill;
+        public CausticArrowSkill? CausticArrowSkill;
         /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
         public readonly Dictionary<uint, GroundPatch> Zones = [];
     }
@@ -196,7 +198,7 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0);
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0 || b.CausticArrows.Count > 0);
 
     static void Keep(ClientState conn, Area area)
     {
@@ -609,6 +611,7 @@ public static partial class MapStrongboxes
             {
                 if (box.Firestorms.Count != 0) await TickFirestorms(conn, area, box, now);
                 if (box.Flameblasts.Count != 0) await TickFlameblasts(conn, area, box, now);
+                if (box.CausticArrows.Count != 0) await TickCausticArrows(conn, area, box, now);
             }
             bool hasZones;
             lock (area.Zones) hasZones = area.Zones.Count > 0;

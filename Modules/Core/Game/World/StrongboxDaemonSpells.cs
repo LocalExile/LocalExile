@@ -25,7 +25,7 @@ public static partial class MapStrongboxes
     /// <summary>A ground effect around a point until an instance clock time: its damage per second to players inside, and the ailment
     /// it inflicts on them (chill, shock or none).</summary>
     public sealed record Zone((int X, int Y) At, int Radius, double Until, DamageType Type, double Dps, string? Ailment, uint Art);
-    sealed record GroundPatch(Zone Zone, string Model);
+    sealed record GroundPatch(Zone Zone, string Model, double? CausticFrom = null, float? Scale = null);
 
     /// <summary>The radius (cells) of a daemon whose skill gives none: OUR choice, the reach of an Ice Nova (26).</summary>
     const int DefaultRadius = 26;
@@ -194,13 +194,14 @@ public static partial class MapStrongboxes
 
     /// <summary>The daemon at the box, sending its skill's action so the client plays it; 0 when it cannot be created.</summary>
     static async Task<uint> Show(ClientState conn, string daemon, int effect, int actorLevel,
-        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at, Action<uint>? admitted = null, bool play = true, SpellCastTiming? timing = null)
+        IReadOnlyDictionary<uint, int> nativeStats, (int X, int Y) at, Action<uint>? admitted = null, bool play = true, SpellCastTiming? timing = null,
+        MonsterAttack? actionRecord = null, (int X, int Y)? aim = null)
     {
         var catalog = SkillsFor(conn);
         if (Monsters.Find(daemon) is not { Supported: true } variety || catalog.ActionHash(effect) is not ushort hash) return 0;
         ushort skillId = (ushort)(hash & 0x3fff);
         var stats = new Dictionary<uint, int>(nativeStats);
-        var action = new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(effect) / 1000.0), DefaultRadius, DamagePacket.Empty) { Spell = true };
+        var action = actionRecord ?? new MonsterAttack(skillId, Math.Max(0.1, catalog.CastMs(effect) / 1000.0), DefaultRadius, DamagePacket.Empty) { Spell = true };
         foreach (var (key, value) in action.InPlaceSkillStats()) stats[key] = value;
         timing?.ApplyTo(stats, Stats);
         if (catalog.FindMonsterSkill(skillId, effect, actorLevel, [.. stats.Select(p => (p.Key, p.Value))]) is not { } skill) return 0;
@@ -215,11 +216,11 @@ public static partial class MapStrongboxes
                 admitted?.Invoke(actor);
             });
         if (id == 0) return 0;
-        if (play) await PlayDaemon(conn, id, skillId, at, daemon, shared: admitted is not null);
+        if (play) await PlayDaemon(conn, id, skillId, at, aim ?? at, daemon, shared: admitted is not null);
         return id;
     }
 
-    static Task PlayDaemon(ClientState conn, uint id, ushort skillId, (int X, int Y) at, string daemon, bool shared)
+    static Task PlayDaemon(ClientState conn, uint id, ushort skillId, (int X, int Y) at, (int X, int Y) aim, string daemon, bool shared)
     {
         IEnumerable<ClientState> viewers = shared ? Members(conn) : [conn];
         return Task.WhenAll(viewers.Select(Play));
@@ -242,7 +243,7 @@ public static partial class MapStrongboxes
             {
                 lock (viewer.Monsters)
                     if (view is not null && (!viewer.MonsterViews.ContainsKey(id) || viewer.AsleepMonsters.Contains(id) || !view.Casts.Add(id))) return null;
-                return [InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, skillId, 0xffff, viewer.MonsterOrderFlags), InstanceProtocol.ActionEnded(id)];
+                return [InstanceProtocol.ActionStarted(id, at.X, at.Y, aim.X, aim.Y, skillId, 0xffff, viewer.MonsterOrderFlags), InstanceProtocol.ActionEnded(id)];
             }, $"strongbox daemon {daemon}");
         }
     }
@@ -480,10 +481,11 @@ public static partial class MapStrongboxes
                 share.Art.Remove(id);
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), null, WorldId: id, RemovesObject: true));
             }
-            foreach (var (zone, model) in patches)
+            share.Caustic = [.. patches.Where(p => p.CausticFrom.HasValue)];
+            foreach (var (zone, model, _, scale) in patches)
             {
                 if (!share.Art.Add(zone.Art)) continue;
-                var effect = new EffectObject(zone.At.X, zone.At.Y, model) { Flags0 = EffectObject.FixedRotation, Scale = Math.Max(1f, zone.Radius / 5f) };
+                var effect = new EffectObject(zone.At.X, zone.At.Y, model) { Flags0 = EffectObject.FixedRotation, Scale = scale ?? Math.Max(1f, zone.Radius / 5f) };
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(zone.Art, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
                     null, WorldId: zone.Art, CreatesObject: true));
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(zone.Art), null, WorldId: zone.Art));
@@ -492,7 +494,7 @@ public static partial class MapStrongboxes
         double at = conn.Clock.Elapsed.TotalSeconds;
         var here = conn.Walk.Position(at);
         bool alive = conn.PlayerLife > 0 && !conn.Paused && !conn.Immune && !InGracePeriod(conn);
-        var inside = alive ? patches.Select(p => p.Zone).Where(z => Distance(here, z.At) <= z.Radius).ToArray() : [];
+        var inside = alive ? patches.Where(p => p.CausticFrom is null).Select(p => p.Zone).Where(z => Distance(here, z.At) <= z.Radius).ToArray() : [];
         var stats = inside.Length > 0 ? CharacterPlayerStats(conn) : null;
         var immune = stats is not null ? PlayerImmunities(conn, stats) : [];
         double Taken(DamageType type) => type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(conn, type), Resistance(conn, type)) / 100.0;
@@ -520,7 +522,13 @@ public static partial class MapStrongboxes
         if (patches.Length == 0) ZoneShare.Remove(conn);
     }
 
-    sealed class Exposure { public double Dps; public readonly HashSet<uint> Art = []; }
+    sealed class Exposure
+    {
+        public double Dps;
+        public readonly HashSet<uint> Art = [];
+        public GroundPatch[] Caustic = [];
+        public double CausticThrough = double.NegativeInfinity, CausticStarted = double.NegativeInfinity, TakenCarry;
+    }
     static readonly RuleTable<ClientState, Exposure> ZoneShare = new();
 
     /// <summary>The zones' share of a leaving player's degen goes with them.</summary>

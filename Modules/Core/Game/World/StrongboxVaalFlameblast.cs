@@ -5,7 +5,7 @@ public static partial class MapStrongboxes
     const string VaalFlameblastEffect = "ChestVaalFlameblast";
     public sealed record VaalFlameblast(long Started, string Daemon) : VesselCast(Started, Daemon);
 
-    sealed record FlameblastSkill(VesselSpell Spell, long BurstTicks, VesselImpact[] Bursts);
+    sealed record FlameblastSkill(VesselSkill Spell, long BurstTicks, VesselImpact[] Bursts);
 
     static FlameblastSkill ReadFlameblast(ClientState conn)
     {

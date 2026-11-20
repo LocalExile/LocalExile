@@ -99,8 +99,9 @@ public static partial class Game
         var immunities = PlayerImmunities(conn, stats);
         int auraDamage = AdvanceEssenceAuraLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), dotStart);
         dotStart = Math.Max(dotStart, PlayerEssenceAuraStarted(conn));
+        int groundDamage = MapStrongboxes.AdvanceCausticGroundLocked(conn, from, until, stats, immunities.Contains(DamageType.Chaos), ref dotStart);
         double letheFactor = Get("keystone_lethe_shade") != 0 && until - dotStart < 1 ? .5 : 1;
-        int damage = 0, lifeDamage = auraDamage;
+        int damage = 0, lifeDamage = (int)Math.Min(int.MaxValue, (long)auraDamage + groundDamage);
         if (conn.ElementalAilments.HasEffects)
         {
             damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
