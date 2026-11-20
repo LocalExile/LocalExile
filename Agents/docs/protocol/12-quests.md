@@ -249,12 +249,9 @@ first enter a town ([09](09-area-change.md) §4). Hillock stands before Lioneye'
 |---|---|---|
 | the start point | the `washedup` room (`washed_up3.arm`, graph node `washedup` in `macro_beach4.tgr`), point `default` | the area's spawn (`AreaLayouts.For`: a room's `default` point, else the deepest cell) |
 | Hillock | WorldAreas `Bosses`: `Metadata/Monsters/ZombieBoss/ZombieBossHillockNormal` (MonsterVarieties 1166) | placed at `mapboss` of `town_entrance_exclude.arm` like any unique boss; within 60 cells (`Quests.SightRange`) he sets `a1q1-SeenHillock`; his death sets `a1q1-KilledHillock` and levels the character to 2 (below) |
-| the force wall | `Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_3` in `town_entrance_exclude.arm` at room (92, 127), angle −0.988, **scale 2.7** (model `…/twilight_strand/force_wall/force_wall.ao`) | created blocked while the character lacks `a1q1-KilledHillock`, removed (0x2bd) when it is set (below) |
-| the Doorman | `Metadata/NPC/Act1/Doorman` in the same room at (130, 156): Transitionable `num_states 3`, state 3 plays `door_open` | not created yet (below) |
+| the force walls | `Metadata/Terrain/Act1/Area1/Objects/Tutorial_Blocker_1` (`washed_up3.arm`, scale 2.7), `Tutorial_Blocker_2` (`tutorial_01.arm`, scale 3.1), and `Tutorial_Blocker_3` (`town_entrance_exclude.arm` at room (92, 127), angle −0.988, **scale 2.7**) | `Tutorial_Blocker_1`/`2` block the beach and support-chest tutorial segments until `CompletedSkillGemTutorial`/`CompletedSupportGemTutorial` (skipped when `CompletedAllTutorials` is set); `Tutorial_Blocker_3` blocks the gate until `a1q1-KilledHillock`; server barriers use `force_wall.ao`'s scaled hull (`QuestBarriers.ForceWallCells`) |
+| the Doorman | `Metadata/NPC/Act1/Doorman` in `town_entrance_exclude.arm` at (130, 156): `Positioned, Animated, BaseEvents, Transitionable` (`num_states 3`), state 3 plays `door_open` → `door_open_idle` | spawned via `On.Object` (`QuestObject`, 23-byte blob with `Positioned` `flags1 = 0x02, hidden = 0, shown = 1`) in state 1 and transitioned to state 3 on `a1q1-KilledHillock` (the 2026-10-19 21-byte prototype omitted `flags1 = 0x02` so `Positioned` left `shown = 0`) |
 | the gate into Lioneye's Watch | a tile record of `beachtown_south_entrance_test.tdt`: `Metadata/QuestObjects/SouthBeachTownEntrance` (extends AreaTransition, Transitionable `num_states 3`: states 1–2 not targetable, 3 opens and becomes targetable after 0.8 s) | captured by the walk-map recorder; created as a plain AreaTransition (see below). The client lets the player click it once its own quest flags hold `a1q1-KilledHillock` (Lioneye's Watch's `EndQuestFlags`); the Gateway also refuses it without the flag |
-
-The `washedup` room also has a force wall of its own (`Tutorial_Blocker_1`), the `WoundedExile` NPC and a
-`BiteZombieSpawner`: the opening tutorial, not done yet (no quest manages them, so none of them is created).
 
 **Hillock's fight** (live 2026-10-21; `BossFights.cs`):
 
@@ -314,10 +311,7 @@ sends does not); the Gateway creates it only when Hillock dies. The client's min
 Exile\Minimap`) keeps icons from earlier visits of the same area and seed, so an icon seen before the kill can be an
 old one.
 
-**Quest log after the kill.** a1q1's state Order 2 ("… and levelled up. Open the Passive Skill Screen …") needs
-`CompletedPassivePointTutorial` (280) and `CompletedAllTutorials` (367) missing. Every character has
-`CompletedAllTutorials` (`Quests.EveryCharacter`, as on an account that has done the tutorials), so the log goes to
-Order 3, "Enter through the gate for a reward" ("Enter town for your reward").
+**Tutorial flags and `C→S 0x020a`.** `C→S 0x020a` (3 bytes: `u16 0x020a`, `u8 Tutorial.dat row`, vtable `0x14346cd00`, writer `0x140e27920`) reports tutorial completions and skips: rows 0–18 are the individual tutorials (`0` `SkillGemTutorial` → flag 11, `3` `SupportGemTutorial` → flag 218, `17` `AllTutorials` → flag 367 `CompletedAllTutorials`), rows 23–76 are Help Panel articles (`ArticleRead*`; null emits sentinel `0x4e`), and row `77` (`0x4d` `HidePopups`) sets flag 713 `TutorialPanelHideArticlePopups`. `disable_tutorials_button` ("Skip All Tutorials", `0x140277295`) only appears in `1_1_1` (`0xf00a`) while both `CompletedPassivePointTutorial` (280) and `CompletedAllTutorials` (367) are unset, and Options → "Disable Tutorials" (`0x140d5d7ce`) sends `0x020a 0x11` when `CompletedAllTutorials` is unset; `TutorialManager` (`0x140d46d50`) checks `CompletedSkillGemTutorial` (11) on entering `1_1_1` (wiping `[TUTORIAL_FLAGS]` if unset), and Help Panel popups (`0x140a901ec`, `0x140a910e3`, `0x140a92dca`) check `TutorialPanelHideArticlePopups` (713). New tutorial characters therefore start without `CompletedAllTutorials`, and receiving `0x020a 0x11` sets all `Tutorial.dat` non-article completion flags (rows 0–18 + row 77) together; legacy saves without a `Tutorial` record receive those flags in memory on load. a1q1's state Order 2 ("… and levelled up. Open the Passive Skill Screen …") gives way to Order 3 ("Enter through the gate for a reward") once `CompletedPassivePointTutorial` or `CompletedAllTutorials` is set.
 
 **What was tried for the wall and the Doorman** (live 2026-10-19; the code was not kept, the layouts below are enough to
 write it again): both were created
@@ -737,8 +731,8 @@ after reconnect. Ground rollback preserves the item id used by the pending rewar
 
 Live verified on a separate level-one Witch: ground weapon pickup/equip, exile conversation and bite transition,
 Hungry Corpse spawn/death, Fireball drop/pickup, Large Chest at the captured location, Arcane Surge Support drop/pickup,
-and saved claim flags. Dev `/god` was enabled for combat/navigation verification. The full tutorial popup/acknowledgement
-workflow and force walls 1/2 are not implemented; `CompletedAllTutorials` remains the existing account-style projection.
+and saved claim flags. Dev `/god` was enabled for combat/navigation verification. `C→S 0x020a` tutorial completion/skip
+handling, `auto_equip` (`0x0008`) ground pickup, `Tutorial_Blocker_1`/`2`, and `Doorman` are now implemented on top of this flow.
 The dialogue timing correction was checked with an isolated Duelist equipped before his first conversation and
 a Witch who heard the weapon prompt before equipping.
 The Witch's measured bite/handoff times were 8.218/11.328 seconds, including a duplicate interaction during the wait.
