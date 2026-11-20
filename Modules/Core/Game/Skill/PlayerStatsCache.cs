@@ -13,6 +13,12 @@ public static partial class Game
         return (mana >= pool ? 1 : 0) | (mana * 2 <= pool ? 2 : 0) | (mana == 0 ? 4 : 0);
     }
 
+    /// <summary>One of the player's stats: in an area's frames a read of the graph's last step, no copy; off them a build.
+    /// For a per-hit or per-kill read of a few stats.</summary>
+    public static int PlayerStat(Player conn, uint key) =>
+        FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is { } graph
+            ? graph.Values.GetValueOrDefault(key) : CachedPlayerStats(conn, out _).GetValueOrDefault(key);
+
     public static Dictionary<uint, int> CachedPlayerStats(Player conn, out double baselineLifePerSecond)
     {
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is { } graph)
@@ -315,8 +321,15 @@ public static partial class Game
                 frame.StepRuns[(int)step]++;
                 var outer = runningStep;
                 runningStep = step;
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
                 try { RunPlayerStep(step, conn, view, frame.Outputs); }
-                finally { runningStep = outer; }
+                finally
+                {
+                    runningStep = outer;
+                    double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    // A step this slow is a frame the client waits for.
+                    if (ms >= 10) Console.WriteLine($"[stats] {conn.Remote} step {step} took {ms:0} ms");
+                }
             });
         // The first step builds them all.
         for (int i = 0; i < PlayerSteps.Length; i++) graph.MarkRule(i);

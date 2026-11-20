@@ -755,9 +755,15 @@ public static partial class Game
         byte[]? ringCreate = null, ringWake = null;
         PlayerMinions.RighteousFireRingReceipt? ringReceipt = null;
         (int X, int Y) at = default;
+        // The skill's supported stats and the player's are worked out before the mutation, which holds the instance's
+        // Monsters lock that the area's frame waits on: under it only the checks and the state change run.
+        using var statScope = new PlayerStatScope(conn, fresh: true);
+        var supported = SupportedSkill(conn, skillId);
+        var stats = MergeSkillStats(AreaPlayerStats(conn), supported.Stats);
+        int Get(uint name, int fallback) => name is var k && stats.TryGetValue(k, out int v) ? v : fallback;
+        int radius = SkillArea.Radius(Get(Stat.ActiveSkillBaseAreaOfEffectRadius, 18), name => Get(name, 0), spell: true);
         using (ProjectileMutation(conn, advance: false))
         {
-            using (new PlayerStatScope(conn, fresh: true))
             {
                 if (expectedRelight is not null
                     && (expectedRelightSource is null
@@ -770,7 +776,6 @@ public static partial class Game
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
                     || conn.RighteousFire is not null)
                     return;
-                var supported = SupportedSkill(conn, skillId);
                 var source = CurrentPlayerSkillSourceLocked(conn, skillId);
                 if (!supported.RequirementsMet || supported.Effect < 0
                     || SkillsFor(conn).EffectId(supported.Effect) != "RighteousFire"
@@ -790,9 +795,6 @@ public static partial class Game
                 auraVisual = Art.BuffVisual("righteous_fire_aura_visual", variation);
                 ringAo = Art.Animated("righteous_fire_ring", variation)
                     ?? (variation == 0 ? RighteousFireRingAo : null);
-                var stats = MergeSkillStats(AreaPlayerStats(conn), supported.Stats);
-                int Get(uint name, int fallback) => name is var k && stats.TryGetValue(k, out int v) ? v : fallback;
-                int radius = RighteousFireRadius(conn, supported.Stats);
                 ushort buff = conn.NextBuff++, aura = conn.NextBuff++;
                 uint? ring = null;
                 if (ringAo is not null) ring = conn.TakeObjectId();
