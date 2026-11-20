@@ -433,7 +433,7 @@ public static partial class Game
             life = (int)Math.Min(cost, int.MaxValue);
             cost = 0;
         }
-        else if (Lifetap.ConvertsCostToLife(own))
+        else if (Lifetap.ConvertsCostToLife(own) || Lifetap.ConvertsCostToLife(player))
         {
             // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
             // therefore zero: the two conversions do not stack into 140%.

@@ -951,6 +951,25 @@ public static partial class Game
             // A cost of a share of maximum mana over time (Bladefall of Trarthus): its final, virtual per-minute amount.
             if (Get("base_mana_cost_%_per_minute") is int costPct and > 0)
                 Publish("mana_cost_per_minute", BladefallVolleys.ManaPerMinute(costPct, conn.Pools.Mana));
+            // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
+            // life_cost directly). Publish the converted Life cost on the wire so the client spends Life instead of
+            // Mana, while leaving SupportedSkill/SupportedStats unchanged for server cost accounting.
+            if (Get("keystone_blood_magic") != 0 || Lifetap.ConvertsCostToLife(own) || Lifetap.ConvertsCostToLife(stats))
+            {
+                Publish("skill_cost_life_instead_of_mana", 1);
+                int manaCost = Get("mana_cost");
+                if (manaCost > 0)
+                {
+                    Publish("life_cost", (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get("life_cost")) + manaCost));
+                    Publish("mana_cost", 0);
+                }
+                int manaPerMinute = Get("mana_cost_per_minute");
+                if (manaPerMinute > 0)
+                {
+                    Publish("life_cost_per_minute", (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get("life_cost_per_minute")) + manaPerMinute));
+                    Publish("mana_cost_per_minute", 0);
+                }
+            }
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get("bladefall_base_volley_frequency_ms") is int volleyMs and > 0)
                 Publish("bladefall_volley_frequency_ms", BladefallVolleys.FrequencyMs(volleyMs,
