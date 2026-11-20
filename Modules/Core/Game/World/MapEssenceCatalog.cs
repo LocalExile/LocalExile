@@ -18,7 +18,7 @@ public static class MapEssenceCatalog
         var mods = ClientTables.Table("Mods");
         foreach (int row in All.SelectMany(e => e.MonsterMods).Distinct())
         {
-            if (Program.Items.Mods.Row(row) is not { } mod || mod.Id == Game.EssenceLifeDegen
+            if (Program.Items.Mods.Row(row) is not { } mod || mod.Id is Game.EssenceLifeDegen or Game.EssenceKaruiSummonMod
                 || MonsterModCatalog.SupportOf(mod) == MonsterModCatalog.Support.Full) continue;
             string daemon = mods[row].TextOrNull("MonsterMetadata") ?? "";
             if (daemon.Length > 0 || mod.GrantedEffects > 0 || mod.MonsterOnDeath.Length > 0

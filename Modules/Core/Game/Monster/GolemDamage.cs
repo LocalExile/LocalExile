@@ -134,7 +134,7 @@ public static partial class Game
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
-            value = (int)Math.Round(value * effects.DamageTaken(attack.Spell) * MonsterToughnessFactor(effects)
+            value = (int)Math.Round(value * effects.DamageTaken(attack.Spell)
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_defensive_stance_minion_damage_taken_+%_final") / 100.0)
                 * Math.Max(0, 1 + GolemStat(g.Own, "vaal_upgrade_minion_damage_taken_+%_final") / 100d)

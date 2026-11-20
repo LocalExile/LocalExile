@@ -15,7 +15,7 @@ public sealed class EssenceAuraTests
             Assert.NotEmpty(carriers);
             Assert.Contains(id, MapEssenceCatalog.PendingEffects(carriers));
         }
-        foreach (string id in new[] { Game.EssenceLifeDegen, "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1" })
+        foreach (string id in new[] { Game.EssenceLifeDegen, Game.EssenceKaruiSummonMod, "EssenceEnrageOnLowLife", "DecayOnHitEssenceMonster1" })
         {
             var carriers = Carriers(id);
             Assert.NotEmpty(carriers);

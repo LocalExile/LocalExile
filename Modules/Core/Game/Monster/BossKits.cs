@@ -11,12 +11,12 @@ using static Program;
 public static class BossKits
 {
     /// <summary>A boss the ordinary AI plays as a kit: a monster the campaign places as a boss (IsCampaignBoss: any of
-    /// the ten acts' named monsters, big and small) or one with a life bar of its own, with more
+    /// the ten acts' named monsters, big and small), one with a life bar, or an Essence Karui spirit, with more
     /// than one effect the client can play. A boss with an encounter controller never asks (PlanMonsterAi skips it
     /// before this).</summary>
     public static bool IsKitBoss(SkillCatalog catalog, MonsterCatalog.Variety? variety) =>
         variety is not null && (variety.BossHealthBar || IsCampaignBoss(variety) || variety.Id == Yugul.Image
-            || SolarisLunaris.IsCelestial(variety))
+            || SolarisLunaris.IsCelestial(variety) || variety.Id == EssenceKaruiSpirit)
             && Effects(catalog, variety).Count > 1;
 
     /// <summary>Whether the campaign places this monster as a boss: an area with a town to return to names it in
@@ -145,6 +145,7 @@ public static class BossKits
             damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(native.Multiplier * Math.Max(0, 1 + more / 100d));
         }
         double seconds = (spell && catalog.CastTimeMs(effect) > 0 ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
+            / Math.Max(.01, 1 + Raw(spell ? "cast_speed_+%" : "attack_speed_+%") / 100d)
             / Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100d);
         // A ranged skill reaches its variety's MaximumAttackDistance (AttackRange); a spell keeps the aggro range it is
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
