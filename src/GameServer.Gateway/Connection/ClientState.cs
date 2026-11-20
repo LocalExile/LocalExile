@@ -54,6 +54,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
+    public double CooldownSeconds { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
     /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
     public bool DualWielding { get; init; }
@@ -212,6 +214,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
+    /// <summary>When a non-kit monster's cooldown-gated attack (e.g. BatScreech, MotherOfFlamesMagmaOrb) is ready again.</summary>
+    public double CooldownReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>

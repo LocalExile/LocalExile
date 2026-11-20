@@ -1113,8 +1113,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Count = Math.Max(1, count),
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
-            Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
-                || Get("projectile_ballistic_angle_from_target_distance") != 0,
+            // Straight spell projectiles (MonsterProjectileSpell) start with Lobbed false and stay straight.
+            Lobbed = projectile.Lobbed && (projectile.Variation == 0
+                || Get("projectile_ballistic_angle_from_reference_event") != 0
+                || Get("projectile_ballistic_angle_from_target_distance") != 0),
         };
     }
 
@@ -1187,11 +1189,28 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             foreach (var r in attacks)
                 if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
                     attackRows.TryAdd(id, p);
+        var spellRows = new Dictionary<int, (int Projectile, string? AnimationKey)>();
+        if (ClientTables.TableOrNull("MonsterProjectileSpell") is { } spells)
+            foreach (var r in spells)
+                if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
+                {
+                    string? key = r.IntOrNull("Animation") is int a
+                        && a >= 0 && a < animationIds.Count && animationIds[a].Length > 0
+                        ? animationIds[a] : null;
+                    spellRows.TryAdd(id, (p, key));
+                }
         var active = ClientTables.Table("ActiveSkills");
         var mortarSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
             .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
+        var spellProjectileSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "monster_projectile_spell")
+            .Select(a => a.i).ToHashSet();
+        var rollingMagmaSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "rolling_magma")
+            .Select(a => a.i).ToHashSet();
+        int magmaOrbRow = rows.FindIndex(p => p.Id == "Metadata/Projectiles/MagmaOrbShort");
         var equipmentProjectileSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon")
             .Select(a => a.i).ToHashSet();
@@ -1212,6 +1231,21 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     || !mortarRows.TryGetValue(skill, out var mortar)) continue;
                 (projectileRow, animationKey, lobbed) = (mortar.Projectile, mortar.AnimationKey, true);
                 variation = attackForm ? skill : 0;
+            }
+            else if (spellProjectileSkills.Contains(activeRow))
+            {
+                // MonsterProjectileSpell rows index by monster_projectile_variation, defaulting to 0 (e.g. HeiTiki).
+                // Keep Variation 0 so the server publishes the projectile object instead of expecting a client mortar.
+                int variationRow = variationKey is uint key
+                    ? EffectStats(row, 1).Where(s => s.Item1 == key).Select(s => (int?)s.Item2).FirstOrDefault() ?? 0
+                    : 0;
+                if (!spellRows.TryGetValue(variationRow, out var spell)) continue;
+                (projectileRow, animationKey, lobbed, variation) = (spell.Projectile, spell.AnimationKey ?? "SpellProjectile", false, 0);
+            }
+            else if (rollingMagmaSkills.Contains(activeRow) && magmaOrbRow >= 0)
+            {
+                // Rolling Magma (Flame Mother): Frida-verified MagmaOrbShort lobbed projectile, server-published.
+                (projectileRow, animationKey, lobbed, variation) = (magmaOrbRow, "SpellProjectile", true, 0);
             }
             else if (includeWeaponAttacks && equipmentProjectileSkills.Contains(activeRow) && variationKey is uint key)
             {

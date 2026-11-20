@@ -129,15 +129,14 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         return factor;
     }
 
-    /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
-    /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
-    /// and lowered by monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the
-    /// rarity's hit always was (Hillock at level 1: 6.6–12.3 → 7–12); then the "gain as extra" stats add their types
-    /// (fire, cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
-    public DamagePacket Hit(DamagePacket physical)
+    /// <summary>The monster's hit before the player's defences: each base damage component raised by damage_+% (and
+    /// physical_damage_+% on physical), by the rarity's monster_rarity_damage_+%_final (more) and lowered by
+    /// monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the rarity's hit always
+    /// was (Hillock at level 1: 6.6–12.3 → 7–12); then physical conversion / "gain as extra" stats add their types (fire,
+    /// cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
+    public DamagePacket Hit(DamagePacket baseHit)
     {
-        double factor = (1 + (this["damage_+%"] + this["physical_damage_+%"]) / 100.0)
-            * (1 + this["monster_rarity_damage_+%_final"] / 100.0)
+        double more = (1 + this["monster_rarity_damage_+%_final"] / 100.0)
             * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(_moreDamage)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
         var conversion = new DamageConversion()
@@ -148,9 +147,14 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
             .AddGain(DamageType.Physical, DamageType.Cold, this["physical_damage_%_to_add_as_cold"])
             .AddGain(DamageType.Physical, DamageType.Lightning, this["physical_damage_%_to_add_as_lightning"]);
-        var physicalRange = physical[DamageType.Physical];
-        var hit = DamagePacket.Of(DamageType.Physical, Math.Max(1, Math.Round(physicalRange.Min * factor)),
-            Math.Max(1, Math.Round(physicalRange.Max * factor))).Convert(conversion).Round();
+        var scaled = DamagePacket.Empty;
+        foreach (var (type, range) in baseHit.Components)
+        {
+            if (range.Max <= 0) continue;
+            double factor = (1 + (this["damage_+%"] + (type == DamageType.Physical ? this["physical_damage_+%"] : 0)) / 100.0) * more;
+            scaled = scaled.Add(type, new(Math.Max(1, Math.Round(range.Min * factor)), Math.Max(1, Math.Round(range.Max * factor))));
+        }
+        var hit = scaled.Convert(conversion).Round();
         int chaos = this["non_chaos_damage_to_add_as_chaos_damage_%"];
         if (chaos <= 0) return hit;
         double minChaos = 0, maxChaos = 0;
@@ -190,6 +194,19 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// alike, so a casting monster's skill uses the same time.</summary>
     public double AttackSeconds(double baseSeconds) => baseSeconds
         / Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0)
+        / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
+
+    /// <summary>The attack time with a skill's own increased and more/less attack speed modifiers.</summary>
+    public double AttackSeconds(double baseSeconds, int skillIncreasedPct, int skillMorePct) => baseSeconds
+        / Math.Max(0.1, 1 + (this["attack_speed_+%"] + this["attack_and_cast_speed_+%"] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + skillMorePct / 100.0)
+        / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
+
+    /// <summary>The cast time with monster cast-speed mods and the skill's own base_cast_speed_+% /
+    /// active_skill_cast_speed_+%_final modifiers (e.g. Flame Mother -66%, Inua Totem -33%).</summary>
+    public double CastSeconds(double baseSeconds, int skillIncreasedPct = 0, int skillMorePct = 0) => baseSeconds
+        / Math.Max(0.1, 1 + (this["base_cast_speed_+%"] + this["attack_and_cast_speed_+%"] + skillIncreasedPct) / 100.0)
+        / Math.Max(0.1, 1 + skillMorePct / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
     /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a

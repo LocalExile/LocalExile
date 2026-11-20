@@ -1,13 +1,65 @@
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamageType = GameServer.Core.World.DamageType;
+using DamageTypes = GameServer.Core.World.DamageTypes;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
 public static partial class Game
 {
+    // Cached level-scaled native stats for ordinary monster skills (avoids re-interpolating per monster in a pack;
+    // RuleTable releases on hot reload).
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, byte Level), IReadOnlyDictionary<uint, int>?>> MonsterNativeSkillStats = new();
+
+    static IReadOnlyDictionary<uint, int>? NativeMonsterSkillStats(SkillCatalog catalog, int effect, byte level) =>
+        effect < 0 ? null : MonsterNativeSkillStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), key =>
+            GolemData.TrySkill(catalog, key.Effect, key.Level, out var native) ? native.Stats : null);
+
+    static int NativeMonsterStat(IReadOnlyDictionary<uint, int>? stats, string name) =>
+        stats is not null && Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+
+    /// <summary>Ranged spell engagement reach in cells: scales a 60-cell base by native
+    /// <c>spell_maximum_action_distance_+%</c> and caps unmodified spells to on-screen range (40 cells for projectiles
+    /// like bow monsters, 28 cells for non-projectile area spells like BatScreech), instead of firing across the full
+    /// 105–135 cell MaxAgroRange. The Maven and Nucleus keep their arena-wide aggro reach.</summary>
+    public static double MonsterSpellReach(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, int actionDistancePct)
+    {
+        double maxReach = Math.Max(variety.AttackRange, variety.AggroRange);
+        if (MavenNucleus.Is(variety.Id)) return maxReach;
+        double scaled = 60.0 * Math.Max(0.2, 1 + actionDistancePct / 100.0);
+        if (actionDistancePct <= 0) scaled = Math.Min(scaled, catalog.IsProjectile(effect) ? 40.0 : 28.0);
+        return Math.Clamp(scaled, variety.AttackRange, maxReach);
+    }
+
+    /// <summary>Base damage for an ordinary monster's spell from its level-scaled GrantedEffectStatSets
+    /// (<c>spell_minimum/maximum_base_*_damage</c>, preserving elemental/chaos types so player resistances apply);
+    /// falls back to the variety's physical base damage when the effect carries no spell base damage.</summary>
+    public static DamagePacket MonsterSpellBaseDamage(IReadOnlyDictionary<uint, int>? nativeStats, int fallbackMin, int fallbackMax,
+        double mapBossDamage = 1.0)
+    {
+        if (nativeStats is not null)
+        {
+            var damage = DamagePacket.Empty;
+            foreach (var type in DamageTypes.ConversionOrder)
+            {
+                string slug = type.ToString().ToLowerInvariant();
+                int min = NativeMonsterStat(nativeStats, $"spell_minimum_base_{slug}_damage");
+                int max = NativeMonsterStat(nativeStats, $"spell_maximum_base_{slug}_damage");
+                if (max > 0) damage = damage.Add(type, new(min, Math.Max(min, max)));
+            }
+            if (!damage.IsZero)
+            {
+                int more = NativeMonsterStat(nativeStats, "active_skill_damage_+%_final");
+                double factor = Math.Max(0, 1 + more / 100.0) * mapBossDamage;
+                return factor == 1.0 ? damage : damage.Scale(factor);
+            }
+        }
+        return DamagePacket.Of(DamageType.Physical, fallbackMin, fallbackMax);
+    }
+
     // A monster's combat granted effect (MavenNucleus.CombatEffect: skip teleports/daemons). Weapon-polymorphic Melee
     // still counts as ranged when the variety's art is a bow or wand.
     public static bool MonsterAttackIsRanged(SkillCatalog skills, MonsterCatalog.Variety variety, int effect) =>
@@ -293,24 +345,45 @@ public static partial class Game
         // attack stats (0xc0000005, live 2026-10-31).
         bool spell = effect >= 0 && catalog.EffectStats(effect, level)
             .Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
+        // Level-scaled native stats for ordinary monster skills (spell elemental base damage, cast/attack speed
+        // modifiers, spell_maximum_action_distance_+%, cooldown). Cached per (effect, level).
+        var nativeStats = !kingActor && !brine && !atlas && effect >= 0
+            ? NativeMonsterSkillStats(catalog, effect, level) : null;
         // A ranged attack reaches its variety's MaximumAttackDistance (a Sand Spitter's 30): the monster walks up to that
-        // before it shoots, as GGG's do. A ranged spell (the Maven's and the Nucleus' barrages) and a summoner keep the
-        // aggro range they were given with the map affixes; the attack distance of such a variety is its melee fallback.
-        // An encounter that knows better gives its own share of the attack distance (MonsterMovement.Reach).
+        // before it shoots, as GGG's do. A ranged spell uses MonsterSpellReach (capped to on-screen range and scaled by
+        // spell_maximum_action_distance_+% instead of the 105–135 cell MaxAgroRange); summoners and Maven/Nucleus keep
+        // their aggro reach. An encounter that knows better gives its own share of the attack distance (MonsterMovement.Reach).
         double reach = movement.Reach is double share ? variety.AttackRange * share
-            : summon is not null || rangedAttack && !kingActor && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
+            : summon is not null ? Math.Max(variety.AttackRange, variety.AggroRange)
+            : rangedAttack && !kingActor && spell ? MonsterSpellReach(catalog, variety, effect, NativeMonsterStat(nativeStats, "spell_maximum_action_distance_+%"))
+            : variety.AttackRange;
         double swing = !kingActor && effect >= 0 && catalog.IsSpell(effect) && catalog.CastTimeMs(effect) > 0
             ? catalog.CastTimeMs(effect) / 1000.0 : variety.AttackMs / 1000.0;
+        double attackSeconds = summon is { CastSeconds: > 0 } ? summon.CastSeconds
+            : spell && !kingActor && !brine && !atlas
+                ? mods.Effects.CastSeconds(swing,
+                    NativeMonsterStat(nativeStats, "base_cast_speed_+%") + NativeMonsterStat(nativeStats, "cast_speed_+%"),
+                    NativeMonsterStat(nativeStats, "active_skill_cast_speed_+%_final"))
+            : !kingActor && !brine && !atlas && nativeStats is not null
+                ? mods.Effects.AttackSeconds(swing,
+                    NativeMonsterStat(nativeStats, "attack_speed_+%"),
+                    NativeMonsterStat(nativeStats, "active_skill_attack_speed_+%_final"))
+            : mods.Effects.AttackSeconds(swing);
+        double cooldownSeconds = !kingActor && !brine && !atlas && summon is null && effect >= 0 && (rangedAttack || spell)
+            ? catalog.CooldownMs(effect, catalog.MonsterEffectLevel(effect, level)) / 1000.0 : 0;
+        var baseDamage = !kingActor && !brine && !atlas && spell
+            ? MonsterSpellBaseDamage(nativeStats, baseMin, baseMax, mapBoss ? mapBossScaling.Damage : 1.0)
+            : DamagePacket.Of(DamageType.Physical, baseMin, baseMax);
         // The King's two forms carry the official MeleeAtAnimationSpeedUnique ids (0x4001 humanoid, 0x4000 treant);
         // 0x0102 is the player/generic default attack and has no matching clip on their rigs.
         ushort skillId = KingInMists.IsBoss2(variety) ? KingInMists.Boss2AttackSkill
             : KingInMists.IsBoss3(variety) ? KingInMists.Boss3AttackSkill
             : summon is null && !kingActor && effect >= 0 && catalog.ActionHash(effect) is ushort hash ? (ushort)(hash & 0x3fff)
             : SkillCatalog.FirstSkillId;
-        var attack = new MonsterAttack(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : mods.Effects.AttackSeconds(swing), reach,
-            mods.Effects.Hit(DamagePacket.Of(DamageType.Physical, baseMin, baseMax)))
+        var attack = new MonsterAttack(skillId, attackSeconds, reach, mods.Effects.Hit(baseDamage))
         {
             Spell = spell,
+            CooldownSeconds = cooldownSeconds,
             Scripted = kingActor || brine || atlas,
             // A weapon in the off hand, not a shield (ItemStances 10) or a quiver (9).
             DualWielding = ownedLooks?.Any(l => l.Slot == 1 && l.Stance is not (9 or 10)) == true,
@@ -1037,11 +1110,13 @@ public static partial class Game
                 // at the edge of the reach. A lockstep client's walking melee monster swings only by its chase's goal test
                 // (above): standing in reach, it gets the chase, which starts the swing in the order's own frame.
                 // A summon is no shot: a summoner whose attack row also flies a projectile still summons, as before.
-                bool blockedShot = m.Hostile && m.Attack is { Projectile.Lobbed: false, Summon: null } shot && d <= shot.Range
+                // Any non-lobbed ranged attack or spell (with or without a projectile object) requires line of sight.
+                bool blockedShot = m.Hostile && m.Attack is { Ranged: true, Summon: null } shot && shot.Projectile?.Lobbed != true && d <= shot.Range
                     && conn.Layout.Sight is { } sight && GameServer.Core.World.ClientPathfinder.LineBelow((mx, my), (px, py), sight, 1);
                 if (!blockedShot && m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
                     && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
-                    && SummonReadyLocked(conn, id, m, a, now))
+                    && SummonReadyLocked(conn, id, m, a, now)
+                    && (m.Kit.Count > 0 || MonsterAiCadence.Due(now, m.CooldownReadyAt)))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
                     if (ServerTrace.Ai && conn.LockstepClient && a.InPlace && m.Walk.Moving(now))
@@ -1824,6 +1899,7 @@ public static partial class Game
         m.MeleeClock = null;
         m.BusyUntil = startedAt + seconds + conn.LockstepActionTail;
         if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
+        if (a.CooldownSeconds > 0 && m.Kit.Count == 0) m.CooldownReadyAt = startedAt + a.CooldownSeconds;
         m.SwingGeneration = action;
         m.SwingOrderedAt = startedAt;
         // An in-place action does not touch a lockstep client's walker: a walk under way goes on under it. The Actor
