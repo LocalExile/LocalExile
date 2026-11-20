@@ -81,7 +81,8 @@ public class UniqueFlaskTests
         typeof(AreaFrames).GetProperty(nameof(AreaFrames.Area))!.SetValue(conn.Frames, area);
         typeof(Game).GetMethod("SyncFlaskGroundZones", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(null, [conn]);
-        area.Zones.Update(new Dictionary<EntityId, (int X, int Y)> { [new(7)] = (10, 10) }, moved: true);
+        area.Grid.Set(new(7), (10, 10));
+        area.Zones.Update(moved: true);
         StartFlask(conn, FlaskGrounds.VsConsecratedCriticalStat, 100);
         var critical = Game.SpellCriticalChanceVsGround(conn, extra => 500 + (int)extra * 5, blinded: 200);
         Assert.Equal(2000, Game.CriticalChanceOn(conn, 7, 500, 1500, critical));

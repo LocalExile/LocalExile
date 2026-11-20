@@ -32,7 +32,6 @@ public static class AreaSetup
         // them to its time first, and this pass then has nothing left to do. The zones' membership follows.
         var frames = conn.Frames;
         var monsters = conn.Monsters;
-        var cells = new Game.WalkerCells();
         area.Systems.Add("movement", AreaPhase.Movement, a =>
         {
             var players = frames.Players();
@@ -41,9 +40,9 @@ public static class AreaSetup
             lock (monsters)
             {
                 if (Game.AreaSteps(players[0])) Game.StepAreaWalkers(players[0], a.Time);
-                moved = cells.Moved(players, a.Time);
+                moved = Game.PlaceWalkers(players, a.Time, a.Grid);
                 // Who is inside each zone (auras, grounds, burning radii) follows the walkers' moves.
-                a.Zones.Update(cells.Positions, moved);
+                a.Zones.Update(moved);
             }
             if (moved) foreach (var p in players) Game.PresentNearby(p);
         }, source: source);

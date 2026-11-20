@@ -330,7 +330,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                     // A frame whose steps took 100 ms or more, by stage: what the client waited for.
                     if (Stopwatch.GetElapsedTime(t0).TotalMilliseconds >= 100)
                         Console.WriteLine($"[frames] slow frame {Frame}: settle {Ms(t0, t1):0} ms, frame ends {Ms(t1, t2):0} ms" +
-                            $" (held {held}), input {Ms(t2, t3):0} ms, area {Ms(t3, t4):0} ms (its step {Area?.LastStepMs:0}), loops {Ms(t4, Stopwatch.GetTimestamp()):0} ms" +
+                            $" (held {held}), input {Ms(t2, t3):0} ms, area {Ms(t3, t4):0} ms (its step {Area?.LastStepMs:0}: {Area?.LastStepParts}), loops {Ms(t4, Stopwatch.GetTimestamp()):0} ms" +
                             $" ({due.Count} due: {string.Join(" ", due.GroupBy(w => w.Role).Select(g => $"{g.Key}x{g.Count()}"))})" +
                             (Area is { Systems.All.Count: > 0 } slow ? "; slowest systems: " + string.Join(", ", slow.Systems.Slowest(3).Select(s => $"{s.Name} {s.LastMs:0} ms")) : ""));
                 }

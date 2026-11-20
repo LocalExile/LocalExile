@@ -25,35 +25,16 @@ public static partial class Game
         conn.Instance is not null && conn.Frames.Running && conn.Frames.Players() is { Length: > 0 } players
         && players.Any(p => p.LockstepClient);
 
-    /// <summary>Steps the area's walkers up to <paramref name="now"/> (whole frames: up to the start of the frame being
-    /// sent). Stepping again to the same time does nothing, so whoever needs the walkers current calls it. Under the
-    /// instance's Monsters lock.</summary>
-    /// <summary>Where each walker of an area stood after the last movement step, by cell: a walker in another cell (or one
-    /// that came or went) is what the nearby presentations follow. Under the Monsters lock.</summary>
-    public sealed class WalkerCells
+    /// <summary>Puts every living walker where it stands now in the area's grid (with its body), and drops the dead and
+    /// gone: true when one changed cell, came or went. Under the instance's Monsters lock.</summary>
+    public static bool PlaceWalkers(Player[] players, double now, AreaGrid grid)
     {
-        Dictionary<EntityId, (int X, int Y)> last = [], next = [];
-
-        /// <summary>Where each living walker stood after the last movement step.</summary>
-        public IReadOnlyDictionary<EntityId, (int X, int Y)> Positions => last;
-
-        public bool Moved(Player[] players, double now)
-        {
-            bool moved = false;
-            void See(uint id, (int X, int Y) at)
-            {
-                next[new(id)] = at;
-                if (!last.TryGetValue(new(id), out var was) || was != at) moved = true;
-            }
-            foreach (var (id, m) in players[0].Monsters)
-                if (!m.Dead && m.Life > 0) See(id, m.Walk.Position(now));
-            foreach (var p in players)
-                if (p.PlayerSent) See(p.PeerId, p.Walk.Position(now));
-            moved |= next.Count != last.Count;
-            (last, next) = (next, last);
-            next.Clear();
-            return moved;
-        }
+        bool moved = false;
+        foreach (var (id, m) in players[0].Monsters)
+            if (!m.Dead && m.Life > 0) moved |= grid.Set(new(id), m.Walk.Position(now), m.StopRange);
+        foreach (var p in players)
+            if (p.PlayerSent) moved |= grid.Set(new(p.PeerId), p.Walk.Position(now));
+        return grid.EndPass() | moved;
     }
 
     public static void StepAreaWalkers(Player conn, double now)

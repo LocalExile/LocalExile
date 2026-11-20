@@ -30,13 +30,16 @@ public sealed class Zone
 }
 
 /// <summary>
-/// The area's zones. Their membership is updated in the movement phase from the walkers' positions: a zone is checked
-/// again when a walker changed cell, the zone moved or its radius changed, never by scanning on a timer. Guarded by the
-/// instance's Monsters lock, which the movement phase holds while it updates them.
+/// The area's zones. Their membership is updated in the movement phase from the area's grid (AreaGrid): a zone is checked
+/// again when a walker changed cell, the zone moved or its radius changed, never by scanning on a timer, and only the
+/// grid cells its radius overlaps are looked at. Guarded by the instance's Monsters lock, which the movement phase holds
+/// while it updates them.
 /// </summary>
-public sealed class AreaZones
+public sealed class AreaZones(AreaGrid grid)
 {
     readonly List<Zone> zones = [];
+    readonly List<EntityId> near = [];
+    public AreaGrid Grid => grid;
     bool added;
 
     public int Count => zones.Count;
@@ -59,28 +62,29 @@ public sealed class AreaZones
 
     internal void Drop(object source) => zones.RemoveAll(z => ReferenceEquals(z.source, source));
 
-    /// <summary>
-    /// Updates who is inside each zone from where every walker stands (<paramref name="positions"/>, the living ones),
-    /// when <paramref name="moved"/> or the zone itself changed.
-    /// </summary>
-    public void Update(IReadOnlyDictionary<EntityId, (int X, int Y)> positions, bool moved)
+    /// <summary>Updates who is inside each zone from where the grid's walkers stand, when <paramref name="moved"/> or the
+    /// zone itself changed. Entrants come in id order.</summary>
+    public void Update(bool moved)
     {
         bool any = added;
         added = false;
         foreach (var zone in zones.ToArray())
         {
-            var center = zone.Follows is { } follows && positions.TryGetValue(follows, out var at) ? at : zone.At;
+            var center = zone.Follows is { } follows && grid.TryGet(follows, out var at, out _) ? at : zone.At;
             int radius = zone.Radius();
             if (!moved && !any && center == zone.center && radius == zone.radius) continue;
             zone.center = center;
             zone.radius = radius;
             List<EntityId>? left = null;
             foreach (var id in zone.inside)
-                if (!Reaches(zone, id, center, radius, positions)) (left ??= []).Add(id);
+                if (!Reaches(zone, id, center, radius)) (left ??= []).Add(id);
             if (left is not null)
                 foreach (var id in left) { zone.inside.Remove(id); zone.Left?.Invoke(id); }
-            foreach (var (id, _) in positions)
-                if (!zone.inside.Contains(id) && Reaches(zone, id, center, radius, positions))
+            near.Clear();
+            grid.Near(center, radius, near);
+            near.Sort();
+            foreach (var id in near)
+                if (!zone.inside.Contains(id) && Reaches(zone, id, center, radius))
                 {
                     zone.inside.Add(id);
                     zone.Entered?.Invoke(id);
@@ -88,10 +92,10 @@ public sealed class AreaZones
         }
     }
 
-    static bool Reaches(Zone zone, EntityId id, (int X, int Y) center, int radius, IReadOnlyDictionary<EntityId, (int X, int Y)> positions)
+    bool Reaches(Zone zone, EntityId id, (int X, int Y) center, int radius)
     {
-        if (!positions.TryGetValue(id, out var at) || zone.Reach(id) is not int body) return false;
-        double dx = at.X - center.X, dy = at.Y - center.Y, reach = radius + body;
+        if (!grid.TryGet(id, out var at, out _) || zone.Reach(id) is not int body) return false;
+        long dx = at.X - center.X, dy = at.Y - center.Y, reach = radius + body;
         return dx * dx + dy * dy <= reach * reach;
     }
 }

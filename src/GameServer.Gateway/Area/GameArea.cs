@@ -16,7 +16,9 @@ public sealed class GameArea(ulong seed)
     public readonly AreaSystems Systems = new();
     public readonly AreaCommands Commands = new();
     public readonly AreaOutput Output = new();
-    public readonly AreaZones Zones = new();
+    public readonly AreaZones Zones = new(new AreaGrid());
+    /// <summary>Where the walkers stand, by grid cell (AreaGrid): set by the movement phase each frame.</summary>
+    public AreaGrid Grid => Zones.Grid;
     public AreaTimers Timers => timers ??= new(Entities);
     AreaTimers? timers;
 
@@ -34,6 +36,9 @@ public sealed class GameArea(ulong seed)
     public double Time { get; private set; }
     /// <summary>The last step's length.</summary>
     public double LastStepMs { get; private set; }
+    /// <summary>Where the last step's time went, in ms (the slow-frame log).</summary>
+    public string LastStepParts { get; private set; } = "";
+    static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
 
     /// <summary>The area's store of <typeparamref name="T"/> under <paramref name="key"/> (made the first time).</summary>
     public Store<T> Store<T>(object key, object? source = null)
@@ -58,11 +63,16 @@ public sealed class GameArea(ulong seed)
         {
             (Frame, Time) = (frame, time);
             while (deferred.TryDequeue(out var work)) work(this);
+            long t1 = Stopwatch.GetTimestamp();
             Commands.Apply(this);
+            long t2 = Stopwatch.GetTimestamp();
             Systems.Run(this, AreaPhase.Input, AreaPhase.Input);
+            long t3 = Stopwatch.GetTimestamp();
             Timers.Update(frame);
             Events.Drain();
+            long t4 = Stopwatch.GetTimestamp();
             Systems.Run(this, AreaPhase.Timers);
+            LastStepParts = $"deferred {Ms(start, t1):0}, commands {Ms(t1, t2):0}, input systems {Ms(t2, t3):0}, timers {Ms(t3, t4):0}, systems {Ms(t4, Stopwatch.GetTimestamp()):0}";
         }
         finally
         {
