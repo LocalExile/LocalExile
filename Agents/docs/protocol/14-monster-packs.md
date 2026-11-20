@@ -432,6 +432,7 @@ no inline values or `u82`, despite its granted per-minute chaos-damage stat.
 
 `EssenceDaemonSummonMovingKaruiSpirit` resolves `alternate_minion=185` to `EssenceKaruiSpiritMovingAxe`;
 its cast/cooldown are 1/6 seconds and it summons one spirit.
+One is the cast batch; [Contempt's encounter](https://www.poewiki.net/wiki/Essence_of_Contempt) has three chasing spirits.
 Both it and `EssenceDaemonSummonSpectralSkull` carry implicit `minion_dies_when_parent_dies`,
 `minion_dies_when_parent_deleted` and `summoned_monsters_no_drops_or_experience`.
 `EssenceMovingAncestor.ot` makes the Karui spirit untargetable, damage/stun immune and unknockable.

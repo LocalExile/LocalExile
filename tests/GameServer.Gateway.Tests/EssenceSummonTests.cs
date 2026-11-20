@@ -54,6 +54,17 @@ public sealed class EssenceSummonTests
         var spirit = Monster();
         spirit.Mods = Game.EssenceSummonModifiers(variety)!;
         Assert.Equal(0, Game.MonsterTakes(spirit, DamagePacket.Of(DamageType.Physical, 1000, 1000), new Random(505), false));
+        conn.Closed = false;
+        for (uint id = 50; id < 53; id++)
+            conn.Monsters[id] = new("spirit", new(300, 300, 30), 60, 8, 100) { Variety = variety, SummonerId = 42 };
+        Assert.False(Game.EssenceSummonCanSpawnLocked(conn, 42, variety));
+        Assert.True(Game.EssenceSummonCanSpawnLocked(conn, 43, variety)); // each carrier owns its cap
+        Assert.Empty(Game.EssenceSummonsDueLocked(conn, 200));
+        Assert.Empty(Game.EssenceSummonsDueLocked(conn, 201));
+        conn.Monsters[50].Dead = true;
+        Assert.True(Game.EssenceSummonCanSpawnLocked(conn, 42, variety));
+        Assert.Empty(Game.EssenceSummonsDueLocked(conn, 206));
+        Assert.Single(Game.EssenceSummonsDueLocked(conn, 207));
     }
 
     [Fact]

@@ -1994,7 +1994,7 @@ public static partial class Game
         for (int k = 0; k < summon.Count; k++)
             if (await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
                 extraMods: EssenceSummonModifiers(variety),
-                ownedAdmission: () => MonsterSummonerCurrentLocked(conn, id, m),
+                ownedAdmission: () => MonsterSummonerCurrentLocked(conn, id, m) && EssenceSummonCanSpawnLocked(conn, id, variety),
                 owned: (_, summoned) => RegisterMonsterSummonLocked(summoned, id, m, summon)) != 0) created++;
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {created}/{summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }

@@ -5,6 +5,8 @@ public static partial class Game
 {
     public const string EssenceKaruiSummonMod = "EssenceDaemonSummonMovingKaruiSpirit1";
     public const string EssenceKaruiSpirit = "Metadata/Monsters/Ancestor/EssenceKaruiSpiritMovingAxe";
+    // Contempt's three chasing spirits (PoE Wiki, Essence of Contempt). Count=1 is a cast's batch, not its living cap.
+    public const int EssenceKaruiLimit = 3;
     sealed class EssenceSummonCycle(SkillCatalog.MonsterSummonInfo? summon)
     {
         public readonly SkillCatalog.MonsterSummonInfo? Summon = summon;
@@ -20,6 +22,9 @@ public static partial class Game
     }));
     public static MonsterModSet? EssenceSummonModifiers(MonsterCatalog.Variety variety) =>
         variety.Id == EssenceKaruiSpirit ? EssenceKaruiDefences : null;
+    public static bool EssenceSummonCanSpawnLocked(ClientState conn, uint parent, MonsterCatalog.Variety variety) =>
+        variety.Id != EssenceKaruiSpirit || conn.Monsters.Values.Count(m => m.SummonerId == parent
+            && m.Variety?.Id == EssenceKaruiSpirit && !m.Dead && m.Life > 0) < EssenceKaruiLimit;
     public sealed record EssenceSummonCast(uint Parent, SpawnedMonster Monster, SkillCatalog.MonsterSummonInfo Summon);
 
     // The daemon's skill supplies its cast time, count, cooldown and parent flags. Server-only .ais is unavailable;
@@ -42,6 +47,8 @@ public static partial class Game
             {
                 if (now < cycle.Contact) continue;
                 cycle.Contact = double.NaN;
+                if (Monsters.Find(summon.Variety.ToString()) is not { } variety
+                    || !EssenceSummonCanSpawnLocked(conn, id, variety)) continue;
                 due.Add(new(id, source, summon));
                 continue;
             }
