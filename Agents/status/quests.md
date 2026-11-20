@@ -101,7 +101,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
-  Every quest object, chest and NPC the rules name is placed at seed 1.
+  Every quest object, chest and NPC the rules name is placed at seed 1. Helena's rescue uses her visible state 2
+  on the kill and on re-entry; her asset's last state hides her. Sin's first appearance after Innocence advances
+  the paused entrance to state 2, while a return starts in the completed pose.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
