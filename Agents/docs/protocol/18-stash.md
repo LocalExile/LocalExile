@@ -137,7 +137,7 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
   send back (the record's second u32). Both are kept with the stash, account-wide (`AccountStash.Rename`, `SetColour`;
-  every tab but normal ones and folders is premium, as bought tabs are: the tab settings show the name and colour only
+  every tab but normal ones is premium, as bought tabs and folders are: the tab settings show the name and colour only
   with the record's premium flag; kind 1 the guild stash). Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
 - **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps

@@ -351,9 +351,9 @@ public sealed partial class AccountStash
         return moved;
     }
 
-    /// <summary>Every tab but the free normal ones (StashType 0) and folders (16) is premium, as bought tabs are in the real
+    /// <summary>Every tab but the free normal ones (StashType 0) is premium, as bought tabs and folders (16) are in the real
     /// game: the tab settings then offer the name and colour (record flag 0x02).</summary>
-    static bool IsPremium(byte type) => type is not (0 or 16);
+    static bool IsPremium(byte type) => type != 0;
 
     /// <summary>Renames a premium tab (C→S 0xcd). False for no such tab, a tab that is not premium or an empty name.</summary>
     public bool Rename(int tab, string name)
@@ -362,7 +362,7 @@ public sealed partial class AccountStash
         if (name.Length is 0 or > 64) return false;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type) && _tabs[tab].Saved.Type != StashRules.Folder) return false;
+            if (tab < 0 || tab >= _tabs.Count || !IsPremium(_tabs[tab].Saved.Type)) return false;
             if (_tabs[tab].Saved.Name == name) return true;
             _tabs[tab].Saved = _tabs[tab].Saved with { Name = name };
         }
@@ -495,7 +495,7 @@ public sealed partial class AccountStash
             return [.. _tabs.Select((t, i) => new InstanceStash.Tab((ushort)i, t.Saved.Name,
                 t.Saved.UniqueCategory != 0 && !(loaded?.Contains(i) ?? false) ? 0 : InventoryOf(i), t.Saved.Type,
                 t.Saved.R, t.Saved.G, t.Saved.B,
-                Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                Flags: IsPremium(t.Saved.Type) ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
                 Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
                 Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
                 Loaded: loaded?.Contains(i) ?? false, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,
@@ -961,7 +961,7 @@ public sealed partial class AccountStash
                     continue;
                 }
                 var shape = shapeOf(it.Item) ?? new(1, 1, "");
-                var home = Enumerable.Range(0, _tabs.Count).Where(i => StashRules.IsGrid(_tabs[i].Saved.Type))
+                var home = Enumerable.Range(0, _tabs.Count).Where(i => StashRules.IsGrid(_tabs[i].Saved.Type) && !_tabs[i].Saved.Hidden)
                     .Select(i => (Tab: i, Cell: FreeCellIn(_tabs[i], shape.Width, shape.Height, shapeOf))).FirstOrDefault(h => h.Cell is not null);
                 if (home.Cell is not { } cell)
                 {
