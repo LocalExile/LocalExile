@@ -118,7 +118,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   A Touch or Grip updates ordinary AI hits, attack and cast times, and the skills shown to players. These follow the kept mods on re-entry (#1177).
-  A Martyr's Touch grants level-one MartyrExplosion to the living and restored Actor in Gateway tests (#1182).
+  A Martyr's Touch grants level-one MartyrExplosion to living and restored monsters. In Gateway tests, the explosion hit nearby players,
+  Flame Golems and animated Rampage weapons for fire damage based on default monster life at that level. A shared damage-over-time kill
+  still credited the surviving attacker when the map runner left. During a Game DLL reload, the instance kept the kill reward and
+  each viewer's pending explosion, death screen and corpse removal. Gateway tests cover predictive and lockstep connections (#1182).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
 - Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),

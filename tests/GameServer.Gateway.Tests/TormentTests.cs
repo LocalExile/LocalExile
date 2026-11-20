@@ -218,6 +218,61 @@ public sealed class TormentTests
             uint restoredId = await Game.RestoreMonster(wire.Remote, wire.Stream, wire.Ciphers, c, zombie, saved);
             var restored = martyrArea.World.MonsterOrigins[restoredId].Object.Skills!;
             Assert.Equal(live.Select(s => (s.Id, s.EffectsPerLevelRow)), restored.Select(s => (s.Id, s.EffectsPerLevelRow)));
+
+            // The native radius is 15 plus the player's one-cell body. Each death takes its targets at contact,
+            // including a restored host killed before the next encounter tick.
+            c.Experience = CharacterStats.ExperienceFor(c.Pools.Level);
+            CharacterSaves.SetExperience(c.Character!, c.Experience);
+            await Game.SendCharacterStats(wire.Remote, wire.Stream, wire.Ciphers, c, "Martyr contact");
+            c.PlayerLife = c.PlayerMaxLife;
+            c.PlayerStats[Program.Stats.Key(RampageSession.KillSource)!.Value] = 1;
+            var rampage = c.RampageWorld;
+            lock (c.Monsters) Assert.True(c.OwnedCombatWorker.TryStart(c, lifetime, rampage.SourceOwner, rampage, out _));
+            rampage.Enable();
+            var dagger = Game.RampageData.AnimatedWeapons.Single(p => p.Kind == RampageCatalog.WeaponKind.Dagger);
+            var weaponId = await Game.CreateRampageActor(wire.Remote, wire.Stream, wire.Ciphers, c, dagger.Variety,
+                70, 30, dagger.Kind, (x, y), rampage.Epoch);
+            Assert.NotNull(weaponId);
+            var weapon = c.Monsters[weaponId.Value];
+            using var retireDuringKill = GameEvents.Kill.Add("Game", kill =>
+            {
+                if (kill.Monster == host) lifetime.Stop(ex => throw ex);
+            });
+            foreach (var (dying, distance) in new[] { (restoredId, 16), (hostId, 17) })
+            {
+                var victim = c.Monsters[dying];
+                var at = victim.Walk.Position(c.Clock.Elapsed.TotalSeconds);
+                c.Walk.Teleport(at.X + distance, at.Y, c.Clock.Elapsed.TotalSeconds);
+                int weaponEdge = 15 + LivingCollision.Size(weapon);
+                weapon.Walk.Teleport(at.X + weaponEdge + (distance == 16 ? 0 : 1), at.Y, 0);
+                uint lifeBefore = c.PlayerLife;
+                uint weaponLife = weapon.Life;
+                lock (c.Monsters)
+                {
+                    Assert.NotNull(Game.ApplyMonsterHitLocked(c, victim, checked((int)victim.Life)));
+                    Assert.Null(Game.ApplyMonsterHitLocked(c, victim, 1));
+                }
+                Assert.True(victim.CorpseConsumed);
+                c.Walk.Teleport(at.X + (distance == 16 ? 17 : 16), at.Y, c.Clock.Elapsed.TotalSeconds);
+                weapon.Walk.Teleport(at.X + (distance == 16 ? weaponEdge + 1 : weaponEdge), at.Y, 0);
+                await Game.MonsterKilled(wire.Remote, wire.Stream, wire.Ciphers, c, dying, victim);
+                if (dying == hostId)
+                {
+                    Assert.False(lifetime.IsActive);
+                    Assert.True(martyrArea.World.DeathCasts[dying].KillCredited);
+                    Assert.True(c.Monsters.ContainsKey(dying));
+                    lifetime = new ModuleLifetime("Game");
+                    Game.CombatLifetime = lifetime;
+                    Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+                }
+                uint atDeath = c.PlayerLife;
+                Assert.Equal(distance == 16, atDeath < lifeBefore);
+                Assert.Equal(distance == 16, weapon.Life < weaponLife);
+                await MapTorment.Tick(c, .25);
+                Assert.Equal(atDeath, c.PlayerLife);
+                Assert.False(c.Monsters.ContainsKey(dying));
+                Assert.DoesNotContain(dying, martyrArea.World.DeathCasts.Keys);
+            }
         }
         finally
         {

@@ -5,12 +5,16 @@ public sealed class ModuleLifetime : IModuleLifetime
 {
     static long _nextGeneration;
     readonly Lock _gate = new();
+    readonly ModuleExecution _execution;
     readonly HashSet<Ownership> _owned = [];
     readonly CancellationTokenSource _stopping = new();
     int _active = 1;
 
-    public ModuleLifetime(string id)
+    public ModuleLifetime(string id) : this(id, new ModuleExecution()) { }
+
+    internal ModuleLifetime(string id, ModuleExecution execution)
     {
+        _execution = execution;
         Id = id;
         Generation = Interlocked.Increment(ref _nextGeneration);
         // Keep the token readable after the source is disposed at stop.
@@ -38,6 +42,8 @@ public sealed class ModuleLifetime : IModuleLifetime
         return ownership;
     }
 
+    public bool TryRunSynchronous(Action mutation) => _execution.TryRun(this, mutation);
+
     // Only Gateway-owned transitions run here, never callbacks into a mod.
     public bool TryCommit(Action commit)
     {
@@ -51,7 +57,9 @@ public sealed class ModuleLifetime : IModuleLifetime
 
     public void Stop(Action<Exception> failed)
     {
+        if (_execution.DeferFromMutation(() => Stop(failed))) return;
         Ownership[] owned;
+        using (_execution.Change())
         lock (_gate)
         {
             if (!IsActive) return;
@@ -93,5 +101,42 @@ public sealed class ModuleLifetime : IModuleLifetime
             Interlocked.Exchange(ref _owner, null)?.Remove(this);
             Interlocked.Exchange(ref _resource, null)?.Dispose();
         }
+    }
+}
+
+/// <summary>Independent instances can commit concurrently. Only a change of the host's loaded rules takes the writer.</summary>
+internal sealed class ModuleExecution
+{
+    readonly ReaderWriterLockSlim gate = new(LockRecursionPolicy.SupportsRecursion);
+
+    public bool TryRun(ModuleLifetime owner, Action mutation)
+    {
+        // A caller can already hold an instance lock. It must never wait for rule cleanup under that lock.
+        if (gate.IsWriteLockHeld || !gate.TryEnterReadLock(0)) return false;
+        try
+        {
+            if (!owner.IsActive) return false;
+            mutation();
+            return true;
+        }
+        finally { gate.ExitReadLock(); }
+    }
+
+    public bool DeferFromMutation(Action operation)
+    {
+        if (!gate.IsReadLockHeld || gate.IsWriteLockHeld) return false;
+        ThreadPool.UnsafeQueueUserWorkItem(static work => work(), operation, preferLocal: false);
+        return true;
+    }
+
+    public ChangeScope Change()
+    {
+        gate.EnterWriteLock();
+        return new(gate);
+    }
+
+    internal readonly struct ChangeScope(ReaderWriterLockSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.ExitWriteLock();
     }
 }

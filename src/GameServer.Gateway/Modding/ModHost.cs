@@ -29,6 +29,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     public ModSettings.Values? GameValues { get; init; }
 
     readonly Lock _gate = new();
+    readonly ModuleExecution _execution = new();
     readonly Dictionary<string, LoadedMod> _loaded = new(StringComparer.Ordinal);
     // Why a folder's mod is not loaded, as last logged (logged again only when it changes).
     readonly Dictionary<string, string> _failed = new(StringComparer.Ordinal);
@@ -160,6 +161,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
 
     public void Dispose()
     {
+        if (_execution.DeferFromMutation(Dispose)) return;
+        using var change = _execution.Change();
         ImmutableInterlocked.Update(ref _hosts, h => h.Remove(this));
         _watcher?.Dispose();
         _settingsWatcher?.Dispose();
@@ -185,6 +188,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     /// <summary>Reloads a mod (and the mods that depend on it) from its folder now; every mod when id is null.</summary>
     public void Reload(string? id = null)
     {
+        if (_execution.DeferFromMutation(() => Reload(id))) return;
+        using var change = _execution.Change();
         lock (_gate)
         {
             if (modules)
@@ -204,9 +209,11 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     public bool SetEnabled(string id, bool enabled)
     {
         if (modules) throw new InvalidOperationException("a module is turned off by deleting its folder");
+        if (id != Path.GetFileName(id) || DirOf(id) is not { } folder || !IsMod(folder)) return false;
+        if (_execution.DeferFromMutation(() => SetEnabled(id, enabled))) return true;
+        using var change = _execution.Change();
         lock (_gate)
         {
-            if (id != Path.GetFileName(id) || (DirOf(id) is not { } dir || !IsMod(dir))) return false;
             _choices[id] = enabled;
             File.WriteAllLines(Path.Combine(Folder, StateFile), _choices.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => $"{c.Key} {(c.Value ? "on" : "off")}"));
             if (!enabled) foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
@@ -320,6 +327,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
 
     void Apply(string id)
     {
+        using var change = _execution.Change();
         bool busy;
         int tries;
         lock (_gate)
@@ -471,7 +479,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     {
         string id = manifest.Id;
         var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => Dependency(d)?.Context).OfType<ModLoadContext>()]);
-        var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
+        var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context, _execution);
         ImmutableInterlocked.Update(ref _hosts, h => h.Add(this));
         ImmutableInterlocked.Update(ref _running, r => r.Add(id));
         try
@@ -659,10 +667,10 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", enabled);
     }
 
-    sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context)
+    sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context, ModuleExecution execution)
     {
         public ModManifest Manifest { get; } = manifest;
-        public ModuleLifetime Lifetime { get; } = new(manifest.Id);
+        public ModuleLifetime Lifetime { get; } = new(manifest.Id, execution);
         public string Folder { get; } = folder;
         /// <summary>Null for a built-in.</summary>
         public ModLoadContext? Context { get; } = context;

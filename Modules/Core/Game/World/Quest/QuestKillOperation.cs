@@ -7,10 +7,11 @@ public static partial class Game
     // Captured factories run now; only owned bytes and host incarnation tickets leave this bounded scope.
     [ThreadStatic] static QuestOutputCapture? QuestKillCommitOutput;
 
-    sealed class QuestOutputCapture(ClientState connection, WorldAdmission admission)
+    sealed class QuestOutputCapture(ClientState connection, WorldAdmission admission, bool flaskBarHeld)
     {
         public ClientState Connection => connection;
         public WorldAdmission Admission => admission;
+        public bool FlaskBarHeld => flaskBarHeld;
         readonly List<(PlayerMinions.Output? Legacy, OutputBatch? Typed)> entries = [];
         public void Add(PlayerMinions.Output output) => entries.Add((output, null));
         public void AddTyped(OutputBatch batch) => entries.Add((null, batch));
@@ -58,15 +59,18 @@ public static partial class Game
         }
     }
 
-    public static OutputBatch CaptureQuestWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit)
+    public static OutputBatch CaptureQuestWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit) =>
+        CaptureWorldOutput(conn, admission, commit, flaskBarHeld: false);
+
+    static OutputBatch CaptureWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit, bool flaskBarHeld)
     {
-        if (QuestKillCommitOutput is not null) throw new InvalidOperationException("Nested quest kill transaction");
-        var capture = new QuestOutputCapture(conn, admission);
+        if (QuestKillCommitOutput is not null) throw new InvalidOperationException("Nested world output transaction");
+        var capture = new QuestOutputCapture(conn, admission, flaskBarHeld);
         QuestKillCommitOutput = capture;
         try
         {
             var work = commit();
-            if (!work.IsCompleted) throw new InvalidOperationException("Quest kill commit must not yield");
+            if (!work.IsCompleted) throw new InvalidOperationException("World output commit must not yield");
             work.GetAwaiter().GetResult();
             return capture.Project();
         }

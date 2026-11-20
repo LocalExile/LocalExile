@@ -269,7 +269,7 @@ public static partial class Game
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
         Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Func<Task>? Finish)>();
         var ended = new List<(uint Id, ushort Buff)>();
         using (ProjectileMutation(conn))
         {
@@ -291,14 +291,15 @@ public static partial class Game
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
+                Func<Task>? finish = null;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
-                    CollectVaalSoulAtDeathLocked(conn, m);
+                    finish = CommitSharedDotDeathLocked(conn, m, conn);
                     set.Clear(burnt: true);
                     if (set.Buff is ushort buff) { ended.Add((id, buff)); set.Buff = null; }
                 }
-                hits.Add((id, m, m.Life, damage));
+                hits.Add((id, m, m.Life, damage, finish));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
             }
         }
@@ -308,7 +309,7 @@ public static partial class Game
             // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
             ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
-        foreach (var (id, m, life, damage) in hits)
+        foreach (var (id, m, life, damage, finish) in hits)
         {
             if (life == 0)
             {
@@ -321,7 +322,7 @@ public static partial class Game
             }
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
-            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
+            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m, finish);
         }
     }
 }

@@ -119,17 +119,23 @@ public static class TormentCatalog
 
     static readonly Lazy<ModCatalog.Mod?> MartyrTouch = new(() => Program.Items.Mods.ById("TormentTouchedMonsterMartyr"));
 
+    internal static int? MartyrGrantRow(ClientState conn, MonsterModSet mods)
+    {
+        if (mods.Mods.Count == 0 || MartyrTouch.Value is not { } touch) return null;
+        for (int i = 0; i < mods.Mods.Count; i++)
+            if (mods.Mods[i].Hash == touch.Hash)
+                return (Program.LeagueFor(conn).HardMode && touch.RuthlessGrantedEffectLevels.Count > 0
+                    ? touch.RuthlessGrantedEffectLevels : touch.GrantedEffectLevels).Single();
+        return null;
+    }
+
     // The Martyr's Touch grants a specific GrantedEffectsPerLevel row. It is a triggered Actor skill, outside the
     // host's attack rotation. The same row and actor-local id survive a refresh of the host's ordinary attacks.
     internal static IReadOnlyList<GrantedSkill>? WithMartyrSkill(ClientState conn, MonsterModSet mods,
         IReadOnlyList<GrantedSkill>? skills, out GrantedSkill? grant)
     {
         grant = null;
-        if (mods.Mods.Count == 0 || MartyrTouch.Value is not { } touch || !mods.Mods.Any(m => m.Hash == touch.Hash))
-            return skills;
-        var rows = Program.LeagueFor(conn).HardMode && touch.RuthlessGrantedEffectLevels.Count > 0
-            ? touch.RuthlessGrantedEffectLevels : touch.GrantedEffectLevels;
-        int row = rows.Single();
+        if (MartyrGrantRow(conn, mods) is not int row) return skills;
         grant = skills?.FirstOrDefault(s => s.EffectsPerLevelRow == row);
         if (grant is not null) return skills;
         var catalog = Game.SkillsFor(conn);

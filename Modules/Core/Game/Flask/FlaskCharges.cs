@@ -13,11 +13,10 @@ public static partial class Game
         Func<PlayerInventories, (uint[] Removed, List<InventoryItem> Changed)?> change, Func<List<InventoryItem>, string> log,
         bool retainOutput = false)
     {
-        await conn.FlaskBarGate.WaitAsync();
+        bool gateHeld = QuestKillCommitOutput is { FlaskBarHeld: true } capture && capture.Connection == conn;
+        if (!gateHeld) await conn.FlaskBarGate.WaitAsync();
         try
         {
-            byte[] packet;
-            string message;
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || HardcoreProgressBlocked(conn)) return;
@@ -31,24 +30,28 @@ public static partial class Game
                         && ItemsFor(conn).FlaskChargesOf(flaskType) is { } baseCharges
                         && changed.Item.Charges >= FlaskCharges.Of(baseCharges, ItemModStats.Local(changed.Item, ItemsFor(conn).Mods)).MaxCharges)
                         QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Full, changed.Id, changed.X);
-                packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
+                var packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
                     items.NextRevision(PlayerInventories.Flask), done.Removed, done.Changed);
-                message = log(done.Changed);
-                if (retainOutput) Automation(conn).Packets.Insert(outputAt, new(packet, message));
-                else if (conn.ProjectileRuntime is { Active: true } session)
+                // A projectile, an incoming hit and automatic flask use can all number revisions before
+                // a previous writer reaches the socket. They share the connection's ordered output receipts.
+                Automation(conn).Packets.Insert(outputAt, new(packet, log(done.Changed)));
+                if (gateHeld) return; // The admitted hit drains the receipts after releasing the recipient's send gate.
+                if (!retainOutput && conn.ProjectileRuntime is { Active: true } session)
                 {
-                    session.Packet(packet, message);
+                    QueueFlaskPublication(session);
                     return;
                 }
             }
-            if (retainOutput) await PublishFlaskChanges(remote, stream, ciphers, conn);
-            else await Send(remote, stream, ciphers, packet, message);
+            await PublishFlaskChanges(remote, stream, ciphers, conn);
         }
         finally
         {
-            conn.FlaskBarGate.Release();
+            if (!gateHeld) conn.FlaskBarGate.Release();
         }
     }
+
+    static void QueueFlaskPublication(ProjectileSession session) => session.Enqueue(() =>
+        PublishFlaskChanges(session.remote, session.stream, session.ciphers, session.Conn));
 
     // A use's charges taken from the flask (still in its cell, with enough charges: checked again under the gate, as a
     // gain or another use may have run meanwhile) and sent (S→C 0xbf): the spent flask, or null when there were too few.

@@ -16,6 +16,10 @@ public interface IModuleLifetime
     /// <summary>Whether this generation has not started stopping. Checking this does not reserve an execution slot.</summary>
     bool IsActive { get; }
 
+    /// <summary>Tries to finish a bounded synchronous world mutation before the host switches rules.
+    /// Returns false without running it during a rule switch. Independent world mutations can run concurrently.</summary>
+    bool TryRunSynchronous(Action mutation);
+
     /// <summary>Cancelled after this generation becomes inactive and before its owned resources are disposed.</summary>
     CancellationToken Stopping { get; }
 

@@ -54,6 +54,12 @@ public sealed class InstanceWorld
     /// <summary>How each monster was created: what a client that comes later needs to create it too.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SharedMonsterOrigin> MonsterOrigins = new();
 
+    /// <summary>Accepted death actions waiting for kill credit or output, under the Monsters lock.</summary>
+    public readonly Dictionary<uint, MonsterDeathCast> DeathCasts = [];
+
+    TormentRewards? tormentRewards;
+    public TormentRewards TormentRewards => LazyInitializer.EnsureInitialized(ref tormentRewards);
+
     /// <summary>The area's packs were placed (or restored): a later connection places none.</summary>
     public bool Populated;
 

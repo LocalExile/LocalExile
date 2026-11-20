@@ -71,9 +71,14 @@ public static partial class Game
 
     // An ignite, bleed or poison killed the monster on the runner's tick: the kill is the one's whose hit landed last,
     // on their own connection (their client gets the corpse, their kill effects and rewards; the others their shares).
-    public static async Task DotKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
-        SpawnedMonster m)
+    public static Task DotKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m) => DotKilled(remote, stream, ciphers, conn, id, m, null);
+
+    static async Task DotKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m, Func<Task>? reserved, bool playerKill = true)
     {
+        if (reserved is not null) { await reserved(); return; }
+        if (!playerKill) { await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true); return; }
         if (m.LastHitBy is { } by && !ReferenceEquals(by, conn) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, conn.Instance))
         {
             by.KillShares.Enqueue((r, s, c) => MonsterKilled(r, s, c, by, id, m, byHit: false));
