@@ -5,9 +5,17 @@ using static Program;
 
 public static partial class MapTorment
 {
+    sealed record MartyrWeapon(RampageWorld.Actor Actor, SpawnedMonster Monster, (int X, int Y) At)
+    {
+        public byte[]? Hit;
+        public bool Current(ClientState owner) =>
+            ReferenceEquals(RampageWeaponAtLocked(owner, Actor, ProjectileWorldTime(owner)), Monster);
+    }
+
     sealed record MartyrViewer(ClientState Player, bool Awake, (int X, int Y)? At, GolemState.Golem[] Minions)
     {
         public readonly List<(uint Id, SpawnedMonster Target, byte[] Packet)> MinionHits = [];
+        public readonly List<MartyrWeapon> Weapons = [];
         public MonsterHitOutcome? Hit;
         public int Epoch = Player.IncomingHitEpoch;
     }
@@ -59,10 +67,20 @@ public static partial class MapTorment
             GolemState.Golem[] minions = eligible
                 ? [.. player.Golems.All.Values.Concat(player.Reservations.Fighters.Values).Concat(player.Summons.Fighters.Values)
                     .Where(g => !g.Monster.Dead && InMartyrBlast(at, g.Monster.Walk.Position(now), radius, LivingCollision.Size(g.Monster)))] : [];
-            viewers.Add(new(player, player.MonsterViews.ContainsKey(id) && !player.AsleepMonsters.Contains(id), playerHit ? here : null, minions));
+            var viewer = new MartyrViewer(player, player.MonsterViews.ContainsKey(id) && !player.AsleepMonsters.Contains(id), playerHit ? here : null, minions);
+            if (eligible && player.StandingRampageWorld is { Actors.Count: > 0 } world)
+            {
+                foreach (var actor in world.Actors.Values)
+                {
+                    if (RampageWeaponAtLocked(player, actor, now) is not { Dead: false, Life: > 0 } weapon) continue;
+                    var target = weapon.Walk.Position(now);
+                    if (InMartyrBlast(at, target, radius, LivingCollision.Size(weapon))) viewer.Weapons.Add(new(actor, weapon, target));
+                }
+            }
+            viewers.Add(viewer);
         }
-        byte actor = checked((byte)origin.Components.ToList().IndexOf("Actor"));
-        area.MartyrDeaths.Add(id, new(monster, at, attack, InstanceEntities.ActorSkills(id, actor, [skill]),
+        byte actorComponent = checked((byte)origin.Components.ToList().IndexOf("Actor"));
+        area.MartyrDeaths.Add(id, new(monster, at, attack, InstanceEntities.ActorSkills(id, actorComponent, [skill]),
             InstanceProtocol.InstantAction(id, skill.Id, at.X, at.Y, triggered: true), viewers) { Owner = conn });
     }
 
@@ -102,11 +120,19 @@ public static partial class MapTorment
         foreach (var v in death.Viewers)
         {
             var p = v.Player;
-            if (p.Closed || p.LeavingArea || v.At is null && v.Minions.Length == 0) continue;
+            if (p.Closed || p.LeavingArea || v.At is null && v.Minions.Length == 0 && v.Weapons.Count == 0) continue;
             double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
             using var defenceTime = FortificationOf(p).Capture(now);
             foreach (var g in v.Minions)
                 GolemTakeHitLocked(p, g, monster.ObjectId, monster, death.Attack, now, area: true, sourceHits: v.MinionHits);
+            foreach (var weapon in v.Weapons)
+            {
+                if (weapon.Monster.Dead || weapon.Monster.Life == 0 || !weapon.Current(p)) continue;
+                var (critical, taken) = HitRampageWeaponLocked(monster, weapon.Monster, death.Attack.Damage, attack: false, now);
+                weapon.Hit = InstanceProtocol.ActionHit(monster.ObjectId, 0xffff, weapon.Actor.Id,
+                    flags: MonsterHitFlags(blocked: false, critical), code: HitCode(taken),
+                    angle: HitAngle(weapon.At.X - death.At.X, weapon.At.Y - death.At.Y));
+            }
             if (v.At is { } at && p.PlayerLife > 0 && p.IncomingHitEpoch == v.Epoch)
             {
                 v.Hit = CommitMonsterHitLocked(p.Wire.Remote, p, monster.ObjectId, monster, death.Attack, now, at, death.At, checkRange: false);
@@ -151,11 +177,18 @@ public static partial class MapTorment
                     foreach (var contact in v.MinionHits)
                         if (p.Monsters.TryGetValue(contact.Id, out var current) && ReferenceEquals(current, contact.Target))
                             records.Add(contact.Packet);
+                    foreach (var weapon in v.Weapons)
+                        if (weapon.Hit is { } packet && weapon.Current(p)) records.Add(packet);
                     if (v.Hit is { } hit && p.IncomingHitEpoch == v.Epoch) records.Add(hit.HitPacket);
                     records.Add(InstanceProtocol.LifeUpdate(id, 0));
                     return [.. records];
                 }
             }, still: Here);
+            foreach (var weapon in v.Weapons)
+                if (weapon.Hit is not null && Here()) await SendWorldRecord(p, weapon.Actor.Id, () =>
+                {
+                    lock (p.Monsters) return weapon.Current(p) ? InstanceProtocol.LifeUpdate(weapon.Actor.Id, weapon.Monster.Life) : null;
+                }, still: Here);
             if (v.Hit is { } outcome && Here() && p.IncomingHitEpoch == v.Epoch)
                 await PresentMonsterHit(w.Remote, w.Stream, w.Ciphers, p, id, outcome);
         }

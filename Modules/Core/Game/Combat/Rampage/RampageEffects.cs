@@ -25,7 +25,7 @@ public static partial class Game
         return SkillsFor(conn).HitDamage(effect, level).Scale(Math.Max(0, 100L + increased) / 100.0);
     }
 
-    static async Task<uint?> CreateRampageActor(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    internal static async Task<uint?> CreateRampageActor(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, RampageCatalog.VarietyPlan plan, int level, double lifetime,
         RampageCatalog.WeaponKind? weapon, (int X, int Y) at, long epoch)
     {

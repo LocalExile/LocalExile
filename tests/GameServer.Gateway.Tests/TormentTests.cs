@@ -225,12 +225,24 @@ public sealed class TormentTests
             CharacterSaves.SetExperience(c.Character!, c.Experience);
             await Game.SendCharacterStats(wire.Remote, wire.Stream, wire.Ciphers, c, "Martyr contact");
             c.PlayerLife = c.PlayerMaxLife;
+            c.PlayerStats[Program.Stats.Key(RampageSession.KillSource)!.Value] = 1;
+            var rampage = c.RampageWorld;
+            lock (c.Monsters) Assert.True(c.OwnedCombatWorker.TryStart(c, lifetime, rampage.SourceOwner, rampage, out _));
+            rampage.Enable();
+            var dagger = Game.RampageData.AnimatedWeapons.Single(p => p.Kind == RampageCatalog.WeaponKind.Dagger);
+            var weaponId = await Game.CreateRampageActor(wire.Remote, wire.Stream, wire.Ciphers, c, dagger.Variety,
+                70, 30, dagger.Kind, (x, y), rampage.Epoch);
+            Assert.NotNull(weaponId);
+            var weapon = c.Monsters[weaponId.Value];
             foreach (var (dying, distance) in new[] { (restoredId, 16), (hostId, 17) })
             {
                 var victim = c.Monsters[dying];
                 var at = victim.Walk.Position(c.Clock.Elapsed.TotalSeconds);
                 c.Walk.Teleport(at.X + distance, at.Y, c.Clock.Elapsed.TotalSeconds);
+                int weaponEdge = 15 + LivingCollision.Size(weapon);
+                weapon.Walk.Teleport(at.X + weaponEdge + (distance == 16 ? 0 : 1), at.Y, 0);
                 uint lifeBefore = c.PlayerLife;
+                uint weaponLife = weapon.Life;
                 lock (c.Monsters)
                 {
                     Assert.NotNull(Game.ApplyMonsterHitLocked(c, victim, checked((int)victim.Life)));
@@ -238,9 +250,11 @@ public sealed class TormentTests
                 }
                 Assert.True(victim.CorpseConsumed);
                 c.Walk.Teleport(at.X + (distance == 16 ? 17 : 16), at.Y, c.Clock.Elapsed.TotalSeconds);
+                weapon.Walk.Teleport(at.X + (distance == 16 ? weaponEdge + 1 : weaponEdge), at.Y, 0);
                 await Game.MonsterKilled(wire.Remote, wire.Stream, wire.Ciphers, c, dying, victim);
                 uint atDeath = c.PlayerLife;
                 Assert.Equal(distance == 16, atDeath < lifeBefore);
+                Assert.Equal(distance == 16, weapon.Life < weaponLife);
                 await MapTorment.Tick(c, .25);
                 Assert.Equal(atDeath, c.PlayerLife);
                 Assert.False(c.Monsters.ContainsKey(dying));
