@@ -565,8 +565,11 @@ public static class CrucibleForgeOfTheTitans
         var mods = area.RemnantMods;
 
         int oreChance = mods.Get("map_crucible_rare_unique_monster_drop_itemised_weapon_tree_experience_%_chance");
-        if (oreChance > 0 && rng.Next(100) < oreChance)
-            drop.Stacks.Add((CrucibleTables.MagmaticOreId, 1));
+        if (oreChance > 0 && rng.Next(100) < oreChance && catalog.Find(CrucibleTables.MagmaticOreId) is { Supported: true } oreType)
+        {
+            uint storedXp = (uint)Math.Max(1, CrucibleTables.Current.BalanceFor(area.Level).Bar2);
+            drop.Made.Add(ItemCatalog.Create(oreType) with { ItemLevel = (byte)Math.Clamp(area.Level, 1, 100), StoredExperience = storedXp });
+        }
 
         var buckets = BucketsFor(catalog);
         TryDropTreeWeapon(drop, catalog, rng, mods.Get("map_crucible_rare_unique_monster_drop_melee_weapon_with_tree_%_chance"),

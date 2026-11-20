@@ -308,8 +308,8 @@ public static class CrucibleTreeEngine
         return target with { WeaponPassiveTree = updated };
     }
 
-    /// <summary>Applies <c>Magmatic Ore</c> to a weapon or shield, granting substantial Crucible XP.</summary>
-    public static Item? ApplyMagmaticOre(Item target, ItemCatalog.BaseType type, ModCatalog mods, double multiplier, Random random)
+    /// <summary>Applies <c>Magmatic Ore</c> to a weapon or shield, granting its <c>StoredExperience</c> (or default XP if 0).</summary>
+    public static Item? ApplyMagmaticOre(Item target, ItemCatalog.BaseType type, ModCatalog mods, double multiplier, Random random, uint storedExperience = 0)
     {
         if (target.Mirrored || !CanChannelInForge(target, type, mods)) return null;
         int ilvl = Math.Clamp(target.ItemLevel == 0 ? 1 : target.ItemLevel, 1, 100);
@@ -319,8 +319,8 @@ public static class CrucibleTreeEngine
         uint currentXp = target.WeaponPassiveTree?.Experience ?? 0;
         if (currentXp >= maxBar && target.WeaponPassiveTree is { HasTree: true }) return null;
 
-        // Grants enough XP to reveal an unrevealed tree (Bar1) or fill a substantial chunk of higher bars.
-        uint baseGrant = (uint)Math.Max(balance.Bar1, balance.Bar2 / 2);
+        // Uses StoredExperience when present; otherwise falls back to enough XP to reveal an unrevealed tree (Bar1) or half Bar2.
+        uint baseGrant = storedExperience > 0 ? storedExperience : (uint)Math.Max(balance.Bar1, balance.Bar2 / 2);
         uint scaled = (uint)Math.Clamp(Math.Round(baseGrant * Math.Max(0.1, multiplier)), 1, maxBar);
         return AwardExperience(target, type, mods, scaled, random, out _, out _);
     }

@@ -92,13 +92,13 @@ public static class CrucibleItemActions
     }
 
     /// <summary><see cref="GameEvents.CurrencyApply"/> handler for <c>Magmatic Ore</c>.</summary>
-    public static Item? ApplyCurrency(ClientState conn, Item target, ItemCatalog.BaseType currencyType, Random random, double xpMultiplier)
+    public static Item? ApplyCurrency(ClientState conn, Item target, ItemCatalog.BaseType currencyType, Item? currencyItem, Random random, double xpMultiplier)
     {
         if (!currencyType.Id.Equals(CrucibleTables.MagmaticOreId, StringComparison.OrdinalIgnoreCase))
             return null;
         var catalog = ItemsFor(conn);
         if (catalog.ByHash(target.TypeHash) is not { } targetType) return null;
-        return CrucibleTreeEngine.ApplyMagmaticOre(target, targetType, catalog.Mods, xpMultiplier, random);
+        return CrucibleTreeEngine.ApplyMagmaticOre(target, targetType, catalog.Mods, xpMultiplier, random, currencyItem?.StoredExperience ?? 0u);
     }
 
     /// <summary><see cref="GameEvents.VendorQuote"/> handler for Crucible <c>SellBonus</c> weapon passive nodes.</summary>

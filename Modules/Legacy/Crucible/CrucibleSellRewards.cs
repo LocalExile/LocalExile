@@ -82,7 +82,10 @@ public static class CrucibleSellRewards
             while (total > 0)
             {
                 int stack = Math.Min(total, maxStack);
-                rewards.Add(ItemCatalog.Create(type) with { StackSize = (ushort)stack });
+                var item = ItemCatalog.Create(type) with { StackSize = (ushort)stack };
+                if (baseId.Equals(CrucibleTables.MagmaticOreId, StringComparison.OrdinalIgnoreCase))
+                    item = item with { StoredExperience = (uint)Math.Max(1, CrucibleTables.Current.BalanceFor(80).Bar2) };
+                rewards.Add(item);
                 total -= stack;
             }
         }
