@@ -12,7 +12,7 @@ namespace GameServer.Modules.Deepwater;
 /// counts, size mix, weights and amounts are guesses (marked G) where the client data gives none.</summary>
 internal static class DeepwaterLoot
 {
-    public enum Kind { Node, SunkenLoot, GoldPile, Clam, Bottle, GoldenLantern, SoothingCoral, Kindling, PiratesLocker, DrownedOffering, RotmothersStash }
+    public enum Kind { Node, SunkenLoot, GoldPile, Clam, Bottle, GoldenLantern, SoothingCoral, Kindling, PiratesLocker, DrownedOffering, RotmothersStash, TormentCage, IzaroAltar, TreasureAnchor }
 
     /// <summary>A node, chest or interactable of the run: its type and place, its object id now (an opened chest is created
     /// again under a new id, as Chest has no update reader), a node's Sulphur, and whether it was collected or used.</summary>
@@ -38,9 +38,24 @@ internal static class DeepwaterLoot
     const string Objects = "Metadata/Terrain/Leagues/Deepwater/Objects/";
     const string Chests = "Metadata/Chests/LeagueDeepwater/";
     const string RotmothersStashType = Chests + "DeepwaterChestHazardBoat";
+    const string TormentCageType = Objects + "DeepwaterTormentedSpiritEncounter";
+    const string IzaroAltarType = Objects + "DeepwaterIzaroObject";
+    const string IzaroChestFallback = "Metadata/Chests/Labyrinth/Izaro/IzaroChest1";
+    const string OfferingToTheGoddessId = "Metadata/Items/MapFragments/CurrencyOfferingToTheGoddess";
     const string LeagueMonsters = "Metadata/Monsters/LeagueDeepwater/";
     const string BottleItem = "Metadata/Items/Deepwater/DeepwaterBottledItem";
     const string ResourceFound = "map_deepwater_league_resource_found_+%";
+
+    static readonly string[] TreasureAnchorChests =
+    [
+        Chests + "CurrencyTreasureChestOpulent",
+        Chests + "DeepwaterChestStackedDecks",
+        Chests + "DeepwaterChestScarabs",
+        Chests + "DeepwaterAnchorUniqueArmour",
+        Chests + "DeepwaterAnchorUniqueWeapon",
+        Chests + "DeepwaterAnchorUniqueJewellery",
+        Chests + "DeepwaterChestRareJewellery",
+    ];
 
     /// <summary>The Sulphur nodes by size and the world.db <c>system_settings</c> key of their share (G, server policy);
     /// each type's own <c>base_resource_multiplier</c> (50/100/150/200) sets its amount.</summary>
@@ -87,6 +102,8 @@ internal static class DeepwaterLoot
         var wanted = Nodes.Select(n => n.Type)
             .Concat(Scattered.Select(s => s.Type))
             .Append(RotmothersStashType)
+            .Append(TormentCageType)
+            .Append(IzaroAltarType)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var row in ChestRows.Value.Values)
             if (row.InheritsFrom is { Length: > 0 } parent) wanted.Add(parent);
@@ -144,10 +161,11 @@ internal static class DeepwaterLoot
     // ---- the plan ----
 
     /// <summary>The run's nodes and objects: the rooms' own chests (Level.RoomObjects), then per cell (not Kishara's Rest,
-    /// whose room places no packs either) DeepwaterRooms <c>__col10..__col11</c> Sulphur nodes and as many scattered
-    /// objects (G: the column pair is read as both counts; 3.29.0b's "20-40 % more scattered objects"), on walkable
-    /// cells away from each other and from the start Bathysphere. The run's Sulphur cap is the sum of its nodes.</summary>
-    public static void Plan(ClientState conn, DeepwaterRun run, Action<string> log)
+    /// whose room places no packs either) DeepwaterRooms <c>__col10..__col11</c> Sulphur nodes, scattered objects, and any
+    /// guaranteed chart/border objects (Lost Messages, Golden Lanterns, Pirate's Lockers, Treasure Anchors, Izaro Altars,
+    /// Torment Cages), plus planned strongbox and Essence monolith placements returned for <c>StartRun</c> to spawn.</summary>
+    public static (List<MapStrongboxes.SpawnRequest> Strongboxes, List<MapEssences.MonolithRequest> Monoliths) Plan(
+        ClientState conn, DeepwaterRun run, Action<string> log)
     {
         var layout = conn.Layout;
         int seed = AreaPopulation.PopulationSeed(layout.Hash, conn.Seed);
@@ -156,9 +174,12 @@ internal static class DeepwaterLoot
         // .ot's eight set_animated brackets; GGG's distribution is unknown.
         var poses = new Random(seed ^ 0x504f5345);
         var start = run.Board.Cells[0].Point("bathysphere") ?? run.Board.Cells[0].Point("default") ?? (layout.SpawnX, layout.SpawnY);
-        int found = Stats.Key(ResourceFound) is uint key && conn.Instance?.KeptAreaStats?.GetValueOrDefault(key) is int f ? f : 0;
+        int fallbackFound = Stats.Key(ResourceFound) is uint key && conn.Instance?.KeptAreaStats?.GetValueOrDefault(key) is int f ? f : 0;
+        bool hardMode = LeagueFor(conn).HardMode;
         var taken = new List<(int X, int Y)>();
         var things = new List<Thing>();
+        var strongboxes = new List<MapStrongboxes.SpawnRequest>();
+        var monoliths = new List<MapEssences.MonolithRequest>();
         var notes = new List<string>();
 
         foreach (var o in layout.Level?.RoomObjects ?? [])
@@ -178,9 +199,36 @@ internal static class DeepwaterLoot
             .Select(s => (s.Kind, s.Type, Weight: ChestRows.Value.TryGetValue(s.Type, out var row) && row.Weight > 0 ? row.Weight : Setting(s.Fallback)))
             .Where(s => s.Weight > 0).ToList();
         var nodes = Nodes.Where(n => Info(n.Type) is not null).Select(n => (n.Type, Share: Setting(n.Share))).Where(n => n.Share > 0).ToList();
+        var anchorTypes = TreasureAnchorChests
+            .Select(t => hardMode && t == Chests + "DeepwaterChestScarabs" ? Chests + "DeepwaterChestScarabsHardMode" : t)
+            .Where(t => Info(t) is not null).ToArray();
+        string? izaroType = Info(IzaroAltarType) is not null ? IzaroAltarType : Info(IzaroChestFallback) is not null ? IzaroChestFallback : null;
+        string? cageType = Info(TormentCageType) is not null ? TormentCageType : null;
+
+        int PlaceFixed(DeepwaterBoard.Cell cell, Kind kind, string? type, int count)
+        {
+            if (count <= 0 || type is null || Info(type) is not { } info) return 0;
+            int clearance = Math.Clamp(info.Size, 1, 3);
+            int placed = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (Spot(layout, cell, start, taken, ThingsApart, clearance, random) is not { } at) continue;
+                things.Add(new Thing
+                {
+                    Kind = kind, Type = type, X = at.X, Y = at.Y, Cell = cell.Index, Model = ModelOf(type, random),
+                    Rotation = (float)(random.NextDouble() * Math.Tau), Id = conn.TakeObjectId(),
+                });
+                taken.Add(at);
+                placed++;
+            }
+            return placed;
+        }
+
         foreach (var cell in run.Board.Cells)
         {
             if (!RoomRanges.Value.TryGetValue(cell.Room, out var range) || range.Packs <= 0 || range.Max <= 0) continue;
+            var cellStats = run.Plan?.Effective(cell.Index);
+            int cellFound = cellStats is not null ? cellStats.GetValueOrDefault(ResourceFound) : fallbackFound;
             int nodeCount = random.Next(range.Min, range.Max + 1);
             int objectCount = random.Next(range.Min, range.Max + 1) + DeepwaterUpgrades.ExtraScatteredObjects(conn, random);
             int placedNodes = 0, placedObjects = 0;
@@ -189,7 +237,7 @@ internal static class DeepwaterLoot
                 if (Spot(layout, cell, start, taken, NodesApart, 1, random) is not { } at) continue;
                 string type = Pick(nodes.Select(n => (n.Type, n.Share)).ToList(), random);
                 int multiplier = States.Value.GetValueOrDefault(type) is { } st && st.IndexOf("base_resource_multiplier") is int m and >= 0 ? st.SharedStates[m] : 100;
-                things.Add(new Thing { Kind = Kind.Node, Type = type, X = at.X, Y = at.Y, Cell = cell.Index, Sulphur = Amount(multiplier, run.Level, found),
+                things.Add(new Thing { Kind = Kind.Node, Type = type, X = at.X, Y = at.Y, Cell = cell.Index, Sulphur = Amount(multiplier, run.Level, cellFound),
                     Pose = poses.Next(Poses), Id = conn.TakeObjectId() });
                 taken.Add(at);
                 placedNodes++;
@@ -204,16 +252,61 @@ internal static class DeepwaterLoot
                 taken.Add(at);
                 placedObjects++;
             }
-            notes.Add($"cell {cell.Index}: {placedNodes}/{nodeCount} nodes, {placedObjects}/{objectCount} objects");
+            if (cellStats is not null)
+            {
+                placedObjects += PlaceFixed(cell, Kind.Bottle, Chests + "BottledItemChest", Math.Clamp(cellStats.GetValueOrDefault("chart_extra_lost_messages"), 0, 10));
+                placedObjects += PlaceFixed(cell, Kind.GoldenLantern, Objects + "DeepwaterGoldenLantern", Math.Clamp(cellStats.GetValueOrDefault("chart_spawn_golden_lanterns"), 0, 10));
+                placedObjects += PlaceFixed(cell, Kind.PiratesLocker, Chests + "RandomDucatChest", Math.Clamp(cellStats.GetValueOrDefault("chart_x_random_ducat_chests"), 0, 10));
+                int anchors = Math.Clamp(hardMode
+                    ? cellStats.GetValueOrDefault("chart_contains_x_additional_treasure_anchors_hard_mode")
+                    : cellStats.GetValueOrDefault("chart_contains_x_additional_treasure_anchors"), 0, 10);
+                for (int i = 0; i < anchors && anchorTypes.Length > 0; i++)
+                    placedObjects += PlaceFixed(cell, Kind.TreasureAnchor, anchorTypes[random.Next(anchorTypes.Length)], 1);
+                placedObjects += PlaceFixed(cell, Kind.IzaroAltar, izaroType, Math.Clamp(cellStats.GetValueOrDefault("chart_extra_izaro_object"), 0, 10));
+                placedObjects += PlaceFixed(cell, Kind.TormentCage, cageType, Math.Clamp(cellStats.GetValueOrDefault("chart_extra_torment_cages"), 0, 10));
+
+                // Strongboxes & Essence Monoliths: placed through Core/Game's native MapStrongboxes & MapEssences systems.
+                var cellMapMods = new MapMods(cellStats);
+                void QueueBoxes(StrongboxCatalog.Contents? kind, int count)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (Spot(layout, cell, start, taken, ThingsApart, 2, random) is not { } at) continue;
+                        taken.Add(at);
+                        strongboxes.Add(new MapStrongboxes.SpawnRequest(at.X, at.Y, kind, run.Level, cellMapMods, cell.BiomeArea));
+                    }
+                }
+                QueueBoxes(null, Math.Clamp(cellStats.GetValueOrDefault("chart_extra_strongboxes"), 0, 10));
+                QueueBoxes(StrongboxCatalog.Contents.Currency, Math.Clamp(hardMode
+                    ? cellStats.GetValueOrDefault("chart_extra_arcanist_strongboxes_hard_mode")
+                    : cellStats.GetValueOrDefault("chart_extra_arcanist_strongboxes"), 0, 10));
+                QueueBoxes(StrongboxCatalog.Contents.Card, Math.Clamp(cellStats.GetValueOrDefault("chart_extra_diviner_strongboxes"), 0, 10));
+                QueueBoxes(StrongboxCatalog.Contents.Scarab, Math.Clamp(hardMode
+                    ? cellStats.GetValueOrDefault("chart_extra_operative_strongboxes_hard_mode")
+                    : cellStats.GetValueOrDefault("chart_extra_operative_strongboxes"), 0, 10));
+
+                int monolithCount = Math.Clamp(cellStats.GetValueOrDefault("chart_extra_monoliths"), 0, 10);
+                for (int i = 0; i < monolithCount; i++)
+                {
+                    if (DeepwaterMonsters.PickVariety(cell.BiomeArea, run.Level, random) is not { } varietyId) break;
+                    if (Spot(layout, cell, start, taken, ThingsApart, 3, random) is not { } at) continue;
+                    taken.Add(at);
+                    monoliths.Add(new MapEssences.MonolithRequest(at.X, at.Y, varietyId, run.Level, cellMapMods));
+                }
+            }
+            notes.Add($"cell {cell.Index}: {placedNodes}/{nodeCount} nodes (found +{cellFound}%), {placedObjects} objects");
         }
         lock (run.Gate)
         {
             run.Things.AddRange(things);
             run.SulphurCap = things.Where(t => t.Kind == Kind.Node).Sum(t => t.Sulphur);
         }
-        log($"Allflame loot: {things.Count(t => t.Kind == Kind.Node)} Sulphur nodes ({run.SulphurCap} Sulphur at level {run.Level}, balance {BalanceAt(run.Level)}, found +{found}%), "
+        log($"Allflame loot: {things.Count(t => t.Kind == Kind.Node)} Sulphur nodes ({run.SulphurCap} Sulphur at level {run.Level}, balance {BalanceAt(run.Level)}), "
             + string.Join(", ", things.Where(t => t.Kind != Kind.Node).GroupBy(t => t.Kind).Select(g => $"{g.Count()} {g.Key}"))
+            + (strongboxes.Count > 0 ? $", {strongboxes.Count} strongboxes" : "")
+            + (monoliths.Count > 0 ? $", {monoliths.Count} monoliths" : "")
             + "; " + string.Join("; ", notes));
+        return (strongboxes, monoliths);
     }
 
     // A Chests row's model when the type has none of its own (Gold Pile's four, Sunken Loot's two, Rotmother's Stash).
@@ -308,8 +401,26 @@ internal static class DeepwaterLoot
         int collected, cap;
         lock (run.Gate) (collected, cap) = (run.Sulphur, run.SulphurCap);
         // M: (collected, the run's possible total); the client fills its gauge a/b in five steps.
-        if (DeepwaterRuleset.Sulphur((uint)collected, (uint)cap) is { } gauge)
-            await PlayerOf(conn).Send(gauge, $"0x02c9 ruleset DeepwaterRules mode 1: Sulphur {collected}/{cap}");
+        if (DeepwaterRuleset.Sulphur((uint)collected, (uint)Math.Max(cap, collected)) is { } gauge)
+            await PlayerOf(conn).Send(gauge, $"0x02c9 ruleset DeepwaterRules mode 1: Sulphur {collected}/{Math.Max(cap, collected)}");
+    }
+
+    /// <summary>Awards Dead Man's Sulphur when a Rare monster dies inside a cell carrying
+    /// <c>chart_rare_monsters_drop_dead_mans_sulphur</c>.</summary>
+    public static async Task AwardRareSulphur(IModuleContext module, ClientState conn, DeepwaterRun run, int cell)
+    {
+        int found = run.CellRules is { } rules && (uint)cell < (uint)rules.Length ? rules[cell].SulphurFoundPct : 0;
+        int amount = Amount(100, run.Level, found);
+        if (amount <= 0) return;
+        int total;
+        lock (run.Gate)
+        {
+            if (run.Failed || run.Phase == DeepwaterRun.RunPhase.Ended) return;
+            run.Sulphur += amount;
+            total = run.Sulphur;
+        }
+        foreach (var member in Members(conn)) await SendGauge(member, run);
+        module.Log($"{CharacterName(conn)}: rare monster dropped +{amount} Sulphur (run {total}/{Math.Max(run.SulphurCap, total)})");
     }
 
     // ---- Sulphur ----
@@ -521,7 +632,87 @@ internal static class DeepwaterLoot
                 lock (run.Gate) run.Total += 3;
                 await DeepwaterLanterns.SendCount(conn, run);
                 break;
+            case Kind.TormentCage:
+            {
+                var spots = new List<(int X, int Y)>(3);
+                for (int i = 0; i < 3; i++)
+                {
+                    double angle = Math.Tau * i / 3.0 + Random.Shared.NextDouble() * 0.5;
+                    spots.Add(conn.Layout.Near((thing.X + (int)Math.Round(Math.Cos(angle) * 8), thing.Y + (int)Math.Round(Math.Sin(angle) * 8))));
+                }
+                int released = await MapTorment.SpawnSpiritsAt(conn, spots, (byte)level);
+                module.Log($"{CharacterName(conn)}: Torment Cage 0x{thing.Id:x} released {released} Tormented Spirits");
+                break;
+            }
+            case Kind.IzaroAltar:
+            {
+                var drops = RollSunkenCurrency(catalog, level);
+                if (catalog.Find(OfferingToTheGoddessId) is { Supported: true } offering)
+                    drops.Add(new(ItemCatalog.Create(offering) with { StackSize = 1, ItemLevel = (byte)level }, offering));
+                if (DeepwaterChartStats.RollSupportGem(level, Random.Shared) is { } gem
+                    && catalog.ByHash(gem.TypeHash) is { } gemType)
+                    drops.Add(new(gem with { Quality = (byte)Random.Shared.Next(10, 21) }, gemType));
+                await Drop(conn, thing, ItemDrops.Stacked(drops));
+                break;
+            }
+            case Kind.TreasureAnchor:
+            {
+                var drops = RollTreasureAnchorLoot(conn, catalog, thing.Type, level);
+                if (drops.Count > 0) await Drop(conn, thing, ItemDrops.Stacked(drops));
+                break;
+            }
         }
+    }
+
+    static List<ItemDrops.Drop> RollTreasureAnchorLoot(ClientState conn, ItemCatalog catalog, string chestType, int level)
+    {
+        var rng = Random.Shared;
+        var drops = new List<ItemDrops.Drop>();
+        if (chestType.EndsWith("StackedDecks", StringComparison.Ordinal))
+        {
+            if (catalog.Find(DeepwaterChartStats.StackedDeckId) is { Supported: true } deck)
+                drops.Add(new(ItemCatalog.Create(deck) with { StackSize = (ushort)rng.Next(2, 5), ItemLevel = (byte)level }, deck));
+            return drops;
+        }
+        if (chestType.Contains("Scarab", StringComparison.Ordinal))
+        {
+            var roller = DropsFor(conn);
+            var mods = MapModsOf(conn);
+            for (int i = rng.Next(1, 3); i > 0; i--)
+                if (roller.Scarab(rng, level, mods) is { } scarab) drops.Add(scarab);
+            return drops;
+        }
+        if (chestType.Contains("AnchorUnique", StringComparison.Ordinal))
+        {
+            bool Matches(ItemCatalog.BaseType t) => chestType.EndsWith("Armour", StringComparison.Ordinal)
+                ? t.Class is "Body Armour" or "Helmet" or "Gloves" or "Boots" or "Shield"
+                : chestType.EndsWith("Weapon", StringComparison.Ordinal)
+                    ? t.Components.Contains("Weapon")
+                    : t.Class is "Ring" or "Amulet" or "Belt";
+            var uniques = UniquesFor(conn);
+            var pool = uniques.All.Where(d => !d.EncounterOnly && catalog.Find(d.BaseTypeId) is { Supported: true } bt && Matches(bt)).ToArray();
+            if (pool.Length > 0 && uniques.Create(pool[rng.Next(pool.Length)] with { ItemLevel = (byte)level }, rng) is { } item
+                && catalog.ByHash(item.TypeHash) is { } uType)
+                drops.Add(new(item with { Identified = false }, uType));
+            drops.AddRange(RollSunkenCurrency(catalog, level));
+            return drops;
+        }
+        if (chestType.EndsWith("RareJewellery", StringComparison.Ordinal))
+        {
+            drops.AddRange(DropsFor(conn).Container(level, rng.Next(2, 4), 100, rng, t => t.Class is "Ring" or "Amulet" or "Belt"));
+            drops.AddRange(RollSunkenCurrency(catalog, level));
+            return drops;
+        }
+        // CurrencyTreasureChestOpulent / fallback: richer currency + small Ducat chance.
+        drops.AddRange(RollSunkenCurrency(catalog, level));
+        drops.AddRange(RollSunkenCurrency(catalog, level));
+        if (rng.Next(100) < SettingOr("deepwater_sunken_ducat_chance", 8))
+        {
+            string id = DeepwaterDucats.AllDucats[rng.Next(DeepwaterDucats.AllDucats.Length)];
+            if (catalog.Find(id) is { Supported: true } ducatType)
+                drops.Add(new(ItemCatalog.Create(ducatType) with { StackSize = 1, ItemLevel = (byte)level }, ducatType));
+        }
+        return drops;
     }
 
     // G: 3-6 currency items by the server's currency weights (ItemDrops.Currency) at the run's level.
@@ -628,19 +819,70 @@ internal static class DeepwaterLoot
     {
         if (roll.Monster.VarietyId.StartsWith(LeagueMonsters, StringComparison.Ordinal)) roll.MapRelated *= 0.5;
         DeepwaterCursedDucats.ApplyDropFactors(roll, run.CursedQuantityFactor, run.CursedRarityFactor);
-        // Compute cell index once for both Voyage cell multipliers and special-room rare Ducats (0 allocs per kill).
-        int cell = (run.CellQuantity is not null || (roll.Monster.Rarity >= MonsterRarity.Rare && run.CellRareDucat is not null))
+        bool isRare = roll.Monster.Rarity >= MonsterRarity.Rare;
+        // Compute cell index once for Voyage cell multipliers, special-room rare Ducats, and per-cell chart/border rules (0 allocs per kill).
+        int cell = (run.CellQuantity is not null || run.HasAnyCellDrops || (isRare && run.CellRareDucat is not null))
             ? run.CellIndex(roll.Monster.X, roll.Monster.Y) : -1;
-        if (run.CellQuantity is { } cellQuantity && run.CellRarity is { } cellRarity && cell >= 0 && cell < cellQuantity.Length)
+        if (run.CellQuantity is { } cellQuantity && run.CellRarity is { } cellRarity && (uint)cell < (uint)cellQuantity.Length)
         {
             roll.Quantity *= cellQuantity[cell];
             roll.Rarity *= cellRarity[cell];
         }
-        if (roll.Monster.Rarity >= MonsterRarity.Rare && run.CellRareDucat is { } cellDucats && run.CellRareDucatChance is { } cellChances
-            && cell >= 0 && cell < cellDucats.Length && cellDucats[cell] is { } ducatId && cellChances[cell] > 0
+        if (isRare && run.CellRareDucat is { } cellDucats && run.CellRareDucatChance is { } cellChances
+            && (uint)cell < (uint)cellDucats.Length && cellDucats[cell] is { } ducatId && cellChances[cell] > 0
             && Random.Shared.Next(100) < cellChances[cell])
         {
             roll.Items.Add(ducatId);
+        }
+        if (run.HasAnyCellDrops && run.CellRules is { } rules && (uint)cell < (uint)rules.Length)
+        {
+            ref readonly var cr = ref rules[cell];
+            if (cr.ExtraScarabFactor > 1.0)
+            {
+                double scarabChance = Math.Clamp(SystemSettings.Default.Get("drop_scarab_chance_pct"), 0, 100) / 100.0 * (cr.ExtraScarabFactor - 1.0);
+                if (Random.Shared.NextDouble() < scarabChance
+                    && DropsFor(roll.Conn).Scarab(Random.Shared, roll.Monster.Level, MapModsOf(roll.Conn)) is { } extraScarab)
+                    roll.Made.Add(extraScarab.Item);
+            }
+            if (cr.ExtraCurrencyFactor > 1.0)
+            {
+                double expected = global::Game.CurrencyDropExpected(roll.Monster.Rarity) * (cr.ExtraCurrencyFactor - 1.0);
+                int whole = (int)expected + (Random.Shared.NextDouble() < expected - (int)expected ? 1 : 0);
+                for (int i = 0; i < whole; i++)
+                    if (global::Game.RollWeightedCurrency(ItemsFor(roll.Conn), roll.Monster.Level, Random.Shared) is { } extraCur)
+                        roll.Made.Add(extraCur.Item);
+            }
+            if (isRare)
+            {
+                if (cr.RareCurrencyDrops is { Length: > 0 } rareDrops)
+                {
+                    for (int i = 0; i < rareDrops.Length; i++)
+                        roll.Stacks.Add(rareDrops[i]);
+                }
+                if (cr.RareExtraScarab > 0)
+                {
+                    var roller = DropsFor(roll.Conn);
+                    var mods = MapModsOf(roll.Conn);
+                    for (int i = 0; i < cr.RareExtraScarab; i++)
+                        if (roller.Scarab(Random.Shared, roll.Monster.Level, mods) is { } rareScarab)
+                            roll.Made.Add(rareScarab.Item);
+                }
+                if (cr.RareSupportGemChance > 0 && Random.Shared.Next(100) < cr.RareSupportGemChance
+                    && DeepwaterChartStats.RollSupportGem(roll.Monster.Level, Random.Shared) is { } supportGem)
+                {
+                    roll.Made.Add(supportGem);
+                }
+            }
+            if (cr.HasTransforms)
+            {
+                var capturedRules = cr;
+                var catalog = ItemsFor(roll.Conn);
+                var uniques = UniquesFor(roll.Conn);
+                int monsterLevel = roll.Monster.Level;
+                var monsterRarity = roll.Monster.Rarity;
+                roll.AddTransform(drops => DeepwaterChartStats.ApplyDropTransforms(
+                    drops, catalog, uniques, in capturedRules, monsterLevel, monsterRarity, Random.Shared));
+            }
         }
         int stacks;
         lock (run.Gate) stacks = run.GoldenLanterns.GetValueOrDefault(CharacterName(roll.Conn));

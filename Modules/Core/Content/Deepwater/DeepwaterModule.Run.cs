@@ -34,6 +34,8 @@ public sealed partial class DeepwaterModule
         bool made = false;
         DeepwaterRun? run;
         DeepwaterRun.Lantern? first = null;
+        List<MapStrongboxes.SpawnRequest>? pendingStrongboxes = null;
+        List<MapEssences.MonolithRequest>? pendingMonoliths = null;
         lock (_runs)
         {
             if (!_runs.TryGetValue(instance, out run))
@@ -57,6 +59,9 @@ public sealed partial class DeepwaterModule
                 var effects = planned is { Voyage: true } && planned.Size == board.Size
                     ? CellEffects(planned, level, cursedEffects.MonsterStats)
                     : default;
+                var cellRules = planned is not null && planned.Size == board.Size
+                    ? DeepwaterChartStats.BuildFor(planned)
+                    : default;
                 var runMods = DeepwaterMonsters.ModsFor(level, null, cursedEffects.MonsterStats);
                 var (cellRareDucat, cellRareDucatChance) = DeepwaterLoot.RoomRareDucats(board);
                 run = new DeepwaterRun
@@ -66,12 +71,14 @@ public sealed partial class DeepwaterModule
                     CellMods = effects.Mods, CellQuantity = effects.Quantity, CellRarity = effects.Rarity,
                     CursedQuantityFactor = cursedEffects.QuantityFactor, CursedRarityFactor = cursedEffects.RarityFactor,
                     RunMods = runMods, CellRareDucat = cellRareDucat, CellRareDucatChance = cellRareDucatChance,
+                    CellRules = cellRules.Rules, HasAnyCellDrops = cellRules.HasDrops,
+                    HasAnyExpBonus = cellRules.HasExp, HasAnyRareSulphur = cellRules.HasRareSulphur,
                 };
                 if (planned is not null) run.OnEnd = (members, success) => Finish(module, planned, members, success);
                 var plan = DeepwaterMonsters.Plan(conn.Layout, conn.Seed, run, module.Log);
                 run.Planned.AddRange(plan);
                 run.PlannedPacks = plan.Count;
-                DeepwaterLoot.Plan(conn, run, module.Log);
+                (pendingStrongboxes, pendingMonoliths) = DeepwaterLoot.Plan(conn, run, module.Log);
                 // The first lantern burns at the start Bathysphere (cell 0's "bathysphere" point; the wiki: placed on entry)
                 // and is not one of the run's (G: the tutorial's count starts at 6 with it already lit). Without an anchor
                 // the client allows no placement.
@@ -83,8 +90,15 @@ public sealed partial class DeepwaterModule
                 made = true;
             }
         }
-        if (made) module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns, level {run.Level}"
-            + (run.Plan is null ? " (no plan: a random grid)" : $" (planned by {run.Plan.Owner})"));
+        if (made)
+        {
+            module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns, level {run.Level}"
+                + (run.Plan is null ? " (no plan: a random grid)" : $" (planned by {run.Plan.Owner})"));
+            if (pendingStrongboxes is { Count: > 0 })
+                await MapStrongboxes.SpawnAt(conn, pendingStrongboxes, new Random(unchecked((int)(conn.Seed ^ 0x44575342))));
+            if (pendingMonoliths is { Count: > 0 })
+                await MapEssences.SpawnMonolithsAt(conn, pendingMonoliths, new Random(unchecked((int)(conn.Seed ^ 0x44574553))));
+        }
         foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
         await DeepwaterLoot.Show(conn, run);
@@ -191,7 +205,7 @@ public sealed partial class DeepwaterModule
         }
         await DeepwaterMonsters.Release(module, conn, run, lantern);
         await DeepwaterLoot.Collect(module, conn, run, lantern);
-        if (placed == 1)
+        if (placed == 1 && !conn.HasQuestFlag(DeepwaterConstants.FirstLanternPlaced))
         {
             var (remote, stream, ciphers) = conn.Wire;
             await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.FirstLanternPlaced]);

@@ -89,6 +89,12 @@ internal sealed class DeepwaterRun
     public MonsterModSet? RunMods { get; init; }
     public string?[]? CellRareDucat { get; init; }
     public int[]? CellRareDucatChance { get; init; }
+    /// <summary>Precomputed per-cell Domain 39/40 rules (built once at <c>StartRun</c>, O(1) indexed and 0-alloc on
+    /// kills/hits); null when no cell carries any active chart/border drop, experience, lantern or essence rule.</summary>
+    public DeepwaterCellRules[]? CellRules { get; init; }
+    public bool HasAnyCellDrops { get; init; }
+    public bool HasAnyExpBonus { get; init; }
+    public bool HasAnyRareSulphur { get; init; }
     /// <summary>Called once when the run ends (DeepwaterExtraction.End or Fail) with the players it ended for and whether it
     /// succeeded.</summary>
     public Func<IReadOnlyList<ClientState>, bool, Task>? OnEnd { get; set; }

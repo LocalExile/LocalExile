@@ -417,12 +417,144 @@ public sealed class DeepwaterLeagueTests
             DeepwaterVelka.ArenaTeleporterType,
             DeepwaterVelka.InvisibleLanternType,
             "Metadata/Terrain/Leagues/Deepwater/Objects/CorpseBattery",
+            "Metadata/Terrain/Leagues/Deepwater/Objects/DeepwaterTormentedSpiritEncounter",
+            "Metadata/Terrain/Leagues/Deepwater/Objects/DeepwaterIzaroObject",
         })
         {
             var info = QuestObjectTypes.Find(objType);
             Assert.NotNull(info);
             Assert.True(QuestObject.CanSerialize(info.Components, haveStateMachine: info.Components.Contains("StateMachine")));
         }
+
+        // Polish Part 2: Chart & Border stat parsing (Domain 39 & 40), free lanterns, combat affixes, and DropRoll transforms.
+        var borderCellStats = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["map_experience_gain_+%"] = 150,
+            ["map_deepwater_league_resource_found_+%"] = 40,
+            ["chart_do_not_consume_lanterns_on_placement"] = 1,
+            ["map_magic_monster_num_additional_modifiers"] = 2,
+            ["map_rare_monsters_trapped_in_essences"] = 1,
+            ["chart_rare_monsters_drop_dead_mans_sulphur"] = 1,
+            ["map_scarab_drop_chance_+%_final_from_uber_mod"] = 75,
+            ["map_currency_drop_chance_+%_final_from_uber_mod"] = 100,
+            ["chart_rare_monster_drop_x_additional_chaos"] = 1,
+            ["chart_rare_monster_drop_x_additional_divine"] = 1,
+            ["chart_rare_monster_drop_x_additional_scarab"] = 1,
+            ["chart_rare_monster_drop_support_gem_chance_%"] = 20,
+        };
+        var voyageCell = DeepwaterChartStats.ParseCell(borderCellStats, borderCellStats, voyage: true);
+        Assert.Equal(2.5, voyageCell.ExpFactor, 6);
+        Assert.Equal(40, voyageCell.SulphurFoundPct);
+        Assert.True(voyageCell.FreeLanterns);
+        Assert.Equal(2, voyageCell.MagicExtraMods);
+        Assert.True(voyageCell.RareTrappedInEssence);
+        Assert.True(voyageCell.RareDropSulphur);
+        Assert.Equal(1.75, voyageCell.ExtraScarabFactor, 6);
+        Assert.Equal(2.0, voyageCell.ExtraCurrencyFactor, 6);
+        Assert.NotNull(voyageCell.RareCurrencyDrops);
+        Assert.Equal(2, voyageCell.RareCurrencyDrops.Length);
+        Assert.Equal(1, voyageCell.RareExtraScarab);
+        Assert.Equal(20, voyageCell.RareSupportGemChance);
+        // 1×1 Charts do not double-count MapModsOf stats (scarab/currency/magic extra mods stay neutral).
+        var chartCell = DeepwaterChartStats.ParseCell(borderCellStats, null, voyage: false);
+        Assert.Equal(1.0, chartCell.ExtraScarabFactor, 6);
+        Assert.Equal(1.0, chartCell.ExtraCurrencyFactor, 6);
+        Assert.Equal(0, chartCell.MagicExtraMods);
+        // chart_do_not_consume_lanterns_on_placement prevents lantern consumption only in the free cell.
+        DeepwaterCellRules[] lanternRules = [voyageCell, DeepwaterCellRules.Empty];
+        Assert.False(DeepwaterChartStats.ConsumesLantern(lanternRules, 0));
+        Assert.True(DeepwaterChartStats.ConsumesLantern(lanternRules, 1));
+        Assert.True(DeepwaterChartStats.ConsumesLantern(null, 0));
+
+        // MapMonsterEffects wires Chart gt1/gt2 combat affixes (crit, penetration, speed, resists, hexproof, blind).
+        var combatAffixes = global::Game.MapMonsterEffects(new MapMods(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["map_monsters_critical_strike_chance_+%"] = 300,
+            ["map_monsters_critical_strike_multiplier_+"] = 45,
+            ["map_monsters_penetrate_elemental_resistances_%"] = 12,
+            ["map_monsters_are_hexproof"] = 1,
+            ["map_monsters_curse_effect_on_self_+%_final"] = -50,
+            ["map_monsters_chance_to_blind_on_hit_%"] = 100,
+            ["map_monsters_additional_elemental_resistance"] = 30,
+        }));
+        Assert.Equal(300, combatAffixes["critical_strike_chance_+%"]);
+        Assert.Equal(45, combatAffixes["base_critical_strike_multiplier_+"]);
+        Assert.Equal(12, combatAffixes["reduce_enemy_elemental_resistance_%"]);
+        Assert.Equal(1, combatAffixes["hexproof"]);
+        Assert.Equal(-50, combatAffixes["curse_effect_on_self_+%_final"]);
+        Assert.Equal(100, combatAffixes["global_chance_to_blind_on_hit_%"]);
+        Assert.Equal(30, combatAffixes["base_resist_all_elements_%"]);
+
+        // DropRoll post-roll transforms: equipment->gold, currency->Stacked Decks, no-equipment/no-flask,
+        // ring->unique, max-quality flask, fractured, corrupted.
+        var chaosType = catalog.Find("Metadata/Items/Currency/CurrencyRerollRare")!;
+        var flaskType = catalog.Find("Metadata/Items/Flasks/FlaskLife1")!;
+        var ringType = catalog.Find("Metadata/Items/Rings/Ring1")!;
+        var goldType = catalog.Find(ItemDrops.GoldId)!;
+
+        // 1) Equipment -> Gold + Currency -> Stacked Decks (leaves Gold and Deepwater Ducats intact).
+        var convertRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["chart_monster_equipment_drops_converted_to_gold_%"] = 100,
+            ["chart_dropped_currency_converted_to_stacked_decks"] = 1,
+        }, null, voyage: false);
+        Assert.True(convertRules.HasTransforms);
+        var convertDrops = new List<ItemDrops.Drop>
+        {
+            new(rareBelt, beltType),
+            new(ItemCatalog.Create(chaosType) with { StackSize = 2 }, chaosType),
+            new(ItemCatalog.Create(changelingType) with { StackSize = 1 }, changelingType),
+            new(ItemCatalog.Create(goldType) with { StackSize = 50 }, goldType),
+        };
+        var rollConvert = new DropRoll(null!, new MonsterInfo("test", "Test", 75, MonsterRarity.Rare, 0, 0));
+        rollConvert.AddTransform(d => DeepwaterChartStats.ApplyDropTransforms(d, catalog, uniques, in convertRules, 75, MonsterRarity.Rare, new Random(7)));
+        rollConvert.ApplyTransforms(convertDrops);
+        Assert.Equal(ItemDrops.GoldId, convertDrops[0].Type.Id);
+        Assert.Equal(DeepwaterChartStats.StackedDeckId, convertDrops[1].Type.Id);
+        Assert.Equal((ushort)2, convertDrops[1].Item.StackSize);
+        Assert.Equal(DeepwaterDucats.Changeling, convertDrops[2].Type.Id);
+        Assert.Equal(ItemDrops.GoldId, convertDrops[3].Type.Id);
+
+        // 2) No-equipment + no-flask strips equipment & flasks while keeping currency.
+        var stripRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["chart_monsters_drop_no_equipment"] = 1,
+            ["chart_monsters_drop_no_flask"] = 1,
+        }, null, voyage: false);
+        var stripDrops = new List<ItemDrops.Drop>
+        {
+            new(rareBelt, beltType),
+            new(ItemCatalog.Create(flaskType), flaskType),
+            new(ItemCatalog.Create(chaosType) with { StackSize = 1 }, chaosType),
+        };
+        DeepwaterChartStats.ApplyDropTransforms(stripDrops, catalog, uniques, in stripRules, 75, MonsterRarity.Normal, new Random(7));
+        Assert.Single(stripDrops);
+        Assert.Equal(chaosType.Id, stripDrops[0].Type.Id);
+
+        // 3) Ring -> Unique + Max-quality flask + Fractured + Corrupted.
+        var mutateRules = DeepwaterChartStats.ParseCell(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["chart_ring_to_unique_ring_%_chance"] = 100,
+            ["map_flasks_drop_with_max_quality_chance_%"] = 100,
+            ["map_dropped_items_are_fractured_chance_%"] = 100,
+            ["map_items_drop_corrupted"] = 1,
+        }, null, voyage: false);
+        var mutateDrops = new List<ItemDrops.Drop>
+        {
+            new(ItemCatalog.Create(ringType) with { ItemLevel = 75 }, ringType),
+            new(ItemCatalog.Create(flaskType) with { Quality = 0 }, flaskType),
+            new(rareBelt with { Corrupted = false, FracturedCount = 0 }, beltType),
+            new(ItemCatalog.Create(chaosType) with { StackSize = 1 }, chaosType),
+        };
+        DeepwaterChartStats.ApplyDropTransforms(mutateDrops, catalog, uniques, in mutateRules, 75, MonsterRarity.Rare, new Random(7));
+        Assert.Equal(ItemRarity.Unique, mutateDrops[0].Item.Rarity);
+        Assert.Equal("Ring", mutateDrops[0].Type.Class);
+        Assert.True(mutateDrops[0].Item.Corrupted);
+        Assert.Equal((byte)20, mutateDrops[1].Item.Quality);
+        Assert.False(mutateDrops[1].Item.Corrupted);
+        Assert.Equal((byte)1, mutateDrops[2].Item.FracturedCount);
+        Assert.True(mutateDrops[2].Item.Corrupted);
+        Assert.False(mutateDrops[3].Item.Corrupted);
     }
 
     static byte[] Tick()

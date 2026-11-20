@@ -201,6 +201,7 @@ internal static class DeepwaterLanterns
     /// manual + Auto-Lanterns races). Lit at full radius for good (task (1, 0, 1, 0)), random drop animation 1-3 (G).</summary>
     public static DeepwaterRun.Lantern? TryAdd(ClientState conn, DeepwaterRun run, int x, int y, bool counts, out int placed, out int total)
     {
+        bool consume = counts && DeepwaterChartStats.ConsumesLantern(run.CellRules, run.CellIndex(x, y));
         lock (run.Gate)
         {
             if (counts && (run.Phase != DeepwaterRun.RunPhase.Exploring || run.Placed >= run.Total))
@@ -211,7 +212,7 @@ internal static class DeepwaterLanterns
             var lantern = new DeepwaterRun.Lantern(conn.TakeObjectId(), x, y, 1, 0, 1, 0, conn.Clock.Elapsed.TotalSeconds,
                 Random.Shared.Next(1, 4), run.Lanterns.Count);
             run.Lanterns.Add(lantern);
-            if (counts) run.Placed++;
+            if (consume) run.Placed++;
             (placed, total) = (run.Placed, run.Total);
             return lantern;
         }

@@ -234,12 +234,32 @@ public sealed partial class DeepwaterModule : IModule
         // The Drowning slow; the encounter buffs' chances (Craiceann's Call, Sailor's Lantern); final-lantern Adrenaline.
         GameEvents.PlayerStatSources.Add(id, (conn, sources) =>
             DeepwaterUpgrades.PlayerStats(conn, DeepwaterBuffs.PlayerStats(conn, _light.WithSlow(conn, sources))));
-        // Craiceann's Call crabs; Act 1 Deepwater Fairgraves (1_1_9); Kishara's Rest Velka & Cressie (#30).
+        // Craiceann's Call crabs; Act 1 Deepwater Fairgraves (1_1_9); Kishara's Rest Velka & Cressie (#30);
+        // chart_rare_monsters_drop_dead_mans_sulphur (0-alloc when inactive).
         GameEvents.MonsterKilled.Add(id, async kill =>
         {
             await DeepwaterBuffs.Killed(kill);
             await DeepwaterFairgraves.OnMonsterKilled(module, kill);
-            if (RunOf(kill.Conn) is { } run) await DeepwaterVelka.OnMonsterKilled(module, kill, run);
+            if (RunOf(kill.Conn) is { } run)
+            {
+                await DeepwaterVelka.OnMonsterKilled(module, kill, run);
+                if (kill.Monster.Rarity >= MonsterRarity.Rare && run.HasAnyRareSulphur && run.CellRules is { } rules)
+                {
+                    int cell = run.CellIndex(kill.Monster.X, kill.Monster.Y);
+                    if ((uint)cell < (uint)rules.Length && rules[cell].RareDropSulphur)
+                        await DeepwaterLoot.AwardRareSulphur(module, kill.Conn, run, cell);
+                }
+            }
+        });
+        // Per-cell map_experience_gain_+% on Charts and Voyages (0-alloc when inactive).
+        GameEvents.Experience.Add(id, gain =>
+        {
+            if (RunOf(gain.Conn) is { HasAnyExpBonus: true, CellRules: { } rules } run)
+            {
+                int cell = run.CellIndex(gain.Monster.X, gain.Monster.Y);
+                if ((uint)cell < (uint)rules.Length && rules[cell].ExpFactor != 1.0)
+                    gain.Experience = (uint)Math.Clamp(Math.Round(gain.Experience * rules[cell].ExpFactor), 0, uint.MaxValue);
+            }
         });
         GameEvents.StateBuilding.Add(id, (conn, json) =>
         {

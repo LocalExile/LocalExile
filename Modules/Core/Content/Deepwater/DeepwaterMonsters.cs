@@ -66,6 +66,7 @@ internal static class DeepwaterMonsters
             int magic = stats is null ? 100 : Math.Max(0, 100 + stats.GetValueOrDefault("map_number_of_magic_packs_+%"));
             int rare = stats is null ? 100 : Math.Max(0, 100 + stats.GetValueOrDefault("map_number_of_rare_packs_+%"));
             bool allMagic = stats?.GetValueOrDefault("map_all_monster_packs_magic_and_allow_rare_chance_%") > 0;
+            double packSize = stats is null ? 1.0 : Math.Max(0.1, (100 + stats.GetValueOrDefault("map_pack_size_+%")) / 100.0);
             var kinds = new List<string>();
             for (int i = 0; i < count + extra.Count; i++)
             {
@@ -75,24 +76,18 @@ internal static class DeepwaterMonsters
                 var rarity = Rarity(random, magic, rare);
                 if (allMagic && rarity == MonsterRarity.Normal) rarity = MonsterRarity.Magic;
                 var members = AreaPopulation.AtPacks([(kind, at.X, at.Y, rarity)], (x, y) => layout.WalkableFor(x, y, 1),
-                    Spawnable, random.Next(), occupied: taken);
+                    Spawnable, random.Next(), size: packSize, occupied: taken);
                 if (members.Count == 0) continue;
                 taken.AddRange(members.Select(m => (m.X, m.Y)));
                 plan.Add(new Pack(cell.Index, kind, at.X, at.Y, rarity, members));
                 kinds.Add(kind.Id.Replace("Deepwater", "") + (rarity == MonsterRarity.Normal ? "" : $"({rarity})"));
             }
-            // G: occasional Filthscrabble (Sandy) or Captainsbane (Coral) miniboss so their Cursed Ducats are organically obtainable.
-            int minibossChance = DeepwaterLoot.Setting("deepwater_miniboss_chance");
-            string? minibossId = biome switch
+            bool wantOctopus = stats?.GetValueOrDefault("chart_contains_giant_octopus") > 0;
+            bool wantCrab = stats?.GetValueOrDefault("chart_contains_crab_miniboss") > 0;
+            void AddMiniboss(string varietyId)
             {
-                "DeepwaterSandy" => DeepwaterCursedDucats.FilthscrabbleVariety,
-                "DeepwaterCoralForest" or "DeepwaterCoralReef" => DeepwaterCursedDucats.CaptainsbaneVariety,
-                _ => null,
-            };
-            if (minibossId is not null && minibossChance > 0 && random.Next(100) < minibossChance
-                && Monsters.Find(minibossId) is { Supported: true } boss
-                && Centre(layout, cell, start, centres, random) is { } bossAt)
-            {
+                if (Monsters.Find(varietyId) is not { Supported: true } boss
+                    || Centre(layout, cell, start, centres, random) is not { } bossAt) return;
                 centres.Add(bossAt);
                 taken.Add(bossAt);
                 var bossPack = new PackCatalog.Pack(-1, boss.Name, 1, 1, 0, 0, [], [(boss.Row, 1)], new Dictionary<int, int>());
@@ -100,6 +95,18 @@ internal static class DeepwaterMonsters
                     [new AreaPopulation.Spawn(boss.Row, bossAt.X, bossAt.Y, MonsterRarity.Unique, boss.Name)]));
                 kinds.Add($"{boss.Name}(Unique)");
             }
+            if (wantOctopus) AddMiniboss(DeepwaterCursedDucats.FilthscrabbleVariety);
+            if (wantCrab) AddMiniboss(DeepwaterCursedDucats.CaptainsbaneVariety);
+            // G: occasional Filthscrabble (Sandy) or Captainsbane (Coral) miniboss so their Cursed Ducats are organically obtainable.
+            int minibossChance = DeepwaterLoot.Setting("deepwater_miniboss_chance");
+            string? minibossId = biome switch
+            {
+                "DeepwaterSandy" when !wantOctopus => DeepwaterCursedDucats.FilthscrabbleVariety,
+                "DeepwaterCoralForest" or "DeepwaterCoralReef" when !wantCrab => DeepwaterCursedDucats.CaptainsbaneVariety,
+                _ => null,
+            };
+            if (minibossId is not null && minibossChance > 0 && random.Next(100) < minibossChance)
+                AddMiniboss(minibossId);
             notes.Add($"cell {cell.Index} {biome}: {kinds.Count}/{count} [{string.Join(", ", kinds)}]");
         }
         log($"Allflame monsters: {plan.Count} packs, {plan.Sum(p => p.Members.Count)} monsters planned at level {run.Level} (life +{LifeAt(run.Level)}% more); "
@@ -109,6 +116,22 @@ internal static class DeepwaterMonsters
 
     /// <summary>A biome's scattered packs whose MinLevel is at most the run's level and that have a monster the server
     /// spawns, with their weights.</summary>
+    /// <summary>Picks a supported monster variety Id from <paramref name="biome"/>'s scattered packs (fallback
+    /// <c>DeepwaterSandy</c>), for Essence monolith placement inside a Deepwater cell.</summary>
+    internal static string? PickVariety(string? biome, int level, Random random)
+    {
+        var pool = biome is not null ? Pool(biome, level) : [];
+        if (pool.Count == 0 && biome != "DeepwaterSandy") pool = Pool("DeepwaterSandy", level);
+        if (pool.Count == 0) return null;
+        var pack = Pick(pool, random);
+        var entries = pack.Entries.Where(e => Spawnable(e.Variety)).ToArray();
+        if (entries.Length == 0) return null;
+        int roll = random.Next(Math.Max(1, entries.Sum(e => e.Weight)));
+        int variety = entries[^1].Variety;
+        foreach (var e in entries) if ((roll -= e.Weight) < 0) { variety = e.Variety; break; }
+        return Monsters.Find(variety.ToString())?.Id;
+    }
+
     static List<(PackCatalog.Pack Pack, int Weight)> Pool(string biome, int level) => [.. (Packs.For(biome)?.Scattered ?? [])
         .Where(p => MinLevels.Value.GetValueOrDefault(p.Pack.Row) <= level && p.Pack.Entries.Any(e => Spawnable(e.Variety)))];
 
@@ -131,6 +154,7 @@ internal static class DeepwaterMonsters
         ("chart_contains_x_additional_octopus_packs", ["DeepwaterOctopusStatPack"]),
         ("chart_contains_x_additional_drowned_packs", ["DeepwaterDrownedPack", "DeepwaterDrownedPackSlam"]),
         ("chart_contains_x_additional_sea_beast_packs", ["DeepwaterSandyBeastPackStarfish", "DeepwaterSandyBeastPackNoStarfish"]),
+        ("chart_contains_an_additional_pirate_pack", ["atlas-ghostpirate1", "atlas-ghostpirate2", "Act6-GhostPirateGreen", "expedition-ghost-pirates"]),
     ];
 
     /// <summary>The extra packs a cell's stats ask for, in order.</summary>
@@ -220,10 +244,27 @@ internal static class DeepwaterMonsters
         {
             if (conn.Closed || conn.LeavingArea) break;
             if (Monsters.Find(m.Variety.ToString()) is not { Supported: true } variety) continue;
+            int cell = run.CellIndex(m.X, m.Y);
+            // map_rare_monsters_trapped_in_essences: imprison rare monsters in Essence monoliths (respecting cell/upgrade mods).
+            if (m.Rarity == MonsterRarity.Rare && run.CellRules is { } essenceRules
+                && (uint)cell < (uint)essenceRules.Length && essenceRules[cell].RareTrappedInEssence)
+            {
+                var cellMods = run.Plan is not null ? new MapMods(run.Plan.Effective(cell)) : (MapModsOf(conn) ?? MapMods.None);
+                string source = $"{m.Pack}/{m.Variety}/{m.X}/{m.Y}";
+                if (await MapEssences.ImprisonVariety(conn, m.X, m.Y, variety.Id, source, level, cellMods,
+                    new Random(unchecked((int)conn.Seed ^ m.X * 397 ^ m.Y))))
+                    continue;
+            }
             // A Voyage cell's own mods (DeepwaterRun.CellMods, precomputed with the more life).
-            var extraMods = run.CellMods is { } cells && run.CellIndex(m.X, m.Y) is int cell and >= 0 && cell < cells.Length ? cells[cell] : runMods;
+            var extraMods = run.CellMods is { } cells && (uint)cell < (uint)cells.Length ? cells[cell] : runMods;
+            MonsterModSet? rolledMods = null;
+            if (m.Rarity == MonsterRarity.Magic && run.CellRules is { } magicRules
+                && (uint)cell < (uint)magicRules.Length && magicRules[cell].MagicExtraMods is int extraMagic and > 0)
+            {
+                rolledMods = MonsterModsFor(conn, variety, level, m.Rarity, null, alone: false, extraMagicMods: extraMagic);
+            }
             uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, m.Rarity, m.X, m.Y, log: false,
-                alone: false, extraStats: extraStats, extraMods: extraMods, instanceOwned: true);
+                mods: rolledMods, alone: false, extraStats: extraStats, extraMods: extraMods, instanceOwned: true);
             if (id != 0) spawned++;
         }
         return spawned;
