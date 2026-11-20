@@ -78,6 +78,17 @@ public sealed class DeepwaterLeagueTests
         Assert.Equal([(ushort)InstanceEntities.CancelBuffId, (ushort)0x1b], cancelSplit.Select(m => m.Id));
         Assert.Equal(0x2au, InstanceEntities.ReadCancelBuff(cancelSplit[0].Bytes));
 
+        // DropRoll post-roll transforms stay inert by default, run in registration order, and isolate faults.
+        var dropRoll = new DropRoll(null!, new MonsterInfo("test", "Test", 1, MonsterRarity.Normal, 0, 0));
+        Assert.False(dropRoll.HasTransforms);
+        var transformOrder = new List<int>();
+        dropRoll.AddTransform(_ => transformOrder.Add(1));
+        dropRoll.AddTransform(_ => throw new InvalidOperationException("simulated transform fault"));
+        dropRoll.AddTransform(_ => transformOrder.Add(2));
+        Assert.True(dropRoll.HasTransforms);
+        dropRoll.ApplyTransforms([]);
+        Assert.Equal([1, 2], transformOrder);
+
         // The Lantern's components and its DeepwaterLantern task (GameObjectTasks HASH16 0xc4df, LE) close its blob.
         byte[] light = new byte[16];
         byte[] lantern = new QuestObject(236, 190, ["Positioned", "BaseEvents", "Animated", "Buffs", "StateMachine", "MinimapIcon", "Functions"])
