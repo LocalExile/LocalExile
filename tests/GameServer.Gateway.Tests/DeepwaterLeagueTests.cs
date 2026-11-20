@@ -89,6 +89,11 @@ public sealed class DeepwaterLeagueTests
         dropRoll.ApplyTransforms([]);
         Assert.Equal([1, 2], transformOrder);
 
+        // DeepwaterGeneration.Connections masks to 4 bits across all orientations.
+        Assert.Equal(15, GameServer.Data.Terrain.Generation.DeepwaterGeneration.Connections(15, 0));
+        Assert.Equal(2, GameServer.Data.Terrain.Generation.DeepwaterGeneration.Connections(4, 1));
+        Assert.Equal(8, GameServer.Data.Terrain.Generation.DeepwaterGeneration.Connections(1, 1));
+
         // The Lantern's components and its DeepwaterLantern task (GameObjectTasks HASH16 0xc4df, LE) close its blob.
         byte[] light = new byte[16];
         byte[] lantern = new QuestObject(236, 190, ["Positioned", "BaseEvents", "Animated", "Buffs", "StateMachine", "MinimapIcon", "Functions"])
