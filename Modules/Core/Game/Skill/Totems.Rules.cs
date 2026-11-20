@@ -140,16 +140,21 @@ public static partial class Game
     // that keeps the skill's own cooldown ticket and the Vaal/channel admission but not the token; what still stops a
     // stray placement is everything below. A live round should measure casts attempted against totems actually placed
     // (Agents/docs/protocol/11-skills.md §10g).
-    static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
+    static double TotemPlacementSeconds(ClientState conn, ushort skillId, int effect)
     {
-        double factor, speed;
+        double factor;
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
-        speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
+        double speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
         // 3.28 changed ranged totem placement from 0.35 to 0.5 seconds (PoEDB version notes).
         double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) || NativeProjectileTotem(conn, effect) ? .6
             : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
-        double seconds = basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
+        return basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
+    }
+
+    static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
+    {
+        double seconds = TotemPlacementSeconds(conn, skillId, effect);
         var lifetime = CombatLifetime;
         var source = SupportedSkill(conn, skillId);
         bool SourceCurrent() => SupportedSkill(conn, skillId) is var live && live.Host == source.Host
@@ -263,6 +268,13 @@ public static partial class Game
             if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
             // A totem blocks paths on the client as any body does.
             if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
+            if (NativeProjectileTotem(conn, effect) && seconds > 0)
+            {
+                int groundRadius = SkillRadius(conn, 14, own, spell: true, effect);
+                conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, place.X, place.Y, groundRadius,
+                    AreaTime(conn) + seconds, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, place, groundRadius),
+                    ConsecratedEnemyDamageTakenNow(conn)));
+            }
             TotemRecords(conn, bytes);
             Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
                 + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"

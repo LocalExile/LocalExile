@@ -1025,6 +1025,18 @@ public static partial class Game
                 Publish("total_skill_area_of_effect_radius_+%_including_final", SkillArea.RadiusPercent(AreaGet, spellArea));
                 Publish("skill_area_of_effect_+%", SkillArea.Increased(AreaGet, spellArea));
             }
+            if (GolemStat(own, "is_totem") != 0)
+            {
+                // Native PlacementWrap::CanStart (0x141962e30) refuses any totem skill when number_of_totems_allowed
+                // (0x3be) is 0, and network stat snapshots skip its calculator (0x1427b75c0).
+                int totemLimit = TotemLimit(conn, id);
+                Publish("number_of_totems_allowed", totemLimit);
+                Publish("skill_display_number_of_totems_allowed", totemLimit);
+                Publish("skill_is_totemified", 1);
+                Publish("totem_range", (int)Math.Round(TotemTargetRange(conn, id)));
+                if (Get("base_totem_duration") is int baseTotemMs and > 0)
+                    Publish("totem_duration", (int)Math.Round(baseTotemMs * Math.Max(0, 100 + Get("totem_duration_+%")) / 100.0));
+            }
             Publish("skill_is_instant", GolemStat(own, "base_skill_is_instant") != 0 ? 1 : 0);
             if (CurseCatalog.Hex(SkillsFor(conn).EffectId(effect) ?? ""))
             {
