@@ -363,6 +363,23 @@ public static partial class Game
 
     public static bool LyingOnBeach(ClientState conn) => conn.PeerTemplate is { WashedUp: true } && !conn.TutorialGettingUp;
 
+    // C→S 0x020a: a tutorial step or Help Panel article completed or dismissed (u8 Tutorial.dat row).
+    // Row 17 (AllTutorials, from "Skip All Tutorials" or Options → "Disable Tutorials") sets every tutorial completion
+    // flag (rows 0..18, including CompletedSkillGemTutorial checked by TutorialManager at 0x140d46d50) plus
+    // TutorialPanelHideArticlePopups (row 77, checked by the Help Panel at 0x140a901ec/0x140a910e3/0x140a92dca); every
+    // other row sets its own QuestFlagComplete.
+    public static async Task CompleteTutorial(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        if (Quests.TutorialFlag(row) is not { } flag)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x020a tutorial row {row}: no completion flag, ignored");
+            return;
+        }
+        IReadOnlyList<string> flags = flag == Quests.CompletedAllTutorials ? Quests.AllTutorialFlags : [flag];
+        Console.WriteLine($"[gateway] {remote} <= 0x020a tutorial row {row} -> {(flags.Count == 1 ? flag : $"{flag} ({flags.Count} flags)")}");
+        await SetQuestFlags(remote, stream, ciphers, conn, flags);
+    }
+
     // Ids of the invisible SunkenPassageBlockers on the server's walk estimate (blockers only: the client spawns them).
     public const uint PassageBlockerFirstId = 0xff000000;
     // a1q4's objects have ids of their own, between the quest room objects (QuestRoomObjectFirstId) and the waypoint, so

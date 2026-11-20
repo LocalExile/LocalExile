@@ -82,9 +82,12 @@ public static partial class Game
                 atlas.Select(atlasCharacter, selected);
             conn.Waypoints.UnionWith(save?.Waypoints ?? []);
             conn.Visited.UnionWith(save?.Visited ?? []);
-            conn.UnearnedQuestFlags = [.. Quests.EveryCharacter.Except(save?.QuestFlags ?? [])];
+            // Legacy saves (before OpeningTutorial) and imported builds have no Tutorial record: keep their tutorials
+            // disabled without rewriting the save, while new characters start with tutorials active until skipped or completed.
+            var initialFlags = save is { Tutorial: null } ? Quests.EveryCharacter.Concat(Quests.AllTutorialFlags) : Quests.EveryCharacter;
+            conn.UnearnedQuestFlags = [.. initialFlags.Except(save?.QuestFlags ?? [])];
             // An unearned endgame flag is not the character's (Quests.EndgameOnly): PlayerQuestFlags sends it where it is needed.
-            conn.QuestFlags = [.. save?.QuestFlags ?? [], .. Quests.EveryCharacter.Where(f => !(Quests.EndgameOnly.Contains(f) && conn.UnearnedQuestFlags.Contains(f)))];
+            conn.QuestFlags = [.. save?.QuestFlags ?? [], .. initialFlags.Where(f => !(Quests.EndgameOnly.Contains(f) && conn.UnearnedQuestFlags.Contains(f)))];
             // The league's (SetLeagueQuestFlags): every character of the account in this league shares them.
             conn.LeagueQuestFlags.UnionWith(PersonalStashOf(conn).LeagueQuestFlags);
             conn.ExtraPassivePoints = save?.ExtraPassivePoints ?? 0;
