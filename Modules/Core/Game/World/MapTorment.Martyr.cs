@@ -24,8 +24,11 @@ public static partial class MapTorment
         byte[] Skill, byte[] Action, List<MartyrViewer> Viewers)
     {
         public required ClientState Owner;
-        public bool DeferredDot, Resolved, Publishing;
+        public DotDelivery Dot;
+        public bool DotPlayerKill, Resolved, Publishing;
     }
+
+    enum DotDelivery { None, RunnerOutput, OwnerQueue, Accepted }
 
     // The ordinary 3.29.3c SuicideExplosion action includes equality and the target's signed Positioned radius.
     static bool InMartyrBlast((int X, int Y) from, (int X, int Y) target, int radius, int body)
@@ -36,10 +39,12 @@ public static partial class MapTorment
 
     // The lethal transition captures the cast and its contacts. The killing transaction resolves them after it has
     // credited the monster, and its output presents them after the killing blow. All state uses the instance's Monsters lock.
-    internal static void MartyrDiedLocked(ClientState conn, SpawnedMonster monster)
+    internal static void MartyrDiedLocked(ClientState conn, SpawnedMonster monster) => CaptureMartyrLocked(conn, monster);
+
+    static MartyrDeath? CaptureMartyrLocked(ClientState conn, SpawnedMonster monster)
     {
         uint id = monster.ObjectId;
-        if (id == 0 || !monster.Hostile || monster.CorpseConsumed || TormentCatalog.MartyrGrantRow(conn, monster.Mods) is not int row || !CurrentGameWork) return;
+        if (id == 0 || !monster.Hostile || monster.CorpseConsumed || TormentCatalog.MartyrGrantRow(conn, monster.Mods) is not int row || !CurrentGameWork) return null;
         var origin = conn.Instance.World.MonsterOrigins[id].Object;
         var skill = origin.Skills!.Single(s => s.EffectsPerLevelRow == row);
         var source = monster.Effects;
@@ -80,8 +85,10 @@ public static partial class MapTorment
             viewers.Add(viewer);
         }
         byte actorComponent = checked((byte)origin.Components.ToList().IndexOf("Actor"));
-        area.MartyrDeaths.Add(id, new(monster, at, attack, InstanceEntities.ActorSkills(id, actorComponent, [skill]),
-            InstanceProtocol.InstantAction(id, skill.Id, at.X, at.Y, triggered: true), viewers) { Owner = conn });
+        var death = new MartyrDeath(monster, at, attack, InstanceEntities.ActorSkills(id, actorComponent, [skill]),
+            InstanceProtocol.InstantAction(id, skill.Id, at.X, at.Y, triggered: true), viewers) { Owner = conn };
+        area.MartyrDeaths.Add(id, death);
+        return death;
     }
 
     static MartyrDeath? PendingMartyr(ClientState conn, SpawnedMonster monster) =>
@@ -90,27 +97,50 @@ public static partial class MapTorment
 
     internal static bool HoldsCorpseLocked(ClientState conn, SpawnedMonster monster) => PendingMartyr(conn, monster) is not null;
 
-    // DotKilled hands a shared ailment kill to its attacker. If that connection leaves before draining its shares,
-    // the resident runner can claim this same pending kill. The two claims use the world's Monsters lock.
-    internal static bool DeferMartyrDot(ClientState owner, SpawnedMonster monster)
+    // The runner writes the lethal ailment records before handing off kill credit. Keep that same claim across
+    // a runner transfer, including when the original runner resumes after the replacement has finished the kill.
+    internal static Func<Task>? CaptureMartyrDotLocked(ClientState runner, SpawnedMonster monster, bool playerKill)
     {
-        lock (owner.Monsters)
+        if (CaptureMartyrLocked(runner, monster) is not { } death) return null;
+        death.Dot = DotDelivery.RunnerOutput;
+        death.DotPlayerKill = playerKill;
+        return () =>
         {
-            if (PendingMartyr(owner, monster) is not { } death) return false;
-            death.Owner = owner;
-            death.DeferredDot = true;
-            owner.KillShares.Enqueue((remote, stream, ciphers) =>
+            lock (runner.Monsters)
             {
-                lock (owner.Monsters)
-                {
-                    if (!death.DeferredDot || owner.Closed || owner.LeavingArea) return Task.CompletedTask;
-                    death.DeferredDot = false;
-                }
-                return MonsterKilled(remote, stream, ciphers, owner, monster.ObjectId, monster, byHit: false);
-            });
-            return true;
-        }
+                if (death.Dot != DotDelivery.RunnerOutput || runner.Closed || runner.LeavingArea) return Task.CompletedTask;
+                if (!ClaimDotLocked(runner, death)) return Task.CompletedTask;
+            }
+            return FinishDotKill(runner, death);
+        };
     }
+
+    static bool ClaimDotLocked(ClientState runner, MartyrDeath death)
+    {
+        if (death.Dot == DotDelivery.RunnerOutput && death.DotPlayerKill
+            && death.Source.LastHitBy is { Closed: false, LeavingArea: false } by && by != runner && by.Instance == runner.Instance)
+        {
+            death.Owner = by;
+            death.Dot = DotDelivery.OwnerQueue;
+            by.KillShares.Enqueue((_, _, _) =>
+            {
+                lock (by.Monsters)
+                {
+                    if (death.Dot != DotDelivery.OwnerQueue || by.Closed || by.LeavingArea) return Task.CompletedTask;
+                    death.Dot = DotDelivery.Accepted;
+                }
+                return FinishDotKill(by, death);
+            });
+            return false;
+        }
+        death.Owner = runner;
+        death.Dot = DotDelivery.Accepted;
+        return true;
+    }
+
+    static Task FinishDotKill(ClientState owner, MartyrDeath death) =>
+        MonsterKilled(owner.Wire.Remote, owner.Wire.Stream, owner.Wire.Ciphers, owner, death.Source.ObjectId, death.Source,
+            byMinion: !death.DotPlayerKill, byHit: !death.DotPlayerKill);
 
     internal static bool ResolveMartyrLocked(ClientState conn, SpawnedMonster monster)
     {
@@ -198,7 +228,7 @@ public static partial class MapTorment
     // A retired killer no longer drains its output. Unclaimed shared DoT kills still need ordinary kill credit.
     static async Task FinishAbandonedMartyrs(ClientState conn, Area area)
     {
-        List<(SpawnedMonster Monster, bool DeferredDot)> abandoned;
+        List<(MartyrDeath Death, bool OwesKill)> abandoned;
         lock (conn.Monsters)
         {
             if (area.MartyrDeaths.Count == 0 || !IsMonsterRunner(conn)) return;
@@ -206,21 +236,19 @@ public static partial class MapTorment
             foreach (var d in area.MartyrDeaths.Values)
             {
                 if (d.Publishing || !d.Owner.Closed && !d.Owner.LeavingArea) continue;
-                if (d.DeferredDot)
+                if (d.Dot is DotDelivery.RunnerOutput or DotDelivery.OwnerQueue)
                 {
-                    d.DeferredDot = false;
-                    d.Owner = conn;
-                    abandoned.Add((d.Source, true));
+                    if (ClaimDotLocked(conn, d)) abandoned.Add((d, true));
                 }
                 else if (d.Resolved || d.Source.LastHitBy is not { Closed: false, LeavingArea: false } owner || owner.Instance != conn.Instance)
                 {
                     ResolveMartyrLocked(conn, d.Source);
-                    abandoned.Add((d.Source, false));
+                    abandoned.Add((d, false));
                 }
             }
         }
-        foreach (var (m, deferredDot) in abandoned)
-            if (deferredDot) await MonsterKilled(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, m.ObjectId, m, byHit: false);
-            else await PresentMartyr(conn, m);
+        foreach (var (death, owesKill) in abandoned)
+            if (owesKill) await FinishDotKill(conn, death);
+            else await PresentMartyr(conn, death.Source);
     }
 }

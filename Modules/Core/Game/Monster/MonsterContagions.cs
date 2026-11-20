@@ -200,7 +200,7 @@ static partial class Game
 
     internal static async Task TickContagions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, ClientState? Owner, string Effect)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, ClientState? Owner, string Effect, Func<Task>? Finish)>();
         var ended = new List<(uint Id, ushort Buff)>();
         var updated = new List<(uint Id, ushort Buff, ushort Skill, double Remaining)>();
         using (ProjectileMutation(conn))
@@ -232,16 +232,17 @@ static partial class Game
                     var owner = DotOwner(conn, dot.WinnerAt(fraction)?.Caster);
                     (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
                     m.Aggro = m.Life > 0;
+                    Func<Task>? finish = null;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
                         m.LastHitBy = owner;
-                        CommitMonsterDeathLocked(owner ?? conn, m, awardSoul: owner is not null);
+                        finish = CommitSharedDotDeathLocked(conn, m, owner);
                         // Its own damage killed it partway through the tick: what affected it then spreads, with the
                         // time it had left then (also when this tick ended it).
                         dot.Died(fraction);
                     }
-                    hits.Add((id, m, m.Life, owner, spreads ? "Contagion" : "Bane"));
+                    hits.Add((id, m, m.Life, owner, spreads ? "Contagion" : "Bane", finish));
                     if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
                 }
                 if (!spreads) return;
@@ -272,7 +273,7 @@ static partial class Game
                 InstanceEntities.AddBuff(id, buff, ContagionBuffRow, PlayerId, skill,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining))),
                 $"0x01c1 monster 0x{id:x} contagion buff 0x{buff:x} from skill 0x{skill:x4}, {remaining:0.##} s");
-        foreach (var (id, m, life, owner, effect) in hits)
+        foreach (var (id, m, life, owner, effect, finish) in hits)
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
@@ -280,8 +281,7 @@ static partial class Game
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of {effect}" : null);
             // The owner's kill (on its own frame when it is another player); with the owner gone, the death without any
             // player's on-kill effects.
-            if (life == 0 && owner is not null) await DotKilled(remote, stream, ciphers, conn, id, m);
-            else if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
+            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m, finish, playerKill: owner is not null);
         }
     }
 }

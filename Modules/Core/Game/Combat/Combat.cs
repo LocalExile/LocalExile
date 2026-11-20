@@ -2915,10 +2915,16 @@ public static partial class Game
 
     // The lethal mutation holds the shared Monsters lock. The dying monster's own effects still fire when the
     // damage-over-time owner has left. A Vaal soul belongs only to a present owner.
-    internal static void CommitMonsterDeathLocked(ClientState conn, SpawnedMonster monster, bool awardSoul = true)
+    internal static void CommitMonsterDeathLocked(ClientState conn, SpawnedMonster monster)
     {
-        if (awardSoul) CollectVaalSoulAtDeathLocked(conn, monster);
+        CollectVaalSoulAtDeathLocked(conn, monster);
         MapTorment.MartyrDiedLocked(conn, monster);
+    }
+
+    static Func<Task>? CommitSharedDotDeathLocked(ClientState runner, SpawnedMonster monster, ClientState? soulOwner)
+    {
+        if (soulOwner is not null) CollectVaalSoulAtDeathLocked(soulOwner, monster);
+        return MapTorment.CaptureMartyrDotLocked(runner, monster, playerKill: soulOwner is not null);
     }
 
     public static Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,

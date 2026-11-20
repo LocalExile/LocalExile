@@ -84,7 +84,7 @@ static partial class Game
 
     internal static async Task TickEssenceDrains(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner, Func<Task>? Finish)>();
         double leeched = 0;
         using (ProjectileMutation(conn))
         {
@@ -114,18 +114,19 @@ static partial class Game
                 var owner = DotOwner(conn, winner?.Caster);
                 (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
                 m.Aggro = m.Life > 0;
+                Func<Task>? finish = null;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
                     m.LastHitBy = owner;
-                    CommitMonsterDeathLocked(owner ?? conn, m, awardSoul: owner is not null);
+                    finish = CommitSharedDotDeathLocked(conn, m, owner);
                     m.EssenceDrain.Clear();
                 }
-                hits.Add((id, m, m.Life, damage, owner));
+                hits.Add((id, m, m.Life, damage, owner, finish));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
             }
         }
-        foreach (var (id, m, life, damage, owner) in hits)
+        foreach (var (id, m, life, damage, owner, finish) in hits)
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
@@ -134,8 +135,7 @@ static partial class Game
             if (life == 0)
             {
                 Console.WriteLine($"[gateway] essence drain killed 0x{id:x} ({m.Label})");
-                if (owner is not null) await DotKilled(remote, stream, ciphers, conn, id, m);
-                else await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
+                await DotKilled(remote, stream, ciphers, conn, id, m, finish, playerKill: owner is not null);
             }
         }
         // One log line a second at most: the damage and leech the debuffs dealt since the last line.
