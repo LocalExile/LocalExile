@@ -74,6 +74,7 @@ public static class GameDataFiles
     public static readonly (string File, string Feature)[] Files =
     [
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
+        ("data/kingsmarch-town.json", "the Settlers hub's town objects (Kingsmarch's floor, decks and buildings)"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>

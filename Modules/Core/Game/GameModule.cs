@@ -9,6 +9,10 @@ namespace GameServer.Modules.Game;
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
 public sealed class GameModule : IModule, IDisposable
 {
+    /// <summary>What one pick of Johan's "Fund the Treasury" moves out of the account's stash: the client asks for the amount
+    /// with a slider in the town map window, which this build cannot show, so a pick is a fixed 1000 gold and
+    /// <c>/treasury &lt;gold&gt;</c> takes any other amount.</summary>
+    private const int TreasuryPerPick = 1000;
     /// <summary>
     /// Builds, when the module loads, the catalogues every first login and first arrival reads (the stash rules, gems,
     /// monster contacts, life tables, golem scaling, the room index, the hideouts). Each is built on first use otherwise,
@@ -157,6 +161,86 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
+
+        // Kingsmarch, the Settlers league's hub (World/KingsmarchTown.cs, World/KingsmarchPort.cs): the town's objects, its
+        // farm and its workers. The client draws the room's own doodads only up to the plain props, so the hub's floor,
+        // decks, buildings and farm plots are objects the server has to create.
+        GameEvents.Tick.Add(id, async (conn, now) => await KingsmarchTown.Tick(Program.PlayerOf(conn), now));
+        GameEvents.AreaGenerated.Add(id, conn => { KingsmarchTown.Entered(Program.PlayerOf(conn)); return Task.CompletedTask; });
+        GameEvents.ObjectUse.Add(id, async (conn, use, _) => await KingsmarchTown.Use(Program.PlayerOf(conn), use.TargetId));
+        // The harbour: one shipment at a time per port, resolved on a timer (World/KingsmarchPort.cs).
+        GameEvents.Tick.Add(id, async (conn, now) => await KingsmarchPort.Tick(Program.PlayerOf(conn), now));
+        // Johan's "Fund the Treasury" (NPCTalk 667, category Quests) moves gold from the account's stash into the town: the
+        // panel's own button cannot exist (the client's village UI elements are never created), so the option acts here.
+        GameEvents.NpcOption.Add(id, async talk =>
+        {
+            if (!string.Equals(talk.Option, "Fund the Treasury", StringComparison.Ordinal)) return false;
+            var player = Program.PlayerOf(talk.Conn);
+            await Program.WorldOf(player).NpcClose("0x0084 close the dialogue for Fund the Treasury");
+            await player.Tell("Kingsmarch: " + await KingsmarchTown.FundTreasury(player, TreasuryPerPick));
+            return true;
+        });
+        // The post-campaign unlock (World/UnlockAll.cs): the NPCTalk rows that only appear once their quest flags are set.
+        // "data/unlock-all.txt" makes it automatic, "/unlock [all]" applies it on demand.
+        GameEvents.Tick.Add(id, (conn, _) => Rules.UnlockTick(Program.PlayerOf(conn)));
+        GameEvents.CommandsBuilding.Add(id, (commands, remote, stream, ciphers, conn) =>
+        {
+            var player = Program.PlayerOf(conn);
+            return commands
+                .Add("unlock", "/unlock [all] (grant the quest flags that gate post-campaign dialogue)", async args =>
+                {
+                    bool all = args.Length > 0 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase);
+                    int set = await Rules.Unlock(player, all);
+                    await player.Tell(set == 0
+                        ? "Nothing to unlock: every post-campaign flag is already set."
+                        : $"Unlocked {set} post-campaign quest flag(s){(all ? " (all, with the epilogue flag)" : "")}.");
+                })
+                .Add("village", "/village [hire | assign <worker> <plot>] (the Kingsmarch farm)", async args =>
+                {
+                    string verb = args.Length > 0 ? args[0].ToLowerInvariant() : "";
+                    if (verb == "hire") { await player.Tell("Kingsmarch: " + await KingsmarchTown.Hire(player)); return; }
+                    if (verb == "assign")
+                    {
+                        if (args.Length < 3 || !int.TryParse(args[1], out int worker) || !int.TryParse(args[2], out int plot))
+                        {
+                            await player.Tell("usage: /village assign <worker> <plot 1-6>");
+                            return;
+                        }
+                        await player.Tell("Kingsmarch: " + await KingsmarchTown.Assign(player, worker, plot));
+                        return;
+                    }
+                    await player.Tell(KingsmarchTown.StoreText(player));
+                })
+                .Add("recruit", "/recruit [hire <1-3>] (Kingsmarch's workers)", async args =>
+                {
+                    if (args.Length >= 2 && string.Equals(args[0], "hire", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(args[1], out int pick))
+                    {
+                        await player.Tell("Kingsmarch: " + await KingsmarchTown.Recruit(player, pick));
+                        return;
+                    }
+                    await player.Tell(KingsmarchTown.RecruitText(player));
+                })
+                .Add("treasury", "/treasury [gold] (the Kingsmarch treasury)", async args =>
+                {
+                    if (args.Length > 0 && int.TryParse(args[0], out int gold) && gold > 0)
+                    {
+                        await player.Tell("Kingsmarch: " + await KingsmarchTown.FundTreasury(player, gold));
+                        return;
+                    }
+                    await player.Tell(KingsmarchTown.TreasuryText(player));
+                })
+                .Add("port", "/port [send <port> <crop> <count>] (Kingsmarch's harbour)", async args =>
+                {
+                    if (args.Length >= 4 && string.Equals(args[0], "send", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(args[2 - 1], out int port) && int.TryParse(args[3], out int count))
+                    {
+                        await player.Tell("Kingsmarch: " + KingsmarchPort.Send(player, port, args[2], count));
+                        return;
+                    }
+                    await player.Tell(KingsmarchPort.Report(player));
+                });
+        });
     }
 }
 

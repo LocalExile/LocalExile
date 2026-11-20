@@ -9,7 +9,13 @@ public static partial class Game
         int x, int y, float rotation)
     {
         uint id = conn.TakeObjectId();
-        var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
+        // Kingsmarch's NPCs carry a StateMachine whose visible state starts at 0, and the client's visible_0 event hides
+        // its own icon, highlight and targetability. The league's town shows them, so the server sends visible = 1 with
+        // the "keep the sent value" flag (StateMachineData.Set marks the state overridden).
+        StateMachineData? machine = npc.StateMachine;
+        if (machine is not null && npc.Id.StartsWith("Metadata/NPC/League/Kalguur/", StringComparison.Ordinal))
+            machine = machine.Set("visible", 1);
+        var obj = new NpcObject(x, y, npc.Components!, rotation, machine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, type, obj.Blob()),
             $"0x02bb create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
