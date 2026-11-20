@@ -499,6 +499,35 @@ public partial class Program
     public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         byte[] bytes, string? log, WorldOutput.Packet? record = null)
     {
+        string? trace = Written(remote, ciphers, bytes, log, record);
+        await Write(stream, ciphers, bytes);
+        if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
+    }
+
+    /// <summary>Writes a run of packets (a frame's) in one write, each logged, kept and mirrored as on its own. Under the
+    /// send gate.</summary>
+    public static Task WritePackets(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        IReadOnlyList<(byte[] Bytes, string? Log, WorldOutput.Packet? Record)> packets)
+    {
+        int length = 0;
+        foreach (var packet in packets) length += packet.Bytes.Length;
+        if (length == 0) return Task.CompletedTask;
+        var all = new byte[length];
+        int at = 0;
+        foreach (var (bytes, log, record) in packets)
+        {
+            if (Written(remote, ciphers, bytes, log, record) is { } trace)
+                Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
+            bytes.CopyTo(all, at);
+            at += bytes.Length;
+        }
+        return Write(stream, ciphers, all);
+    }
+
+    // What a packet's write tells the rest of the server before the wire: its log line, the history, the mirror to the
+    // instance's other clients. Its move trace, if traced, for after the write.
+    static string? Written(string remote, ConnectionCiphers ciphers, byte[] bytes, string? log, WorldOutput.Packet? record)
+    {
             if (log is not null)
             {
                 string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
@@ -514,10 +543,8 @@ public partial class Program
             WritingWorldRecord = record;
             try { if (Outgoing is { } outgoing && PlayersByCiphers.TryGetValue(ciphers, out var player)) outgoing(player, bytes); }
             finally { WritingWorldRecord = previousRecord; }
-            string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
+            return MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
                 ? Convert.ToHexString(bytes) : null;
-            await Write(stream, ciphers, bytes);
-            if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
     }
 
     // A run of sends that each would take the send gate on their own (the player tick's eleven state publications: Antiquarian,

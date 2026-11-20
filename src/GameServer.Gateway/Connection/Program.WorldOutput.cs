@@ -134,12 +134,15 @@ public partial class Program
             conn.TurnFrame();
             long writing = Stopwatch.GetTimestamp();
             int bytes = 0;
+            // The frame's records and its end in one write.
+            var packets = new List<(byte[], string?, WorldOutput.Packet?)>(frame.Packets.Count + 1);
             foreach (var packet in frame.Packets)
             {
                 bytes += packet.Bytes.Length;
-                await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
+                packets.Add((packet.Bytes, packet.Log, packet));
             }
-            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
+            packets.Add((InstanceProtocol.FrameEnd(), null, null));
+            await WritePackets(wire.Remote, wire.Stream, wire.Ciphers, packets);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
             conn.Frames.Wrote(frame.Packets.Count, bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
             return true;
@@ -169,11 +172,11 @@ public partial class Program
                 if (frame.Packets.Count == 0) return;
                 committed = true;
             }
-            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameLength(0), "0x02b8 frame length 0 ms (paused)");
-            foreach (var packet in frame.Packets)
-                await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
-            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
-            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameLength(FrameMs), null);
+            List<(byte[], string?, WorldOutput.Packet?)> packets = [(InstanceProtocol.FrameLength(0), "0x02b8 frame length 0 ms (paused)", null)];
+            foreach (var packet in frame.Packets) packets.Add((packet.Bytes, packet.Log, packet));
+            packets.Add((InstanceProtocol.FrameEnd(), null, null));
+            packets.Add((InstanceProtocol.FrameLength(FrameMs), null, null));
+            await WritePackets(wire.Remote, wire.Stream, wire.Ciphers, packets);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
         }
         catch { if (committed) FailWorldOutput(conn); throw; }
