@@ -126,11 +126,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `Game.MapModsOf`.
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 
-- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with wave summoning and permyriad life loss
-  on wave kills, King Harbinger bosses with helper avatars, Empowered Obelisks, the 11 active 3.29 currency shards
-  (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and composed Atlas/Idol map stats.
-  Not yet: the Harbingers', helpers' and obelisks' own skills (they stand still), The Beachhead unique map portal
-  encounter and Harbinger unique piece assembly.
+- Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with repeat-wave summoning
+  (`skill_repeat_count`) and permyriad life loss on wave kills, Harbinger/King-helper/Empowered-Obelisk skills and
+  auras (mortars, ball lightning, cold beam, warp flame, minion buffs, curse auras, obelisk damage-reduction and haste
+  auras; automated coverage, live check pending), King Harbinger bosses with helper avatars, Empowered Obelisks, the
+  11 active 3.29 currency shards (full-stack conversion and full-orb upgrades), all four Harbinger scarabs, and
+  composed Atlas/Idol map stats.
+  Not yet: The Beachhead unique map portal encounter and Harbinger unique piece assembly.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
