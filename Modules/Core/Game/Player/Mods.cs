@@ -50,7 +50,8 @@ public static partial class Game
         for (int i = 0; i < drops.Count; i++)
         {
             var d = drops[i];
-            if (d.Item.Corrupted || d.Type.Stackable || d.Type.Components.Contains("Charges")) continue;
+            if (d.Item.Corrupted || d.Item.Mirrored || d.Type.Stackable || d.Type.Unmodifiable
+                || d.Type.Components.Contains("Charges") || d.Type.Components.Contains("Quest")) continue;
             if (d.Type.CanBeCorrupted || d.Type.Components.Contains("Mods")
                 || d.Type.Components.Contains("SkillGem") || d.Type.Components.Contains("Map")
                 || d.Type.Components.Contains("MapKey"))

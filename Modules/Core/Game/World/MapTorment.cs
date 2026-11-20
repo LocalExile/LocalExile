@@ -223,10 +223,10 @@ public static partial class MapTorment
                 area.Spirits.Add(s);
                 spawned.Add(s);
             }
+            foreach (var s in spawned) await Spawn(conn, area, s, level);
             if (spawned.Count > 0) Keep(conn, area);
         }
         finally { area.Gate.Release(); }
-        foreach (var s in spawned) await Spawn(conn, area, s);
         return spawned.Count;
     }
 
@@ -286,10 +286,10 @@ public static partial class MapTorment
         Keep(conn, area);
     }
 
-    static async Task Spawn(ClientState conn, Area area, Spirit s)
+    static async Task Spawn(ClientState conn, Area area, Spirit s, byte? levelOverride = null)
     {
         if (TormentCatalog.ByRow(s.Row) is not { } spirit || Monsters.Find(spirit.Variety) is not { Supported: true } variety) return;
-        byte level = AreaLevel(conn);
+        byte level = levelOverride ?? AreaLevel(conn);
         var basis = MonsterModsFor(conn, variety, level, MonsterRarity.Unique, null, true);
         var own = TormentCatalog.Roll(spirit.Own, Random.Shared);
         var mods = MonsterModRolls.Value.Create([.. basis.Mods, .. own.Mods], basis.NameWords, MonsterRarity.Unique, level);

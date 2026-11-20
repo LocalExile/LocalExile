@@ -145,7 +145,7 @@ public static partial class Game
         return picked is null ? null : new(ItemCatalog.Create(picked) with { StackSize = 1, ItemLevel = (byte)Math.Clamp(level, 1, 100) }, picked);
     }
 
-    static double MapDropFactor(MapMods mods, params string[] ids)
+    static double MapDropFactor(MapMods mods, params ReadOnlySpan<string> ids)
     {
         double factor = 1.0;
         foreach (string id in ids) factor *= Math.Max(0, 100 + mods.Get(id)) / 100.0;
