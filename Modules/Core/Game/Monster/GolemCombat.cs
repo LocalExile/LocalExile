@@ -207,8 +207,17 @@ public static partial class Game
         if (now < g.NextMove || g.Monster.LastTarget is { } old && Dist(old, to) < 5 && now < g.Monster.Walk.ArrivesAt) return;
         if (!conn.Layout.WalkableFor(to.X, to.Y, Math.Max(0, LivingCollision.Size(g.Monster))) || conn.Barrier.Contains(to)) return;
         var m = g.Monster; var from = m.Walk.Position(now);
-        m.LastTarget = to; g.NextMove = now + .5; int generation = ++m.ActionGeneration;
+        g.NextMove = now + .5;
         m.Walk.Order(to.X, to.Y, now);
+        if (m.Walk.Destination == from)
+        {
+            if (m.LastTarget is not null)
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionEnded(g.Id), null, g.Id, m,
+                    Action: ++m.ActionGeneration, WorldId: g.Id));
+            m.LastTarget = null;
+            return;
+        }
+        m.LastTarget = to; int generation = ++m.ActionGeneration;
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, to.X, to.Y,
             0x2909, conn.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation, WorldId: g.Id));
     }
