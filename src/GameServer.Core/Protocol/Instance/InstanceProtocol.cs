@@ -125,8 +125,8 @@ public static class InstanceProtocol
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
         InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
-        // Primary 3.29.3c writers: 0x140e27920 (u16 + u8), 0x141f99e90 (u16 + 4/2/2/4/1/1 bytes).
-        0x020a => 3, 0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
+        // Primary 3.29.3c writer 0x140e27920 (u16 + u8).
+        0x020a => 3, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
         InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
         InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
         InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength,
@@ -162,7 +162,13 @@ public static class InstanceProtocol
         InstanceSkinTransfers.BindId => InstanceSkinTransfers.BindLength,
         InstanceSkinTransfers.ReclaimId => InstanceSkinTransfers.ReclaimLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
+        InstanceHideoutEditing.PlaceId or InstanceHideoutEditing.PlaceGuildId => InstanceHideoutEditing.PlaceLength,
         InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
+        InstanceHideoutEditing.ReclaimId => InstanceHideoutEditing.ReclaimLength,
+        InstanceHideoutEditing.ResetId => InstanceHideoutEditing.ResetLength,
+        InstanceHideoutEditing.MusicId => InstanceHideoutEditing.MusicLength,
+        InstanceHideoutEditing.DisplayCasePlaceId => InstanceHideoutEditing.DisplayCasePlaceLength,
+        InstanceHideoutEditing.DisplayCaseToggleId => InstanceHideoutEditing.DisplayCaseToggleLength,
         InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,
         InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
         InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
@@ -173,15 +179,15 @@ public static class InstanceProtocol
         0x0038 or 0x011a or 0x012e or 0x013c or 0x013e or 0x0159 or 0x0168 or 0x0169 or 0x016a or 0x016c or 0x0171
             or 0x0186 or 0x018a or 0x018d or 0x019b or 0x020e or 0x021e or 0x0224 or 0x0243 or 0x024c or 0x0257
             or 0x025d or 0x0260 or 0x0264 or 0x027e or 0x0296 or 0x02a6 or 0x02ac or 0x02ce or 0x02d5 => 2,
-        0x001a or 0x005e or 0x0083 or 0x00ac or 0x00d9 or 0x00da or 0x0156 or 0x0187 or 0x01f7 or 0x01f8
+        0x001a or 0x0083 or 0x00ac or 0x00d9 or 0x00da or 0x0156 or 0x0187 or 0x01f7 or 0x01f8
             or 0x0245 or 0x024f or 0x0297 or 0x0298 or 0x02a3 or 0x02a4 => 3,
-        0x011d or 0x0142 or 0x0143 or 0x016b or 0x01fd or 0x021d or 0x0221 or 0x0222 or 0x0247 or 0x0255 or 0x02b1
+        0x011d or 0x0142 or 0x0143 or 0x016b or 0x01fd or 0x021d or 0x0221 or 0x0222 or 0x0247 or 0x02b1
             or 0x02d0 or 0x02d1 => 4,
         0x0249 or 0x027d => 5,
-        0x005c or 0x005d or 0x0066 or 0x0069 or 0x00a2 or 0x00d0 or 0x01fc or 0x0206 or 0x020b
+        0x005c or 0x0066 or 0x0069 or 0x00a2 or 0x00d0 or 0x01fc or 0x0206 or 0x020b
             or 0x020f or 0x0217 or 0x0218 or 0x0259 or 0x026b or 0x0275 or 0x027a or 0x0284 or 0x0288 or 0x0289
             or 0x02a1 or 0x02fd => 6,
-        0x002e or 0x0065 or 0x0068 or 0x0107 or 0x0152 or 0x017c or 0x017f or 0x0180 or 0x0185 or 0x01da
+        0x002e or 0x0065 or 0x0107 or 0x0152 or 0x017c or 0x017f or 0x0180 or 0x0185 or 0x01da
             or 0x01dc or 0x01e0 or 0x01fb or 0x01fe or 0x0216 or 0x028e or 0x02d6 => 7,
         0x0062 or 0x00ef or 0x00f0 or 0x00f1 or 0x00f2 or 0x00f8 or 0x00fa or 0x00fb or 0x00fc or 0x00ff or 0x0100
             or 0x0102 or 0x0104 or 0x0105 or 0x0108 or 0x0109 or 0x010d or 0x01ec => 8,
@@ -190,8 +196,7 @@ public static class InstanceProtocol
         0x0057 or 0x0060 or 0x0063 or 0x0064 or 0x0177 => 11,
         0x005f or 0x0075 or 0x00b4 or 0x00f5 or 0x00f7 or 0x00fe or 0x0101 or 0x0110 or 0x02b0 => 12,
         0x002c => 13,
-        0x0067 => 14,
-        0x005a or 0x0114 => 16,
+        0x0114 => 16,
         0x0076 or 0x0078 => 17,
         0x0079 or 0x0283 or 0x0294 or 0x0299 => 18,
         0x0089 => 20,

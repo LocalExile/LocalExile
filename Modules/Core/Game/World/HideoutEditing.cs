@@ -23,4 +23,18 @@ public static partial class Game
         conn.HideoutEditor.Register(WaypointCatalog.ObjectId, "waypoint", waypoint.GridX, waypoint.GridY,
             waypoint.Rotation, -1);
     }
+
+    /// <summary>Persists and confirms the current hideout layout for /save_hideout (C→S 0x16 command 50 or chat).</summary>
+    public static async Task SaveHideoutLayout(ClientState conn)
+    {
+        if (!OwnHideout(conn))
+        {
+            await conn.Commands!.Reply("You must be in your own hideout to save its layout.");
+            return;
+        }
+        var (name, placements, decorations, statues, music) = HideoutLayoutSummary(conn);
+        string musicNote = music is ushort row && HideoutCatalog.HideoutMusicName(row) is { } track ? $", music: {track}" : "";
+        Console.WriteLine($"[gateway] {conn.Wire.Remote} /save_hideout {name}: {placements} placement(s), {decorations} decoration(s), {statues} statue(s){musicNote}");
+        await conn.Commands!.Reply($"Hideout \"{name}\" layout saved ({placements} placement(s), {decorations} decoration(s), {statues} statue(s){musicNote}).");
+    }
 }
