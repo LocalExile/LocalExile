@@ -43,11 +43,14 @@ public static partial class Game
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
             if (ApplyMonsterHitLocked(conn, m, damage) is not { } accepted) return;
             var targetAt = m.Walk.Position(now);
-            session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
-                kind: 3, code: HitCode(mitigated), angle: HitAngle(targetAt.X - from.X, targetAt.Y - from.Y)));
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
                     blind: blind, hitOrigin: from);
+            ushort hitFlags = (ushort)(crit ? 0x4221 : 0x4201);
+            byte hitKind = 3, hitAngle = HitAngle(targetAt.X - from.X, targetAt.Y - from.Y);
+            ConsumeNativeKnockbackLocked(m, ref hitFlags, ref hitKind, ref hitAngle, out ushort u3c, out ushort u3e);
+            session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: hitFlags,
+                kind: hitKind, code: HitCode(mitigated), angle: hitAngle, u3c: u3c, u3e: u3e));
             OwnedKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "Arc totem", playerKill: false);
         }

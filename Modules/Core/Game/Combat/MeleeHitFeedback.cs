@@ -12,10 +12,16 @@ public static partial class Game
         ? "Metadata/Effects/Spells/heavy_strike_02/heavy_strike_hit.ao" : null;
 
     internal static byte[] MeleeHitFeedback(uint attacker, ushort sequence, uint target, byte code, byte angle,
-        bool critical, string? impactArt, uint orderKey = 0, ushort checkpoint = 0) =>
-        InstanceProtocol.ActionHit(attacker, impactArt is null ? sequence : (ushort)0xffff, target,
-            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 3, code: code, angle: angle,
+        bool critical, string? impactArt, uint orderKey = 0, ushort checkpoint = 0,
+        SpawnedMonster.NativeKnockback? knockback = null)
+    {
+        ushort flags = (ushort)(0x4201 | (critical ? 0x20 : 0));
+        byte kind = 3;
+        ApplyNativeKnockback(knockback, ref flags, ref kind, ref angle, out ushort u3c, out ushort u3e);
+        return InstanceProtocol.ActionHit(attacker, impactArt is null ? sequence : (ushort)0xffff, target,
+            flags: flags, kind: kind, code: code, angle: angle, u3c: u3c, u3e: u3e,
             orderKey: orderKey, checkpoint: checkpoint);
+    }
 
     static async Task PresentMeleeImpact(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string art, (int X, int Y) from, (int X, int Y) at, float scale = 1)

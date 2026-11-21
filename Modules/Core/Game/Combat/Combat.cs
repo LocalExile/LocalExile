@@ -500,6 +500,7 @@ public static partial class Game
             List<byte[]>? ignited = null, bled = null;
             string igniteLog = "", bleedLog = "";
             StunHit stun;
+            SpawnedMonster.NativeKnockback? nativeKnockback = null;
             using (ProjectileMutation(conn))
             {
                 if (m.Life == 0) return true;
@@ -588,6 +589,7 @@ public static partial class Game
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
                     blind: BlindHitInput.Capture(player), attackGains: AttackAilmentGains.Capture(player, attack: true));
+                nativeKnockback = TakeNativeKnockbackLocked(m);
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(conn, targetId, m, prehit.Ignite,
                         critical, at, attackGains: AttackAilmentGains.Capture(player, attack: true)) is { } packets)
@@ -614,9 +616,12 @@ public static partial class Game
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
             var order = HitOrder(conn, PlayerId);
+            ushort hitFlags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            byte hitKind = 0x03, hitAngle = HitAngle(target.X - stop.X, target.Y - stop.Y);
+            ApplyNativeKnockback(nativeKnockback, ref hitFlags, ref hitKind, ref hitAngle, out ushort hitU3c, out ushort hitU3e);
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId,
-                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03, code: hitCode,
-                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
+                    flags: hitFlags, kind: hitKind, code: hitCode,
+                    angle: hitAngle, u3c: hitU3c, u3e: hitU3e, orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
                 $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}{handNote}" +
@@ -2458,6 +2463,7 @@ public static partial class Game
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
                 StunHit stun;
+                SpawnedMonster.NativeKnockback? nativeKnockback = null;
                 using (ProjectileMutation(conn, advance: scheduledSession is null))
                 {
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
@@ -2635,6 +2641,8 @@ public static partial class Game
                             blind: BlindHitInput.Capture(player, skillStats),
                             hitOrigin: IsLeapSlam(conn, gem.Effect) ? centre : null,
                             attackGains: AttackAilmentGains.Capture(player, SkillsFor(conn).IsAttack(gem.Effect)));
+                        if (scheduledSession is not null || (melee ?? !spell))
+                            nativeKnockback = TakeNativeKnockbackLocked(m);
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                         // physical damage bleed it.
                         if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
@@ -2677,7 +2685,7 @@ public static partial class Game
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
-                            settleKill: singleStrikeTarget is not null, hitCode: hitCode);
+                            settleKill: singleStrikeTarget is not null, hitCode: hitCode, knockback: nativeKnockback);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));
@@ -2689,7 +2697,8 @@ public static partial class Game
                 await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
                     $"{gem.Name}{(hammer is null ? "" : " (holy hammer)")}{(critical ? " (critical)" : "")}{handNote}{(resistance is null ? "" : $", {resistance}")}",
                     melee: melee ?? !spell, sequence: sequence, deaths: deaths, hitCode: hitCode, stun: stun, critical: critical,
-                    impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(conn).EffectId(gem.Effect)) : null);
+                    impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(conn).EffectId(gem.Effect)) : null,
+                    knockback: nativeKnockback);
                 await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
                 await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
                 ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id, skillStats: skillStats);
@@ -2981,13 +2990,15 @@ public static partial class Game
 
     public static Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
-        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false, string? impactArt = null) =>
+        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false, string? impactArt = null,
+        SpawnedMonster.NativeKnockback? knockback = null) =>
         NotifyMonsterHitCore(remote, stream, ciphers, conn, id, m, hit, damage, by, log, melee, sequence, deaths, hitCode, stun,
-            critical: critical, impactArt: impactArt);
+            critical: critical, impactArt: impactArt, knockback: knockback);
 
     static async Task NotifyMonsterHitCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log, bool melee, ushort sequence,
-        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt)
+        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt,
+        SpawnedMonster.NativeKnockback? knockback = null)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -3010,7 +3021,7 @@ public static partial class Game
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, MeleeHitFeedback(PlayerId, sequence, id, hitCode,
-                    HitAngle(mx - px, my - py), critical, impactArt, order.Key, order.Hit),
+                    HitAngle(mx - px, my - py), critical, impactArt, order.Key, order.Hit, knockback),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
             if (impactArt is not null) await PresentMeleeImpact(remote, stream, ciphers, conn, impactArt, (px, py), (mx, my));
         }

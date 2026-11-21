@@ -8,6 +8,11 @@ static partial class Game
 {
     internal const string KnockbackChanceStat = "base_global_chance_to_knockback_%";
     internal const string KnockbackDistanceStat = "knockback_distance_+%";
+    internal const string KnockbackReversedStat = "enemy_knockback_direction_is_reversed";
+    // Native 0x1af knockback presentation (Client/Game.exe 0x141e9828b -> 0x141e9d030):
+    // flags bit 11 (0x0800) invokes Actor::ApplyKnockback with kind bits 0x04 (u3c speed %) and 0x08 (u3e distance %).
+    internal const ushort ActionHitKnockbackFlag = 0x0800;
+    internal const byte ActionHitKnockbackKindMask = 0x0c;
     // Knockback has a minimum distance of 0.4 metres (poewiki Knockback); a Gateway cell is 0.1 m (10 units per
     // metre, Agents/docs/protocol/11-skills.md), so the shove is at least four cells, scaled by knockback_distance_+%.
     internal const double KnockbackMinimumMetres = .4;
@@ -82,17 +87,61 @@ static partial class Game
     {
         m.Walk.Teleport(to.X, to.Y, now);
         m.KnockbackPending = (to.X, to.Y);
+        m.NativeKnockbackPending = null;
         m.LastTarget = null;
         m.SwingGeneration = null;
         m.ActionGeneration++;
         m.BusyUntil = Math.Max(m.BusyUntil, now + KnockbackDelaySeconds);
     }
 
+    /// <summary>Encodes a validated knockback move into native 0x1af <c>angle</c>, <c>u3c</c> (speed %) and
+    /// <c>u3e</c> (distance %) fields matching <c>0x141e9d030</c>:
+    /// <c>distance = sign * max(0, (u3e * 0.01 + 1) * 4 * (attackerSize + 5) / (targetSize + 5))</c>.</summary>
+    internal static SpawnedMonster.NativeKnockback NativeKnockbackFor((int X, int Y) at, (int X, int Y) to,
+        int targetSize, bool reversed = false, int attackerSize = LivingCollision.PlayerSize)
+    {
+        int dx = to.X - at.X, dy = to.Y - at.Y;
+        double actualDist = Math.Sqrt((double)dx * dx + (double)dy * dy);
+        double sizeRatio = (attackerSize + 5.0) / (Math.Max(0, targetSize) + 5.0);
+        double baseDist = KnockbackMinimumMetres * CellsPerMetre * sizeRatio;
+        short distanceMod = baseDist > 0
+            ? (short)Math.Clamp(Math.Round((actualDist / baseDist - 1.0) * 100.0), short.MinValue, short.MaxValue)
+            : (short)0;
+        byte angle = reversed ? HitAngle(-dx, -dy) : HitAngle(dx, dy);
+        return new(angle, 0, distanceMod);
+    }
+
+    /// <summary>Takes a pending native knockback under the Monsters lock and clears the Teleport fallback so the hit's
+    /// 0x1af packet presents the knockback instead of snapping later via 0x0f8.</summary>
+    internal static SpawnedMonster.NativeKnockback? TakeNativeKnockbackLocked(SpawnedMonster m)
+    {
+        if (m.NativeKnockbackPending is not { } kb) return null;
+        m.NativeKnockbackPending = null;
+        m.KnockbackPending = null;
+        return kb;
+    }
+
+    internal static void ApplyNativeKnockback(SpawnedMonster.NativeKnockback? knockback, ref ushort flags, ref byte kind,
+        ref byte angle, out ushort u3c, out ushort u3e)
+    {
+        if (knockback is not { } kb) { u3c = 0; u3e = 0; return; }
+        flags |= ActionHitKnockbackFlag;
+        kind |= ActionHitKnockbackKindMask;
+        angle = kb.Angle;
+        u3c = unchecked((ushort)kb.SpeedMod);
+        u3e = unchecked((ushort)kb.DistanceMod);
+    }
+
+    internal static void ConsumeNativeKnockbackLocked(SpawnedMonster m, ref ushort flags, ref byte kind,
+        ref byte angle, out ushort u3c, out ushort u3e) =>
+        ApplyNativeKnockback(TakeNativeKnockbackLocked(m), ref flags, ref kind, ref angle, out u3c, out u3e);
+
     /// <summary>Rolls "X% chance to Knock Enemies Back on hit" for a player hit that landed on a monster: the
     /// character's and the skill's own chance and distance (Knockback Support's 25-44% chance and 50% increased
-    /// distance are skill stats) add. On success the monster is pushed away from the player, its action is interrupted
-    /// and <see cref="SpawnedMonster.KnockbackPending"/> carries the cell for the AI tick's packet. Under the Monsters
-    /// lock, after the hit's damage.</summary>
+    /// distance are skill stats) add. On success the monster is pushed away from the player, its action is interrupted,
+    /// <see cref="SpawnedMonster.NativeKnockbackPending"/> carries the native 0x1af presentation for hits that send
+    /// ActionHit and <see cref="SpawnedMonster.KnockbackPending"/> falls back to the AI tick's Teleport for hits that
+    /// do not. Under the Monsters lock, after the hit's damage.</summary>
     internal static bool KnockbackOnHitLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null)
     {
@@ -111,6 +160,7 @@ static partial class Game
         if (KnockbackDestination(from, at, cells,
                 (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))) is not { } to) return false;
         KnockbackCommitLocked(m, to, now);
+        m.NativeKnockbackPending = NativeKnockbackFor(at, to, size, reversed: Stat(KnockbackReversedStat) != 0);
         return true;
     }
 }

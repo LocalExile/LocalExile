@@ -46,12 +46,14 @@ public static partial class Game
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            byte kind = 0x03, angle = HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000));
+            ConsumeNativeKnockbackLocked(target, ref flags, ref kind, ref angle, out ushort u3c, out ushort u3e);
             // The emitter is the attacker: the player, or his totem. Only the player's own hit goes into his turn of the frame
             // (HitOrder); a totem's stays at the frame's start, as monsters' and minions' hits do.
             uint attacker = contact.Projectile.Use.Emitter.Id;
             if (attacker == PlayerId) order = HitOrder(conn, PlayerId);
-            session.World(attacker, InstanceProtocol.ActionHit(attacker, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
-                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000)),
+            session.World(attacker, InstanceProtocol.ActionHit(attacker, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: kind,
+                code: HitCode(shot.Hit), angle: angle, u3c: u3c, u3e: u3e,
                 orderKey: order.Key, checkpoint: order.Hit));
         }
         session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
