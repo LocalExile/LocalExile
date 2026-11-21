@@ -101,6 +101,26 @@ static class PortalsFeature
         map.Instance != 0 && MapTownPortals.TryGetValue(character, out var own)
         && own.Area == map.Area.Hash16 && own.Instance == map.Instance ? (own.X, own.Y) : null;
 
+    internal static void CheckRetiredDeviceInputs(MapOpening request)
+    {
+        switch (request.Opening?.Area.Id)
+        {
+            // MapDeviceRecipes still lists eight single-fragment recipes for this retired destination.
+            case "AnyCorruptedSideArea":
+                request.Reason = "Place this fragment with a map or use the complete fragment set.";
+                break;
+            // Existing Perandus Manor (3.16) and Untainted Paradise (3.29) items cannot be activated.
+            case "Map2Tier10_5Unique" or "MapAtlasChateauUnique" or "MapWorldsChateauUnique"
+                or "MapTier1_7Unique" or "Map2Tier1_6Unique" or "MapAtlasTropicalIslandUnique" or "MapWorldsTropicalIslandUnique"
+                when request.Slots.Any(s => s.IsMap && s.Rarity == ItemRarity.Unique):
+                request.Reason = "This unique map can no longer be opened in the Map Device.";
+                break;
+            default:
+                return;
+        }
+        request.Opening = null;
+    }
+
     // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
     // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
     // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.
@@ -123,9 +143,10 @@ static class PortalsFeature
             {
                 AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components,
                 Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
+                UniqueNameWord = i.Item.NameWords is [var word] ? word : null,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
-        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, device.Value.Campaign, activate.Target);
         var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;

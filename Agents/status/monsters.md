@@ -41,10 +41,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   1 / 0..50 / 51..255 text thresholds were verified with native `/raw` messages.
   Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §2.
-- Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
-  `MonsterMapDifficulty`, added as percentages (level 83: ×20.73 life, ×1.15 damage). The King in the Mists' humanoid
-  form therefore has 45,614,731 life at level 83, matching poedb's display.
-  Code: `MonsterCatalog.MapBossScaling`, `SpawnMonster`.
+- Unique bosses listed for their map receive the difficulty tables' life and damage, plus boss life, damage and speed affixes.
+  Strand's two bosses have no dedicated health bar. Re-entry restores the saved current life up to the recalculated
+  maximum and applies the map and party bonuses once.
+  Code: `MonsterCatalog.MapBossDifficulty`, `SpawnMonster`, `BossKits`.
   Docs: [king-in-the-mists](../docs/game/king-in-the-mists.md).
 - Emerge monsters (Gravel Eaters, Dripping Dead, the Twilight Strand's Drowned …) are created buried, cannot be hit
   while buried, and rise when the player comes within 24 cells: the client plays their emerge clip (Emerge action
@@ -166,10 +166,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Gateway checks cover the grant and each stat set at the actor's level for ordinary monsters, boss kits and raised or
+  restored spectres. Boss mortars use the same level for their projectile counts. The client visuals still need a run.
+
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.
   Native appearance references resolve; rendered model parity remains unverified.
+
+- Weighted area packs on generated layouts use the centre's ground type.
+  Generated rooms can name an assigned ordinary pack, including the warriors in Kaom's Stronghold.
+  Pack size scales the variable roll. Fixed members and bosses are added separately, including the Foreman on the Quay.
+  Official ground boundaries, variable choices on fixed-only rows and desktop placement await verification.
+  [14](../docs/protocol/14-monster-packs.md)
 
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
@@ -317,7 +326,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The reference capture misses its opening, so this is calibration rather than a verified official total;
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
-  Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
+  how near the player must come before an emerge monster rises is our choice;
   a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a
   campaign boss with no controller plays its kit, but no act boss changes phase mid-fight); monsters respawn on every
   entry;

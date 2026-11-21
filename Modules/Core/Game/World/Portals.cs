@@ -22,7 +22,7 @@ public static partial class Game
 
     static int[] CompletionBosses(string area)
     {
-        var bosses = (Packs.For(area)?.Bosses ?? []).Select(row => Monsters.Find(row.ToString()))
+        var bosses = Packs.BossesFor(area).Select(row => Monsters.Find(row.ToString()))
             .OfType<MonsterCatalog.Variety>().ToArray();
         // LaterForms places a second form only when its first flees or falls. Only the terminal form has to die;
         // multiple distinct bosses (Strand, for example) must all die. Other unique monsters are irrelevant.

@@ -64,7 +64,7 @@ public static partial class MapTorment
         var pool = TormentCatalog.Pool(AreaLevel(conn), Stat(conn, "map_tormented_spirits_rare_varieties") > 0);
         rolls &= pool.Count > 0;
         // The map's boss: one of the area's WorldAreas bosses.
-        var bosses = Packs.For(conn.Layout.Id)?.Bosses ?? [];
+        var bosses = Packs.BossesFor(conn.Layout.Id);
         foreach (var (id, m) in conn.Monsters)
         {
             if (!Touchable(m) || !area.Checked.Add(id)) continue;

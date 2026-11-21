@@ -52,6 +52,7 @@ bench.
 
 - **Known:** the Lush Hideout works: travel, waypoint, stash, Nessa, the Edit button and the map device: slots,
   Activate and six portals into the map ([21](../docs/protocol/21-hideouts.md) §5).
+  Gateway checks cover standalone Sacrifice and Mortal fragment refusal. Client presentation remains to be checked.
   Its decoration (`data/hideouts.json`) lists every doodad with its type and model.
   The Heist Locker is placed and opens its native storage window; contract/blueprint transfers need separate work.
   Moving/rotating installed furniture and NPCs now saves per character/template through C→S 0x5b.
@@ -68,8 +69,13 @@ bench.
 - **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: remaining scarab engines, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
-  Torment spirits' and Grips' skills (#1129);
-  Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
+  Torment spirits' and Grips' own granted skills (#1129), including the Arsonist's first Firestorm cast, its target and repeat timing.
+  Observe the Martyr's death explosion, animated weapon contacts and
+  the party's death and corpse removal displays in the client (#1182);
+  verify possessed monsters' action timing (#1177) and
+  the host's life bar and size when leaving, claiming or re-entering a Massive shrine's radius (#1178, #1179) in the client;
+  Harbinger follow-up: verify the avatar's life bar inside a Massive shrine after a wave kill (#1180) in the client;
+  The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
   puzzle-grid assembly and Harbinger Scroll upgrades);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
   Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.

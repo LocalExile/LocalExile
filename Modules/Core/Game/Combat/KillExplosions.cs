@@ -122,7 +122,7 @@ public static partial class Game
             // (the Kitava Heart Eater tattoo), the corpse is off the client's list and this is no second removal.
             removeCorpse = !corpse.CorpseConsumed;
             corpse.CorpseConsumed = true;
-            conn.Monsters.Remove(corpseId);
+            if (!MapTorment.HoldsCorpseLocked(conn, corpse)) conn.Monsters.Remove(corpseId);
         }
         // Per corpse and per monster hit: a pack kill wrote about 900 lines a second from inside the combat lock
         // (2026-11-17). Only under Game_TRACE=combat.

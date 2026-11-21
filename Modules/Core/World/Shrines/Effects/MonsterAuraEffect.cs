@@ -48,15 +48,19 @@ sealed class MonsterAuraEffect : IShrineEffect
 
     static void Change(ClientState conn, uint id, SpawnedMonster monster, Action change)
     {
-        int before = monster.Effects.MaxLife(100000);
+        var previous = monster.Effects;
         uint oldLife = monster.MaxLife;
         change();
         var effects = monster.Effects;
-        uint maximum = (uint)Math.Clamp((long)oldLife * effects.MaxLife(100000) / before, 1, uint.MaxValue);
-        monster.MaxLife = maximum;
-        monster.Life = (uint)Math.Clamp(Math.Ceiling(monster.Life * (double)maximum / Math.Max(1, oldLife)), 0, maximum);
-        var stats = new List<(uint, int)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, maximum)) };
-        if (Stats.Key("actor_scale_+%") is uint scale) stats.Add((scale, effects.ActorScalePct));
+        monster.RefreshLife(previous, effects);
+        uint maximum = monster.MaxLife;
+        if (maximum == oldLife && effects.ActorScalePct == previous.ActorScalePct) return;
+        var stats = MonsterLifeAndScale(monster);
+        if (conn.Instance is { } instance && instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+        {
+            instance.World.MonsterOrigins[id] = origin with { Object = origin.Object.WithStats(stats) };
+            return; // Shared monster sync sends each awake viewer the change with the current life.
+        }
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, stats), null));
         if (maximum != oldLife) conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(id, monster.Life), null));
     }

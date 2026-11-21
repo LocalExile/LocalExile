@@ -15,6 +15,8 @@ using static Program;
 public static partial class MapStrongboxes
 {
     public const string Content = "Ambush", CountStat = "map_num_extra_strongboxes";
+    public const string TempleVessel = "Metadata/Chests/StrongBoxes/VaalTempleChest";
+    public const string ExquisiteVessel = "Metadata/Chests/StrongBoxes/VaalEmpoweredChest";
     public const string Reopen = "Ambush.HiddenCompartments", Discernment = "Ambush.Discernment", Containment = "Ambush.Containment",
         Potency = "Ambush.Potency";
     const string SaveKey = "Ambush/boxes";
@@ -26,6 +28,13 @@ public static partial class MapStrongboxes
         public List<AreaPopulation.Spawn> Pending { get; init; } = [];
         /// <summary>The daemons' later waves (StrongboxDaemons.cs), released into <see cref="Pending"/> when due.</summary>
         public List<Wave> Waves { get; init; } = [];
+        public List<VaalSpark> Sparks { get; init; } = [];
+        public List<VesselProjectileCast> ThrownWeapons { get; init; } = [];
+        public List<VaalBladeVortex> Vortices { get; init; } = [];
+        public List<VaalFissure> Fissures { get; init; } = [];
+        public List<VaalFirestorm> Firestorms { get; init; } = [];
+        public List<VaalCausticArrow> CausticArrows { get; init; } = [];
+        public List<VaalFlameblast> Flameblasts { get; init; } = [];
         /// <summary>Normal 0, magic 1 or rare 2 (<see cref="StrongboxMods.RollRarity"/>).</summary>
         public byte Rarity { get; init; }
         /// <summary>The rolled explicit mods; the type's own (implicit) mods are not kept here.</summary>
@@ -60,11 +69,48 @@ public static partial class MapStrongboxes
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
+        public readonly HashSet<ClientState> Visitors = [];
+        public bool[]? VesselFloor;
+        public volatile bool Active;
+        public SparkSkill? SparkSkill;
+        public VesselProjectileSkill? ThrownWeaponSkill;
+        public FissureSkill? FissureSkill;
+        public BladeVortexSkill? VortexSkill;
+        public FirestormSkill? FirestormSkill;
+        public FlameblastSkill? FlameblastSkill;
+        public CausticArrowSkill? CausticArrowSkill;
         /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
-        public readonly List<Zone> Zones = [];
+        public readonly Dictionary<uint, GroundPatch> Zones = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
-    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    sealed class View
+    {
+        public readonly HashSet<uint> Boxes = [];
+        public readonly HashSet<uint> Casts = [];
+        public Dictionary<uint, int> SparkLegs = [];
+        public readonly HashSet<object> PositionWatches = [];
+        public long? Entered;
+    }
+    sealed record KeptView(long? Entered, uint[] Boxes, uint[] Casts)
+    {
+        public Dictionary<uint, int> SparkLegs { get; init; } = [];
+    }
+    static readonly RuleTable<ClientState, View> Presented = new();
+    static string ViewKey(ClientState conn) => $"Ambush/view/{conn.PeerId}";
+
+    static View ViewFor(ClientState conn) => Presented.GetValue(conn, c =>
+    {
+        var view = new View();
+        if (c.Instance.ContentState.TryRemove(ViewKey(c), out string? prior))
+        {
+            var kept = JsonSerializer.Deserialize<KeptView>(prior)!;
+            view.Boxes.UnionWith(kept.Boxes);
+            view.Casts.UnionWith(kept.Casts);
+            view.Entered = kept.Entered;
+            view.SparkLegs = kept.SparkLegs;
+        }
+        return view;
+    });
 
     public static void Opening(MapOpening request)
     {
@@ -138,10 +184,13 @@ public static partial class MapStrongboxes
         return StrongboxCatalog.Roll(level, hardMode, mods, random);
     }
 
-    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count)
+    public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count) => Positions(layout, seed, count, out _);
+
+    static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count, out bool[]? reach)
     {
+        reach = null;
         if (count <= 0 || layout.Walkable is not { } walk) return [];
-        var reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
+        reach = AreaPopulation.Reachable(layout.GridW, layout.GridH, walk, (layout.SpawnX, layout.SpawnY));
         if (reach is null) return [];
         var random = new Random(unchecked((int)(seed ^ 0x414d4255)));
         var candidates = new List<(int X, int Y)>();
@@ -165,7 +214,16 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static void Keep(ClientState conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
+    static bool HasVesselPrefix(Box box) => box.Firestorms.Count > 0 || box.Flameblasts.Count > 0
+        || box.CausticArrows.Count > 0 || box.Sparks.Count > 0 || box.ThrownWeapons.Count > 0 || box.Fissures.Count > 0;
+
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || HasVesselPrefix(b) || b.Vortices.Count > 0);
+
+    static void Keep(ClientState conn, Area area)
+    {
+        area.Active = Active(area.Boxes!);
+        conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Boxes);
+    }
 
     static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
         .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
@@ -251,45 +309,71 @@ public static partial class MapStrongboxes
         finally { area.Gate.Release(); }
     }
 
-    public static async Task Enter(ClientState conn)
+    public static Task Enter(ClientState conn) => Enter(conn, conn.Clock.Elapsed);
+
+    internal static async Task Enter(ClientState conn, TimeSpan entered)
     {
         if (conn.Instance is null || InTown(conn) || conn.Layout.Walkable is null) return;
         var area = Areas.GetOrCreateValue(conn.Instance);
         await area.Gate.WaitAsync();
         try
         {
+            ViewFor(conn).Entered ??= entered.Ticks;
+            lock (conn.Monsters) area.Visitors.Add(conn);
             if (area.Boxes is null)
             {
                 if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved))
+                {
                     area.Boxes = JsonSerializer.Deserialize<List<Box>>(saved) ?? [];
+                    area.Active = Active(area.Boxes);
+                }
                 else
                 {
-                    area.Boxes = Plan(conn);
+                    area.Boxes = Plan(conn, area);
                     Keep(conn, area);
                 }
             }
-            foreach (var box in area.Boxes) await Present(conn, box);
+            foreach (var box in area.Boxes)
+            {
+                WatchVesselPositions(conn, area, box);
+                await Present(conn, box);
+            }
         }
         finally { area.Gate.Release(); }
     }
 
-    static List<Box> Plan(ClientState conn)
+    static List<Box> Plan(ClientState conn, Area area)
     {
         var boxes = new List<Box>();
         int level = AreaLevel(conn);
         var (count, roll) = Count(conn, level);
-        if (count <= 0)
+        var mods = AreaMods(conn);
+        int exquisite = mods.Get("map_spawn_additional_empowered_vaal_chests");
+        int temple = mods.Get("map_vaal_temple_spawn_additional_vaal_vessels");
+        int vessels = exquisite + temple;
+        if (count + vessels <= 0)
         {
             Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}: Ambush roll {roll} → 0");
             return boxes;
         }
-        var mods = AreaMods(conn);
         var random = new Random(unchecked((int)(conn.Seed ^ 0x53544258)));
         bool hardMode = LeagueFor(conn).HardMode;
         bool corrupted = mods.Get("map_strongboxes_are_corrupted") != 0;
         var catalog = ItemsFor(conn).Mods;
         double unique = UniqueChance * Math.Max(0, 100 + mods.Get("map_strongboxes_chance_to_be_unique_+%")) / 100.0;
-        foreach (var (x, y) in Positions(conn.Layout, conn.Seed, count))
+        var positions = Positions(conn.Layout, conn.Seed, count + vessels, out var reachable);
+        if (vessels > 0) area.VesselFloor = reachable;
+        // Reserve the map's explicit vessels on a cramped layout. Other boxes keep their original positions and rolls
+        // when there is room for both.
+        int ordinary = Math.Max(0, positions.Count - vessels);
+        void Place(StrongboxCatalog.Definition type, byte rarity, bool isCorrupted, (int X, int Y) at)
+        {
+            boxes.Add(new(conn.Instance.World.NewMonsterId(), boxes.Count, at.X, at.Y, type.Id)
+            {
+                Rarity = rarity, Corrupted = isCorrupted, Mods = Kept(StrongboxMods.Roll(catalog, type, rarity, level, mods, random)),
+            });
+        }
+        foreach (var (x, y) in positions.Take(ordinary))
         {
             // map_area_contains_unique_strongbox: the area's first box is unique.
             bool forced = boxes.Count == 0 && mods.Get("map_area_contains_unique_strongbox") != 0;
@@ -305,15 +389,23 @@ public static partial class MapStrongboxes
             if (Pick(level, hardMode, mods, random) is { } type)
             {
                 byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
-                var rolled = StrongboxMods.Roll(ItemsFor(conn).Mods, type, rarity, level, mods, random);
-                boxes.Add(new(conn.Instance.World.NewMonsterId(), boxes.Count, x, y, type.Id)
-                {
-                    Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted,
-                });
+                Place(type, rarity, corrupted, (x, y));
             }
         }
+        var reserved = positions.Skip(ordinary);
+        if (exquisite > 0)
+        {
+            var type = StrongboxCatalog.All.Single(t => t.Id == ExquisiteVessel);
+            foreach (var at in reserved.Take(exquisite)) Place(type, 2, true, at);
+        }
+        if (temple > 0)
+        {
+            var type = StrongboxCatalog.All.Single(t => t.Id == TempleVessel);
+            // VaalTempleChest.ot sets rare on creation. Its fixed Strongboxes row has no rolled affixes.
+            foreach (var at in reserved.Skip(exquisite)) Place(type, 2, corrupted, at);
+        }
         Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}{(hardMode ? " (HardMode weights)" : "")}: " +
-            $"Ambush roll {roll} → {count}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
+            $"Ambush roll {roll} → {count}, Exquisite Vaal Vessels {exquisite}, Vaal Vessels {temple}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
         return boxes;
     }
 
@@ -331,7 +423,7 @@ public static partial class MapStrongboxes
 
     static async Task Present(ClientState conn, Box box, bool replace = false)
     {
-        var shown = Presented.GetOrCreateValue(conn);
+        var shown = ViewFor(conn).Boxes;
         if (!replace && shown.Contains(box.Id)) return;
         if (StrongboxCatalog.Find(box.Type) is not { } type) return;
         var (remote, stream, ciphers) = conn.Wire;
@@ -403,9 +495,8 @@ public static partial class MapStrongboxes
     {
         bool first = area.Boxes!.All(b => b.Phase == 0 && b.Cycle == 0);
         var now = DateTime.UtcNow;
-        var waves = StrongboxCatalog.Find(box.Type) is { } type
-            ? SummonWaves(conn, type, box, now, new Random(unchecked((int)conn.Seed ^ box.Index * 7349 ^ box.Cycle * 13)))
-            : [];
+        var type = StrongboxCatalog.Find(box.Type);
+        var waves = type is null ? [] : SummonWaves(conn, type, box, now, new Random(unchecked((int)conn.Seed ^ box.Index * 7349 ^ box.Cycle * 13)));
         var guards = Guards(conn, box, first, waves.Count > 0);
         if (guards.Count == 0 && waves.Count == 0)
         {
@@ -413,9 +504,18 @@ public static partial class MapStrongboxes
             return;
         }
         box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
+        var spells = type?.Id == ExquisiteVessel ? PrepareVesselSpells(conn, area, type, box).ToArray() : [];
         area.Boxes![box.Index] = box;
         Keep(conn, area);
+        if (spells.Length > 0)
+        {
+            // Area entry can finish before the party's public player record arrives.
+            lock (conn.Monsters)
+                foreach (var member in area.Visitors.Concat(Members(conn)).Distinct())
+                    WatchVesselPositions(member, area, box);
+        }
         foreach (var member in Members(conn)) await Present(member, box, true);
+        foreach (var prepared in spells) await ShowVesselCast(conn, area, box, prepared.Cast, prepared.Skill);
         await SpawnPending(conn, area, box);
         if (StrongboxCatalog.Find(box.Type) is { } exiled
             && StrongboxMods.Stat(ItemsFor(conn).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
@@ -568,32 +668,65 @@ public static partial class MapStrongboxes
         }.Where(e => e.Value != 0).ToDictionary(e => e.Key, e => e.Value);
         var extraMods = effects.Count == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(effects));
         int quantity = Both("strongbox_monsters_item_quantity_+%");
+        var layout = conn.Layout;
+        bool[]? floor = null;
+        if (box.Type is TempleVessel or ExquisiteVessel)
+        {
+            // Restored boxes rebuild the same connected component from the box itself.
+            area.VesselFloor ??= AreaPopulation.Reachable(layout.GridW, layout.GridH, layout.Walkable!, (box.X, box.Y))
+                ?? throw new InvalidDataException($"Vessel {box.Id} has no walkable cell at ({box.X}, {box.Y})");
+            floor = area.VesselFloor;
+        }
         while (box.Pending.Count > 0 && !conn.Closed && !conn.LeavingArea)
         {
             var spawn = box.Pending[0];
             if (Monsters.Find(spawn.Variety.ToString()) is not { } variety) return;
-            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, spawn.Rarity, spawn.X, spawn.Y,
-                unrisen: false, alone: false, extraMods: extraMods, owned: (_, monster) =>
+            var at = (spawn.X, spawn.Y);
+            if (floor is not null)
+            {
+                int size = Math.Clamp(variety.ObjectSize - 1, 0, 127);
+                bool Floor(int x, int y) => floor[y * layout.GridW + x] && layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y));
+                var blockers = conn.MonsterPlacementBlockers(0);
+                if (!CollisionEscape.Clear(at, layout.GridW, layout.GridH, Floor, blockers, size))
+                {
+                    if (CollisionEscape.Find(at, layout.GridW, layout.GridH, Floor, blockers, moverSize: size) is not { } cell) return;
+                    at = cell;
+                }
+            }
+            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, spawn.Rarity, at.X, at.Y,
+                unrisen: false, alone: false, extraMods: extraMods, placement: floor is null ? MonsterPlacement.Proposed : MonsterPlacement.Established,
+                owned: (guard, monster) =>
                 {
                     monster.Aggro = true;
                     // Item quantity of the guards' own drops, as the Sulphite enrage's (UtilityFlasks.ItemQuantityFactor).
                     if (quantity != 0) monster.EncounterStats = new Dictionary<string, int> { [MapSulphite.EnragedQuantity] = quantity * 100 };
+                    // The world owns this guard before its create is written to the opening player's connection.
+                    box.Guards.Add(guard);
+                    box.Pending.RemoveAt(0);
+                    Keep(conn, area);
                 });
             if (id == 0) return;
-            box.Guards.Add(id);
-            box.Pending.RemoveAt(0);
-            Keep(conn, area);
         }
     }
 
-    public static async Task Tick(ClientState conn)
+    public static Task Tick(ClientState conn) => Tick(conn, conn.Clock.Elapsed);
+
+    internal static async Task Tick(ClientState conn, TimeSpan now)
     {
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is not { } boxes || conn.Closed || conn.LeavingArea) return;
-        if (area.Zones.Count > 0 || ZoneShare.TryGetValue(conn, out var share) && share.Dps > 0) TickZones(conn, area);
-        if (!boxes.Any(b => b.Phase == 1)) return;
+        if (conn.Closed || conn.LeavingArea) return;
+        if (!Presented.TryGetValue(conn, out _) && conn.Instance.ContentState.ContainsKey(ViewKey(conn))) await Enter(conn, now);
+        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is not { Count: > 0 } boxes) return;
+        if (!area.Active && !ZoneShare.TryGetValue(conn, out _))
+            lock (area.Zones) if (area.Zones.Count == 0) return;
         await area.Gate.WaitAsync();
         try
         {
+            foreach (var box in boxes)
+                if (HasVesselPrefix(box) || box.Vortices.Count != 0) await TickVesselCasts(conn, area, box, now);
+            bool hasZones;
+            lock (area.Zones) hasZones = area.Zones.Count > 0;
+            if (hasZones || ZoneShare.TryGetValue(conn, out var share) && (share.Dps > 0 || share.Art.Count > 0))
+                TickZones(conn, area, now.TotalSeconds);
             foreach (var waiting in area.Boxes!.Where(b => b.Phase == 1).ToArray())
             {
                 var prior = ReleaseWaves(waiting, DateTime.UtcNow);
@@ -661,7 +794,30 @@ public static partial class MapStrongboxes
 
     public static void Leave(ClientState conn)
     {
+        if (Areas.TryGetValue(conn.Instance, out var area))
+            lock (conn.Monsters) area.Visitors.Remove(conn);
+        var view = ViewFor(conn);
+        lock (conn.Monsters)
+            foreach (var watch in view.PositionWatches) conn.Walk.EndPositionWatch(watch);
+        conn.Instance.ContentState.TryRemove(ViewKey(conn), out _);
         Presented.Remove(conn);
         LeaveZones(conn);
+    }
+
+    // The Gateway keeps the instance and its connections across a rules reload. Its ground damage pool must release our
+    // share before the old rule table goes away. The next tick resumes each view without a second chest birth.
+    internal static void Unloading()
+    {
+        foreach (var (conn, view) in Presented)
+        {
+            if (conn.Closed || conn.LeavingArea || view.Boxes.Count == 0) continue;
+            lock (conn.Monsters)
+                lock (view.SparkLegs)
+                    conn.Instance.ContentState[ViewKey(conn)] = JsonSerializer.Serialize(new KeptView(view.Entered, [.. view.Boxes], [.. view.Casts])
+                        { SparkLegs = view.SparkLegs });
+            LeaveZones(conn, removeArt: true);
+        }
+        Presented.Clear();
+        Areas.Clear();
     }
 }

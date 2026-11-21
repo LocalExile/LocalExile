@@ -49,6 +49,21 @@ public class MonsterAttackPayloadTests
             Assert.Equal(custom, f.Conn.Instance.World.MonsterOrigins[overridden].Object.Equipped);
         }
 
+        // The firestorm's two rows both reach rank 3 at 52. The spitter's grant reaches rank 3 at 20,
+        // while its stat set has only rank 1. A monster's level selects each row independently.
+        foreach (var (name, grantRow, statRow) in new[]
+        {
+            ("Daemon/TormentDaemonFirestorm", 14441u, 14317u),
+            ("SandSpitters/SandSpitterFire", 4764u, 4657u),
+        })
+        {
+            var variety = Game.Monsters.Find("Metadata/Monsters/" + name)!;
+            uint id = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 70,
+                GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false);
+            var skill = Assert.Single(f.Conn.Instance.World.MonsterOrigins[id].Object.Skills!);
+            Assert.Equal((grantRow, statRow), (skill.EffectsPerLevelRow, skill.StatSetsPerLevelRow));
+        }
+
         // Bow monsters with an integral bow mesh only carry Weapon1 (arrow); slot 0 must still carry the Bow stance.
         var integral = Game.Monsters.Find("Metadata/Monsters/DemonBosses/DemonBoss3/DemonBoss3")!;
         var integralArrow = Assert.Single(integral.Weapons);

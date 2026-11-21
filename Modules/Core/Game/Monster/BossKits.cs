@@ -80,19 +80,29 @@ public static class BossKits
     /// <param name="defaultAttack">The attack the monster would have swung without a kit: the kit's first entry is that
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect = -1, MonsterAttack? defaultAttack = null)
+        int defaultEffect = -1, MonsterAttack? defaultAttack = null) =>
+        Kit(conn, variety, level, defaultEffect, defaultAttack, null, false);
+
+    internal static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
+        int defaultEffect, MonsterAttack? defaultAttack, MonsterModSet? mods, bool mapBoss)
     {
         var catalog = SkillsFor(conn);
         if (!IsKitBoss(catalog, variety)) return [];
+        var secondaryEffects = mods is null ? null : mapBoss ? mods.Effects : TormentCatalog.EffectsOn(mods);
         List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
         foreach (int effect in effects)
         {
-            int effectLevel = catalog.MaxLevelAt(effect, level);
-            double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
+            double cooldown = catalog.MonsterActionTiming(effect, level).CooldownMs / 1000d;
             ushort id = (ushort)(0x4000 + kit.Count);
-            var attack = kit.Count == 0 && defaultAttack is not null ? defaultAttack with { SkillId = id } : AttackFor(conn, variety, level, effect, id);
+            MonsterAttack attack;
+            if (kit.Count == 0 && defaultAttack is not null) attack = defaultAttack with { SkillId = id };
+            else
+            {
+                attack = AttackFor(conn, variety, level, effect, id);
+                if (secondaryEffects is { Stats.Count: > 0 }) attack = WithMonsterMods(attack, secondaryEffects);
+            }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own
@@ -104,6 +114,27 @@ public static class BossKits
         return kit;
     }
 
+    // Called under the Monsters lock. An already ordered swing keeps its attack object and deadline.
+    // The AI keeps its selected slot and cooldowns for its next order.
+    internal static void RefreshAttacks(ClientState conn, SpawnedMonster monster)
+    {
+        if (monster.Kit.Count == 0)
+        {
+            if (monster.Attack is { } attack) monster.Attack = WithMonsterMods(attack, monster.Mods.Effects);
+            return;
+        }
+        var secondary = IsMapBoss(conn, monster.Variety!, monster.Rarity) ? monster.Mods.Effects : TormentCatalog.EffectsOn(monster.Mods);
+        monster.Kit = [.. monster.Kit.Select((skill, index) => skill with
+        {
+            Attack = WithMonsterMods(skill.Attack, index == 0 ? monster.Mods.Effects : secondary),
+        })];
+        if (monster.Attack is { } selected)
+            monster.Attack = monster.Kit.First(skill => skill.Attack.SkillId == selected.SkillId).Attack;
+    }
+
+    internal static MonsterAttack? AttackById(SpawnedMonster monster, ushort id) =>
+        monster.Attack?.SkillId == id ? monster.Attack : monster.Kit.FirstOrDefault(k => k.Attack.SkillId == id)?.Attack;
+
     /// <summary>The kit as the actor's skill list: 0x4000 + the kit index names the action, as the campaign's own kits do
     /// (DepravedTrinity.Skill).</summary>
     public static IReadOnlyList<GrantedSkill> SkillsOf(ClientState conn, MonsterCatalog.Variety variety, byte level,
@@ -114,9 +145,9 @@ public static class BossKits
         for (int i = 0; i < kit.Count; i++)
         {
             var entry = kit[i];
-            int effectLevel = catalog.MaxLevelAt(entry.Effect, level);
-            var stats = MonsterActionSkillStats(conn, entry.Effect, effectLevel, entry.Attack);
-            if (catalog.FindByRow((ushort)(0x4000 + i), entry.Effect, effectLevel, stats) is { } granted) skills.Add(granted);
+            var raw = catalog.MonsterEffectStats(entry.Effect, level);
+            var stats = MonsterActionSkillStats(conn, entry.Effect, entry.Attack, raw);
+            if (catalog.FindMonsterSkill((ushort)(0x4000 + i), entry.Effect, level, stats) is { } granted) skills.Add(granted);
         }
         return skills;
     }
@@ -150,7 +181,7 @@ public static class BossKits
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
-        var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
+        var projectile = ranged ? MavenNucleus.Shot(catalog, effect, actorLevel) : null;
         var summon = catalog.MonsterSummon(effect, actorLevel);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {

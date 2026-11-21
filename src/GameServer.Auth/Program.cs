@@ -179,7 +179,8 @@ static async Task Serve(LoginServerKeys keys)
         var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
             levelAreas.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal));
         // The areas a map item opens: a map nobody captured is played at a random seed (WorldAreaMaps, AreaSeeds).
-        var mapAreas = GameServer.Core.World.WorldAreaMaps.Load(worldAreas, ClientTables.TableOrNull("Maps"));
+        var mapAreas = GameServer.Core.World.WorldAreaMaps.Load(worldAreas, ClientTables.TableOrNull("Maps"),
+        GameServer.Core.World.WalkMapCapture.Folder, ClientTables.TableOrNull("UniqueMaps"));
         return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne, mapAreas);
     });
     GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);

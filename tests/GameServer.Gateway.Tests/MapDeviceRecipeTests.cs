@@ -1,3 +1,6 @@
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class MapDeviceRecipeTests
@@ -54,6 +57,44 @@ public sealed class MapDeviceRecipeTests
             Assert.NotEmpty(why);
             Assert.Null(device.Check([extra, blossom], null, catalog.Mods, out why));
             Assert.NotEmpty(why);
+        }
+
+        var pyramid = Slot("Metadata/Items/Maps/MapWorldsVaalPyramid");
+        var vault = pyramid with { Rarity = ItemRarity.Unique, Corrupted = true };
+        Assert.Equal("MapWorldsVaalPyramid", Assert.IsType<MapDevice.Opening>(device.Check([pyramid], out _)).Area.Id);
+        var vaultArea = Assert.IsType<MapDevice.Opening>(device.Check([vault], out _)).Area;
+        Assert.Equal("MapWorldsVaalPyramidUnique", vaultArea.Id);
+        Assert.True(device.IsMapArea(vaultArea.Hash16));
+
+        var conn = new ClientState(new(1, "recipe", 64, 64, 32, 32, null, []), 1, 1);
+        uint WordFor(string name) => ClientTables.Table("Words")[
+            ClientTables.Table("UniqueMaps").First(r => r.Text("Name") == name).Int("WordsKey")].UInt("HASH32");
+        var keyMap = Slot("Metadata/Items/Maps/MapKeyTier1") with { Rarity = vault.Rarity };
+        var named = keyMap with { UniqueNameWord = WordFor("Vaults of Atziri") };
+        Assert.Equal(vaultArea.Hash16, Assert.IsType<MapDevice.Opening>(device.Check([named], out _)).Area.Hash16);
+        foreach (string retired in new[] { "Untainted Paradise", "The Perandus Manor" })
+        {
+            var slot = keyMap with { UniqueNameWord = WordFor(retired) };
+            var check = new MapOpening(conn, [slot], false, device.Check([slot], out why), why);
+            PortalsFeature.CheckRetiredDeviceInputs(check);
+            Assert.Null(check.Opening);
+            Assert.NotEmpty(check.Reason);
+        }
+
+        foreach (var (family, area) in new[] { (1, "MapAtziri1"), (2, "MapAtziri2") })
+        {
+            var set = Enumerable.Range(1, 4).Select(n => Slot($"Metadata/Items/MapFragments/CurrencyVaalFragment{family}_{n}")).ToArray();
+            foreach (var fragment in set)
+            {
+                var single = new MapOpening(conn, [fragment], false, device.Check([fragment], null, catalog.Mods, out why), why);
+                PortalsFeature.CheckRetiredDeviceInputs(single);
+                Assert.Null(single.Opening);
+                Assert.NotEmpty(single.Reason);
+            }
+            var complete = new MapOpening(conn, set, false, device.Check(set, null, catalog.Mods, out why), why);
+            PortalsFeature.CheckRetiredDeviceInputs(complete);
+            Assert.Equal(area, complete.Opening!.Area.Id);
+            Assert.Empty(complete.Reason);
         }
     }
 }

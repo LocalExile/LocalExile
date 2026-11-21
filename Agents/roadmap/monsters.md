@@ -34,9 +34,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Ordinary Melee follows resolved native clip clocks, including slow spans and published action-speed changes.
 - **Start:** the systems the 74 unsupported monster mods need (auras on allies, retaliation and on-death skills, ailments and
   curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), stages of other bosses (`BossFights.cs` has Hillock's
-  and `KingInMists.cs` the two-form Ritual pinnacle), pack
-  `Grounds`, the varieties with BlightTower / Mercenary … components (each needs its deserializer,
-  schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
+  and `KingInMists.cs` the two-form Ritual pinnacle), verify mixed-ground pack boundaries and ground priority for
+  authored encounters, verify zero-range encounter points, variable choices when a pack has only fixed entries,
+  and how explicit rooms combine with area weights. Check boss life and secondary hits in a desktop Strand fight
+  with boss modifiers and after re-entry. Remaining work includes varieties with BlightTower / Mercenary … components
+  (each needs its deserializer, schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
   forms (Abberath2, Shakari2, Malachai's second form) created by their fight, tile spawner bosses
   (Marceus).
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`

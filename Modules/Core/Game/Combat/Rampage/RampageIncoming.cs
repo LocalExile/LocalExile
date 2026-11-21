@@ -5,6 +5,24 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    internal static SpawnedMonster? RampageWeaponAtLocked(ClientState owner, uint id, long epoch, double now)
+    {
+        if (owner.OwnedCombatState is not RampageWorld world || !world.Actors.TryGetValue(id, out var actor)
+            || actor.Weapon is null || actor.Epoch != epoch || actor.ExpiresAt <= now || !RampageEffectCurrent(owner, epoch)) return null;
+        return owner.Monsters.GetValueOrDefault(id);
+    }
+
+    internal static (bool Critical, DamagePacket Taken) HitRampageWeaponLocked(SpawnedMonster attacker,
+        SpawnedMonster weapon, DamagePacket damage, bool attack, double now, MonsterModEffects? sourceEffects = null)
+    {
+        var rolled = MonsterModHit(attacker, sourceEffects, damage.Roll(Random.Shared), weapon.Life, weapon.MaxLife,
+            Random.Shared, out bool critical, now: now).Scale(SappedDamageFactor(attacker, now));
+        var (loss, _) = MonsterDamage(weapon, rolled, critical, attack, default, default, out var taken);
+        weapon.Life = (uint)Math.Max(0, (long)weapon.Life - loss);
+        if (weapon.Life == 0) weapon.Dead = true;
+        return (critical, taken);
+    }
+
     // Reuse the ordinary planner's cadence, action generations and repath budget for owned weapon targets.
     static bool PlanRampageWeaponTarget(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan,
         uint id, SpawnedMonster monster, double now, (int X, int Y) from, double playerDistance)
@@ -79,11 +97,7 @@ public static partial class Game
                 ? CharacterStatSources(conn).Stats : null;
             accuracy = MonsterBlindRating(conn, id, attacker, accuracy, now, sources);
             if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;
-            var packet = MonsterModHit(attacker, attack.Damage.Roll(Random.Shared), weapon.Life,
-                weapon.MaxLife, Random.Shared, out bool critical, now: now).Scale(SappedDamageFactor(attacker, now));
-            var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);
-            weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
-            if (weapon.Life == 0) weapon.Dead = true;
+            HitRampageWeaponLocked(attacker, weapon, attack.Damage, attack: true, now);
             return InstanceProtocol.LifeUpdate(targetId, weapon.Life);
         }, "Monster hit on Rampage weapon", recordId: targetId);
     }

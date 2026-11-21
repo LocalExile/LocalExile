@@ -10,21 +10,38 @@ unique boss **Fire Fury** and her guards at the cannibal camp, next to its campf
 | Client table (client.db) | What it gives |
 |---|---|
 | `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
+| `MonsterPackEntries` | each `MonsterVarietiesKey` for a `MonsterPacksKey`. `Weight` gives a draw weight when `Flag` is set and a fixed member count when clear. |
 | `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+
+The 3.29.3c pack-size tooltip (`0x1424d7240`, `ClientStrings.ItemPopupPackSize`) scales `MinCount` down to the
+nearest whole number and `MaxCount` up. It then adds `MonsterPacks.__col1` to both. This equals the sum of the
+unflagged entry counts in all 3,168 rows. The separate boss count contributes to the lower bound at 100% chance
+and to the upper bound. At default size, `Act8-ThugTorch` has two to four Cruel Arsonists, one Spiteful Smuggler
+and one Twisted Firestarter. Positive variable ranges also occur on rows with only unflagged entries. The Gateway
+keeps its existing variety draw for those variable slots. It places fixed members first among ordinary members, so a
+local member cap or the first rare slot can favour them. The original server's variety and rarity choices are unknown.
+The tooltip describes one pack. Scattered centre density is a separate local rule.
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
 | Pack | Weight | Members | Placed |
 |---|---|---|---|
 | `Act1-CoastCrabs` (row 2) | 100 | 2–4 Savage / Kelp / Shore / Coconut / Spider Crabs; 80%: one large Savage Crab (row 4515) | scattered |
-| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned; `Grounds`: the beach/ocean ground types | scattered (grounds not checked) |
+| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned | scattered on one of five wet beach/ocean grounds in generated layouts |
 | `Act1-SandspitterEmerge` (row 4) | 100 | 3–4 Gravel Eaters | scattered, buried: they rise when the player comes near ([10](10-chat-and-commands.md) §5) |
 | `1_1_2-cannibalfire` (row 620) | 0 | 2–4 Cannibals (male, female, fire throwers, Fire-eater) | room points `%area%-cannibalfire` |
 | `1_1_2-bosspack` (row 621) | 0 | 6–8 Cannibals | with the boss at `mapboss` |
 | boss: Fire Fury (row 2845, `CannibalFemaleBossWitch`) | | Unique | room point `mapboss` |
 
 Packs whose `Id` is `<area>-<name>` have weight 0: the layout places them, through **room points** (§3).
+
+`MonsterPacks.Grounds` lists names from the first line of the terrain's `.gt` files. For a scattered centre or a
+room point that specifies only rarity, the Gateway draws from unrestricted rows and rows naming the local ground,
+with their original weights. An empty pool leaves the site free. The sample uses the nearest vertex of the final
+tile grid, as the client's random doodads do. Members can cross that boundary within their usual radius.
+The Twilight Strand's Drowned use a separate row with an empty list. Untainted Paradise spells the `Knoll` ground
+`knoll` in two pack rows. The Pantheon soldier pack has only `-`. Its area weight and its room points both apply
+locally. Their official priority is unknown.
 
 **Not recovered:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
 decides those. Ours (`AreaPopulation`): one scattered pack per 9 000 walkable cells (`CellsPerPack`; The Coast: 44
@@ -136,15 +153,20 @@ So:
    `rare`. A pack point is one of the area's scattered packs of that rarity. Every placed room of a generated layout
    places its own (`ServerLevels.Level.PackRooms`, read from the generated rooms, not from `room-points.json`); a
    captured layout only its Trial of Ascendancy's ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters").
-   The points are few: 2 126 in 1 498 of 3 265 generated layouts (795 areas, two seeds each): 1 663 `magic`, 450 `rare`
-   and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
-   or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
+   A generated room's spawn list (section 0) can also name a complete `MonsterPacks.Id`. Kaom's Stronghold names
+   `kaomwarriorpack`. The Lair's shared waterfall room names five beast packs, of which its `Maps.MonsterPacksKeys`
+   lists four. A pack assigned through `WorldAreasKeys` may have zero area weight. Successful room packs count
+   against ordinary density. Direct placement handles positive variable ranges, including the Bone Warden in
+   Olmec's third guard pack. Zero-range rows can describe encounter bosses and still need their placement verified.
+   The survey of 3 265 generated layouts (795 areas, two seeds each) found rarity points in 1 498 layouts.
+   Of the 2 126 points, 1 663 were `magic`, 450 `rare` and 13 `normal`, with 99% on walkable cells.
+   The area's remaining ordinary packs use the scattered budget
+   (§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
    **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
    its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:
-   a shrine whose `Shrines.MonsterPacks` names packs (the eight apparition shrines, one of 2–9 monsters a pack, in
-   area-agnostic rows) stands one of those packs; a basic shrine names none and stands one of the area's own scattered
-   packs, at that pack's own `MinCount`–`MaxCount`. The client's shrine rooms carry no monster points of their own
+   a shrine whose `Shrines.MonsterPacks` names packs takes one of those rows. A basic shrine draws an area pack.
+   Both use the row's variable members and fixed roster. The client's shrine rooms carry no monster points of their own
    (`metadata/shrines/*.arm`: the statue and decals only), nothing in the data scales a guard count by area level, Act,
    map tier or difficulty, and the Atlas passives that make a map shrine's guard pack magic
    (`map_shrines_have_guaranteed_magic_pack`) and add a chance of a second (`map_shrines_additional_pack_chance_%`) are
@@ -251,10 +273,14 @@ population. Other areas, rarity rolls, life and damage retain their existing beh
 placement algorithms remain unknown.
 
 - Pack density and magic/rare chances are guesses (§1); so are the mod counts (§5).
-- Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
-  (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
-  future map-affix system may add more.
-- `Grounds` (Drowned on wet beach) is not checked; we have no ground-type grid.
+- Unique bosses in the map's WorldAreas list get the life and damage increases from `MonsterMapBossDifficulty` and
+  `MonsterMapDifficulty`. Their level sets the factors (×6.75 life and ×1.07 damage at 75, ×20.73 and ×1.15 at 83).
+  Both tables name Stats rows 2500 and 2501, the hidden life and damage stats already sent for the map tier. The
+  boss's percentage adds to each tier value. All 152 boss entries across the 110 layouts in the 3.29.3c atlas
+  selector lack a dedicated health bar. Boss damage and speed affixes also affect the ordinary AI's secondary skills.
+  The separate boss area-of-effect roll on the life affix still needs its skill-area calculation.
+- The official pack sampler at mixed-ground boundaries and the priority of ground restrictions for explicitly named
+  encounters are unknown. Captured walk maps carry no ground names for the weighted draw.
 - Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within
   24 cells of the player ([10](10-chat-and-commands.md) §5); the distance is ours (the official one is in the server's
   AI files). The pack rule for the 161 varieties whose Id contains "Emerge": the 85 without a Transitionable are

@@ -177,7 +177,7 @@ static class AtlasBosses
         return [.. effects.Select(effect =>
         {
             var use = Attack(conn, variety, level, effect, attack);
-            return catalog.FindByRow(Skill(variety, effect), effect, level,
+            return catalog.FindMonsterSkill(Skill(variety, effect), effect, level,
                 WithBehaviourVariation(conn, effect, use.SkillStats()));
         }).OfType<GrantedSkill>()];
     }
@@ -233,7 +233,7 @@ static class AtlasBosses
         double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
         double reach = melee ? variety.AttackRange : 45;
         if (melee && swing is not null) return swing with { SkillId = Skill(variety, effect), Scripted = true };
-        var projectile = ProjectileFor(conn, effect);
+        var projectile = ProjectileFor(conn, effect, level);
         return new MonsterAttack(Skill(variety, effect), seconds, reach, damage)
         {
             Spell = catalog.IsSpell(effect),
@@ -246,11 +246,11 @@ static class AtlasBosses
     /// <summary>The shot a skill launches: its own MonsterProjectileVariation row when the skill has one, and the
     /// Projectiles.dat row for the two that name none (the bullet-hell ring is twelve in a circle, which no skill record
     /// makes, and the doom shot is a single slow one).</summary>
-    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, int effect) => effect switch
+    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, int effect, int actorLevel) => effect switch
     {
         BulletHellEffect => BulletHellShot,
         DoomProjectileEffect => DoomShot,
-        _ => Game.SkillsFor(conn).MonsterProjectile(effect),
+        _ => Game.SkillsFor(conn).MonsterProjectile(effect, actorLevel),
     };
 
     /// <summary>A degen skill's damage from its own stat set: the base fire/cold/lightning/physical/chaos
@@ -260,7 +260,7 @@ static class AtlasBosses
     /// </summary>
     internal static DamagePacket DamageOverTime(ClientState conn, int effect, int level)
     {
-        var stats = Game.SkillsFor(conn).EffectStats(effect, level);
+        var stats = Game.SkillsFor(conn).MonsterEffectStats(effect, level);
         int Get(string name)
         {
             if (Stats.Key(name) is not uint key) return 0;

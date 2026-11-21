@@ -54,9 +54,16 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    public bool CannotBeEvaded { get; init; }
+    /// <summary>The source modifiers at a triggered contact. Its damage packet already includes their typed damage.</summary>
+    public MonsterModEffects? SourceEffects { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
     /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
     public bool DualWielding { get; init; }
+
+    // The skill before monster modifiers. A later change of mods recalculates from these same values.
+    public double BaseSeconds { get; } = Seconds;
+    public DamagePacket BaseDamage { get; } = Damage;
 
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
@@ -172,7 +179,7 @@ public sealed record MonsterMovement
     public double? ReorderSeconds { get; init; }
 }
 
-public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
+public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public uint ObjectId { get; set; }
     public MadnessExplosion? MadnessExplosion;
@@ -193,7 +200,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public MonsterAttack? Attack { get; set; }
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
-    public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    public IReadOnlyList<MonsterKitSkill> Kit { get; set; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
     public bool Hostile { get; init; } = true;
@@ -247,11 +254,12 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyDictionary<string, int>? EncounterStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
     public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    MonsterModEffects EncounterEffects => EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
     public MonsterModEffects Effects
     {
         get
         {
-            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            var effects = EncounterEffects;
             foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
             return Curses.Effects(effects);
         }
@@ -452,6 +460,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
     public double? ClientSwingAt;
     public int ClientSwingAction;
+    // Captured when the client's walk-up begins its swing, before the next AI pass can change the attack.
+    public (MonsterAttack Attack, double Seconds)? ClientSwingStats;
     // Lockstep: the start of the frame in whose tick the client ends a walk that an in-place action left going under it
     // (Game.MonsterSwingOrderLocked), the frame after its Actor ends that action; null when none is pending. The step
     // pass applies it (Game.StepFrames), and an order the client takes drops it (Game.LockstepOrderFrom).

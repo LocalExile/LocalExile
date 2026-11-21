@@ -360,6 +360,14 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
+    /// <summary>Replace existing skills by id on this object's Actor, using the same list as its creation record.</summary>
+    public static byte[] ActorSkills(uint entityId, byte actorIndex, IReadOnlyList<GrantedSkill> skills)
+    {
+        var w = new BlobWriter().U8(0x40).U8(0);
+        PlayerObject.WriteSkillList(w, skills);
+        return ComponentUpdate(entityId, actorIndex, w.ToArray());
+    }
+
     /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
     /// other entries append, so changing a source/type first requires a removal.</summary>
     public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,
@@ -704,6 +712,13 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
     public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
+
+    /// <summary>Apply the same changed stats to this retained creation record as to a client already in the area.</summary>
+    public MonsterObject WithStats(IReadOnlyList<(uint Key, int Value)> updated)
+    {
+        var keys = updated.Select(s => s.Key).ToHashSet();
+        return this with { Stats = [.. (Stats ?? []).Where(s => !keys.Contains(s.Key)), .. updated] };
+    }
 
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }

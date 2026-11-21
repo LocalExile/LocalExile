@@ -16,6 +16,19 @@ public sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<ui
 {
     public static readonly MonsterModSet None = new([], [], MonsterModEffects.None);
 
+    private MonsterModEffects InstanceEffects { get; init; } = MonsterModEffects.None;
+
+    /// <summary>Replace the previous instance's contribution when a kept monster is created again.
+    /// Its rolled mods and effects acquired in combat (such as a Tormented Spirit's grip) carry over.</summary>
+    public MonsterModSet WithInstanceEffects(MonsterModEffects effects)
+    {
+        if (InstanceEffects.Stats.Count == 0 && effects.Stats.Count == 0) return this;
+        var stats = new Dictionary<string, int>(Effects.Stats, StringComparer.Ordinal);
+        foreach (var (stat, value) in InstanceEffects.Stats) stats[stat] -= value;
+        foreach (var (stat, value) in effects.Stats) stats[stat] = stats.GetValueOrDefault(stat) + value;
+        return this with { Effects = new(stats), InstanceEffects = effects };
+    }
+
     /// <summary>The rolled affixes (the explicit list), without the rarity's own mods.</summary>
     public IEnumerable<ItemMod> Affixes => Mods.Where(m => m.Section == ModSection.Explicit);
 }
@@ -74,16 +87,19 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
     /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 +
     /// map_hidden_monster_life_+%_final, a map tier's) × the handed-over more life stats (<see cref="HandOverMore"/>).</summary>
-    public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
+    public int MaxLife(int baseLife) => (int)Math.Clamp(ScaledLife(baseLife), 1, int.MaxValue);
+    public uint MaxLife(uint baseLife) => (uint)Math.Clamp(ScaledLife(baseLife), 1, uint.MaxValue);
+
+    double ScaledLife(double baseLife) => baseLife * (1 + this["maximum_life_+%"] / 100.0)
         * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
-        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(_moreLife)));
+        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(_moreLife);
 
     // The more life and more damage stats modules handed over, in the order they were handed over.
     static volatile string[] _moreLife = [], _moreDamage = [], _moreTaken = [];
     static readonly object MoreLock = new();
 
     /// <summary>A hand-over for modules: each stat in <paramref name="life"/> (<paramref name="damage"/>) that a monster
-    /// has multiplies its <see cref="MaxLife"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
+    /// has multiplies its <see cref="MaxLife(uint)"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
     /// framework names none; with none handed over, or none on the monster, the factor is exactly 1. Disposing the result
     /// (the module's lifetime) takes back the stats it added.</summary>
     public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage) =>
@@ -129,15 +145,15 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         return factor;
     }
 
-    /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
-    /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
+    /// <summary>The monster's hit before the player's defences: global increased damage on every base type and increased physical damage on physical hits
+    /// (the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
     /// and lowered by monster_rarity_attack_cast_speed_+%_and_damage_-%_final (less), rounded and at least 1 as the
     /// rarity's hit always was (Hillock at level 1: 6.6–12.3 → 7–12); then the "gain as extra" stats add their types
     /// (fire, cold or lightning from physical, chaos from the non-chaos part), rounded.</summary>
-    public DamagePacket Hit(DamagePacket physical)
+    public DamagePacket Hit(DamagePacket source)
     {
-        double factor = (1 + (this["damage_+%"] + this["physical_damage_+%"]) / 100.0)
-            * (1 + this["monster_rarity_damage_+%_final"] / 100.0)
+        if (source.IsZero) return source;
+        double more = (1 + this["monster_rarity_damage_+%_final"] / 100.0)
             * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(_moreDamage)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
         var conversion = new DamageConversion()
@@ -148,9 +164,13 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
             .AddGain(DamageType.Physical, DamageType.Cold, this["physical_damage_%_to_add_as_cold"])
             .AddGain(DamageType.Physical, DamageType.Lightning, this["physical_damage_%_to_add_as_lightning"]);
-        var physicalRange = physical[DamageType.Physical];
-        var hit = DamagePacket.Of(DamageType.Physical, Math.Max(1, Math.Round(physicalRange.Min * factor)),
-            Math.Max(1, Math.Round(physicalRange.Max * factor))).Convert(conversion).Round();
+        var hit = source.Select((type, range) =>
+        {
+            if (range.IsZero) return range;
+            int increased = this["damage_+%"] + (type == DamageType.Physical ? this["physical_damage_+%"] : 0);
+            double factor = (1 + increased / 100.0) * more;
+            return new(Math.Max(1, Math.Round(range.Min * factor)), Math.Max(1, Math.Round(range.Max * factor)));
+        }).Convert(conversion).Round();
         int chaos = this["non_chaos_damage_to_add_as_chaos_damage_%"];
         if (chaos <= 0) return hit;
         double minChaos = 0, maxChaos = 0;
@@ -186,9 +206,10 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     }
 
     /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
-    /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
-    /// alike, so a casting monster's skill uses the same time.</summary>
-    public double AttackSeconds(double baseSeconds, bool spell = false) => baseSeconds
+    /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final).</summary>
+    public double AttackSeconds(double baseSeconds) => AttackSeconds(baseSeconds, spell: false);
+
+    public double AttackSeconds(double baseSeconds, bool spell) => baseSeconds
         / Math.Max(0.1, 1 + this[spell ? "base_cast_speed_+%" : "attack_speed_+%"] / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
@@ -453,16 +474,26 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         return set;
     }
 
+    public Dictionary<string, int> RolledStats(IEnumerable<ItemMod> list)
+    {
+        var stats = new Dictionary<string, int>();
+        foreach (var m in list)
+            if (mods.ByHash(m.Hash) is { } mod)
+                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++)
+                {
+                    string id = mod.Stats[i].Id;
+                    stats[id] = stats.GetValueOrDefault(id) + m.Values[i];
+                }
+        return stats;
+    }
+
     /// <summary>A set from known mods (a kept monster, a test): its effects from the mods' values, plus the rarity
     /// table's life. Without the rarity's own mods (no Mods.dat) the life and damage of the rarity still apply
     /// (MonsterCatalog.RarityLifePct / RarityAttack).</summary>
     public MonsterModSet Create(IReadOnlyList<ItemMod> list, IReadOnlyList<uint> nameWords, MonsterRarity rarity, int level)
     {
-        var stats = new Dictionary<string, int>();
+        var stats = RolledStats(list);
         void Add(string stat, int value) => stats[stat] = stats.GetValueOrDefault(stat) + value;
-        foreach (var m in list)
-            if (mods.ByHash(m.Hash) is { } mod)
-                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++) Add(mod.Stats[i].Id, m.Values[i]);
         if (rarity != MonsterRarity.Normal && !stats.ContainsKey("monster_life_+%_final_from_rarity"))
         {
             Add("monster_life_+%_final_from_rarity", MonsterCatalog.RarityLifePct(rarity));

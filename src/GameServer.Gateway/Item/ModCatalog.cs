@@ -25,6 +25,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
     public sealed record Mod(int Row, string Id, ushort Hash, string Name, int Domain, int GenerationType, int Level,
         IReadOnlyList<ModStat> Stats)
     {
+        public int MaxLevel { get; init; }
         public ModRangeProvider? Ranges { get; init; }
         public IReadOnlyList<int> Families { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
@@ -155,6 +156,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
                 r.Text("Name") ?? "", r.Int("Domain"), r.Int("GenerationType"),
                 r.Int("Level"), modStats)
             {
+                MaxLevel = r.Int("MaxLevel"),
                 Ranges = ranges,
                 Families = [.. r.Ints("Families")],
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),

@@ -49,13 +49,17 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 / Math.Max(.001, (use.Aim - use.Origin).Length));
         bool sharedSeries = use.Profile.SequentialDelay > 0 && use.Profile.ShareSequentialHits && count > 1;
         if (sharedSeries) pendingEmissions.Add(emission);
+        long batchEmission = emission;
         for (int i = 0; i < count; i++)
         {
             double angle = use.Profile.NativeVolley is { } volley ? volley.Angle(i, count, (use.Aim - use.Origin).Length)
                 : random is not null ? spread * (random.NextDouble() - .5) : count <= 1 ? 0 : spread *
                 (i / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? count : count - 1) - .5);
             var direction = (use.Aim - use.Origin).Unit.Rotate(angle);
-            long group = use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 ? ++sequence : emission;
+            int batch = i / use.Profile.SequentialBatchSize;
+            if (use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 && i % use.Profile.SequentialBatchSize == 0)
+                batchEmission = ++sequence;
+            long group = batchEmission;
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
             if (unresolved.ReturnRolls is { } rolls)
@@ -77,7 +81,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 if (use.CanEmit?.Invoke() != false)
                     Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
             }
-            if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
+            if (use.Profile.SequentialDelay > 0 && batch > 0) Schedule(Now + batch * use.Profile.SequentialDelay, Emit);
             else Emit();
         }
         return useId;
@@ -87,11 +91,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         if (p.Count is < 1 or > 256 || !double.IsFinite(p.Speed) || p.Speed <= 0
             || !double.IsFinite(p.Range) || p.Range <= 0 || !double.IsFinite(p.Radius) || p.Radius < 0
-            || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.ReturnChancePercent is < 0 or > 100
+            || p.Lifetime <= 0 || p.SequentialDelay < 0 || p.SequentialBatchSize < 1 || p.ReturnChancePercent is < 0 or > 100
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
             || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)
             throw new ArgumentOutOfRangeException(nameof(p));
+        if (p.HitRule is { Repeat: ProjectileRepeat.ContactInterval, Period: <= 0 }
+            || p.ReturnHitRule is { Repeat: ProjectileRepeat.ContactInterval, Period: <= 0 })
+            throw new ArgumentOutOfRangeException(nameof(p), "Repeating a contact requires a positive interval.");
         foreach (var area in new[] { p.ContactArea, p.EndArea })
             if (area is { Delay: < 0 } or { Interval: < 0 }) throw new ArgumentOutOfRangeException(nameof(p));
     }
@@ -303,6 +310,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 && (cells is null ? gap.Length : Math.Max(Math.Abs(gap.X), Math.Abs(gap.Y))) > reach + .001)
                 p.Contacts.Remove(actor.Key);
             if (p.Contacts.Contains(actor.Key)) return;
+            long from = Now;
+            if (directRule.Repeat == ProjectileRepeat.ContactInterval)
+            {
+                long group = directRule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId;
+                from = ledger.ContactFrom(group, actor.Key, Now, directRule.Period);
+                if (from > end) return;
+                if (from > Now)
+                    gap = p.Position + p.Direction * ((from - Now) * p.Speed / QuantaPerSecond) - actor.Position(from);
+            }
             // Near expiry/range ends can precede horizon; use that exact walk position, not an
             // interpolation across a bend in the actor's path.
             var endPosition = end == horizon ? sweep.To : end == Now ? sweep.From : actor.Position(end);
@@ -314,7 +330,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             double? t = cells is null ? ProjectileGeometry.Contact(gap, endGap, reach)
                 : ProjectileGeometry.SquareContact(gap, endGap, reach);
             if (t is not double f) return;
-            long at = Now + (long)Math.Ceiling((end - Now) * f);
+            long at = from + (long)Math.Ceiling((end - from) * f);
             if (skipDenied && !ledger.CanHit(directRule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId,
                 p.Phase, "direct", actor.Key, at, p.CreatedAt, directRule)) return;
             if (hit is null || at < hit.Value.At) { hit = new(at, p, actor, null, default); met = index; }
@@ -368,6 +384,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);
             if (result == ProjectileHitResult.Miss) return;
+            if (DirectHitRule(p).Repeat == ProjectileRepeat.ContactInterval) p.Contacts.Remove(target.Key);
             if ((p.Phase == 0 || p.Profile.ContactAreaOnReturn) && p.Profile.ContactArea is { } area)
                 Area(p, area, area.ExcludeContactTarget ? target.Key : null);
             if (result == ProjectileHitResult.Hit && p.Profile.ContactTargets is { } strikes)
@@ -375,6 +392,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             if (Continue(p, target, world.Actors(Now, Now))) return;
             End(p, ProjectileEndReason.Enemy, victim: target.Key);
         }
+        else if (c.End == ProjectileEndReason.Terrain && p.Profile.StopsAtTerrain)
+            End(p, ProjectileEndReason.Terrain, allowReturn: false);
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
             && blockedLegs.NextTurn(p.Position + c.Normal * .001, blocked: true) is { } blockedTurn)
         {

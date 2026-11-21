@@ -87,6 +87,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   stays gone); a click on a run whose instance has expired (six minutes after its last player left) closes the run and
   its remaining portals and says so in chat, instead of spending a portal on a transfer that cannot arrive (2026-11-18);
   guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
+  A lone Sacrifice or Mortal fragment stays in the device and the current portals stay open. The complete sets
+  open the Apex of Sacrifice and the Alluring Abyss respectively (Gateway verified).
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
   The instance keeps the map's level and mods for its whole life (after its last portal or another
   activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
@@ -115,6 +117,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).
+- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
+  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
+  A Touch or Grip updates ordinary AI hits, attack and cast times, and the skills shown to players. These follow the kept mods on re-entry (#1177).
+  A Martyr's Touch grants level-one MartyrExplosion to living and restored monsters. In Gateway tests, the explosion hit nearby players,
+  Flame Golems and animated Rampage weapons for fire damage based on default monster life at that level. A shared damage-over-time kill
+  still credited the surviving attacker when the map runner left. During a Game DLL reload, the instance kept the kill reward and
+  each viewer's pending explosion, death screen and corpse removal. Gateway tests cover predictive and lockstep connections (#1182).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
   rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
   [14](../docs/protocol/14-monster-packs.md) §5).
@@ -127,6 +136,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   `Game.MapModsOf`.
   Not yet: specialised Beyond boss spell kits and Ghorr's Debilitate on hit.
 
+- CoreLeagues spawns Harbingers in maps (#1157). Their invulnerable avatars summon waves and lose a share of their life
+  per wave kill, including inside a Massive shrine. Maps support King Harbingers with helper avatars, Empowered Obelisks,
+  all 11 active 3.29 currency shards (full-stack conversion and full-orb upgrades), all four Harbinger scarabs,
+  and composed Atlas/Idol map stats.
+  Not yet: the Harbingers', helpers' and obelisks' own skills (they stand still), The Beachhead unique map portal
+  encounter and Harbinger unique piece assembly.
 - Harbingers in maps (#1157): CoreLeagues spawning, invulnerable avatars with repeat-wave summoning
   (`skill_repeat_count`) and permyriad life loss on wave kills, Harbinger/King-helper/Empowered-Obelisk skills and
   auras (mortars, ball lightning, cold beam, warp flame, minion buffs, curse auras, obelisk damage-reduction and haste

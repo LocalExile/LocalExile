@@ -91,16 +91,18 @@ public static class TormentCatalog
     /// <summary>Mods.dat rows rolled as a monster's explicit mods (the list its name plate shows), with their summed stats.</summary>
     public static (IReadOnlyList<ItemMod> Mods, Dictionary<string, int> Stats) Roll(IEnumerable<int> rows, Random random)
     {
-        var mods = new List<ItemMod>();
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var mod in rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>())
-        {
-            var rolled = mod.Roll(ModSection.Explicit, random);
-            mods.Add(rolled);
-            for (int i = 0; i < mod.Stats.Count && i < rolled.Values.Count; i++)
-                stats[mod.Stats[i].Id] = stats.GetValueOrDefault(mod.Stats[i].Id) + rolled.Values[i];
-        }
-        return (mods, stats);
+        var mods = Game.MonsterModRolls.Value.Species(rows.ToArray(), random);
+        return (mods, Game.MonsterModRolls.Value.RolledStats(mods));
+    }
+
+    static readonly Lazy<HashSet<ushort>> TouchAndGripHashes = new(() => All.SelectMany(s => s.Touch.Concat(s.Grip))
+        .Distinct().Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>().Select(m => m.Hash).ToHashSet());
+
+    /// <summary>The Touches and Grips actually rolled on this monster, including a kept monster's older mod list.</summary>
+    internal static MonsterModEffects EffectsOn(MonsterModSet mods)
+    {
+        var rolls = mods.Mods.Where(m => TouchAndGripHashes.Value.Contains(m.Hash)).ToArray();
+        return rolls.Length == 0 ? MonsterModEffects.None : new(Game.MonsterModRolls.Value.RolledStats(rolls));
     }
 
     static readonly Lazy<(ushort Touched, ushort Possessed)> EffectHashes = new(() =>
@@ -113,5 +115,34 @@ public static class TormentCatalog
         if (hash == 0) return false;
         foreach (var mod in mods.Mods) if (mod.Hash == hash) return true;
         return false;
+    }
+
+    static readonly Lazy<ModCatalog.Mod?> MartyrTouch = new(() => Program.Items.Mods.ById("TormentTouchedMonsterMartyr"));
+
+    internal static int? MartyrGrantRow(ClientState conn, MonsterModSet mods)
+    {
+        if (mods.Mods.Count == 0 || MartyrTouch.Value is not { } touch) return null;
+        for (int i = 0; i < mods.Mods.Count; i++)
+            if (mods.Mods[i].Hash == touch.Hash)
+                return (Program.LeagueFor(conn).HardMode && touch.RuthlessGrantedEffectLevels.Count > 0
+                    ? touch.RuthlessGrantedEffectLevels : touch.GrantedEffectLevels).Single();
+        return null;
+    }
+
+    // The Martyr's Touch grants a specific GrantedEffectsPerLevel row. It is a triggered Actor skill, outside the
+    // host's attack rotation. The same row and actor-local id survive a refresh of the host's ordinary attacks.
+    internal static IReadOnlyList<GrantedSkill>? WithMartyrSkill(ClientState conn, MonsterModSet mods,
+        IReadOnlyList<GrantedSkill>? skills, out GrantedSkill? grant)
+    {
+        grant = null;
+        if (MartyrGrantRow(conn, mods) is not int row) return skills;
+        grant = skills?.FirstOrDefault(s => s.EffectsPerLevelRow == row);
+        if (grant is not null) return skills;
+        var catalog = Game.SkillsFor(conn);
+        var (effect, level) = catalog.EffectsPerLevel(row) ?? throw new InvalidDataException($"Martyr's Touch grants unknown skill row {row}");
+        ushort id = catalog.SkillIds().First(id => skills is null || skills.All(s => s.Id != id));
+        grant = catalog.FindByRow(id, effect, level, catalog.EffectStats(effect, level))
+            ?? throw new InvalidDataException($"Martyr's Touch has no skill record for row {row}");
+        return [.. skills ?? [], grant];
     }
 }

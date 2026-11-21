@@ -177,7 +177,7 @@ public partial class Program
         finally { gate.Release(); }
     }
 
-    static void FailWorldOutput(ClientState conn)
+    public static void FailWorldOutput(ClientState conn)
     {
         conn.CloseReason ??= "World output failed; its cipher stream cannot be retried";
         conn.Closed = true;

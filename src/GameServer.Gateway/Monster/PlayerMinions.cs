@@ -51,7 +51,7 @@ public sealed class PlayerMinions
     }
     public readonly Dictionary<uint, Attack> Attacks = [];
     // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
-    public enum OutputKind { Packet, Life, EnergyShield, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming, RighteousFireRing, GroundItem }
+    public enum OutputKind { Packet, Life, EnergyShield, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming, RighteousFireRing, GroundItem, MonsterDeathEffect }
     /// <summary>An exact retained RF owner and ring id for create/wake output; never the generic monster-target path.</summary>
     public sealed record RighteousFireRingReceipt(RighteousFireState State, uint Ring);
     public sealed record Output(byte[] Packet, string? Log, uint? TargetId = null, SpawnedMonster? Target = null,

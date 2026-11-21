@@ -98,7 +98,7 @@ public static partial class Game
         if (e["monster_life_+%_final_from_rarity"] is int rarity and not 0) yield return (StatKeys.MonsterLifeFromRarityPct, rarity);
         if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && Stats.Key(MonsterModCatalog.RarityTableLifeStat) is uint tk)
             yield return (tk, table);
-        if (maxLife != baseLife) yield return (StatKeys.MaximumLife, (int)maxLife);
+        if (maxLife != baseLife) yield return (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, maxLife));
         if (e.MovementPct != 0) yield return (StatKeys.MovementVelocityPct, e.MovementPct);
         if (e.ActorScalePct != 0 && Stats.Key("actor_scale_+%") is uint scale) yield return (scale, e.ActorScalePct);
         if (e["life_regeneration_rate_per_minute_%"] is int regen and not 0 && Stats.Key("life_regeneration_rate_per_minute_%") is uint rk)
@@ -111,15 +111,25 @@ public static partial class Game
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
-        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null)
+        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null) =>
+        MonsterModHit(m, null, rolled, playerLife, playerMaxLife, random, out critical, selfCriticalReduction, now, cannotCrit, additionalCritical, extraCriticalMultiplier: extraCriticalMultiplier);
+
+    static DamagePacket MonsterModHit(SpawnedMonster m, MonsterModEffects? sourceEffects, DamagePacket rolled, uint playerLife,
+        uint playerMaxLife, Random random, out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN,
+        bool cannotCrit = false, int additionalCritical = 0, SkillCriticalRoll? skillRoll = null,
+        int skillBaseCriticalChance = 0, Func<int>? extraCriticalMultiplier = null)
     {
-        var e = m.Effects;
-        // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
+        var e = sourceEffects ?? m.Effects;
+        // A native spell supplies its own base chance. The ordinary monster modifier uses a 5% base.
         int baseCrit = e.CriticalChance;
-        if (baseCrit == 0 && e["critical_strike_chance_+%"] is int incCrit and > 0)
-            baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
+        if (baseCrit == 0)
+        {
+            int increased = e["critical_strike_chance_+%"];
+            int basis = skillBaseCriticalChance != 0 ? skillBaseCriticalChance : increased > 0 ? 500 : 0;
+            baseCrit = (int)Math.Clamp(basis * (100L + increased) / 100, 0, 10_000);
+        }
         int chance = baseCrit + additionalCritical;
-        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
+        critical = !cannotCrit && chance > 0 && (skillRoll?.Check(chance, random) ?? random.Next(10_000) < chance);
         int extraMult = critical
             ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e["base_critical_strike_multiplier_+"] + (extraCriticalMultiplier?.Invoke() ?? 0))
             : 0;

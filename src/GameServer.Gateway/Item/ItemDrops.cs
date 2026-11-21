@@ -81,6 +81,10 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     ];
     public static readonly HashSet<string> EquipmentClasses = [.. Slots.Select(s => s.Class)];
 
+    /// <summary>Choose an eligible equipment class using the ordinary slot weights.</summary>
+    public static string? EquipmentClass(Random random, Predicate<string> eligible) =>
+        Pick(Slots.Where(s => eligible(s.Class)).ToList(), random);
+
     // Bases that exist in the tables but never drop (event, league and test items) and carry no not_for_sale tag.
     static readonly string[] NotDropped = ["Royale", "Demigod", "Talisman", "Breach", "Synthesis", "Fishing", "Test", "Unarmed", "Atlas",
         "Expedition", "Heist", "Relic", "Basilisk", "Crusader", "Eyrie", "Elder", "Shaper", "Necropolis", "Sanctum", "Ultimatum", "Legion"];
@@ -115,6 +119,16 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     readonly Lazy<Dictionary<string, double>> _cardWeights = new(() => PublishedWeights("card"));
     readonly Lazy<Dictionary<string, double>> _scarabWeights = new(() => PublishedWeights("scarab"));
 
+    /// <summary>An obtainable active or support gem from the league's ordinary drop pool at this level.</summary>
+    public ItemCatalog.BaseType? GemBase(Random rng, int level) => GemBase(rng, level, null);
+
+    public ItemCatalog.BaseType? GemBase(Random rng, int level, Predicate<ItemCatalog.BaseType>? eligible)
+    {
+        var gems = Droppable(_pools.Value.Gems, level);
+        if (eligible is not null) gems = gems.FindAll(eligible);
+        return gems.Count == 0 ? null : gems[rng.Next(gems.Count)];
+    }
+
     /// <summary>A random divination card. When the published card weights cover cards at this level, the pick follows
     /// them; otherwise it is uniform among the client's cards. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
     public Drop? Card(Random rng, int level = 0)
@@ -125,6 +139,21 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         if (cards.Count == 0) return null;
         var type = cards[rng.Next(cards.Count)];
         return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
+    }
+
+    /// <summary>Draw a single card from the eligible weighted bases supplied by a reward source.</summary>
+    public static Drop? WeightedCard(List<(ItemCatalog.BaseType Type, double Weight)> cards, Random rng) =>
+        Pick(cards, rng) is { } type ? new(ItemCatalog.Create(type) with { StackSize = 1 }, type) : null;
+
+    /// <summary>Draw a fixed number of uniques with replacement using the league's relative weights.
+    /// An operator can disable the pool by setting every eligible weight to zero.</summary>
+    public IEnumerable<T> GuaranteedUniques<T>(IEnumerable<T> candidates, Func<T, string> name, int count, Random rng)
+        where T : class
+    {
+        var pool = candidates.Select(value => (Value: value, Weight: UniqueWeight(name(value))))
+            .Where(p => p.Weight > 0).ToList();
+        if (pool.Count == 0) yield break;
+        for (int i = 0; i < count; i++) yield return Pick(pool, rng)!;
     }
 
     /// <summary>The published weights for a category, by BaseItemTypes Id. Empty when the database has not been seeded.</summary>

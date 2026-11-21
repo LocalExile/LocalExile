@@ -100,6 +100,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
   so overlapping shrines cannot restore stale encounter stats; Divine protects against hits and damage over time.
+  Leaving a Massive shrine restores the monster's maximum life and preserves damage and permanent Torment modifiers.
+  Returning to a kept area preserves the wound. Players watching, entering or waking the monster receive its current
+  life limit and size, including from a Torment mark. These changes were checked on the Gateway with release data.
+  Desktop rendering remains unchecked.
   Standing Ice/Lightning novas use player resistances, avoidance, block, suppression and normal death accounting.
   Smoke blinds the opposing side, and shrine skeletons are allies without player minion scaling. Gloom's chaos
   explosion can accompany physical explosions. Guard packs prefer standing varieties and retain their fallback.
@@ -117,15 +121,122 @@ Part of [Status](../Status.md); what to build next in this area is in
   The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
   (each daemon sends its skill; the server applies its hit, ailment or ground at the area level; live: Ice Nova,
   Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
-  waves and guard the box, Revive raises the dead near it. Gems with experience drop at a random level up to 20;
+  waves and guard the box, Revive raises the dead near it. In a level-70 Gateway run the Ice Nova daemon sent rank 25
+  and the Firestorm daemon sent its single rank. Their visual effects at those ranks still need a client run.
+  Gems with experience drop at a random level up to 20;
   Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Not done:
-  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles), the Vaalsmithed daemons (roadmap,
-  "Vaal Vessels"). Currency changes a closed
+  Rogue Exile (`MapStrongboxes.RogueExiles` waits for a module that spawns exiles). Currency changes a closed
   box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
   unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). Our own:
   `__col2` as the item count, Jumbled Abundance's one-in-four, the freeze's one second, stand-ins for the summons the
   tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
   [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
+
+- In newly populated Vaal side areas, the room's `SideAreaChest` appears at its placed position. Its natural boss
+  guards it, including both copies in a twinned area. The party shares one opening and one base reward, a corrupted
+  Vaal gem or a level-eligible Sacrifice fragment. With the *of Experimentation* area modifier, the vessel also
+  drops the rolled number of Vaal Orbs. The *of the Gemcutter* suffix adds one or two corrupted Vaal skill gems
+  drawn from the level-eligible vessel pool. *Of Thaumaturgy* adds one level 20 Vaal gem with its own experience
+  threshold. *Of Chiselling* adds a corrupted gem with 23% quality from the
+  league's ordinary gem drop pool. *Of the Facetor* adds one corrupted level 21 gem from bases that can reach
+  that level. *Of Divination* adds one to three level-eligible cards that redeem for corrupted items outside
+  Ruthless. Their relative weights use a 3.29 Stacked Deck sample. The vessel's own rates are unknown.
+  *Of the Pyramid* adds one corrupted rare Vaal Temple Map. Its key opens the level-83 Vaal Temple and supplies
+  the ten additional vessels from its implicit. The item uses the ordinary rare map roll at the side area's level.
+  Vessel-specific affix counts and identification on drop still need a client sample.
+  *Of Atzoatl* adds one or two identified corrupted rares at area level. Each has a class-eligible Incursion
+  affix. Equipment uses the ordinary slot weights and each eligible Incursion affix has the same chance.
+  The vessel's own distribution and the spell-trigger affix on sceptres and warstaves still need direct observations.
+  *Of Dark Blessings* adds one or two unidentified corrupted uniques at area level. Each gains a single native
+  corruption implicit for its base. *Of the Locus* adds one unidentified unique with two corruption implicits.
+  Both come from the base's item-level pool and have distinct modifier families. Both suffixes use the league's
+  configured unique weights for the observed global drop pool. The vessel's per-item distribution and the inclusion of named maps still need direct measurements.
+  The map device opens the named area before or after identification. Legacy area-named maps and named map keys retain
+  their identities. Retired Untainted Paradise and Perandus Manor items stay in the device.
+  [Global unique drop levels and tiers](https://docs.google.com/spreadsheets/d/1o35umcCAH0zG0N1ozgj4MjeDxakxR52WfwfkTvZgk9w/edit)
+  An area modifier for additional Vaal monsters supplies a count of packs.
+  The 3.29.3c pack row contains three Vaal cultist varieties and a wraith. The category and fragment weights use Chris Wilson's
+  [2014 account](https://www.reddit.com/r/pathofexile/comments/26vxhn/comment/chv7xio/). Current server weights,
+  natural entrance modifier rolls, other bonus loot, the exit portal and original client presentation are unverified.
+
+- The Vaal Temple map implicit places ten guarded Vaal Vessels. `VaalTempleChest.ot` sets rare rarity and immediate
+  identification. The fixed chest carries its two implicits without rolling any affixes. Its three packs and Vaal side-area boss guard the contents until the last one dies. Its drop
+  implicit corrupts eligible items. The special corruption-themed reward pool and client presentation still need
+  verification. [GGG's Vaal Temple changes](https://www.pathofexile.com/forum/view-thread/3229187)
+
+- Exquisite Vaal Vessels are additional rare, corrupted strongboxes. The corruption implicit adds one and the Valdo
+  affix adds ten alongside ordinary Ambush boxes. Gateway checks on a tier-17 Valdo Map at area level 84 matched the
+  object creates for the opener, another player and re-entry. The chest implicit supplies three ordinary packs and its
+  daemon summons one unique guard. The box waits for that guard even when another player takes over after a disconnect.
+  The server chooses uniformly among the 39 supported bosses listed by Vaal side areas in 3.29.3c. Alternate minion 598
+  gives a game-object register key and no selection weights. GGG described the three packs and
+  side-area guard for the Vaal Temple vessel, which shares this chest implicit, in the
+  [3.17 patch notes](https://www.pathofexile.com/forum/view-thread/3229187).
+
+- The Vaalsmithed Firestorm prefix casts `ChestVaalFirestorm` from the vessel. Its native grant supplies 24 meteors
+  at 500 ms intervals, a 750 ms cast and six seconds of burning ground per impact. Its last meteor hits the vessel.
+  The server aims at the box, starts impacts at cast completion and uses one inward revolution. The 20-cell base fall
+  radius follows Path of Building's secondary area. The native tables supply the explosion radius and area modifiers.
+  The exact spiral, first-impact timing and graphical presentation still need client evidence.
+  [Path of Building's Vaal Firestorm definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua)
+
+- The Vaalsmithed Flameblast prefix grants `ChestVaalFlameblast` to its own shared caster. At area level 84 its native
+  spell has 477–716 base fire damage, 5% critical chance and 50% chance to ignite. Its description calls for an explosion
+  every three stages through stage 15. Each stage gives 200% more hit damage and 110% more ailment damage.
+  The server holds the target at the vessel and counts the first stage after one cast interval. With the native 500 ms
+  base and 50% more cast speed this lands five times, one second apart. The 45-cell base radius from Path of Building,
+  the native −2 cells per stage after the first and 80% increased area give radii of 54, 46, 38, 30 and 22 cells.
+  Entering partway exposes only the remaining hits. Each observer receives the native action once while it is active.
+  Timed contacts keep the player's cell when a new route or teleport replaces it. Pending hit and removal records
+  survive a rules reload while a recipient is waiting for its send gate. Both vessel spells share a critical roll across their player targets and repeated hits. Firestorm uses its native 6%.
+  The target, first landing, elapsed animation for a late observer and exact radii still need a graphical client check.
+  Allied minions and animated weapons remain outside the vessel hit path.
+  [Path of Building's Vaal Flameblast definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_int.lua)
+
+- The Vaalsmithed Caustic Arrow prefix grants `ChestVaalCausticArrow` to the vessel's bow daemon. Its native data gives
+  five extra projectiles in a nova, unconditional pierce, hits that cannot be evaded, 60% physical-to-chaos conversion
+  and six seconds of caustic ground. The attack uses four times the monster's base weapon damage and 70% of its normal
+  attack rate. The projectile row gives 700 world units per second and a two-cell contact radius. One volley can hit each
+  player once. The shared instance keeps its clipped paths, hit recipients and trail through runner changes and rules reloads.
+  Overlapping patches deal one chaos ground rate. The player's chaos resistance, damage immunity and energy shield bypass
+  apply. The ground art comes from `CausticCloud` variation 14. The 20-cell ground radius follows Path of Building.
+  [Path of Building's Vaal Caustic Arrow definition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_dex.lua#L3795-L3821)
+
+  The server aims the first ray toward the opener and uses the shared monster half-attack contact when the daemon has
+  no measured clip. It advances each arrow in five-cell legs with a 30-degree bend over a 40-cell cycle, placing ground
+  every ten cells and at a wall or range end. The grid and projectile blockers are sampled when the box opens. Players
+  joining after release see the surviving ground and take only the remaining contacts. The exact release frame, curve,
+  trail spacing, an additional impact area and the client-drawn volley still need graphical evidence.
+- The Vaalsmithed Spark daemon owns `EASChestVaalSpark` and `ChestVaalSpark`. Its damaging grant uses the ordinary
+  Spark action. One cast releases two sparks with a two-second lifetime and 25% increased projectile speed. The instance
+  runs their seeded turns, terrain collisions and player hits on one timeline. An observer arriving during flight sees the
+  surviving sparks at their current positions. The server aims one volley at the opener and releases it after the grant's
+  650 ms cast time. The empty action's role, repeat count, targeting and visible sequence still need a client observation.
+
+- The Vaalsmithed Thrown Weapon prefix grants `ChestVaalThrownWeapon` to an immobile daemon equipped with Atziri's
+  Disfavour. Its client object hides the held axe. The skill has eight projectiles per spiral and five additional
+  projectiles. The server releases thirteen mirrored pairs, using the Spectral Throw action to draw the weapon.
+  Flights pierce, return to the vessel and end on terrain. The attack keeps one 225 ms hit interval per player across
+  both arms and the return. The instance retains pending pairs and committed contacts when the opener leaves or
+  rules reload. The server uses the attack midpoint and extends the base half-turn at 250 ms and 22.5° per pair.
+  The daemon's actual release, pacing, return shape and graphical presentation still need a client observation.
+- The Vaalsmithed Volcanic Fissure mod names an unarmed trigger with no grants. The armed chest daemon owns the
+  Volcanic Slam action and both of its stat sets. At level 84 its 1.25 s attack converts 60% of physical damage to
+  fire and has 50% more area. Each of six cracks can hit a resident once along the ground. Each eruption releases
+  eleven mortars (nine base, two from the second stat set). A mortar stopped by terrain deals no damage. Overlapping
+  landing areas hit independently. The box keeps its initial obstacle hulls, crack progress, landing positions and
+  committed hits through a change of runner or a rules reload. The server models a straight crack from the attack midpoint, a 20-cell throw and a new target
+  after each flight window. It samples positions at the decision frame, prefers the nearest opponent away from the
+  current endpoint within the caster's aggro range, and keeps the previous heading if nobody is in range. The
+  original crack shape, repeat cadence, target selection, individual hit damage and visuals still need client measurements.
+- The separate *Of the Vaal* suffix grants Vaal Blade Vortex. It opens alongside any Vaalsmithed prefix, including
+  when both casts share a timestamp. At level 84 the suffix casts for 800 ms and has five seconds of
+  200 ms physical spell hits. The server starts the vortex at the chest, advances it towards the nearest eligible
+  resident each interval and hits from the resulting position. It uses the named moving daemon's 45 cells/s speed
+  and 135-cell aggro range. Its projectile hull stops at terrain. The cast and each committed pulse survive
+  runner departure and a rules reload. The 36-cell hit radius uses Path of Building's 15-cell base and the chest's
+  native modifiers. A delayed instance tick interleaves pulse damage with the prefix. The original origin, steering,
+  first hit frame and moving visual still need client observation. [Path of Building radius](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_dex.lua#L2449)
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

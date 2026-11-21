@@ -3,6 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
+using GameServer.Modules.Shrines;
 
 namespace GameServer.Gateway.Tests;
 
@@ -81,6 +82,14 @@ public sealed class TormentTests
                 spirit.X, spirit.Y, unrisen: false, placement: Game.MonsterPlacement.Established);
             uint rare = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Rare,
                 spirit.X, spirit.Y, unrisen: false, placement: Game.MonsterPlacement.Established);
+            ShrineRegistry.RegisterDefaults();
+            var massive = ShrineCatalog.Find("Massive")!;
+            var shrine = new ShrineInstance { Definition = massive, At = (spirit.X, spirit.Y), Before = ShrineRegistry.Before(massive) };
+            var shrineContext = new ShrineContext(owner.Conn, 0);
+            int initialScale = owner.Conn.Monsters[rare].Effects.ActorScalePct;
+            foreach (var effect in shrine.Before) await effect.OnNearbyMonsterEnter(shrineContext, shrine, rare);
+            uint scale = Program.Stats.Key("actor_scale_+%")!.Value;
+            Assert.Contains((scale, initialScale + 20), instance.World.MonsterOrigins[rare].Object.Stats!);
             owner.Conn.Walk.Teleport(spirit.X + 10, spirit.Y, 0);
             await MapTorment.Tick(owner.Conn, 0.25);
             Assert.Equal(MapTorment.SpiritState.Possessed, Spirits()[0].State);
@@ -93,6 +102,51 @@ public sealed class TormentTests
             Assert.Equal(2500, touched.Effects["from_league_item_quantity_+%_permyriad"]);
             Assert.True(possessed.Effects["from_league_item_rarity_+%_permyriad"] >= 3000);
             Assert.Equal(touched.Mods.Mods, instance.World.MonsterOrigins[normal].Object.Mods);
+
+            // The spirit took the host while Massive was active. A later viewer sees the size and life after claim.
+            uint enlarged = possessed.MaxLife;
+            int enlargedScale = possessed.Effects.ActorScalePct;
+            foreach (var effect in shrine.Before) await effect.OnActivation(shrineContext, shrine);
+            var origin = instance.World.MonsterOrigins[rare].Object;
+            Assert.True(possessed.MaxLife < enlarged);
+            Assert.Contains((StatKeys.MaximumLife, (int)possessed.MaxLife), origin.Stats!);
+            Assert.Contains((scale, enlargedScale - 20), origin.Stats!);
+            var basic = possessed.Kit.Count > 0 ? possessed.Kit[0].Attack : possessed.Attack!;
+            var expected = InstanceEntities.StatsUpdate(rare, [(StatKeys.MaximumLife, (int)possessed.MaxLife),
+                (StatKeys.MovementVelocityPct, possessed.Effects.MovementPct), (scale, enlargedScale - 20), .. basic.Stats()]);
+            // Another spawner's explicit life and size are also part of its creation, independent of the shrine.
+            uint custom = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Normal,
+                spirit.X, spirit.Y, mods: MonsterModSet.None, unrisen: false,
+                extraStats: [(scale, 25), (StatKeys.MaximumLife, 1234567)], placement: Game.MonsterPlacement.Established);
+            byte[] Creation(uint id)
+            {
+                var created = instance.World.MonsterOrigins[id];
+                var actor = owner.Conn.Monsters[id];
+                var at = actor.Walk.Position(owner.Conn.Clock.Elapsed.TotalSeconds);
+                return InstanceEntities.CreateObject(id, created.Type,
+                    (created.Object with { GridX = at.X, GridY = at.Y, Life = actor.Life }).Blob());
+            }
+            var create = Creation(rare);
+            var customCreate = Creation(custom);
+            var previousOutgoing = Program.Outgoing;
+            var recorded = new List<byte[]>();
+            Program.InGame.TryAdd(owner.Conn, 0);
+            try
+            {
+                var otherWire = peer.Conn.Wire;
+                Program.Outgoing = (ciphers, packet) => { if (ReferenceEquals(ciphers, otherWire.Ciphers)) recorded.Add(packet.ToArray()); };
+                await Game.SyncInstanceMonsters(otherWire.Remote, otherWire.Stream, otherWire.Ciphers, peer.Conn);
+                Assert.Contains(recorded, packet => packet.AsSpan().IndexOf(create) >= 0);
+                Assert.Contains(recorded, packet => packet.AsSpan().IndexOf(customCreate) >= 0);
+                recorded.Clear();
+                await MapTorment.Tick(peer.Conn, 0.25);
+                Assert.Contains(recorded, packet => packet.AsSpan().IndexOf(expected) >= 0);
+            }
+            finally
+            {
+                Program.Outgoing = previousOutgoing;
+                Program.InGame.TryRemove(owner.Conn, out _);
+            }
 
             // A kill (any kind: GameEvents.Kill) claims the payout once; the kill's own drop roll still sees the mark,
             // and the next tick drops the possessed rare's two rares and a slain spirit's rare.
@@ -134,6 +188,91 @@ public sealed class TormentTests
             await MapTorment.Tick(owner.Conn, 0.25);
             Assert.Contains(again, JsonSerializer.Deserialize<Dictionary<uint, JsonElement>>(instance.ContentState["Torment/marks"])!.Keys);
             Assert.Equal(touchedMods, touched.Mods.Mods.Count);
+
+            // A Martyr's Touch grants its level-one death skill to both the living actor and a restored actor.
+            var martyrArea = new InstanceState();
+            martyrArea.OpenedWith(instance.Map!);
+            var martyr = TormentCatalog.All.Single(s => s.Variety == "Metadata/Monsters/Spirit/TormentedMartyr");
+            int x = layout.SpawnX, y = layout.SpawnY;
+            martyrArea.ContentState["Torment/spirits"] = JsonSerializer.Serialize(new[] { new MapTorment.Spirit { Row = martyr.Row, X = x, Y = y } });
+            await using var witness = await ScarabEncounterTests.Wire.Open(martyrArea, layout, seed);
+            var c = witness.Conn;
+            martyrArea.World.Runner = c;
+            c.Clock.Start();
+            c.Walk.Teleport(x, y, 0);
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            var wire = c.Wire;
+            uint hostId = await Game.SpawnMonster(wire.Remote, wire.Stream, wire.Ciphers, c, zombie, 70, MonsterRarity.Normal,
+                x, y, mods: MonsterModSet.None, unrisen: false, placement: Game.MonsterPlacement.Established);
+            var before = martyrArea.World.MonsterOrigins[hostId].Object.Skills!.Select(s => (s.Id, s.EffectsPerLevelRow)).ToArray();
+            uint deathRow = (uint)Assert.Single(Program.Items.Mods.ById("TormentTouchedMonsterMartyr")!.GrantedEffectLevels);
+            Assert.DoesNotContain(before, s => s.EffectsPerLevelRow == deathRow);
+            await MapTorment.Enter(c);
+            await MapTorment.Tick(c, .25);
+            var host = c.Monsters[hostId];
+            var live = martyrArea.World.MonsterOrigins[hostId].Object.Skills!;
+            var grant = Assert.Single(live, s => s.EffectsPerLevelRow == deathRow);
+            Assert.Equal(before, live.Where(s => s.Id != grant.Id).Select(s => (s.Id, s.EffectsPerLevelRow)));
+            Assert.DoesNotContain(host.Kit, s => s.Attack.SkillId == grant.Id);
+            var saved = Assert.Single(SavedMonster.Save([host], 0));
+            uint restoredId = await Game.RestoreMonster(wire.Remote, wire.Stream, wire.Ciphers, c, zombie, saved);
+            var restored = martyrArea.World.MonsterOrigins[restoredId].Object.Skills!;
+            Assert.Equal(live.Select(s => (s.Id, s.EffectsPerLevelRow)), restored.Select(s => (s.Id, s.EffectsPerLevelRow)));
+
+            // The native radius is 15 plus the player's one-cell body. Each death takes its targets at contact,
+            // including a restored host killed before the next encounter tick.
+            c.Experience = CharacterStats.ExperienceFor(c.Pools.Level);
+            CharacterSaves.SetExperience(c.Character!, c.Experience);
+            await Game.SendCharacterStats(wire.Remote, wire.Stream, wire.Ciphers, c, "Martyr contact");
+            c.PlayerLife = c.PlayerMaxLife;
+            c.PlayerStats[Program.Stats.Key(RampageSession.KillSource)!.Value] = 1;
+            var rampage = c.RampageWorld;
+            lock (c.Monsters) Assert.True(c.OwnedCombatWorker.TryStart(c, lifetime, rampage.SourceOwner, rampage, out _));
+            rampage.Enable();
+            var dagger = Game.RampageData.AnimatedWeapons.Single(p => p.Kind == RampageCatalog.WeaponKind.Dagger);
+            var weaponId = await Game.CreateRampageActor(wire.Remote, wire.Stream, wire.Ciphers, c, dagger.Variety,
+                70, 30, dagger.Kind, (x, y), rampage.Epoch);
+            Assert.NotNull(weaponId);
+            var weapon = c.Monsters[weaponId.Value];
+            using var retireDuringKill = GameEvents.Kill.Add("Game", kill =>
+            {
+                if (kill.Monster == host) lifetime.Stop(ex => throw ex);
+            });
+            foreach (var (dying, distance) in new[] { (restoredId, 16), (hostId, 17) })
+            {
+                var victim = c.Monsters[dying];
+                var at = victim.Walk.Position(c.Clock.Elapsed.TotalSeconds);
+                c.Walk.Teleport(at.X + distance, at.Y, c.Clock.Elapsed.TotalSeconds);
+                int weaponEdge = 15 + LivingCollision.Size(weapon);
+                weapon.Walk.Teleport(at.X + weaponEdge + (distance == 16 ? 0 : 1), at.Y, 0);
+                uint lifeBefore = c.PlayerLife;
+                uint weaponLife = weapon.Life;
+                lock (c.Monsters)
+                {
+                    Assert.NotNull(Game.ApplyMonsterHitLocked(c, victim, checked((int)victim.Life)));
+                    Assert.Null(Game.ApplyMonsterHitLocked(c, victim, 1));
+                }
+                Assert.True(victim.CorpseConsumed);
+                c.Walk.Teleport(at.X + (distance == 16 ? 17 : 16), at.Y, c.Clock.Elapsed.TotalSeconds);
+                weapon.Walk.Teleport(at.X + (distance == 16 ? weaponEdge + 1 : weaponEdge), at.Y, 0);
+                await Game.MonsterKilled(wire.Remote, wire.Stream, wire.Ciphers, c, dying, victim);
+                if (dying == hostId)
+                {
+                    Assert.False(lifetime.IsActive);
+                    Assert.True(martyrArea.World.DeathCasts[dying].KillCredited);
+                    Assert.True(c.Monsters.ContainsKey(dying));
+                    lifetime = new ModuleLifetime("Game");
+                    Game.CombatLifetime = lifetime;
+                    Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+                }
+                uint atDeath = c.PlayerLife;
+                Assert.Equal(distance == 16, atDeath < lifeBefore);
+                Assert.Equal(distance == 16, weapon.Life < weaponLife);
+                await MapTorment.Tick(c, .25);
+                Assert.Equal(atDeath, c.PlayerLife);
+                Assert.False(c.Monsters.ContainsKey(dying));
+                Assert.DoesNotContain(dying, martyrArea.World.DeathCasts.Keys);
+            }
         }
         finally
         {
@@ -163,6 +302,7 @@ public sealed class TormentTests
         {
             ["map_spawn_extra_torment_spirits"] = 1, ["map_boss_is_possessed"] = 1, ["map_tormented_spirits_movement_speed_+%"] = 30,
             ["map_monster_damage_taken_+%_while_possessed"] = 20, ["map_tormented_spirit_release_and_dig_%_chance"] = 100,
+            ["map_boss_damage_+%"] = 30, ["map_boss_attack_and_cast_speed_+%"] = 20, ["map_monsters_%_physical_damage_to_add_as_lightning"] = 40,
         });
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         var instance = new InstanceState();
@@ -194,7 +334,7 @@ public sealed class TormentTests
             var packs = Game.Packs.For(area.Id)!;
             var member = packs.Scattered.SelectMany(p => p.Pack.Entries).Select(e => Game.Monsters.Find(e.Variety.ToString()))
                 .First(v => v is { Supported: true })!;
-            var bossVariety = packs.Bosses.Select(row => Game.Monsters.Find(row.ToString())).First(v => v is { Supported: true })!;
+            var bossVariety = packs.Bosses.Select(row => Game.Monsters.Find(row.ToString())).Single(v => v?.Name == "Massier")!;
             var far = layout.Near((spirit.X > layout.GridW / 2 ? spirit.X - 150 : spirit.X + 150, spirit.Y));
             uint minion = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Normal,
                 far.X + 3, far.Y, unrisen: false);
@@ -202,12 +342,47 @@ public sealed class TormentTests
                 far.X, far.Y, unrisen: false);
             uint boss = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, bossVariety, 70, MonsterRarity.Unique,
                 far.X, far.Y + 20, unrisen: false);
+            var massier = owner.Conn.Monsters[boss];
+            var second = Assert.Single(massier.Kit, k => k.Effect == 1329);
+            massier.Attack = second.Attack;
+            BossKits.Consume(massier, second.Attack, 8);
+            var here = massier.Walk.Position(0);
+            owner.Conn.Walk.Teleport(here.X, here.Y, 0);
+            Game.PlaceLockstepChase(owner.Conn, massier, massier.ActionGeneration, 0);
+            Assert.Equal(0d, massier.ClientSwingAt);
             owner.Conn.Walk.Teleport(spirit.X, spirit.Y, 0);
             await MapTorment.Tick(owner.Conn, 0.25);
             Assert.True(TormentCatalog.Has(owner.Conn.Monsters[rare].Mods, grip: true));
             Assert.True(owner.Conn.Monsters[rare].Effects["base_damage_taken_+%"] >= 20);
             Assert.True(TormentCatalog.Has(owner.Conn.Monsters[minion].Mods, grip: false));
-            Assert.True(TormentCatalog.Has(owner.Conn.Monsters[boss].Mods, grip: true));
+            Assert.True(TormentCatalog.Has(massier.Mods, grip: true));
+            var selected = massier.Kit.Single(k => k.Effect == second.Effect);
+            Assert.Same(selected.Attack, massier.Attack);
+            Assert.True(selected.Attack.Damage.MinTotal > second.Attack.Damage.MinTotal);
+            Assert.True(selected.Attack.Seconds < second.Attack.Seconds);
+            Assert.Same(second.Attack, massier.ClientSwingStats!.Value.Attack);
+            Assert.Equal(second.Attack.Seconds, massier.ClientSwingStats.Value.Seconds);
+            Assert.Equal(8 + second.CooldownSeconds, massier.KitReadyAt[second.Effect]);
+            var raw = BossKits.AttackFor(owner.Conn, bossVariety, 70, selected.Effect, selected.Attack.SkillId);
+            Assert.Equal(massier.Mods.Effects.Hit(raw.Damage).Components, selected.Attack.Damage.Components);
+
+            var saved = Assert.Single(SavedMonster.Save([massier], 0));
+            uint copy = await Game.RestoreMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, bossVariety, saved);
+            var restored = owner.Conn.Monsters[copy];
+            Assert.Equal((massier.MaxLife, massier.Life), (restored.MaxLife, restored.Life));
+            Assert.Equal(massier.Kit.Select(k => (k.Effect, k.Attack.SkillId, k.Attack.Seconds, k.CooldownSeconds)),
+                restored.Kit.Select(k => (k.Effect, k.Attack.SkillId, k.Attack.Seconds, k.CooldownSeconds)));
+            var shown = instance.World.MonsterOrigins[boss].Object;
+            var rebuilt = instance.World.MonsterOrigins[copy].Object;
+            foreach (var (live, kept) in massier.Kit.Zip(restored.Kit))
+            {
+                Assert.Equal(live.Attack.Damage.Components, kept.Attack.Damage.Components);
+                var skill = shown.Skills!.Single(s => s.Id == live.Attack.SkillId);
+                Assert.Equal(rebuilt.Skills!.Single(s => s.Id == skill.Id).Stats, skill.Stats);
+                Assert.Contains((StatKeys.MainHandAttackDurationMs, (int)Math.Round(live.Attack.Seconds * 1000)), skill.Stats!);
+            }
+            Assert.Equal(rebuilt.Stats!.Single(s => s.Key == StatKeys.MainHandMinTotal),
+                shown.Stats!.Single(s => s.Key == StatKeys.MainHandMinTotal));
             Assert.Equal("0", instance.ContentState["Torment/seance"]);
 
             // Speaker of the Dead: the spirit the player stands on goes into the player, who gets its Possessed buff.

@@ -16,6 +16,39 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     public const int Prefix = 1, Suffix = 2;
 
+    readonly Lazy<ModCatalog.Mod[]> _corruptionImplicits =
+        new(() => [.. catalog.Mods.All.Where(mod => mod.GenerationType == 5)]);
+
+    /// <summary>Draw a Vaal implicit for this base and item level using the first matching native tag weight.
+    /// A second draw may exclude the first modifier and its families.</summary>
+    public ModCatalog.Mod? CorruptionImplicit(ItemCatalog.BaseType type, int itemLevel, Random random,
+        IReadOnlySet<ushort>? usedHashes = null, IReadOnlySet<int>? usedFamilies = null)
+    {
+        var pool = _corruptionImplicits.Value
+            .Where(m => m.Domain == type.ModDomain && m.Level <= itemLevel && itemLevel <= m.MaxLevel
+                && (usedHashes is null || !usedHashes.Contains(m.Hash))
+                && (usedFamilies is null || !m.Families.Any(usedFamilies.Contains)))
+            .Select(m => (Mod: m, Weight: m.WeightFor(type.Tags))).Where(p => p.Weight > 0).ToArray();
+        return pool.Length == 0 ? null : Pick(pool, random);
+    }
+
+    /// <summary>Roll a complete set of corruption implicits with distinct hashes and families.</summary>
+    public ItemMod[]? RollCorruptionImplicits(ItemCatalog.BaseType type, int itemLevel, int count, Random random)
+    {
+        var result = new ItemMod[count];
+        var families = new HashSet<int>();
+        var hashes = new HashSet<ushort>();
+        for (int i = 0; i < count; i++)
+        {
+            var mod = CorruptionImplicit(type, itemLevel, random, hashes, families);
+            if (mod is null) return null;
+            result[i] = mod.Roll(ModSection.Implicit, random);
+            families.UnionWith(mod.Families);
+            hashes.Add(mod.Hash);
+        }
+        return result;
+    }
+
     /// <summary>Mods.dat GenerationType for the two Eldritch influences: Searing Exarch and Eater of Worlds.</summary>
     public const int ExarchImplicit = 28, EaterImplicit = 29;
 

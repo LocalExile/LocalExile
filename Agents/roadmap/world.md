@@ -135,12 +135,40 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### Vaal Vessels
 
-- **Known:** strongboxes are done ([status](../status/world.md), "Strongboxes"). Vaal Vessels are strongboxes too
-  (`VaalTempleChest`, `VaalEmpoweredChest`, `OrnateVaalBox*`): innately corrupted and rare, guarded by a Vaal side-area
-  boss, and the Exquisite ones of Valdo's maps roll the Vaalsmithed prefixes, daemons that cast a Vaal skill
-  (`ChestDaemonVaal*`: Spark, Flameblast, Firestorm, Caustic Arrow, Blade Vortex, Thrown Weapon, Volcanic Fissure).
-- **Start:** the Exquisite Vaal Vessels of Valdo's map mod as `MapStrongboxes` boxes; then each Vaal daemon, as the
-  strongbox spell daemons are (`StrongboxDaemonSpells.cs`).
+- **Working in Gateway tests.** The corruption implicit adds one Exquisite Vaal Vessel and Valdo's map mod adds ten.
+  They roll chest mods at rare rarity with the `vaal_empowered` tag. Each opens with three normal packs and a Vaal
+  side-area boss. The party shares Vaalsmithed Firestorm's 24 meteors and Flameblast's five shrinking explosions, including
+  after the opener leaves. A Flameblast hit and its ignite use separate per-stage multipliers. The Caustic Arrow prefix
+  fires six piercing arrows and leaves six-second patches of chaos ground along their paths. A Spark vessel releases
+  one shared two-projectile volley and keeps its flight and contacts through a runner change. The Thrown Weapon
+  prefix emits thirteen mirrored pairs from its axe daemon. The party shares their outgoing and return contacts.
+  Volcanic Fissure sends six wall-bounded cracks and eleven landing-only mortars per eruption.
+  The independent *Of the Vaal* suffix sends a chasing Blade Vortex for five seconds alongside a prefix.
+  The Vaal Temple map implicit places ten guarded Vaal Vessels with their own corruption drop modifier.
+  A newly populated Vaal side area's placed boss-room chest grants a shared base reward after its natural guards die.
+  Its *of Experimentation* modifier adds the Vaal Orb count carried by the area. *Of the Gemcutter* adds Vaal gems
+  and *of Thaumaturgy* adds a level 20 Vaal gem.
+  *Of Chiselling* adds a corrupted gem with 23% quality and *of the Facetor* adds a level 21 corrupted gem.
+  *Of Divination* adds one to three cards for corrupted items outside Ruthless. The individual vessel rates
+  still need a direct sample.
+  *Of the Pyramid* grants a Vaal Temple Map at side-area level 80 and above. Its dedicated key opens the Temple.
+  Verify the map's explicit modifiers and identification state on drop in the client.
+  *Of Atzoatl* adds the saved count of corrupted rare equipment with a native Incursion affix.
+  *Of Dark Blessings* adds one or two level-eligible uniques, each with one corruption implicit.
+  *Of the Locus* adds one unique with two corruption implicits from distinct families. A kept area uses its saved count.
+  The map device opens the named layout for the resulting maps and recognises saved identities on shared map keys.
+  Per-item rates and map inclusion still need a vessel sample.
+  A rolled additional Vaal pack count feeds the area population alongside ordinary packs.
+  See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
+- **Next.** Measure Blade Vortex targeting, movement and presentation in the client. Measure the fissure daemon's release, turns,
+  repeat cadence and mortar placement, the axe daemon's release and spiral spacing, and the Spark daemon's empty
+  action and repeat schedule. Check the Valdo completion reward.
+  Check vessel hits on allied minions and animated weapons. Measure the caustic arrows' turns and trail spacing.
+  Verify cast timing, targeting and visuals in
+  the client, along with the level-70 Ice Nova and ordinary Firestorm box spells. Check the Vaal Temple corruption
+  reward pool. Trace natural side-area entrance modifier rolls. Measure the vessel's base reward weights, other
+  bonus rewards and the exit portal in the client. Sample the Incursion reward's class frequencies and spell-trigger bases.
+  Trace the `OrnateVaalBox*` Vaal Reliquaries.
 - **Done when:** Valdo's Exquisite Vaal Vessels spawn and their Vaalsmithed prefixes act.
 
 ### The Labyrinth

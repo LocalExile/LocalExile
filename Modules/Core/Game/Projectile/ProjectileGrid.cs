@@ -44,6 +44,10 @@ public static class ProjectileGrid
         return ServerLevels.For(areaId, seed) is { } level ? new(level.Width, level.Height, level.Projectile) : null;
     }
 
+    internal static bool Blocks(AreaLayout layout, Area? grid, IReadOnlySet<(int, int)> walls, int x, int y) =>
+        x < 0 || y < 0 || layout.GridW > 0 && x >= layout.GridW || layout.GridH > 0 && y >= layout.GridH
+        || grid?.Blocks(x, y) == true || walls.Contains((x, y));
+
     static Grid? Load(string stem)
     {
         string bin = Path.Combine(Folder, stem + ".projectile.bin"), meta = Path.Combine(Folder, stem + ".json");

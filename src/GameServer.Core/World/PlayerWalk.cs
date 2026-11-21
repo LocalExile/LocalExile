@@ -12,7 +12,7 @@ namespace GameServer.Core.World;
 /// The 0x1ab echo reports <see cref="Position"/>; the client snaps to it only when it is ~92+ cells off (Actor handler
 /// 0x14219aa10).
 /// </summary>
-public sealed class PlayerWalk
+public sealed partial class PlayerWalk
 {
     private readonly Func<int, int, bool> _walkable;
     private readonly Func<int, int, int>? _sight;
@@ -137,6 +137,7 @@ public sealed class PlayerWalk
             if (k > 1) kept.Add(s with { Cells = s.Cells[..(k - 1)] });
             break;
         }
+        CapturePositionsBefore(at);
         _rest = here;
         _restSince = at;
         _segments = kept;
@@ -186,6 +187,7 @@ public sealed class PlayerWalk
                 break;
             }
         }
+        CapturePositionsBefore(until);
         _rest = kept.Count > 0 ? kept[^1].Cells[^1] : _segments.Count > 0 ? _segments[0].From : _rest;
         _restSince = until;
         _segments = kept;
@@ -272,6 +274,7 @@ public sealed class PlayerWalk
         var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
         foreach (var next in _segments.Skip(last + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
+        CapturePositionsBefore(now);
         _segments = walk;
     }
 
@@ -354,6 +357,7 @@ public sealed class PlayerWalk
     /// <summary>Puts the walker at a cell (a teleport, e.g. S→C 0x1b7): no walk in progress.</summary>
     public void Teleport(int x, int y, double now)
     {
+        CapturePositionsBefore(now);
         _segments = [];
         _rest = (x, y);
         _restSince = now;
@@ -375,6 +379,7 @@ public sealed class PlayerWalk
         int done = Math.Max(0, (int)((now - left.T0) / left.Step));
         var walk = new List<Segment> { left with { From = here, Cells = left.Cells[done..], T0 = Math.Max(left.T0, now + seconds - fraction * left.Step) } };
         foreach (var next in _segments.Skip(i + 1)) walk.Add(next with { T0 = walk[^1].End });
+        CapturePositionsBefore(now);
         _segments = walk;
     }
 
@@ -554,6 +559,7 @@ public sealed class PlayerWalk
         }
         if (walk.Count > 0) _kept = default;
         // Whole: monsters' walks are read outside the lock too (Rampage's weapons).
+        CapturePositionsBefore(now);
         _rest = here;
         _restSince = now;
         _segments = InFrame(walk, now);

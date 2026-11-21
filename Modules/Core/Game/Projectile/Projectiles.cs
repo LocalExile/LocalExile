@@ -424,9 +424,7 @@ public static partial class Game
         TerrainHeights.Area? heights;
         int heightsAsOf = -1;
 
-        bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
-            || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-            || (blocking ??= ProjectileGrid.Of(Conn.Layout.Id, Conn.Seed))?.Blocks(x, y) == true || Conn.ProjectileWalls.Contains((x, y));
+        bool Wall(int x, int y) => ProjectileGrid.Blocks(Conn.Layout, blocking ??= ProjectileGrid.Of(Conn.Layout.Id, Conn.Seed), Conn.ProjectileWalls, x, y);
 
         int? Height(int x, int y)
         {

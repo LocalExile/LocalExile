@@ -1,5 +1,8 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
@@ -66,6 +69,15 @@ public sealed class ScarabEncounterTests
         }
         Assert.Equal(Enumerable.Range(8, 5), rolledCounts.Order());
         Assert.Empty(MapScarabPacks.Requests(MapMods.None));
+        var vaal = Program.Items.Mods.ById("MapCorruptedSideAreaImplicit")!.Roll(ModSection.Implicit, new Random(7));
+        var side = new MapDevice.Slot(0, "Map", "Vaal side area", -1, [vaal], 0);
+        var both = MapScarabPacks.Requests(catalog.Of([side, cloister], Program.Items.Mods));
+        Assert.Equal(8, Assert.Single(both, p => p.Source == MapScarabPacks.CountStat).Count);
+        var vaalRequest = Assert.Single(both, p => p.Source == MapScarabPacks.VaalPackStat);
+        Assert.Equal(Assert.Single(vaal.Values), vaalRequest.Count);
+        var vaalPack = Assert.Single(vaalRequest.Packs);
+        Assert.Equal("sextant-vaal-pack1", vaalPack.Id);
+        Assert.DoesNotContain(vaalPack, MapScarabPacks.Packs);
         string member = Game.Monsters.Find(MapScarabPacks.Packs[0].Entries[0].Variety.ToString())!.Id;
         Assert.True(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(0)));
         Assert.False(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(1)));
@@ -146,45 +158,197 @@ public sealed class ScarabEncounterTests
             Assert.Equal(ids, Ids());
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
+            await CheckTempleVessels();
+            await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
+            await CheckSideAreaVessel("MapSideArea5_3_2", 69, 47923, "MapCorruptedSideAreaVesselTempleItemDrop_");
+            await CheckSideAreaVessel("MapSideArea5_3_2", 80, 47923, "MapCorruptedSideAreaVaalTempleDrop");
+            await CheckSideAreaVessel("MapSideArea5_3_2", 74, 47923, "MapCorruptedSideAreaVesselDoubleImplicitDrop_");
+            await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
+                "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
+            await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselQuality23GemDrop",
+                "MapCorruptedSideAreaVesselLevel21GemDrop", "MapCorruptedSideAreaVesselDivinationCardDrop",
+                "MapCorruptedSideAreaVesselSingleImplicitDrop");
             var ambushSlot = Slot("ScarabStrongboxNew1");
-            var ambushMods = catalog.Of([ambushSlot], Program.Items.Mods);
+            var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
+            var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
+            var mapSlot = new MapDevice.Slot(key.Hash, key.Class, key.Name, key.Row, [vesselMod], 0)
+                { BaseId = key.Id, Rarity = ItemRarity.Rare };
+            var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([mapSlot, ambushSlot], null, Program.Items.Mods, out _));
+            Assert.Equal((17, 84), (opening.Area.Tier, opening.Area.Level));
+            var ambushMods = opening.Mods;
             Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
             var boxInstance = new InstanceState();
-            boxInstance.OpenedWith(new("StrongboxOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, ambushMods));
-            boxInstance.AreaStats(() => Compose(ambushMods));
-            await using var boxOwner = await Wire.Open(boxInstance, layout, seed);
-            await using var boxPeer = await Wire.Open(boxInstance, layout, seed);
+            boxInstance.OpenedWith(new("StrongboxOwner", opening.Area, ambushMods));
+            var boxStats = boxInstance.AreaStats(() => Game.ComposeMapAreaStats(ambushMods, opening.Area.Tier, new Dictionary<uint, int>(), new HashSet<string>(), -1));
+            uint boxSeed = ServerLevels.PlayableSeed(opening.Area.Id, 0x56a105, opening.Area.Level, boxStats);
+            var boxLayout = AreaLayouts.For(opening.Area.Hash16, boxSeed);
+            await using var boxOwner = await Wire.Open(boxInstance, boxLayout, boxSeed);
+            await using var boxPeer = await Wire.Open(boxInstance, boxLayout, boxSeed);
             await MapStrongboxes.Enter(boxOwner.Conn);
             MapStrongboxes.Box[] Boxes() => System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(boxInstance.ContentState["Ambush/boxes"])!;
             var boxes = Boxes();
-            Assert.Equal(MapStrongboxes.Count(boxOwner.Conn, 70).Count, boxes.Length);
-            Assert.True(boxes.Length >= 4); // the four scarab boxes plus any natural Ambush roll
+            var vessels = boxes.Where(b => b.Type == MapStrongboxes.ExquisiteVessel).ToArray();
+            Assert.Equal(10, vessels.Length);
+            Assert.All(vessels, b => { Assert.True(b.Corrupted); Assert.Equal(2, b.Rarity); Assert.NotEmpty(b.Mods); });
+            int ordinaryBoxes = boxes.Length - vessels.Length;
+            Assert.Equal(MapStrongboxes.Count(boxOwner.Conn, opening.Area.Level).Count, ordinaryBoxes);
+            Assert.True(ordinaryBoxes >= 4);
             await MapStrongboxes.Enter(boxPeer.Conn);
             Assert.Equal(boxes.Select(b => b.Id), Boxes().Select(b => b.Id));
-            Assert.All(boxes, b => Assert.True(layout.Walkable!(b.X, b.Y)));
-            var firstBox = boxes[0];
+            Assert.All(boxes, b => Assert.True(boxLayout.Walkable!(b.X, b.Y)));
+            var firestorm = Program.Items.Mods.ById("ChestSupporterVaalFirestorm")!;
+            var firstBox = vessels.First(b => b.Mods.Any(m => m.Hash == firestorm.Hash));
             boxOwner.Conn.Walk.Teleport(firstBox.X, firstBox.Y, 0);
             Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(firstBox.Id, 0, 1, 0), 0));
-            var active = Boxes()[0];
+            var active = Boxes()[firstBox.Index];
             Assert.Equal(1, active.Phase);
             Assert.NotEmpty(active.Guards);
             Assert.Empty(active.Pending);
+            var vortexMod = Program.Items.Mods.ById("ChestSupporterVaalBladeVortex")!;
+            Assert.Contains(firstBox.Mods, m => m.Hash == vortexMod.Hash);
+            var vortex = Assert.Single(active.Vortices);
+            var vortexGrant = Assert.Single(boxInstance.World.MonsterOrigins[vortex.Actor].Object.Skills!);
+            Assert.Equal((54795u, 54294u), (vortexGrant.EffectsPerLevelRow, vortexGrant.StatSetsPerLevelRow));
+            Assert.DoesNotContain(vortex.Actor, active.Guards);
+            var storm = Assert.Single(active.Firestorms);
+            Assert.Equal(24, storm.Ground.Distinct().Count());
+            Assert.Equal("Metadata/Monsters/Daemon/ChestDaemonVaalFirestorm", boxOwner.Conn.Monsters[storm.Actor].Variety!.Id);
+            Assert.DoesNotContain(storm.Actor, active.Guards);
+            var firstImpact = TimeSpan.FromTicks(storm.Started) + TimeSpan.FromMilliseconds(750);
+            await MapStrongboxes.Tick(boxPeer.Conn, firstImpact - TimeSpan.FromTicks(1));
+            Assert.Equal(0, Boxes()[firstBox.Index].Firestorms[0].Landed);
+            await MapStrongboxes.Tick(boxOwner.Conn, firstImpact);
+            await MapStrongboxes.Tick(boxPeer.Conn, firstImpact);
+            Assert.Equal(1, Boxes()[firstBox.Index].Firestorms[0].Landed);
             int guardCount = boxOwner.Conn.Monsters.Count;
             Assert.True(await MapStrongboxes.Use(boxPeer.Conn, new(firstBox.Id, 0, 1, 0), 0));
             Assert.Equal(guardCount, boxOwner.Conn.Monsters.Count);
+            var vortexStart = TimeSpan.FromTicks(vortex.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, vortexStart + TimeSpan.FromMilliseconds(999));
+            Assert.Equal(0, Boxes()[firstBox.Index].Vortices[0].Landed);
+            await MapStrongboxes.Tick(boxPeer.Conn, vortexStart + TimeSpan.FromSeconds(1));
+            Assert.Equal(1, Boxes()[firstBox.Index].Vortices[0].Landed);
+            var sideBosses = ClientTables.Table("WorldAreas").Where(a => a.Bool("IsVaalArea"))
+                .SelectMany(a => a.Ints("Bosses_MonsterVarietiesKeys")).ToHashSet();
+            uint vesselBoss = Assert.Single(active.Guards, id => boxOwner.Conn.Monsters[id] is
+                { Rarity: MonsterRarity.Unique, Variety: { } v } && sideBosses.Contains(v.Row));
+            Assert.Contains(active.Guards, id => boxOwner.Conn.Monsters[id].Rarity == MonsterRarity.Normal);
             lock (boxOwner.Conn.Monsters)
-                foreach (uint guard in active.Guards) { boxOwner.Conn.Monsters[guard].Dead = true; boxOwner.Conn.Monsters[guard].Life = 0; }
+                foreach (uint guard in active.Guards.Where(id => id != vesselBoss)) { boxOwner.Conn.Monsters[guard].Dead = true; boxOwner.Conn.Monsters[guard].Life = 0; }
             await MapStrongboxes.Tick(boxOwner.Conn);
-            Assert.Equal(2, Boxes()[0].Phase);
+            Assert.Equal(1, Boxes()[firstBox.Index].Phase);
+            Assert.Empty(boxInstance.Ground.All());
+            boxOwner.Conn.Monsters[vesselBoss].Dead = true;
+            boxOwner.Conn.Monsters[vesselBoss].Life = 0;
+            await MapStrongboxes.Tick(boxOwner.Conn);
+            Assert.Equal(2, Boxes()[firstBox.Index].Phase);
             int rewardCount = boxInstance.Ground.All().Count();
             Assert.True(rewardCount > 0);
             await MapStrongboxes.Tick(boxPeer.Conn);
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
             MapStrongboxes.Leave(boxOwner.Conn);
             await MapStrongboxes.Enter(boxOwner.Conn);
-            Assert.Equal(firstBox.Id, Boxes()[0].Id);
-            Assert.Equal(2, Boxes()[0].Phase);
+            Assert.Equal(firstBox.Id, Boxes()[firstBox.Index].Id);
+            Assert.Equal(2, Boxes()[firstBox.Index].Phase);
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
+            var lastImpact = firstImpact + TimeSpan.FromMilliseconds(23 * 500);
+            await MapStrongboxes.Tick(boxPeer.Conn, lastImpact);
+            Assert.Equal(24, Boxes()[firstBox.Index].Firestorms[0].Landed);
+            Assert.Empty(Boxes()[firstBox.Index].Vortices);
+            Assert.DoesNotContain(vortex.Actor, boxInstance.World.MonsterOrigins.Keys);
+            Assert.DoesNotContain(storm.Actor, boxInstance.World.MonsterOrigins.Keys);
+            await MapStrongboxes.Tick(boxPeer.Conn, lastImpact + TimeSpan.FromSeconds(6));
+            Assert.Empty(Boxes()[firstBox.Index].Firestorms);
+            var flameblast = Program.Items.Mods.ById("ChestSupporterVaalFlameblast")!;
+            var flameBox = vessels.First(b => b.Mods.Any(m => m.Hash == flameblast.Hash));
+            boxOwner.Conn.Walk.Teleport(flameBox.X, flameBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(flameBox.Id, 0, 1, 0), 0));
+            var blast = Assert.Single(Boxes()[flameBox.Index].Flameblasts);
+            Assert.Equal("Metadata/Monsters/Daemon/ChestDaemonVaalFlameblast", boxOwner.Conn.Monsters[blast.Actor].Variety!.Id);
+            Assert.DoesNotContain(blast.Actor, Boxes()[flameBox.Index].Guards);
+            var castStart = TimeSpan.FromTicks(blast.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, castStart + TimeSpan.FromMilliseconds(999));
+            Assert.Equal(0, Boxes()[flameBox.Index].Flameblasts[0].Landed);
+            for (int burst = 1; burst <= 4; burst++)
+            {
+                await MapStrongboxes.Tick(boxPeer.Conn, castStart + TimeSpan.FromSeconds(burst));
+                Assert.Equal(burst, Boxes()[flameBox.Index].Flameblasts[0].Landed);
+            }
+            await MapStrongboxes.Tick(boxOwner.Conn, castStart + TimeSpan.FromSeconds(5));
+            Assert.Empty(Boxes()[flameBox.Index].Flameblasts);
+            Assert.DoesNotContain(blast.Actor, boxInstance.World.MonsterOrigins.Keys);
+            var caustic = Program.Items.Mods.ById("ChestSupporterVaalCausticArrow")!;
+            var arrowBox = vessels.First(b => b.Mods.Any(m => m.Hash == caustic.Hash));
+            boxOwner.Conn.Walk.Teleport(arrowBox.X, arrowBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(arrowBox.Id, 0, 1, 0), 0));
+            var volley = Assert.Single(Boxes()[arrowBox.Index].CausticArrows);
+            Assert.Equal("Metadata/Monsters/Daemon/ChestDaemonVaalCaustic", boxOwner.Conn.Monsters[volley.Actor].Variety!.Id);
+            Assert.DoesNotContain(volley.Actor, Boxes()[arrowBox.Index].Guards);
+            Assert.Equal(6, volley.Steps[0].Length);
+            var shot = TimeSpan.FromTicks(volley.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, shot + TimeSpan.FromMilliseconds(700));
+            Assert.Equal(0, Boxes()[arrowBox.Index].CausticArrows[0].Landed);
+            await MapStrongboxes.Tick(boxPeer.Conn, shot + TimeSpan.FromSeconds(4));
+            Assert.Equal(volley.Steps.Length, Boxes()[arrowBox.Index].CausticArrows[0].Landed);
+            Assert.DoesNotContain(volley.Actor, boxInstance.World.MonsterOrigins.Keys);
+            await MapStrongboxes.Tick(boxOwner.Conn, shot + TimeSpan.FromSeconds(11));
+            Assert.Empty(Boxes()[arrowBox.Index].CausticArrows);
+            var sparkMod = Program.Items.Mods.ById("ChestSupporterVaalSpark")!;
+            var sparkBox = vessels.First(b => b.Mods.Any(m => m.Hash == sparkMod.Hash));
+            boxOwner.Conn.Walk.Teleport(sparkBox.X, sparkBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(sparkBox.Id, 0, 1, 0), 0));
+            var spark = Assert.Single(Boxes()[sparkBox.Index].Sparks);
+            Assert.Equal(2, spark.Objects.Distinct().Count());
+            var grants = boxInstance.World.MonsterOrigins[spark.Actor].Object.Skills!;
+            Assert.Contains(grants, g => g.EffectsPerLevelRow == 50602);
+            Assert.Contains(grants, g => g.EffectsPerLevelRow == 7769 && g.StatSetsPerLevelRow == 7653);
+            Assert.DoesNotContain(spark.Actor, Boxes()[sparkBox.Index].Guards);
+            var sparkStart = TimeSpan.FromTicks(spark.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, sparkStart + TimeSpan.FromMilliseconds(649));
+            Assert.Empty(Boxes()[sparkBox.Index].Sparks[0].Frames);
+            await MapStrongboxes.Tick(boxPeer.Conn, sparkStart + TimeSpan.FromMilliseconds(2650));
+            Assert.Empty(Boxes()[sparkBox.Index].Sparks);
+            Assert.DoesNotContain(spark.Actor, boxInstance.World.MonsterOrigins.Keys);
+            var weaponMod = Program.Items.Mods.ById("ChestSupporterVaalThrownWeapon")!;
+            var weaponBox = vessels.First(b => b.Mods.Any(m => m.Hash == weaponMod.Hash));
+            boxOwner.Conn.Walk.Teleport(weaponBox.X, weaponBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(weaponBox.Id, 0, 1, 0), 0));
+            var thrown = Assert.Single(Boxes()[weaponBox.Index].ThrownWeapons);
+            var weaponActor = boxInstance.World.MonsterOrigins[thrown.Actor].Object;
+            var throwSkill = Assert.Single(weaponActor.Skills!);
+            Assert.Equal((27254u, 27095u), (throwSkill.EffectsPerLevelRow, throwSkill.StatSetsPerLevelRow));
+            Assert.Contains(throwSkill.Stats!, s => s.Key == Program.Stats.Key("total_number_of_projectiles_to_fire") && s.Value == 13);
+            Assert.Equal(61579, Assert.Single(weaponActor.Equipped!).VisualIdentity);
+            Assert.DoesNotContain(thrown.Actor, Boxes()[weaponBox.Index].Guards);
+            var throwStart = TimeSpan.FromTicks(thrown.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, throwStart + TimeSpan.FromMilliseconds(450));
+            Assert.Empty(Boxes()[weaponBox.Index].ThrownWeapons[0].Frames);
+            await MapStrongboxes.Tick(boxPeer.Conn, throwStart + TimeSpan.FromSeconds(2));
+            Assert.NotEmpty(Boxes()[weaponBox.Index].ThrownWeapons[0].Frames);
+            await MapStrongboxes.Tick(boxPeer.Conn, throwStart + TimeSpan.FromSeconds(7));
+            Assert.Empty(Boxes()[weaponBox.Index].ThrownWeapons);
+            Assert.DoesNotContain(thrown.Actor, boxInstance.World.MonsterOrigins.Keys);
+            var fissureMod = Program.Items.Mods.ById("ChestSupporterVaalVolcanicFissure")!;
+            var fissureBox = vessels.First(b => b.Mods.Any(m => m.Hash == fissureMod.Hash));
+            var hull = (from x in Enumerable.Range(-1, 3) from y in Enumerable.Range(-1, 3)
+                        where x != 0 || y != 0 select (fissureBox.X + x, fissureBox.Y + y)).ToArray();
+            var addedWalls = hull.Where(boxOwner.Conn.ProjectileWalls.Add).ToArray();
+            boxOwner.Conn.Walk.Teleport(fissureBox.X, fissureBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(fissureBox.Id, 0, 1, 0), 0));
+            var fissure = Assert.Single(Boxes()[fissureBox.Index].Fissures);
+            boxOwner.Conn.ProjectileWalls.ExceptWith(addedWalls);
+            var slam = Assert.Single(boxInstance.World.MonsterOrigins[fissure.Actor].Object.Skills!);
+            Assert.Equal((74619u, 73947u, 73948u), (slam.EffectsPerLevelRow, slam.StatSetsPerLevelRow, Assert.Single(slam.ExtraStatSets).Row));
+            Assert.DoesNotContain(fissure.Actor, Boxes()[fissureBox.Index].Guards);
+            Assert.Contains(slam.Stats!, s => s.Key == Program.Stats.Key("total_number_of_projectiles_to_fire") && s.Value == 11);
+            var fissureStart = TimeSpan.FromTicks(fissure.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, fissureStart + TimeSpan.FromMilliseconds(626));
+            Assert.Empty(Assert.IsType<MapStrongboxes.FissureLanding[]>(Assert.Single(Boxes()[fissureBox.Index].Fissures).Landings));
+            await MapStrongboxes.Tick(boxPeer.Conn, fissureStart + TimeSpan.FromSeconds(1));
+            Assert.Equal(1, Assert.Single(Boxes()[fissureBox.Index].Fissures).Repeat!.Index);
+            await MapStrongboxes.Tick(boxPeer.Conn, fissureStart + TimeSpan.FromSeconds(4));
+            Assert.Empty(Boxes()[fissureBox.Index].Fissures);
+            Assert.DoesNotContain(fissure.Actor, boxInstance.World.MonsterOrigins.Keys);
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
             var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2"), Slot("ScarabEssence4")], Program.Items.Mods);
@@ -262,6 +426,16 @@ public sealed class ScarabEncounterTests
                 Assert.Contains("Standalone", Game.Monsters.Find(s.Variety.ToString())!.Id);
             });
             Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
+            var previousSettings = SystemSettings.Default.Values;
+            try
+            {
+                foreach (double size in new[] { 0.0, 0.5, 2.0 })
+                {
+                    SystemSettings.Default.Replace(new Dictionary<string, double>(previousSettings) { ["monster_pack_size_multiplier"] = size });
+                    Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
+                }
+            }
+            finally { SystemSettings.Default.Replace(previousSettings); }
             var guardPlan = terrorGuards[0];
             var guardVariety = Game.Monsters.Find(guardPlan.Variety.ToString())!;
             uint bossId = await Game.SpawnMonster(terrors.Conn.Wire.Remote, terrors.Conn.Wire.Stream, terrors.Conn.Wire.Ciphers,
@@ -288,6 +462,195 @@ public sealed class ScarabEncounterTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseOwnSaves();
         }
+    }
+
+    static async Task CheckSideAreaVessel(string areaId, int level, uint seed, params string[] suffixes)
+    {
+        const string chest = "Metadata/Chests/SideArea/SideAreaChest";
+        var area = AreaInfo.Load(GamePack.Default.TryRead, areaId, level);
+        seed = ServerLevels.PlayableSeed(areaId, seed, level);
+        var layout = AreaLayouts.For(area.Hash16, seed);
+        var at = Assert.Single(new QuestObjectTypes.AreaPlacements(areaId, seed, []).Of(chest));
+        var instance = new InstanceState();
+        var random = new Random(7);
+        var rolls = suffixes.ToDictionary(id => id, id => Program.Items.Mods.ById(id)!.Roll(ModSection.Explicit, random));
+        int Count(string id, int maximum = 1)
+        {
+            if (!rolls.TryGetValue(id, out var roll)) return 0;
+            int count = Assert.Single(roll.Values);
+            Assert.InRange(count, 1, maximum);
+            return count;
+        }
+        if (rolls.Count > 0)
+        {
+            var slot = new MapDevice.Slot(0, "Map", "Secluded Canal", -1, [.. rolls.Values], 0);
+            var mods = MapRunCatalog.Load("data").Of([slot], Program.Items.Mods);
+            instance.OpenedWith(new("VesselOwner", new(layout.Hash, areaId, "Secluded Canal", 16) { Level = level }, mods));
+            instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        }
+        await using var owner = await Wire.Open(instance, layout, seed);
+        await using var peer = await Wire.Open(instance, layout, seed);
+        var wire = owner.Conn.Wire;
+        await Game.PopulateArea(wire.Remote, wire.Stream, wire.Ciphers, owner.Conn);
+        int bossRow = Assert.Single(Game.Packs.BossesFor(areaId));
+        var boss = Assert.Single(owner.Conn.Monsters.Values, m => m.Variety?.Row == bossRow);
+        var oldOutput = Program.Outgoing;
+        var creates = new List<uint>();
+        Program.Outgoing = (ciphers, bytes) =>
+        {
+            if (bytes.Length >= 16 && BinaryPrimitives.ReadUInt16BigEndian(bytes) == InstanceEntities.CreateObjectId
+                && BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12)) == InstanceEntities.ObjectTypeHash(chest))
+                creates.Add(BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)));
+            oldOutput?.Invoke(ciphers, bytes);
+        };
+        try
+        {
+            await SideAreaVessels.Enter(owner.Conn);
+            uint id = Assert.Single(creates);
+            await SideAreaVessels.Enter(peer.Conn);
+            Assert.Equal(new[] { id, id }, creates);
+            owner.Conn.Walk.Teleport(at.X + 3, at.Y, 0);
+            peer.Conn.Walk.Teleport(at.X + 3, at.Y, 0);
+            Assert.True(await SideAreaVessels.Use(owner.Conn, new(id, 0, 1, 0), 0));
+            Assert.False(instance.ChestOpened(at.X, at.Y));
+            Assert.Empty(instance.Ground.All());
+            lock (peer.Conn.Monsters) Assert.NotNull(Game.ApplyMonsterHitLocked(peer.Conn, boss, int.MaxValue));
+            Assert.True(boss.Dead);
+            Assert.True(await SideAreaVessels.Use(peer.Conn, new(id, 0, 1, 0), 0));
+            Assert.True(instance.ChestOpened(at.X, at.Y));
+            Assert.True(await SideAreaVessels.Use(owner.Conn, new(id, 0, 2, 0), 0));
+            var drops = instance.Ground.All().Select(entry => entry.Item.Item).ToArray();
+            uint vaalOrb = Program.Items.Find(CurrencyEffects.VaalOrb)!.Hash;
+            Assert.Equal(Count("MapCorruptedSideAreaVesselVaalOrbDrop_", 3),
+                drops.Where(item => item.TypeHash == vaalOrb).Sum(item => (int)item.StackSize));
+            var qualityDrops = drops.Where(item => item.Rarity != ItemRarity.Unique && item.Quality == 23).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselQuality23GemDrop"), qualityDrops.Length);
+            var obtainable = GemSources.DropPool(Program.Items);
+            Assert.All(qualityDrops, item =>
+            {
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                Assert.Contains(type.Row, obtainable);
+                Assert.InRange(type.DropLevel, 1, level);
+                Assert.True(item.Corrupted);
+                Assert.Equal(1, Program.Items.GemLevel(item));
+            });
+            var levelDrops = drops.Where(item => Program.Items.GemLevel(item) == 21).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselLevel21GemDrop"), levelDrops.Length);
+            Assert.All(levelDrops, item =>
+            {
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                Assert.Contains(type.Row, obtainable);
+                Assert.InRange(type.DropLevel, 1, level);
+                Assert.True(item.Corrupted);
+            });
+            var cards = drops.Where(item => Program.Items.ByHash(item.TypeHash)!.Class == "DivinationCard").ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselDivinationCardDrop", 3), cards.Sum(item => (int)item.StackSize));
+            foreach (var card in cards)
+            {
+                var type = Program.Items.ByHash(card.TypeHash)!;
+                Assert.InRange(type.DropLevel, 1, level);
+                Assert.False(card.Corrupted);
+                Assert.True(DivinationRewards.Find(type.Id) is { Enabled: true, Corrupted: true });
+            }
+            var temple = Program.Items.Find("Metadata/Items/Maps/MapKeyVaalTemple")!;
+            var templeMaps = drops.Where(item => item.TypeHash == temple.Hash).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVaalTempleDrop"), templeMaps.Length);
+            foreach (var map in templeMaps)
+            {
+                Assert.True(map.Corrupted);
+                Assert.Equal(ItemRarity.Rare, map.Rarity);
+                Assert.Equal(level, map.ItemLevel);
+                var slot = new MapDevice.Slot(temple.Hash, temple.Class, temple.Name, temple.Row, map.Mods, map.Quality);
+                var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([slot], null, Program.Items.Mods, out _));
+                Assert.Equal("MapWorldsVaalTemple", opening.Area.Id);
+                Assert.Equal(10, opening.Mods.Get("map_vaal_temple_spawn_additional_vaal_vessels"));
+            }
+            var rares = drops.Where(item => item.Rarity == ItemRarity.Rare && item.TypeHash != temple.Hash).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselTempleItemDrop_", 2), rares.Length);
+            foreach (var item in rares)
+            {
+                Assert.True(item.Corrupted && item.Identified);
+                Assert.Equal(level, item.ItemLevel);
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                var affixes = item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => Program.Items.Mods.ByHash(m.Hash)!).ToArray();
+                Assert.InRange(affixes.Length, 4, 6);
+                var architect = Assert.Single(affixes, m => m.SpawnWeights.Count > 0 && m.SpawnWeights.All(w => w.Weight == 0));
+                Assert.Contains(GameData.Store!.LoadRows("incursion_item_mods", "item_class, mod_id"),
+                    r => (string)r["item_class"]! == type.Class && (string)r["mod_id"]! == architect.Id);
+            }
+            var uniques = drops.Where(item => item.Rarity == ItemRarity.Unique).ToArray();
+            int singles = Count("MapCorruptedSideAreaVesselSingleImplicitDrop", 2);
+            int doubles = Count("MapCorruptedSideAreaVesselDoubleImplicitDrop_");
+            var implicitCounts = new List<int>();
+            foreach (var item in uniques)
+            {
+                Assert.True(item.Corrupted);
+                Assert.False(item.Identified);
+                Assert.Equal(level, item.ItemLevel);
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                var corruption = item.Mods.Where(m => m.Section == ModSection.Implicit)
+                    .Select(m => Program.Items.Mods.ByHash(m.Hash)!).Where(m => m.GenerationType == 5).ToArray();
+                implicitCounts.Add(corruption.Length);
+                if (corruption.Length == 2)
+                {
+                    Assert.NotEqual(corruption[0].Hash, corruption[1].Hash);
+                    Assert.Empty(corruption[0].Families.Intersect(corruption[1].Families));
+                }
+                foreach (var mod in corruption)
+                {
+                    Assert.Equal(type.ModDomain, mod.Domain);
+                    Assert.InRange(level, mod.Level, mod.MaxLevel);
+                    Assert.True(mod.WeightFor(type.Tags) > 0);
+                }
+            }
+            Assert.Equal(Enumerable.Repeat(1, singles).Concat(Enumerable.Repeat(2, doubles)), implicitCounts.Order());
+            var rewards = drops.Where(item => item.Rarity is not (ItemRarity.Rare or ItemRarity.Unique) && item.TypeHash != vaalOrb && item.Quality != 23
+                && Program.Items.GemLevel(item) != 21 && Program.Items.ByHash(item.TypeHash)!.Class != "DivinationCard").ToArray();
+            int levelledGems = Count("MapCorruptedSideAreaVesselLevelledGemDrop");
+            int gems = Count("MapCorruptedSideAreaVesselVaalGemDrop", 2) + levelledGems;
+            Assert.Equal(gems + 1, rewards.Length);
+            var gemRows = Program.Items.All.Select(t => Program.Items.Gem(t)?.VaalBaseRow).OfType<int>().ToHashSet();
+            var gemDrops = rewards.Where(item => gemRows.Contains(Program.Items.ByHash(item.TypeHash)!.Row)).ToArray();
+            Assert.InRange(gemDrops.Length, gems, gems + 1);
+            Assert.All(gemDrops, item => Assert.True(item.Corrupted));
+            Assert.Equal(levelledGems, gemDrops.Count(item => Program.Items.GemLevel(item) == 20));
+            Assert.All(gemDrops.Where(item => Program.Items.GemLevel(item) != 20), item => Assert.Equal(1, Program.Items.GemLevel(item)));
+            Assert.All(rewards.Except(gemDrops), item => Assert.Contains("/CurrencyVaalFragment1_", Program.Items.ByHash(item.TypeHash)!.Id));
+        }
+        finally { Program.Outgoing = oldOutput; }
+    }
+
+    static async Task CheckTempleVessels()
+    {
+        var map = Program.Items.Find("Metadata/Items/Maps/MapKeyVaalTemple")!;
+        var key = ItemCatalog.Create(map, random: new Random(41));
+        var slot = new MapDevice.Slot(map.Hash, map.Class, map.Name, map.Row, key.Mods, 0) { BaseId = map.Id };
+        var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([slot], null, Program.Items.Mods, out _));
+        Assert.Equal(("MapWorldsVaalTemple", 16, 83), (opening.Area.Id, opening.Area.Tier, opening.Area.Level));
+        Assert.Equal(10, opening.Mods.Get("map_vaal_temple_spawn_additional_vaal_vessels"));
+        var generic = Program.Items.Find("Metadata/Items/Maps/MapKeyTier16")!;
+        var other = new MapDevice.Slot(generic.Hash, generic.Class, generic.Name, generic.Row, [], 0);
+        Assert.Null(Game.MapDevices.Value.Check([other], null, Program.Items.Mods, out _, false, opening.Area.Hash16));
+        var instance = new InstanceState();
+        instance.OpenedWith(new("TempleOwner", opening.Area, opening.Mods));
+        var areaStats = instance.AreaStats(() => Game.ComposeMapAreaStats(opening.Mods, opening.Area.Tier,
+            new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        uint seed = ServerLevels.PlayableSeed(opening.Area.Id, 0x7017, opening.Area.Level, areaStats);
+        var layout = AreaLayouts.For(opening.Area.Hash16, seed);
+        await using var owner = await Wire.Open(instance, layout, seed);
+        await MapStrongboxes.Enter(owner.Conn);
+        var boxes = System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(instance.ContentState["Ambush/boxes"])!;
+        var vessels = boxes.Where(b => b.Type == MapStrongboxes.TempleVessel).ToArray();
+        Assert.Equal(10, vessels.Length);
+        Assert.All(vessels, b => { Assert.Equal(2, b.Rarity); Assert.Empty(b.Mods); });
+        Assert.DoesNotContain(boxes, b => b.Type == MapStrongboxes.ExquisiteVessel);
+        var type = StrongboxCatalog.Find(MapStrongboxes.TempleVessel)!;
+        var loot = StrongboxLoot.Roll(owner.Conn, type,
+            id => StrongboxMods.Stat(Program.Items.Mods, type, [], id) + StrongboxMods.RarityStat(Program.Items.Mods, vessels[0].Rarity, id),
+            opening.Area.Level, opening.Mods, new Random(41));
+        var eligible = loot.Where(d => d.Type.MaxStack <= 1).ToArray();
+        Assert.NotEmpty(eligible);
+        Assert.All(eligible, d => Assert.True(d.Item.Corrupted));
     }
 
     [Fact]

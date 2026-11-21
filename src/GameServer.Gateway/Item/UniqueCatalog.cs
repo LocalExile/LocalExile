@@ -14,6 +14,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     // ("Demigod's Immortality ").
     public static string NameKey(string name) => name.Trim().Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
     {
+        "Maelstrom of Chaos" => "Maelström of Chaos",
         "Rigwald's Charge" => "Rigvald's Charge",
         "The Broken Elegy" => "Broken Elegy",
         "The Goddess Unleashed" => "The GoddessUnleashed",
