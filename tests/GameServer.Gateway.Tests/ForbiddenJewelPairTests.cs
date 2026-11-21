@@ -72,4 +72,3 @@ public sealed class ForbiddenJewelPairTests
         Assert.Equal((0, 0), Read(a, b));
     }
 }
-
