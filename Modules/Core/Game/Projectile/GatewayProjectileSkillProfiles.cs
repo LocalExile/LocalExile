@@ -121,10 +121,13 @@ public static class GatewayProjectileSkillProfiles
         else if (effect == "HolyFlameTotem")
             p = p with { Count = Math.Max(1, get("base_number_of_projectiles")), Pierce = -1, CannotReturn = true };
 
-        // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
-        // pass below adds the skill's and the support's extra arrows to it.
+        // Cloudburst starts in Tornado Shot's secondary action. Its rain payload fires the skill's full arrow
+        // count from the landing cell. Only ordinary Tornado Shot creates a separate group at each arrow's end.
+        var payload = p;
+        if (effect == "TornadoShotAltX")
+            p = p with { Id = TornadoSecondaryArrow, Lifetime = TornadoSecondaryLifetime };
         if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0)
-            p = ArrowNovaChildren(p, get("projectiles_nova") != 0 && get("projectiles_barrage") != 0);
+            p = ArrowNovaChildren(payload, p, get("projectiles_nova") != 0 && get("projectiles_barrage") != 0);
 
         // These player stats belong to a particular active skill, including its transfigured variants.
         int extraProjectiles = effect switch
@@ -176,7 +179,7 @@ public static class GatewayProjectileSkillProfiles
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
-        if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
+        if (effect is "TornadoShot" or "TornadoShotAltY") p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
@@ -212,7 +215,8 @@ public static class GatewayProjectileSkillProfiles
         HidePredictedVisual = true
     };
 
-    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
+    const string TornadoSecondaryArrow = "Metadata/Projectiles/TornadoShotSecondaryArrow";
+    static readonly long TornadoSecondaryLifetime = ProjectileRuntime.Time(.3);
 
     // The client predicts the primary arrow and its terminal group itself (Frida: seven local and seven server
     // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
@@ -223,14 +227,14 @@ public static class GatewayProjectileSkillProfiles
         int count = Math.Clamp(get("tornado_shot_num_of_secondary_projectiles") is > 0 and var n ? n : 3, 1, 256);
         var child = parent with
         {
-            Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
+            Id = TornadoSecondaryArrow,
             Count = count,
             NativeVolley = null,
             SpreadRadians = 0,
             AimSpreadDistance = 0,
             Range = SystemSettings.Default.ProjectileMaximumRangeCells,
             // Client trace: the secondary action's final callback caps at 300 ms, so projectile speed sets the range.
-            Lifetime = ProjectileRuntime.Time(.3),
+            Lifetime = TornadoSecondaryLifetime,
             SequentialDelay = 0,
             CountConsumer = ProjectileCountConsumer.Primary,
             Pierce = parent.Pierce, Fork = parent.Fork, Chain = parent.Chain, Split = 0,
@@ -285,9 +289,9 @@ public static class GatewayProjectileSkillProfiles
     // that lands at the aim and releases the skill's whole volley in a circle from there. Frida 2026-11-04 (Split
     // Arrow, 18 arrows): all children started on one cell and the directions were exactly 20 degrees apart, the first
     // on the aim ray; the client drew both the payload and the children, and the payload dealt no damage.
-    static ProjectileProfile ArrowNovaChildren(ProjectileProfile parent, bool barrage)
+    static ProjectileProfile ArrowNovaChildren(ProjectileProfile payload, ProjectileProfile arrows, bool barrage)
     {
-        var child = parent with
+        var child = arrows with
         {
             // Keep the base count and the skill's own contact/terminal areas: these are its normal arrows.
             NativeVolley = null, SpreadRadians = 0, AimSpreadDistance = 0,
@@ -301,7 +305,7 @@ public static class GatewayProjectileSkillProfiles
             Returns = false, ReturnChancePercent = 0, ReturnRolls = null, CannotReturn = true,
             FormChange = null, SplitForm = null, SplitOnTerrain = false
         };
-        return parent with
+        return payload with
         {
             // One payload arrow: no hits, no contacts, and no server object (the official server sends none; the
             // parabola was ours). The rain rig and its attached arrow art carry the visual; the children stay hidden.

@@ -51,6 +51,41 @@ public sealed class TornadoShotSecondaryTests
         var baseDirection = GatewayProjectileSkillProfiles.TornadoShotBaseDirection(1, 2, 4096, 0);
         Assert.Equal(-0.9982982277870178, baseDirection.X, 6);
         Assert.Equal(0.05831458792090416, baseDirection.Y, 6);
+
+        foreach (int extra in new[] { 0, 4 })
+        {
+            int CloudburstStat(string key) => key switch
+            {
+                "projectiles_rain" or "projectiles_nova" => 1,
+                "base_number_of_arrows" => 9,
+                "number_of_additional_projectiles" => extra,
+                "tornado_shot_num_of_secondary_projectiles" => 2,
+                _ => 0
+            };
+            var cloudburst = GatewayProjectileSkillProfiles.Resolve("TornadoShotAltX", profile.Id,
+                CloudburstStat, 200, attack: true, arrows: true) with { Range = 30 };
+            Assert.Equal(1, cloudburst.Count);
+            Assert.False(cloudburst.DirectDamage);
+            var arrows = cloudburst.EndEmission!.Child;
+            Assert.Equal(9 + extra, arrows.Count);
+            Assert.Equal(profile.EndEmission.Child.Id, arrows.Id);
+            Assert.Null(arrows.EndEmission);
+
+            var arena = new Arena(false);
+            var landing = new ProjectileVector(30, 0);
+            for (int i = 0; i < arrows.Count; i++)
+            {
+                var target = landing + new ProjectileVector(24, 0).Rotate(Math.Tau * i / arrows.Count);
+                arena.Targets.Add(new(new((uint)i + 10), 2, _ => target, 0));
+            }
+            var runtime = new ProjectileRuntime(arena);
+            runtime.Release(new ProjectileUse(cloudburst, new(1), new(1), 1, new(0, 0), landing));
+            long payload = Assert.Single(runtime.Projectiles).Id;
+            runtime.AdvanceTo(ProjectileRuntime.Time(1));
+            Assert.DoesNotContain(arena.Hits, hit => hit.Arrow == payload);
+            Assert.Equal(9 + extra, arena.Hits.Select(hit => hit.Target).Distinct().Count());
+            Assert.Equal(9 + extra, arena.Hits.Select(hit => hit.Arrow).Distinct().Count());
+        }
     }
 
     // Point Blank/Far Shot measure the whole continuation: a child starts with the primary's travelled distance and

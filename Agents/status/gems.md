@@ -82,6 +82,8 @@ Nothing yet.
   extra endpoint volleys. Gateway tests follow both fourth-point arrows through two targets outside their original lanes.
   Slivertongue arrows pierce after a fork or a completed chain. Tornado Shot's secondary arrows inherit the primary's
   completed chains. The group can hit a target the primary hit, and each arrow spends its own remaining chains.
+  Tornado Shot of Cloudburst lands one payload and fires nine damaging arrows at zero quality, or thirteen at 20%
+  quality. Arrow and projectile count bonuses apply to the landing volley and appear in the skill panel.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
