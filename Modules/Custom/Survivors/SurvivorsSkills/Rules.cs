@@ -936,8 +936,7 @@ static partial class SurvivorsSkills
         // Riptide's Projectiles row is a 10-unit placeholder: a projectile that slow cannot cross a cell.
         if (baseSpeed < 100) baseSpeed = 800;
         bool arrows = ArrowsFor(conn, skill.Effect);
-        int speedPercent = ProjectileSpeed.EffectivePercent(ProjectileSpeed.CharacterIncrease(playerKeys, arrows),
-            name => skillStats.GetValueOrDefault(name), arrows);
+        int speedPercent = ProjectileSpeed.EffectivePercent(playerKeys, name => skillStats.GetValueOrDefault(name), arrows);
         merged[ProjectileSpeed.ModifierStat(arrows)] = speedPercent;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0) return null;

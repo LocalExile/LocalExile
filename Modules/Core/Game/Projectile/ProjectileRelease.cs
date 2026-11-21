@@ -445,7 +445,7 @@ public static partial class Game
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(conn).Projectile(metadata)?.Speed ?? 1000;
         bool bowProjectiles = ArrowsFor(conn, gem.Effect);
-        int speedPercent = ProjectileSpeed.EffectivePercent(ProjectileSpeed.CharacterIncrease(player, bowProjectiles), Own, bowProjectiles);
+        int speedPercent = ProjectileSpeed.EffectivePercent(player, Own, bowProjectiles);
         merged[Stats.Key(ProjectileSpeed.ModifierStat(bowProjectiles))!.Value] = speedPercent;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)

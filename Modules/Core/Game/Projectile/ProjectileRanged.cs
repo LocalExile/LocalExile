@@ -135,7 +135,7 @@ public static partial class Game
     static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, IReadOnlyDictionary<uint, int> character)
     {
         var ranged = SkillsFor(conn).Projectile(projectileId);
-        int percent = ProjectileSpeed.EffectivePercent(ProjectileSpeed.CharacterIncrease(character, bow), _ => 0);
+        int percent = ProjectileSpeed.EffectivePercent(character, _ => 0, bow);
         string speedStat = ProjectileSpeed.ModifierStat(bow);
         int Get(string name) => name == speedStat ? percent : Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, percent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));

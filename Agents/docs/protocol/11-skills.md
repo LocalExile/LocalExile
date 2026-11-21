@@ -2227,7 +2227,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   for additive increases and reductions. The 3.29.3c selected projectile and arrow callbacks
   (`0x142714fe0` and `0x142715450`) apply the final speed factor to the ordinary increase, round the signed
   modifier to the nearest integer with ties away from zero, then clamp at −99%. The arrow view includes
-  `base_arrow_speed_+%` before that calculation. Slower Projectiles Support enters here, before the return addition.
+  `base_arrow_speed_+%` before that calculation. Their shared final stat (`0x1427149b0`) multiplies the
+  Slower Projectiles factor and the separate more and less Projectile Mastery factors, then rounds to a
+  signed integer before either speed virtual uses it. Returning speed is added afterwards.
   One resolved speed drives collision prediction, 0x1ba's
   duration and the server's flight delay. A finite positive `Game_PROJECTILE_SPEED` still overrides the result
   in cells/second. Invalid overrides fall back to the modified table speed. Finite positive overrides, including

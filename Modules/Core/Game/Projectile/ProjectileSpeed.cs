@@ -9,6 +9,9 @@ public static class ProjectileSpeed
 
     public static string ModifierStat(bool arrows) => arrows ? "arrow_speed_+%" : "projectile_speed_+%";
 
+    const string MoreMastery = "passive_mastery_more_projectile_speed_+%_final";
+    const string LessMastery = "passive_mastery_less_projectile_speed_+%_final";
+
     // The character's projectile virtual already contains its raw base. An explicit arrow virtual
     // selects that view in full, including when it is zero.
     public static int CharacterIncrease(IReadOnlyDictionary<uint, int> player, bool arrows)
@@ -18,15 +21,27 @@ public static class ProjectileSpeed
         return Get(ModifierStat(false)) + (arrows ? Get("base_arrow_speed_+%") : 0);
     }
 
-    // The 3.29.3c arrow/projectile virtual rounds the signed modifier before the returning action reads it.
-    public static int EffectivePercent(int characterIncrease, Func<string, int> skillRaw, bool arrows = false)
+    public static int EffectivePercent(IReadOnlyDictionary<uint, int> player, Func<string, int> skillRaw, bool arrows = false)
+    {
+        int Mastery(string stat) => player.GetValueOrDefault(Program.Stats.Key(stat)!.Value);
+        return EffectivePercent(CharacterIncrease(player, arrows), skillRaw, arrows, Mastery(MoreMastery), Mastery(LessMastery));
+    }
+
+    public static int EffectivePercent(int characterIncrease, Func<string, int> skillRaw, bool arrows = false) =>
+        EffectivePercent(characterIncrease, skillRaw, arrows, 0, 0);
+
+    static int EffectivePercent(int characterIncrease, Func<string, int> skillRaw, bool arrows, int moreMastery, int lessMastery)
     {
         int increased = characterIncrease + skillRaw("base_projectile_speed_+%")
             + (arrows ? skillRaw("base_arrow_speed_+%") : 0);
-        float final = Math.Max(0, (100 + skillRaw("support_slower_projectiles_projectile_speed_+%_final")) / 100f);
-        float modifier = (100 + increased) * final - 100f;
-        return Math.Max(-99, (int)(modifier + (modifier < 0 ? -.5f : .5f)));
+        // The combined final modifier rounds before either the arrow or projectile virtual uses it.
+        float slower = Factor(skillRaw("support_slower_projectiles_projectile_speed_+%_final"));
+        int final = RoundPercent(100f * slower * Factor(moreMastery) * Factor(lessMastery) - 100f);
+        return Math.Max(-99, RoundPercent((100 + increased) * Factor(final) - 100f));
     }
+
+    static float Factor(int percent) => Math.Max(0f, (100 + percent) / 100f);
+    static int RoundPercent(float percent) => (int)(percent + (percent < 0 ? -.5f : .5f));
 
     static float SpeedFactor(int percent) => 1f + percent * .01f;
 
@@ -39,7 +54,8 @@ public static class ProjectileSpeed
 
     public static float CellsPerSecond(int worldUnitsPerSecond, Func<string, int> playerFinal,
         Func<string, int> skillRaw, string? testOverride = null) =>
-        CellsPerSecond(worldUnitsPerSecond, EffectivePercent(playerFinal(ModifierStat(false)), skillRaw), testOverride);
+        CellsPerSecond(worldUnitsPerSecond, EffectivePercent(playerFinal(ModifierStat(false)), skillRaw, false,
+            playerFinal(MoreMastery), playerFinal(LessMastery)), testOverride);
 
     public static float CellsPerSecond(int worldUnitsPerSecond, int effectivePercent, string? testOverride = null)
     {
