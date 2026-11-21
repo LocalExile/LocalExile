@@ -14,8 +14,8 @@ public static partial class MapBeyond
     const string BossBuffsKey = "Beyond/boss-buffs";
     // In 3.29 BuffTemplates row 634 (BeyondBossBuff2), damage_taken_+%_final_from_beyond_boss_buff carries +10 even
     // though BuffDefinitions row 2423 (Ghorr's Magnificence) states "taking less Damage" (GGG fixed this sign typo in
-    // 3.30.0). Treat the positive template value as % less damage taken so IncomingDamage matches the description.
-    const string BossLessDamageStat = "damage_taken_+%_final_from_beyond_boss_buff";
+    // 3.30.0). The buff's stats carry it as -10, a final damage-taken stat handed over to IncomingResourceDefences.
+    public const string BossLessDamageStat = "damage_taken_+%_final_from_beyond_boss_buff";
 
     // ---- Beyond monster kills: Haemophilia & Demonic Power ----
 
@@ -54,7 +54,6 @@ public static partial class MapBeyond
     {
         public readonly List<(int FactionRow, ushort BuffInstance)> Active = [];
         public Dictionary<uint, int>? Stats;
-        public volatile int LessDamageTakenPct;
         public volatile bool Pending;
     }
 
@@ -146,20 +145,18 @@ public static partial class MapBeyond
     static void RebuildBuffCacheLocked(BossBuffState state)
     {
         var stats = new Dictionary<uint, int>();
-        int lessTaken = 0;
         foreach (var (row, _) in state.Active)
         {
             if (BeyondCatalog.ByRow(row) is not { } faction) continue;
             foreach (var (name, value) in faction.BossBuffStats)
             {
-                // Positive template value (+10) represents 10% less damage taken (see BossLessDamageStat comment).
-                if (name == BossLessDamageStat) { lessTaken += value; continue; }
+                // The template's +10 means 10% less damage taken (see BossLessDamageStat).
+                int effective = name == BossLessDamageStat ? -Math.Abs(value) : value;
                 if (Program.Stats.Key(name) is uint key)
-                    stats[key] = stats.GetValueOrDefault(key) + value;
+                    stats[key] = stats.GetValueOrDefault(key) + effective;
             }
         }
         state.Stats = stats;
-        state.LessDamageTakenPct = lessTaken;
     }
 
     static Task TickBossBuffs(ClientState conn) =>
@@ -210,16 +207,6 @@ public static partial class MapBeyond
         if (own is null || own.Count == 0) return stats;
         foreach (var (key, value) in own) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
-    }
-
-    /// <summary>GameEvents.IncomingDamage: Ghorr's Magnificence 10% less damage taken (see <see cref="BossLessDamageStat"/>).
-    /// Fast-path when inactive.</summary>
-    public static int IncomingDamage(ClientState conn, int damage)
-    {
-        if (damage <= 0 || !BossBuffs.TryGetValue(conn, out var state)) return damage;
-        int less = state.LessDamageTakenPct;
-        if (less <= 0) return damage;
-        return Math.Max(1, (int)Math.Round(damage * Math.Max(0, 100 - less) / 100.0));
     }
 
     // ---- Drops & Experience ----

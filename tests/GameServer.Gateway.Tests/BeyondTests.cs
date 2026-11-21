@@ -1,8 +1,10 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
+using GameServer.Modules.Survivors;
 
 namespace GameServer.Gateway.Tests;
 
@@ -284,7 +286,7 @@ public sealed class BeyondTests
                 Assert.Equal(40, buffStats[(uint)Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
                 Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_lightning")]);
                 Assert.Equal(-15, buffStats[(uint)Key("action_speed_-%")]);
-                Assert.Equal(90, MapBeyond.IncomingDamage(c, 100));
+                Assert.Equal(-10, buffStats[(uint)Key(MapBeyond.BossLessDamageStat)]);
             }
             AssertAllBossBuffs(owner.Conn);
 
@@ -300,12 +302,10 @@ public sealed class BeyondTests
             string ownerChar = owner.Conn.Character!;
             MapBeyond.Leave(owner.Conn);
             Assert.Empty(MapBeyond.PlayerStats(owner.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(owner.Conn, 100));
 
             await using var inHideout = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed, ownerChar);
             await MapBeyond.Enter(inHideout.Conn);
             Assert.Empty(MapBeyond.PlayerStats(inHideout.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(inHideout.Conn, 100));
 
             // Re-entering the same map instance restores all three Magnificence buffs; another character does not get them.
             await using var returned = await ScarabEncounterTests.Wire.Open(instance, layout, seed, ownerChar);
@@ -315,7 +315,6 @@ public sealed class BeyondTests
             await using var guest = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
             await MapBeyond.Enter(guest.Conn);
             Assert.Empty(MapBeyond.PlayerStats(guest.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(guest.Conn, 100));
             PlayerInventories.Forget(guest.Conn.Character!);
         }
         finally
@@ -374,7 +373,7 @@ public sealed class BeyondTests
                 Assert.Equal(40, buffStats[Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
                 Assert.Equal(100, buffStats[Key("physical_damage_%_to_add_as_lightning")]);
                 Assert.Equal(-15, buffStats[Key("action_speed_-%")]);
-                Assert.Equal(90, MapBeyond.IncomingDamage(c, 100));
+                Assert.Equal(-10, buffStats[(uint)Key(MapBeyond.BossLessDamageStat)]);
             }
 
             // Kill K'Tash, Ghorr and Beidat -> gain all 3 Magnificence buffs with infinite duration (flags bit1 == 0).
@@ -404,13 +403,11 @@ public sealed class BeyondTests
             // Leaving to hideout clears active buffs on the leaving connection; hideout / other maps do not grant them.
             MapBeyond.Leave(owner.Conn);
             Assert.Empty(MapBeyond.PlayerStats(owner.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(owner.Conn, 100));
 
             sentAddBuffs.Clear();
             await using var inHideout = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, 0x7053, ownerChar);
             await MapBeyond.Enter(inHideout.Conn);
             Assert.Empty(MapBeyond.PlayerStats(inHideout.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(inHideout.Conn, 100));
             Assert.Empty(sentAddBuffs);
 
             // Re-entering the same map instance restores all 3 Magnificence buffs with infinite duration.
@@ -434,7 +431,6 @@ public sealed class BeyondTests
             await using var guest = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053);
             await MapBeyond.Enter(guest.Conn);
             Assert.Empty(MapBeyond.PlayerStats(guest.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(guest.Conn, 100));
             Assert.Empty(sentAddBuffs);
             PlayerInventories.Forget(guest.Conn.Character!);
         }
@@ -442,6 +438,125 @@ public sealed class BeyondTests
         {
             PlayerInventories.Forget(ownerChar);
             Program.Outgoing = previousOutgoing;
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
+    public void Ghorr_magnificence_reduces_all_incoming_damage_paths_without_double_applying()
+    {
+        TestEnvironment.OpenOwnSaves("ghorr-incoming-damage");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        using var statsHook = GameEvents.PlayerStatSources.Add("Game", MapBeyond.PlayerStats);
+        using var finalTaken = IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]);
+
+        var instance = new InstanceState();
+        instance.AreaStats(() => new Dictionary<uint, int>
+        {
+            [Program.Stats.Key("map_beyond_boss_grants_special_buff_on_death")!.Value] = 1,
+        });
+        var conn = new ClientState(new(1, "ghorr-test", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            Character = "GhorrTester",
+            PlayerLife = 1000,
+            PlayerMana = 100,
+            Instance = instance,
+            Pools = new(1, 1000, 100, 0, 0),
+            EvasionEntropy = 100,
+            IncomingHitRandom = new Random(7),
+        };
+        var hitter = new SpawnedMonster("hitter", new(0, 0, 0), 0, 0, 1000) { Level = 1 };
+        var melee = new MonsterAttack(0, 1, 10, DamagePacket.Of(DamageType.Physical, 100, 100));
+        var ranged = new MonsterAttack(0, 1, 50, DamagePacket.Of(DamageType.Fire, 100, 100)) { Ranged = true };
+        var spell = new MonsterAttack(0, 1, 50, DamagePacket.Of(DamageType.Fire, 100, 100)) { Spell = true };
+
+        uint TakeCommit(MonsterAttack attack)
+        {
+            conn.PlayerLife = 1000;
+            conn.EvasionEntropy = 100;
+            var hit = Game.CommitMonsterHitLocked("test", conn, 1, hitter, attack, conn.Clock.Elapsed.TotalSeconds, (0, 0), (0, 0), checkRange: false);
+            Assert.NotNull(hit);
+            return 1000u - hit!.Life;
+        }
+
+        uint TakeSyntheticSpell()
+        {
+            conn.PlayerLife = 1000;
+            Assert.True(Game.TrySyntheticEnemyHit(conn, DamageType.Fire, 100, block: false, spell: true, suppress: false, out var hit));
+            return 1000u - hit.Life;
+        }
+
+        uint TakeIgnite(double from)
+        {
+            conn.PlayerLife = 1000;
+            conn.ElementalAilments.Clear();
+            conn.NonChaosDotTakenCarry = conn.NonChaosDotBypassCarry = 0;
+            conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Ignite, 100, 4, from, _ => 0, new Random(1));
+            Game.AdvancePlayerAilmentsLocked(conn, from, from + 1.0, Game.CharacterPlayerStats(conn));
+            return 1000u - conn.PlayerLife;
+        }
+
+        double CurrentFinalTakenFactor()
+        {
+            var stats = Game.CharacterPlayerStats(conn);
+            return IncomingResourceDefences.FinalTakenFactor(conn.Pools,
+                name => Program.Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0);
+        }
+
+        try
+        {
+            // Baseline (Ghorr inactive): every path deals full 100 damage and factor is 1.0.
+            Assert.Equal(100u, TakeCommit(melee));
+            Assert.Equal(100u, TakeCommit(ranged));
+            Assert.Equal(100u, TakeCommit(spell));
+            Assert.Equal(100u, TakeSyntheticSpell());
+            Assert.Equal(100, Game.DamagePlayerHitTyped(conn, 100, 0, 0, 0, Game.CharacterPlayerStats(conn),
+                DamagePacket.Of(DamageType.Physical, 100, 100)));
+            Assert.Equal(100u, TakeIgnite(10));
+            Assert.Equal(1.0, CurrentFinalTakenFactor(), 6);
+
+            // Grant Ghorr's Magnificence by killing the Flesh faction boss.
+            var ghorrFaction = Assert.IsType<BeyondCatalog.Faction>(BeyondCatalog.ByRow(1));
+            var ghorr = new SpawnedMonster("Ghorr", new(0, 0, 0), 0, 0, 1000) { Dead = true, Rarity = MonsterRarity.Unique };
+            MapBeyond.Kill(new(conn, ghorr, ghorrFaction.BossVariety, (0, 0)));
+
+            // GameEvents.IncomingDamage is NOT used by Ghorr (no double-application).
+            Assert.Equal(100, GameEvents.AdjustIncomingDamage(conn, 100));
+
+            // Every incoming damage path takes 10% less (90, never 81): melee, ranged/projectile, monster spell,
+            // synthetic spell (shrine/strongbox), direct typed hit (labyrinth trap), ignite DoT, and RF/ground factor.
+            Assert.Equal(90u, TakeCommit(melee));
+            Assert.Equal(90u, TakeCommit(ranged));
+            Assert.Equal(90u, TakeCommit(spell));
+            Assert.Equal(90u, TakeSyntheticSpell());
+            Assert.Equal(90, Game.DamagePlayerHitTyped(conn, 100, 0, 0, 0, Game.CharacterPlayerStats(conn),
+                DamagePacket.Of(DamageType.Physical, 100, 100)));
+            Assert.Equal(90u, TakeIgnite(30));
+            Assert.Equal(0.9, CurrentFinalTakenFactor(), 6);
+
+            // SurvivorsRun compatibility: GameEvents.IncomingDamage (60%) composes cleanly with Ghorr (0.9) -> 54.
+            using (GameEvents.IncomingDamage.Add("Game", (_, dmg) => SurvivorsRules.IncomingDamage(dmg, SurvivorsRules.IncomingDamagePercent)))
+            {
+                Assert.Equal(60, GameEvents.AdjustIncomingDamage(conn, 100));
+                Assert.Equal(54u, TakeCommit(melee));
+            }
+
+            // Clearing Ghorr restores full damage.
+            MapBeyond.Leave(conn);
+            Assert.Equal(100u, TakeCommit(melee));
+            Assert.Equal(1.0, CurrentFinalTakenFactor(), 6);
+        }
+        finally
+        {
+            MapBeyond.Leave(conn);
+            PlayerInventories.Forget(conn.Character!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
