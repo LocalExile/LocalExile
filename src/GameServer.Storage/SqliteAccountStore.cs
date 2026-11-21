@@ -93,6 +93,16 @@ public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
     public void AddCharacter(Character c) => Upsert(c);
     public void UpdateCharacter(Character c) => Upsert(c, onlyIfThere: true);
 
+    /// <summary>Renames the character and its live save row together in one transaction.</summary>
+    public void RenameCharacter(Guid id, string newName) => db.Atomically(() =>
+    {
+        if (GetCharacter(id) is not { } character) return;
+        using var c = db.Command("UPDATE account_characters SET name = $new WHERE id = $id",
+            ("$new", newName), ("$id", id.ToString()));
+        c.ExecuteNonQuery();
+        db.RenameCharacterSave(character.Name, newName);
+    });
+
     /// <summary>Removes the character and sets its save aside (<see cref="SaveDatabase.SetAside"/>), together: a crash can't
     /// leave a deleted character's save for a new one of its name, nor a character without its save.</summary>
     public void DeleteCharacter(Guid id) => db.Atomically(() =>

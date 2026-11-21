@@ -59,6 +59,35 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         }
     }
 
+    /// <summary>Changes an account's password from the official client's change-password request (C→S 0x0a), where only
+    /// SHA-256 digests of the old and new UTF-16LE passwords are sent. Rotates the salt and password verifier so prior
+    /// saved-login credentials are invalidated.</summary>
+    public Result<Account> ChangePasswordWithClientDigest(Guid accountId, ReadOnlySpan<byte> oldDigest, ReadOnlySpan<byte> newDigest)
+    {
+        if (oldDigest.Length != 32 || newDigest.Length != 32) return Result<Account>.Fail(AuthError.BadCredentials);
+        bool emptyNew = true;
+        foreach (byte b in newDigest) if (b != 0) { emptyNew = false; break; }
+        if (emptyNew) return Result<Account>.Fail(AuthError.WeakPassword);
+        lock (_gate)
+        {
+            var acc = store.GetAccount(accountId);
+            if (acc is null) return Result<Account>.Fail(AuthError.NotFound);
+            if (acc.ClientDigestHash is null || !CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(acc.ClientDigestHash), Encoding.UTF8.GetBytes(DigestHash(oldDigest, acc.PasswordSalt))))
+                return Result<Account>.Fail(AuthError.BadCredentials);
+            var salt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+            var digestVerifier = DigestHash(newDigest, salt);
+            var changed = acc with
+            {
+                PasswordHash = digestVerifier,
+                PasswordSalt = salt,
+                ClientDigestHash = digestVerifier,
+            };
+            store.UpdateAccount(changed);
+            return Result<Account>.Success(changed);
+        }
+    }
+
     public Result<Session> Login(string name, string password)
     {
         var acc = store.FindAccount(name);
@@ -148,6 +177,20 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
             var c = new Character(Guid.NewGuid(), accountId, name, cls, level, inLeague ?? league, StartingArea, now, now);
             store.AddCharacter(c);
             return Result<Character>.Success(c);
+        }
+    }
+
+    public Result<Character> RenameCharacter(Guid accountId, Guid characterId, string newName)
+    {
+        if (!ValidName(newName, 3, 23)) return Result<Character>.Fail(AuthError.InvalidCharacterName);
+        lock (_gate)
+        {
+            var c = store.GetCharacter(characterId);
+            if (c is null || c.AccountId != accountId) return Result<Character>.Fail(AuthError.NotFound);
+            if (store.FindCharacter(newName) is { } existing && existing.Id != c.Id)
+                return Result<Character>.Fail(AuthError.CharacterNameTaken);
+            store.RenameCharacter(c.Id, newName);
+            return Result<Character>.Success(c with { Name = newName });
         }
     }
 
