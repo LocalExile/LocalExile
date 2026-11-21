@@ -144,7 +144,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   *Of Dark Blessings* adds one or two unidentified corrupted uniques at area level. Each gains a single native
   corruption implicit for its base. The pool follows observed global drops and uses the league's configured
   unique weights. The vessel's per-item distribution and the inclusion of named maps still need direct measurements.
-  The map device currently opens the regular layout for all 16 named maps in this pool.
+  The map device opens the named area before or after identification. Legacy area-named maps and named map keys retain
+  their identities. Retired Untainted Paradise and Perandus Manor items stay in the device.
   [Global unique drop levels and tiers](https://docs.google.com/spreadsheets/d/1o35umcCAH0zG0N1ozgj4MjeDxakxR52WfwfkTvZgk9w/edit)
   An area modifier for additional Vaal monsters supplies a count of packs.
   The 3.29.3c pack row contains three Vaal cultist varieties and a wraith. The category and fragment weights use Chris Wilson's

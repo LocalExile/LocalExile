@@ -5,7 +5,7 @@ using GameServer.Core;
 
 /// <summary>
 /// The hideout's map device (Agents/docs/protocol/21-hideouts.md §5): what its slots (Inventories row 13 <c>Map1</c>)
-/// may hold when Activate (C→S 0x00d8) is pressed, which area a map opens (Maps.dat <c>Regular_WorldAreasKey</c>), and
+/// may hold when Activate (C→S 0x00d8) is pressed, which area a map item opens, and
 /// each character's open map: its area, its instance once someone entered it, and the portals left.
 /// </summary>
 public sealed class MapDevice
@@ -37,6 +37,7 @@ public sealed class MapDevice
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
+    private readonly Dictionary<(uint Type, uint? NameWord), MapArea> _uniqueAreas = [];
     private readonly AtlasCatalog? _atlas;
     private readonly MapRunCatalog _runs;
     private readonly List<MapArea?> _worldAreas;
@@ -54,32 +55,42 @@ public sealed class MapDevice
             .Select(r => _worldAreas[r.WorldArea]!.Hash16)];
     }
 
-    /// <summary>Maps.dat: each map's BaseItemTypes row, by its HASH32 (<paramref name="hashOfRow"/>), to its regular area.
+    /// <summary>Maps.dat links a map base to its regular area and, where present, a separate area at unique rarity.
     /// Empty when the tables are missing.</summary>
     public static MapDevice Load(string folder, Func<int, uint?> hashOfRow, ItemCatalog? catalog = null)
     {
-        var byType = new Dictionary<uint, MapArea>();
-        if (ClientTables.Has("Maps") && ClientTables.Has("WorldAreas"))
+        var worldAreas = LoadWorldAreas(folder);
+        var atlas = catalog is null ? null : new AtlasCatalog(catalog, folder);
+        var device = new MapDevice(new Dictionary<uint, MapArea>(), atlas, MapRunCatalog.Load(folder), worldAreas);
+        if (ClientTables.TableOrNull("Maps") is { } maps)
         {
-            var m = ClientTables.Table("Maps");
-            var a = ClientTables.Table("WorldAreas");
-            int areaCount = a.Count;
-            foreach (var row in m)
+            foreach (var row in maps)
             {
-                if (row.IntOrNull("BaseItemTypesKey") is not int item
-                    || row.IntOrNull("Regular_WorldAreasKey") is not int area
-                    || area >= areaCount || hashOfRow(item) is not uint hash) continue;
-                var wa = a[area];
-                byType.TryAdd(hash, new MapArea((ushort)wa.Int("HASH16"), wa.Text("Id") ?? "",
-                    wa.Text("Name") ?? "", row.Int("Tier"))
-                {
-                    Level = wa.Int("AreaLevel"),
-                });
+                if (row.IntOrNull("BaseItemTypesKey") is not int item || hashOfRow(item) is not uint hash) continue;
+                int tier = row.Int("Tier");
+                if (Area(row.IntOrNull("Regular_WorldAreasKey")) is { } regular)
+                    device._byItemType.TryAdd(hash, regular with { Tier = tier });
+                if (Area(row.IntOrNull("Unique_WorldAreasKey")) is { } unique)
+                    device._uniqueAreas.TryAdd((hash, null), unique with { Tier = tier });
             }
         }
-        var worldAreas = LoadWorldAreas(folder);
-        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
-            MapRunCatalog.Load(folder), worldAreas);
+        // Several named maps share the same MapKey base. The stash index pairs the base with its UniqueMaps row.
+        if (ClientTables.TableOrNull("MapStashUniqueMapInfo") is { } entries
+            && ClientTables.TableOrNull("UniqueMaps") is { } uniqueMaps && ClientTables.TableOrNull("Words") is { } words)
+        {
+            foreach (var entry in entries)
+            {
+                if (hashOfRow(entry.Int("BaseItem")) is not uint hash) continue;
+                var unique = uniqueMaps[entry.Int("UniqueMap")];
+                if (Area(unique.Int("WorldAreasKey")) is not { } area) continue;
+                uint word = words[unique.Int("WordsKey")].UInt("HASH32");
+                if ((device.AreaOf(hash)?.Tier ?? atlas?.TierOf(hash)) is int tier)
+                    device._uniqueAreas.Add((hash, word), area with { Tier = tier });
+            }
+        }
+        return device;
+
+        MapArea? Area(int? index) => index is >= 0 && index < worldAreas.Count ? worldAreas[index.Value] : null;
     }
 
     static List<MapArea?> LoadWorldAreas(string folder)
@@ -111,6 +122,7 @@ public sealed class MapDevice
 
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
     public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16)
+        || _uniqueAreas.Values.Any(a => a.Hash16 == hash16)
         || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true || _recipeAreas.Contains(hash16);
 
     /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
@@ -125,6 +137,7 @@ public sealed class MapDevice
         /// <summary>The item's rarity and corruption and its BaseItemTypes Id: the area stats name them (map_rarity,
         /// map_is_corrupted, the scarabs by kind; <see cref="MapMods"/>).</summary>
         public ItemRarity Rarity { get; init; }
+        public uint? UniqueNameWord { get; init; }
         public bool Corrupted { get; init; }
         public string BaseId { get; init; } = "";
 
@@ -168,8 +181,13 @@ public sealed class MapDevice
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
         if (maps.Count == 1)
         {
-            MapArea? area = AreaOf(maps[0].TypeHash);
-            if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
+            var map = maps[0];
+            var area = map.Rarity == ItemRarity.Unique
+                ? _uniqueAreas.GetValueOrDefault((map.TypeHash, map.UniqueNameWord))
+                    ?? _uniqueAreas.GetValueOrDefault((map.TypeHash, null))
+                : null;
+            area ??= AreaOf(map.TypeHash);
+            if (area is null && _atlas?.TierOf(map.TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
                     area = new(layout.Hash16, layout.Id, layout.Name, tier) { Level = MapLevel(tier) };

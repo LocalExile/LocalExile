@@ -48,6 +48,10 @@ public sealed class AreaSeedsTests
         {
             var world = ClientTables.Table("WorldAreas");
             var maps = ClientTables.Table("Maps");
+            var legendary = ClientTables.Table("UniqueMaps");
+            var infused = legendary.First(r => r.Text("Name") == "Infused Beachhead");
+            ushort infusedHash = (ushort)world[infused.Int("WorldAreasKey")].Int("HASH16");
+            Assert.Contains(infusedHash, WorldAreaMaps.Load(world, maps, folder, legendary));
             var uncaptured = WorldAreaMaps.Load(world, maps, folder);
             Assert.NotEmpty(uncaptured);
             var area = world.First(row => uncaptured.Contains((ushort)row.Int("HASH16")));

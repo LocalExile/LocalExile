@@ -98,10 +98,10 @@ When a Voidstone is socketed into the Atlas:
   then drop one tier higher, with maps below tier 16 converted to gold. The Atlas panel click (C→S 0xf6) moves
   a Voidstone into or out of Inventories row 39. Each occupied socket sets that quadrant's S→C 0x1a3 `+0x70` bit
   (four stones also set bit 4) so those Atlas nodes draw as T16; put / take resends 0x1a3.
-- **The map device** ([21](../protocol/21-hideouts.md) §5) opens a map's area from Maps.dat's `Regular_WorldAreasKey`,
-  which only the old area-named maps have. Kirac sells generic `MapKey` tiers that open the Atlas layout. With those
-  bases, the area comes from the layout picked on the Atlas instead. Generic maps now use `MapKeys.dat` for their tier
-  and the selected Atlas layout for the area; their area level follows the tier rather than the layout's WorldAreas row.
+- **The map device** ([21](../protocol/21-hideouts.md) §5) reads the regular or unique destination of an old
+  area-named map from `Maps`. On a shared base, the unique name in `Words` selects the `UniqueMaps` row paired with
+  that base in `MapStashUniqueMapInfo`. A named destination uses its WorldAreas level. Ordinary generic map keys
+  open the selected Atlas layout at their `MapKeys` tier (area level = tier + 67).
   The map item's affixes and quality, and scarabs/fragments' `MapFragmentMods`, apply to that instance (drops, pack
   size, monster life/damage). A recipe with no map (`MapDeviceRecipes`: Writ, invitations, four Sacrifice fragments)
   opens that boss area (Atziri, Shaper, Elder, Maven, Sirus, Eater, Exarch and the rest of `MapDeviceRecipes`).
