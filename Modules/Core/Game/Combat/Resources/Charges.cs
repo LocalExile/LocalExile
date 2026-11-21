@@ -85,6 +85,7 @@ public static partial class Game
             frozen = m.Ailments.FrozenAtDeath(now);
             poisons = m.Poisons.Stacks(now);
             conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            if (conn.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(conn, CharacterPlayerStats(conn));
             TryGainElusiveLocked(conn, critical: false, kill: true, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));

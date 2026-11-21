@@ -301,11 +301,8 @@ public class TinctureTests
             Assert.Equal(0, lifeDrain);
 
             // On-kill Mana Burn removal mastery removes 1 stack.
-            var killStats = new Dictionary<uint, int>(stats2)
-            {
-                [Program.Stats.Key("chance_to_remove_1_tincture_toxicity_on_kill_%")!.Value] = 100,
-            };
-            Game.TinctureOnKillLocked(conn2, killStats);
+            conn2.PlayerStats[Program.Stats.Key("chance_to_remove_1_tincture_toxicity_on_kill_%")!.Value] = 100;
+            Game.ChargesOnKill(conn2, new SpawnedMonster("target", new(10, 10, 0), 0, 0, 100));
             Assert.Equal(0, conn2.TinctureEffects.BurnStacks);
 
             // Hitting 0 Mana auto-deactivates, clears stacks, starts cooldown, and blocks reactivation during cooldown.

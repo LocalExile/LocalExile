@@ -3463,7 +3463,6 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 now = conn.Clock.Elapsed.TotalSeconds;
-                if (conn.TinctureEffects.AnyActive) TinctureOnKillLocked(conn, CharacterPlayerStats(conn));
                 // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
                 devoured = ConsumeDevouredCorpseLocked(conn, id, m, now);
                 corpseConsumed = devoured || ConsumeCorpseOnKillLocked(conn, id, m, now);
