@@ -197,9 +197,10 @@ The client must be launched only through `scripts/dev/live.ps1`; the verificatio
 
 ## Scope and remaining work
 
-- **Keystones.** Their stat rows are applied (the client shows e.g. Divine Flesh and the server removes the original
-  keystone's stats), but the special gameplay mechanics of the conqueror keystones are not modelled. Those need separate
-  consumers (damage conversion, recovery, charge rules, etc.).
+- **Keystones.** The server removes the original node's stats and applies the conqueror's stat row. Transcendence
+  applies armour to elemental hits instead of physical hits and reduces the elemental resistance caps. Corrupted Soul
+  grants extra maximum Energy Shield from Life and routes half of damage other than chaos past Energy Shield.
+  Other keystones still need distinct consumers for damage conversion, recovery and charges.
 - **Legacy conquerors** (Zerphi, Kiloava, Deshret, Venarius, Chitus) and their keystones are listed in the table above
   for reference, but the command creates the current variants only.
 - **Militant Faith devotion mods.** The item carries two distinct current per-10-Devotion mods, and `DevotionStats`
