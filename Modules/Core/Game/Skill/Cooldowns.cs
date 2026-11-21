@@ -343,7 +343,13 @@ public static partial class Game
     public static Task SendNativeCooldownRefresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
-            if (!conn.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;
+        {
+            if (conn.SingleUseCooldowns.Count == 0) return Task.CompletedTask;
+            bool dirty = false;
+            foreach (var s in conn.SingleUseCooldowns.Values)
+                if (s.NeedsNativeRefresh) { dirty = true; break; }
+            if (!dirty) return Task.CompletedTask;
+        }
         int epoch;
         lock (conn.Monsters) epoch = conn.ProjectileEpoch;
         return Send(remote, stream, ciphers, [], "0x02bc player active cooldown progress/rate refresh",

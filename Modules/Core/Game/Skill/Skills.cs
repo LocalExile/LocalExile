@@ -1179,6 +1179,7 @@ public static partial class Game
 
     public static bool OwnAuraSkillRestricted(ClientState conn, int effect, ushort? skillId)
     {
+        if (effect == 0 && (skillId is not ushort sid || !SkillsFor(conn).IsGemSkill(sid))) return false;
         var sources = CharacterStatSources(conn).Stats;
         if (OwnAuraRestrictionValue(conn, new(sources)) == 0 && !SublimeDisables(conn, effect, sources)) return false;
         if (SkillsFor(conn).IsAura(effect)) return true;

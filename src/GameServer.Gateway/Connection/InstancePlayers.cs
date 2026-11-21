@@ -20,7 +20,8 @@ public sealed class InstancePresence
     readonly System.Collections.Concurrent.ConcurrentDictionary<uint, InstancePlayer> _players = new();
     public void PublishPlayer(InstancePlayer player) => _players[player.Id] = player;
     public void RemovePlayer(uint id) => _players.TryRemove(id, out _);
-    public InstancePlayer[] PlayersExcept(uint id) => [.. _players.Values.Where(p => p.Id != id)];
+    public InstancePlayer[] PlayersExcept(uint id) =>
+        _players.IsEmpty || (_players.Count == 1 && _players.ContainsKey(id)) ? [] : [.. _players.Values.Where(p => p.Id != id)];
     public InstancePlayer? Player(uint id) => _players.TryGetValue(id, out var p) && p.Current ? p : null;
 }
 

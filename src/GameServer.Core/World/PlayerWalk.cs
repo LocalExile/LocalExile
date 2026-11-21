@@ -21,7 +21,8 @@ public sealed class PlayerWalk
     private readonly ClientPathfinder.SearchLimit _limit;
     private double _speed;
     private double _movementBlockedUntil = double.NegativeInfinity;
-    private List<Segment> _segments = [];
+    private static readonly List<Segment> EmptySegments = [];
+    private List<Segment> _segments = EmptySegments;
     private (int X, int Y) _rest;
     private double _restSince;
     private (int X, int Y) _target;
@@ -269,9 +270,12 @@ public sealed class PlayerWalk
         if (end == here) return;
         float step = StepTime(here, end);
         double start = now < left.T0 ? left.T0 : now - fraction * step;
-        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
-        foreach (var next in _segments.Skip(last + 1))
+        var walk = new List<Segment>(_segments.Count - last) { new(here, ClientPathfinder.LineRest(here, end), start, step) };
+        for (int j = last + 1; j < _segments.Count; j++)
+        {
+            var next = _segments[j];
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
+        }
         _segments = walk;
     }
 
@@ -354,7 +358,7 @@ public sealed class PlayerWalk
     /// <summary>Puts the walker at a cell (a teleport, e.g. S→C 0x1b7): no walk in progress.</summary>
     public void Teleport(int x, int y, double now)
     {
-        _segments = [];
+        _segments = EmptySegments;
         _rest = (x, y);
         _restSince = now;
         Reached = true;
@@ -539,12 +543,19 @@ public sealed class PlayerWalk
     // `kept`: the time since the last step that a walk from a stand starts with.
     private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double kept, double now)
     {
+        if (path.Count < 2)
+        {
+            _rest = here;
+            _restSince = now;
+            _segments = EmptySegments;
+            return;
+        }
         bool standing = !Moving(now);
-        var walk = new List<Segment>();
+        var walk = new List<Segment>(path.Count - 1);
         double t = now;
         for (int i = 1; i < path.Count; i++)
         {
-            var cells = ClientPathfinder.Line(path[i - 1], path[i]).Skip(1).ToArray();
+            var cells = ClientPathfinder.LineRest(path[i - 1], path[i]);
             float step = StepTime(path[i - 1], path[i]);
             // The first step comes when the step in progress would have: its elapsed fraction carries over. From a stand,
             // the time a stop kept carries over as it is.

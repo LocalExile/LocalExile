@@ -752,26 +752,63 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
             var fixedOnes = _blockerList;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
-            List<ClientPathfinder.Blocker>? all = null;
-            // Another player stands where this client's own copy of it does (PeerWalks), else on its published pose.
-            var copies = new Dictionary<uint, (int X, int Y)>();
             lock (Monsters)
             {
-                foreach (var (id, m) in CollisionMonsters)
+                var list = sparePlayerBlockers ?? new List<ClientPathfinder.Blocker>();
+                sparePlayerBlockers = null;
+                list.Clear();
+                for (int i = 0; i < fixedOnes.Count; i++) list.Add(fixedOnes[i]);
+                if (DormantMonsters.Count == 0)
                 {
-                    if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
+                    foreach (var (id, m) in Monsters)
+                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
-                // A copy moves only in this client's frames: its cell is the one the frame being sent starts on.
-                double frameStart = LockstepFrame is { } sending ? sending.Start : now;
-                foreach (var (id, copy) in PeerWalks) copies[id] = copy.Position(frameStart);
+                else
+                {
+                    foreach (var (id, m) in CollisionMonsters)
+                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                }
+                var peers = Instance?.PlayersExcept(PeerId);
+                if (PeerWalks.Count > 0 || peers is { Length: > 0 })
+                {
+                    // Another player stands where this client's own copy of it does (PeerWalks), else on its published pose.
+                    // A copy moves only in this client's frames: its cell is the one the frame being sent starts on.
+                    double frameStart = LockstepFrame is { } sending ? sending.Start : now;
+                    if (peers is { Length: > 0 })
+                        foreach (var peer in peers)
+                            if (peer.Life > 0 && peer.Owner is not null && !PeerWalks.ContainsKey(peer.Id))
+                                list.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                    foreach (var (id, copy) in PeerWalks)
+                        if (Instance?.Player(id) is not { Life: 0 })
+                        {
+                            var at = copy.Position(frameStart);
+                            list.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
+                        }
+                }
+                if (list.Count == fixedOnes.Count)
+                {
+                    sparePlayerBlockers = list;
+                    return fixedOnes;
+                }
+                if (keptPlayerBlockers is { } kept && SameBlockers(kept, list))
+                {
+                    sparePlayerBlockers = list;
+                    return kept;
+                }
+                var built = new GameServer.Core.World.BlockerSet(list);
+                keptPlayerBlockers = built;
+                sparePlayerBlockers = list;
+                return built;
             }
-            foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null && !copies.ContainsKey(peer.Id))
-                    (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
-            foreach (var (id, at) in copies)
-                if (Instance?.Player(id) is not { Life: 0 }) (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
-            return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
+    }
+
+    static bool SameBlockers(IReadOnlyList<ClientPathfinder.Blocker> a, List<ClientPathfinder.Blocker> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < b.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
@@ -804,7 +841,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     private PlayerWalk NewPlayerWalk()
     {
         var l = Layout;
-        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
+        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier.Count == 0 || !Barrier.Contains((cx, cy))) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
             () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }

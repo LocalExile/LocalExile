@@ -13,6 +13,9 @@ public static partial class Game
     // Anything else is logged in hex: those are the next messages to map.
     // The most a hold on the server has been seen to outlast the client's is 33 ms.
     const double HoldEndGraceSeconds = .06;
+    static readonly string MoveMode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
+    static readonly float MoveSpeed = float.TryParse(Environment.GetEnvironmentVariable("Game_MOVE_SPEED"),
+        System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 37f;
 
     // How long the hold on the player still has to run, if it is within limit; else 0.
     static double HoldEndsWithin(ClientState conn, double limit)
@@ -53,10 +56,10 @@ public static partial class Game
             using var stats = new PlayerStatScope(conn);
             // Temporary lag instrumentation (remove with the investigation): which phase of a cast message takes its time.
             long useStarted = Stopwatch.GetTimestamp(), phaseAt = useStarted, useCpuStarted = ConnectionPerformance.LagProbe ? ThreadCpuMilliseconds() : 0;
-            var phases = new List<string>();
+            List<string>? phases = ConnectionPerformance.LagProbe ? [] : null;
             void Mark(string name)
             {
-                if (!ConnectionPerformance.LagProbe) return;
+                if (phases is null) return;
                 long now = Stopwatch.GetTimestamp();
                 phases.Add($"{name}={Stopwatch.GetElapsedTime(phaseAt, now).TotalMilliseconds:0}");
                 phaseAt = now;
@@ -122,11 +125,13 @@ public static partial class Game
                     continue;
                 }
                 // A gem skill cast at the ground (Fireball) stops the player where it stands; anything else (Move) walks there.
-                if (InTown(conn) && SkillsFor(conn).ActionName(use.SkillId) != "Move") continue;
-                if (SkillsFor(conn).ActionName(use.SkillId) != "Move")
+                var skills = SkillsFor(conn);
+                string? actionName = skills.ActionName(use.SkillId);
+                if (InTown(conn) && actionName != "Move") continue;
+                if (actionName != "Move")
                     await EndGracePeriod(remote, stream, ciphers, conn, action: true);
                 Mark("grace");
-                bool cast = SkillsFor(conn).IsGemSkill(use.SkillId);
+                bool cast = skills.IsGemSkill(use.SkillId);
                 var gem = cast ? GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId) : default;
                 if (cast && gem.Name is null)
                 {
@@ -149,8 +154,8 @@ public static partial class Game
                 Mark("disabled");
                 // The ordinary ranged attack fires at the ground point; it is neither a melee hit nor a Move action.
                 // Both bows and wands create their native Projectiles.dat object at the weapon's attack contact.
-                string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
-                if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
+                if (use.SkillId == SkillCatalog.FirstSkillId
+                    && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) is { } ordinaryProjectile)
                 {
                     double duration = DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn));
                     if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
@@ -348,8 +353,10 @@ public static partial class Game
                 {
                     await Send(remote, stream, ciphers, [],
                     $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
-                    still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
-                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)),
+                    still: () => acknowledged = cast
+                        ? SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                            () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action))
+                        : (cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)),
                     atGate: () =>
                     {
                         byte[] reply = [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
@@ -388,22 +395,20 @@ public static partial class Game
                 else if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level, use.SkillId), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
-                string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
-                if (mode == "teleport")
+                if (MoveMode == "teleport")
                     await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, use.X, use.Y),
                         $"0x01b7 teleport to ({use.X}, {use.Y})", still: () => PlayerActionCurrent(conn, action));
-                else if (mode == "move")
+                else if (MoveMode == "move")
                 {
-                    float speed = float.TryParse(Environment.GetEnvironmentVariable("Game_MOVE_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 37f;
-                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.MoveTo(PlayerId, use.X, use.Y, speed),
-                        $"0x01ba move to ({use.X}, {use.Y}) speed {speed}", still: () => PlayerActionCurrent(conn, action));
+                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.MoveTo(PlayerId, use.X, use.Y, MoveSpeed),
+                        $"0x01ba move to ({use.X}, {use.Y}) speed {MoveSpeed}", still: () => PlayerActionCurrent(conn, action));
                 }
                 }
                 finally
                 {
                     Mark("tail");
                     double useTotal = Stopwatch.GetElapsedTime(useStarted).TotalMilliseconds;
-                    if (ConnectionPerformance.LagProbe && useTotal > 40)
+                    if (phases is not null && useTotal > 40)
                         Console.WriteLine($"[slow-use] {remote} total={useTotal:0} cpu={(ThreadCpuMilliseconds() - useCpuStarted):0}"
                             + $" {string.Join(" ", phases)}");
                 }

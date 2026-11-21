@@ -116,7 +116,7 @@ public sealed partial class ClientState
     public PlayerWalk NewPeerWalk(uint id, int x, int y, double speed)
     {
         var l = Layout;
-        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
+        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier.Count == 0 || !Barrier.Contains((cx, cy))) : null;
         return new(x, y, Math.Max(1, speed), walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
             () => MonsterBlockers(id), LivingCollision.PlayerSize, sight: l.Sight) { FrameOf = LockstepFrameOf };
     }
@@ -172,7 +172,7 @@ public sealed partial class ClientState
 
     /// <param name="throughBodies">Its walk goes through living bodies (<see cref="MonsterMovement.ThroughBodies"/>).</param>
     public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique, bool throughBodies = false) =>
-        new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
+        new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && (Barrier.Count == 0 || !Barrier.Contains((cx, cy))),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
             () => size < 0 || throughBodies ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
             // The client's budget for this mover (0x141e50f90): 1000 expansions for a unique, 100 for any other monster.

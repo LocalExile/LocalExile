@@ -11,12 +11,27 @@ internal interface IBlockerQuery
 public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlockerQuery
 {
     const int Bucket = 16;
-    readonly List<ClientPathfinder.Blocker> all = [];
-    readonly Dictionary<long, List<int>> buckets = [];
+    readonly List<ClientPathfinder.Blocker> all;
+    // Intrusive singly-linked bucket chains parallel to `all`: avoids allocating a List<int> per occupied bucket.
+    readonly List<int> next;
+    readonly Dictionary<long, int> heads;
     int reach;
+    int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
+
+    public BlockerSet(int capacity)
+    {
+        all = new(capacity);
+        next = new(capacity);
+        heads = new(capacity);
+    }
 
     public BlockerSet(IEnumerable<ClientPathfinder.Blocker> blockers)
     {
+        int capacity = blockers is IReadOnlyCollection<ClientPathfinder.Blocker> rc ? rc.Count
+            : blockers is ICollection<ClientPathfinder.Blocker> c ? c.Count : 0;
+        all = capacity > 0 ? new(capacity) : [];
+        next = capacity > 0 ? new(capacity) : [];
+        heads = capacity > 0 ? new(capacity) : [];
         foreach (var blocker in blockers) Add(blocker);
     }
 
@@ -24,17 +39,54 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     {
         int index = all.Count;
         all.Add(blocker);
+        next.Add(-1);
         Index(index, blocker);
         return index;
     }
 
     void Index(int index, ClientPathfinder.Blocker blocker)
     {
-        reach = Math.Max(reach, Math.Max(blocker.Size,
-            blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
-        long key = Key(Floor(blocker.X), Floor(blocker.Y));
-        if (!buckets.TryGetValue(key, out var list)) buckets[key] = list = [];
-        list.Add(index);
+        TrackBounds(blocker);
+        Link(Key(Floor(blocker.X), Floor(blocker.Y)), index);
+    }
+
+    void TrackBounds(ClientPathfinder.Blocker blocker)
+    {
+        int r = Math.Max(blocker.Size, blocker.CollisionRadius is double cr ? (int)Math.Ceiling(cr) : 0);
+        if (r > reach) reach = r;
+        if (blocker.X < minX) minX = blocker.X;
+        if (blocker.X > maxX) maxX = blocker.X;
+        if (blocker.Y < minY) minY = blocker.Y;
+        if (blocker.Y > maxY) maxY = blocker.Y;
+    }
+
+    void Link(long key, int index)
+    {
+        next[index] = heads.TryGetValue(key, out int head) ? head : -1;
+        heads[key] = index;
+    }
+
+    void Unlink(long key, int index)
+    {
+        if (!heads.TryGetValue(key, out int cur)) return;
+        int prev = -1;
+        while (cur >= 0)
+        {
+            if (cur == index)
+            {
+                int after = next[index];
+                if (prev < 0)
+                {
+                    if (after < 0) heads.Remove(key);
+                    else heads[key] = after;
+                }
+                else next[prev] = after;
+                next[index] = -1;
+                return;
+            }
+            prev = cur;
+            cur = next[cur];
+        }
     }
 
     public void Replace(int index, ClientPathfinder.Blocker blocker)
@@ -42,15 +94,13 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
         var previous = all[index];
         long oldKey = Key(Floor(previous.X), Floor(previous.Y)), newKey = Key(Floor(blocker.X), Floor(blocker.Y));
         all[index] = blocker;
+        // An overestimate after a smaller or inward replacement only visits extra buckets; it never loses a blocker.
+        TrackBounds(blocker);
         if (oldKey != newKey)
         {
-            var old = buckets[oldKey]; old.Remove(index);
-            if (old.Count == 0) buckets.Remove(oldKey);
-            Index(index, blocker);
+            Unlink(oldKey, index);
+            Link(newKey, index);
         }
-        // An overestimate after a smaller replacement only visits extra buckets; it never loses a blocker.
-        reach = Math.Max(reach, Math.Max(blocker.Size,
-            blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
     }
 
     /// <summary>Takes a blocker out of every query. Its slot stays, so the other indexes and the views hold; a list
@@ -58,8 +108,7 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     public void Remove(int index)
     {
         var previous = all[index];
-        long key = Key(Floor(previous.X), Floor(previous.Y));
-        if (buckets.TryGetValue(key, out var list) && list.Remove(index) && list.Count == 0) buckets.Remove(key);
+        Unlink(Key(Floor(previous.X), Floor(previous.Y)), index);
         all[index] = Gone;
     }
 
@@ -107,13 +156,17 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
 
     bool Query(int x, int y, int threshold, int radius, int first, int second, bool footprintOnly)
     {
+        if (heads.Count == 0) return false;
         int range = reach + threshold;
+        if (x + range < minX || x - range > maxX || y + range < minY || y - range > maxY) return false;
         int tx0 = Math.Max(0, (x - radius) / 23), tx1 = (x + radius) / 23 + 1;
         int ty0 = Math.Max(0, (y - radius) / 23), ty1 = (y + radius) / 23 + 1;
-        for (int bx = Floor(x - range); bx <= Floor(x + range); bx++)
-            for (int by = Floor(y - range); by <= Floor(y + range); by++)
-                if (buckets.TryGetValue(Key(bx, by), out var list))
-                    foreach (int index in list)
+        int bx0 = Floor(x - range), bx1 = Floor(x + range);
+        int by0 = Floor(y - range), by1 = Floor(y + range);
+        for (int bx = bx0; bx <= bx1; bx++)
+            for (int by = by0; by <= by1; by++)
+                if (heads.TryGetValue(Key(bx, by), out int index))
+                    for (; index >= 0; index = next[index])
                     {
                         if (index == first || index == second) continue;
                         var b = all[index];
@@ -124,6 +177,6 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
         return false;
     }
 
-    static int Floor(int v) => (int)Math.Floor(v / (double)Bucket);
+    static int Floor(int v) => v >> 4;
     static long Key(int bx, int by) => (long)bx << 32 | (uint)by;
 }

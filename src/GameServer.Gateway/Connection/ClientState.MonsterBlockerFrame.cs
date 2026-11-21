@@ -8,6 +8,10 @@ public sealed partial class ClientState
     // (MonsterBlockers). Under Monsters.
     MonsterBlockerFrame? keptFrame;
     BodyList? spareBodies;
+    // Cached player blocker snapshot (ClientState.Blockers): reused when stationary, monster and peer bodies did not move.
+    // Never mutated after publication so readers outside Monsters stay lock-free and race-free. Under Monsters.
+    IReadOnlyList<ClientPathfinder.Blocker>? keptPlayerBlockers;
+    List<ClientPathfinder.Blocker>? sparePlayerBlockers;
 
     /// <summary>One lock-owned position/index snapshot shared by all path orders in an AI or correction pass.</summary>
     public MonsterBlockerFrame BeginMonsterBlockerFrame(double now)
@@ -109,8 +113,9 @@ public sealed partial class ClientState
         internal MonsterBlockerFrame(ClientState owner, MonsterBlockerFrame? outer, BodyList read, long startedAt)
         {
             this.owner = owner; this.outer = outer; Read = read;
-            FixedBlockers = new BlockerSet(read.Fixed);
-            current = new(read.Fixed);
+            FixedBlockers = read.Fixed.Count == 0 ? [] : new BlockerSet(read.Fixed);
+            current = new(read.Fixed.Count + read.Copies.Count + read.Monsters.Count + (read.Player.HasValue ? 1 : 0));
+            foreach (var f in read.Fixed) current.Add(f);
             foreach (var (id, x, y) in read.Copies)
             {
                 indices.Add(id, (Bodies.Count, current.Add(new(x, y, LivingCollision.PlayerSize))));
