@@ -43,6 +43,8 @@ public static partial class MapEssences
         public readonly Dictionary<uint, CastState> Casting = [];
         /// <summary>Hatred's Creeping Frost chilling trail (EssenceSpells.cs): the ice crystals left on the ground.</summary>
         public readonly List<TrailZone> Trail = [];
+        /// <summary>Rage's fire runes (EssenceRage.cs): armed traps on the ground that burst when stepped on.</summary>
+        public readonly List<Rune> Runes = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();

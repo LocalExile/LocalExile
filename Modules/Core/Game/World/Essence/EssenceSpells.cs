@@ -42,6 +42,7 @@ public static partial class MapEssences
         "RepeatedPulseLightning" => "lightning",
         "RepeatedPulseDegen" => "chaos",
         "EssenceDaemonGrab" => "grab",
+        "EssenceDaemonFireRuneTrapCluster" => "rune",
         _ => "",
     };
 
@@ -139,6 +140,11 @@ public static partial class MapEssences
                 }
                 RemoveEffect(conn, circle); RemoveEffect(conn, hand);
                 Console.WriteLine($"[map-content] essence grab by 0x{monster.ObjectId:x} at ({trapAt.X}, {trapAt.Y})");
+                return;
+            }
+            if (spell.Kind == "rune")
+            {
+                await CastRunes(conn, monster, target, spell);
                 return;
             }
             // The cast originates from the rare's live position, not the spot captured when the tick queued it: the rare

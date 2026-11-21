@@ -188,6 +188,7 @@ public static partial class MapEssences
         TickEffects(conn);
         TickBuffs(conn);
         TickTrail(conn);
+        TickRunes(conn);
         await CastSpecialSpells(conn);
         // Crystal Resonance: apply pending inherited essences to the map boss once it exists (it may be held back far
         // from the player until approached); a cheap check, the Monsters scan runs only while something is pending.
