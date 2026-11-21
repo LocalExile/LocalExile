@@ -209,6 +209,11 @@ public static class SideAreaVessels
         if (uniques > 0)
             rewards.AddRange(VaalVesselUniques.Roll(catalog, RollsFor(conn), UniquesFor(conn), DropsFor(conn), level, uniques, Random.Shared));
 
+        int doubleUniques = Count("map_vaal_vessel_drop_x_double_implicit_corrupted_uniques");
+        if (doubleUniques > 0)
+            rewards.AddRange(VaalVesselUniques.Roll(catalog, RollsFor(conn), UniquesFor(conn), DropsFor(conn), level,
+                doubleUniques, Random.Shared, doubleImplicit: true));
+
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
         if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;

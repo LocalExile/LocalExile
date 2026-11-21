@@ -142,8 +142,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   that level. *Of Divination* adds one to three level-eligible cards that redeem for corrupted items outside
   Ruthless. Their relative weights use a 3.29 Stacked Deck sample. The vessel's own rates are unknown.
   *Of Dark Blessings* adds one or two unidentified corrupted uniques at area level. Each gains a single native
-  corruption implicit for its base. The pool follows observed global drops and uses the league's configured
-  unique weights. The vessel's per-item distribution and the inclusion of named maps still need direct measurements.
+  corruption implicit for its base. *Of the Locus* adds one unidentified unique with two corruption implicits.
+  Both come from the base's item-level pool and have distinct modifier families. Both suffixes use the league's
+  configured unique weights for the observed global drop pool. The vessel's per-item distribution and the inclusion of named maps still need direct measurements.
   The map device opens the named area before or after identification. Legacy area-named maps and named map keys retain
   their identities. Retired Untainted Paradise and Perandus Manor items stay in the device.
   [Global unique drop levels and tiers](https://docs.google.com/spreadsheets/d/1o35umcCAH0zG0N1ozgj4MjeDxakxR52WfwfkTvZgk9w/edit)

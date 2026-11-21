@@ -22,7 +22,7 @@ internal static class VaalVesselUniques
     }
 
     internal static IEnumerable<ItemDrops.Drop> Roll(ItemCatalog items, ItemRolls rolls, UniqueCatalog uniques,
-        ItemDrops drops, int level, int count, Random random)
+        ItemDrops drops, int level, int count, Random random, bool doubleImplicit = false)
     {
         var eligible = Rewards.GetValue(GameData.Current, Load).Where(r => r.MinimumLevel <= level);
         foreach (var reward in drops.GuaranteedUniques(eligible, r => r.Name, count, random))
@@ -31,13 +31,21 @@ internal static class VaalVesselUniques
                 ? uniques.Create(definition with { ItemLevel = (byte)level }, random)!
                 : uniques.NamedMap(reward.Name)! with { ItemLevel = (byte)level };
             var type = items.ByHash(item.TypeHash)!;
-            var mod = rolls.CorruptionImplicit(type, level, random)
-                ?? throw new InvalidOperationException($"No corruption implicit for {reward.Name} at item level {level}");
-            var implicitMod = mod.Roll(ModSection.Implicit, random);
+            int implicitCount = doubleImplicit ? 2 : 1;
+            var implicits = rolls.RollCorruptionImplicits(type, level, implicitCount, random)
+                ?? throw new InvalidOperationException($"Cannot roll {implicitCount} corruption implicits for {reward.Name} at item level {level}");
             var mods = item.Mods.ToList();
-            var slots = Enumerable.Range(0, mods.Count).Where(index => mods[index].Section == ModSection.Implicit).ToArray();
-            if (slots.Length == 0) mods.Insert(0, implicitMod);
-            else mods[slots[random.Next(slots.Length)]] = implicitMod;
+            if (doubleImplicit)
+            {
+                mods.RemoveAll(m => m.Section == ModSection.Implicit);
+                mods.InsertRange(0, implicits);
+            }
+            else
+            {
+                var slots = Enumerable.Range(0, mods.Count).Where(index => mods[index].Section == ModSection.Implicit).ToArray();
+                if (slots.Length == 0) mods.Insert(0, implicits[0]);
+                else mods[slots[random.Next(slots.Length)]] = implicits[0];
+            }
             yield return new(item with { Mods = mods, Corrupted = true, Identified = false }, type);
         }
     }

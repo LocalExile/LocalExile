@@ -32,6 +32,23 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return pool.Length == 0 ? null : Pick(pool, random);
     }
 
+    /// <summary>Roll a complete set of corruption implicits with distinct hashes and families.</summary>
+    public ItemMod[]? RollCorruptionImplicits(ItemCatalog.BaseType type, int itemLevel, int count, Random random)
+    {
+        var result = new ItemMod[count];
+        var families = new HashSet<int>();
+        var hashes = new HashSet<ushort>();
+        for (int i = 0; i < count; i++)
+        {
+            var mod = CorruptionImplicit(type, itemLevel, random, hashes, families);
+            if (mod is null) return null;
+            result[i] = mod.Roll(ModSection.Implicit, random);
+            families.UnionWith(mod.Families);
+            hashes.Add(mod.Hash);
+        }
+        return result;
+    }
+
     /// <summary>Mods.dat GenerationType for the two Eldritch influences: Searing Exarch and Eater of Worlds.</summary>
     public const int ExarchImplicit = 28, EaterImplicit = 29;
 

@@ -160,6 +160,7 @@ public sealed class ScarabEncounterTests
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
             await CheckTempleVessels();
             await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
+            await CheckSideAreaVessel("MapSideArea5_3_2", 74, 47923, "MapCorruptedSideAreaVesselDoubleImplicitDrop_");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
                 "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselQuality23GemDrop",
@@ -550,20 +551,31 @@ public sealed class ScarabEncounterTests
                 Assert.True(DivinationRewards.Find(type.Id) is { Enabled: true, Corrupted: true });
             }
             var uniques = drops.Where(item => item.Rarity == ItemRarity.Unique).ToArray();
-            Assert.Equal(Count("MapCorruptedSideAreaVesselSingleImplicitDrop", 2), uniques.Length);
+            int singles = Count("MapCorruptedSideAreaVesselSingleImplicitDrop", 2);
+            int doubles = Count("MapCorruptedSideAreaVesselDoubleImplicitDrop_");
+            var implicitCounts = new List<int>();
             foreach (var item in uniques)
             {
                 Assert.True(item.Corrupted);
                 Assert.False(item.Identified);
                 Assert.Equal(level, item.ItemLevel);
                 var type = Program.Items.ByHash(item.TypeHash)!;
-                var implicitMod = Assert.Single(item.Mods, m => m.Section == ModSection.Implicit
-                    && Program.Items.Mods.ByHash(m.Hash)!.GenerationType == 5);
-                var mod = Program.Items.Mods.ByHash(implicitMod.Hash)!;
-                Assert.Equal(type.ModDomain, mod.Domain);
-                Assert.InRange(level, mod.Level, mod.MaxLevel);
-                Assert.True(mod.WeightFor(type.Tags) > 0);
+                var corruption = item.Mods.Where(m => m.Section == ModSection.Implicit)
+                    .Select(m => Program.Items.Mods.ByHash(m.Hash)!).Where(m => m.GenerationType == 5).ToArray();
+                implicitCounts.Add(corruption.Length);
+                if (corruption.Length == 2)
+                {
+                    Assert.NotEqual(corruption[0].Hash, corruption[1].Hash);
+                    Assert.Empty(corruption[0].Families.Intersect(corruption[1].Families));
+                }
+                foreach (var mod in corruption)
+                {
+                    Assert.Equal(type.ModDomain, mod.Domain);
+                    Assert.InRange(level, mod.Level, mod.MaxLevel);
+                    Assert.True(mod.WeightFor(type.Tags) > 0);
+                }
             }
+            Assert.Equal(Enumerable.Repeat(1, singles).Concat(Enumerable.Repeat(2, doubles)), implicitCounts.Order());
             var rewards = drops.Where(item => item.Rarity != ItemRarity.Unique && item.TypeHash != vaalOrb && item.Quality != 23
                 && Program.Items.GemLevel(item) != 21 && Program.Items.ByHash(item.TypeHash)!.Class != "DivinationCard").ToArray();
             int levelledGems = Count("MapCorruptedSideAreaVesselLevelledGemDrop");

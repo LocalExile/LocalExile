@@ -144,18 +144,8 @@ static class DivinationRewards
     static Item? CorruptionImplicits(Item item, ItemCatalog.BaseType type, ItemRolls rolls, Random random, int count)
     {
         if (!type.Components.Contains("Mods") || type.Components.Contains("SkillGem")) return null;
-        var kept = item.Mods.Where(m => m.Section != ModSection.Implicit).ToList();
-        var families = new HashSet<int>();
-        var hashes = new HashSet<ushort>();
-        for (int index = 0; index < count; index++)
-        {
-            var picked = rolls.CorruptionImplicit(type, item.ItemLevel, random, hashes, families);
-            if (picked is null)
-                return index == 0 && count == 1 ? item with { Corrupted = true } : null;
-            kept.Insert(index, picked.Roll(ModSection.Implicit, random));
-            families.UnionWith(picked.Families);
-            hashes.Add(picked.Hash);
-        }
-        return item with { Mods = kept, Corrupted = true };
+        var implicits = rolls.RollCorruptionImplicits(type, item.ItemLevel, count, random);
+        if (implicits is null) return count == 1 ? item with { Corrupted = true } : null;
+        return item with { Mods = [.. implicits, .. item.Mods.Where(m => m.Section != ModSection.Implicit)], Corrupted = true };
     }
 }
