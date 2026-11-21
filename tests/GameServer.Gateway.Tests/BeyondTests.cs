@@ -1,8 +1,10 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
+using GameServer.Modules.Survivors;
 
 namespace GameServer.Gateway.Tests;
 
@@ -62,7 +64,7 @@ public sealed class BeyondTests
             ["map_beyond_boss_spawn_chance_+%"] = 1200,
         });
         var instance = new InstanceState();
-        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x7051, 70, stats);
         Assert.IsType<ServerLevels.Level>(ServerLevels.For(area.Id, seed, 70));
         var layout = AreaLayouts.For(area.Hash16, seed);
@@ -188,7 +190,7 @@ public sealed class BeyondTests
 
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         var instance = new InstanceState();
-        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1, false));
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x7052, 70, stats);
         Assert.IsType<ServerLevels.Level>(ServerLevels.For(area.Id, seed, 70));
         var layout = AreaLayouts.For(area.Hash16, seed);
@@ -268,28 +270,293 @@ public sealed class BeyondTests
             MapBeyond.Experience(naturalXp);
             Assert.Equal(1000u, naturalXp.Experience);
 
-            // Demonic Power: killing K'Tash, Ghorr and Beidat grants their 60 s buffs (stats + Ghorr 10% less damage taken) and expires after 60 s.
+            // Demonic Power (3.29): killing K'Tash, Ghorr and Beidat grants their Magnificence buffs for the rest of
+            // the map instance (no fixed 60 s timer, CancelOnDeath = 0, cleared when leaving to hideout / another map,
+            // restored on re-entering the same map instance for the same character only).
             foreach (var faction in BeyondCatalog.All)
             {
                 var boss = owner.Conn.Monsters.Values.First(m => m.Variety?.Id == faction.BossVariety);
                 boss.Dead = true;
                 MapBeyond.Kill(new(owner.Conn, boss, faction.BossVariety, spot));
             }
-            var buffStats = MapBeyond.PlayerStats(owner.Conn, []);
-            Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_fire")]);
-            Assert.Equal(40, buffStats[(uint)Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
-            Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_lightning")]);
-            Assert.Equal(-15, buffStats[(uint)Key("action_speed_-%")]);
-            Assert.Equal(90, MapBeyond.IncomingDamage(owner.Conn, 100));
+            void AssertAllBossBuffs(ClientState c)
+            {
+                var buffStats = MapBeyond.PlayerStats(c, []);
+                Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_fire")]);
+                Assert.Equal(40, buffStats[(uint)Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
+                Assert.Equal(100, buffStats[(uint)Key("physical_damage_%_to_add_as_lightning")]);
+                Assert.Equal(-15, buffStats[(uint)Key("action_speed_-%")]);
+                Assert.Equal(-10, buffStats[(uint)Key(MapBeyond.BossLessDamageStat)]);
+            }
+            AssertAllBossBuffs(owner.Conn);
 
+            // Persists past 60 s and across player death in the same map instance.
             await MapBeyond.Tick(owner.Conn, 0.25);
-            await MapBeyond.Tick(owner.Conn, 60.0);
+            await MapBeyond.Tick(owner.Conn, 120.0);
+            AssertAllBossBuffs(owner.Conn);
+            owner.Conn.PlayerLife = 0;
+            await MapBeyond.Tick(owner.Conn, 5.0);
+            AssertAllBossBuffs(owner.Conn);
+
+            // Leaving the map clears the leaving connection's active buffs; hideout / another area has none.
+            string ownerChar = owner.Conn.Character!;
+            MapBeyond.Leave(owner.Conn);
             Assert.Empty(MapBeyond.PlayerStats(owner.Conn, []));
-            Assert.Equal(100, MapBeyond.IncomingDamage(owner.Conn, 100));
+
+            await using var inHideout = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed, ownerChar);
+            await MapBeyond.Enter(inHideout.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(inHideout.Conn, []));
+
+            // Re-entering the same map instance restores all three Magnificence buffs; another character does not get them.
+            await using var returned = await ScarabEncounterTests.Wire.Open(instance, layout, seed, ownerChar);
+            await MapBeyond.Enter(returned.Conn);
+            AssertAllBossBuffs(returned.Conn);
+
+            await using var guest = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+            await MapBeyond.Enter(guest.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(guest.Conn, []));
+            PlayerInventories.Forget(guest.Conn.Character!);
         }
         finally
         {
             PlayerInventories.Forget(owner.Conn.Character!);
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
+    public async Task Demonic_power_boss_buffs_persist_for_map_instance_across_hideout_round_trips_and_death()
+    {
+        Assert.Equal(3, BeyondCatalog.All.Count);
+        uint Key(string stat) => Program.Stats.Key(stat)!.Value;
+        var atlas = new Dictionary<uint, int>
+        {
+            [Key("map_beyond_boss_grants_special_buff_on_death")] = 1,
+        };
+        var mods = new MapMods(new Dictionary<string, int> { ["map_beyond_rules"] = 1 });
+        var layout = new AreaLayout(1, "MapWorldsStrand", 200, 200, 50, 50, (_, _) => true, []);
+        var instance = new InstanceState();
+        instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, atlas, new HashSet<string>(), -1));
+        instance.OpenedWith(new("BeyondOwner", new(layout.Hash, layout.Id, "Strand", 3) { Level = 70 }, mods));
+
+        TestEnvironment.OpenOwnSaves("beyond-demonic-power");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var previousOutgoing = Program.Outgoing;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+
+        var sentAddBuffs = new List<(ushort Row, byte Flags)>();
+        Program.Outgoing = (_, bytes) =>
+        {
+            if (bytes.Length >= 23 && bytes[0] == (byte)(InstanceEntities.AddBuffId >> 8)
+                && bytes[1] == (byte)(InstanceEntities.AddBuffId & 0xff))
+            {
+                ushort row = (ushort)(bytes[14] << 8 | bytes[15]);
+                sentAddBuffs.Add((row, bytes[22]));
+            }
+            previousOutgoing?.Invoke(_, bytes);
+        };
+
+        await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053);
+        string ownerChar = owner.Conn.Character!;
+        try
+        {
+            void AssertAllBossBuffs(ClientState c)
+            {
+                var buffStats = MapBeyond.PlayerStats(c, []);
+                Assert.Equal(100, buffStats[Key("physical_damage_%_to_add_as_fire")]);
+                Assert.Equal(40, buffStats[Key("explode_enemies_for_10%_life_as_fire_on_kill_chance_%")]);
+                Assert.Equal(100, buffStats[Key("physical_damage_%_to_add_as_lightning")]);
+                Assert.Equal(-15, buffStats[Key("action_speed_-%")]);
+                Assert.Equal(-10, buffStats[(uint)Key(MapBeyond.BossLessDamageStat)]);
+            }
+
+            // Kill K'Tash, Ghorr and Beidat -> gain all 3 Magnificence buffs with infinite duration (flags bit1 == 0).
+            foreach (var faction in BeyondCatalog.All)
+            {
+                var boss = new SpawnedMonster(faction.Id, new(50, 50, 10), 40, 80, 100)
+                {
+                    Rarity = MonsterRarity.Unique,
+                    Dead = true,
+                };
+                MapBeyond.Kill(new(owner.Conn, boss, faction.BossVariety, (50, 50)));
+            }
+            AssertAllBossBuffs(owner.Conn);
+            await MapBeyond.Tick(owner.Conn, 0.25);
+
+            var expectedRows = BeyondCatalog.All.Select(f => f.BossBuffRow).Order().ToArray();
+            Assert.Equal(expectedRows, sentAddBuffs.Select(b => b.Row).Order().ToArray());
+            Assert.All(sentAddBuffs, b => Assert.Equal(0, b.Flags & 0x02));
+
+            // No fixed 60 s expiry and no cancellation on player death (CancelOnDeath = 0 in 3.29 BuffDefinitions).
+            await MapBeyond.Tick(owner.Conn, 120.0);
+            AssertAllBossBuffs(owner.Conn);
+            owner.Conn.PlayerLife = 0;
+            await MapBeyond.Tick(owner.Conn, 5.0);
+            AssertAllBossBuffs(owner.Conn);
+
+            // Leaving to hideout clears active buffs on the leaving connection; hideout / other maps do not grant them.
+            MapBeyond.Leave(owner.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(owner.Conn, []));
+
+            sentAddBuffs.Clear();
+            await using var inHideout = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, 0x7053, ownerChar);
+            await MapBeyond.Enter(inHideout.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(inHideout.Conn, []));
+            Assert.Empty(sentAddBuffs);
+
+            // Re-entering the same map instance restores all 3 Magnificence buffs with infinite duration.
+            await using var returned = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053, ownerChar);
+            await MapBeyond.Enter(returned.Conn);
+            AssertAllBossBuffs(returned.Conn);
+            Assert.Equal(expectedRows, sentAddBuffs.Select(b => b.Row).Order().ToArray());
+            Assert.All(sentAddBuffs, b => Assert.Equal(0, b.Flags & 0x02));
+
+            // Restoring from ContentState alone (after a hot-reload) also brings all 3 buffs back.
+            sentAddBuffs.Clear();
+            var reloadedInstance = new InstanceState();
+            reloadedInstance.ContentState["Beyond/boss-buffs"] = instance.ContentState["Beyond/boss-buffs"];
+            await using var afterReload = await ScarabEncounterTests.Wire.Open(reloadedInstance, layout, 0x7053, ownerChar);
+            await MapBeyond.Enter(afterReload.Conn);
+            AssertAllBossBuffs(afterReload.Conn);
+            Assert.Equal(expectedRows, sentAddBuffs.Select(b => b.Row).Order().ToArray());
+
+            // Another character entering the same map instance does not receive the killer's Demonic Power buffs.
+            sentAddBuffs.Clear();
+            await using var guest = await ScarabEncounterTests.Wire.Open(instance, layout, 0x7053);
+            await MapBeyond.Enter(guest.Conn);
+            Assert.Empty(MapBeyond.PlayerStats(guest.Conn, []));
+            Assert.Empty(sentAddBuffs);
+            PlayerInventories.Forget(guest.Conn.Character!);
+        }
+        finally
+        {
+            PlayerInventories.Forget(ownerChar);
+            Program.Outgoing = previousOutgoing;
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    [Fact]
+    public void Ghorr_magnificence_reduces_all_incoming_damage_paths_without_double_applying()
+    {
+        TestEnvironment.OpenOwnSaves("ghorr-incoming-damage");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        using var statsHook = GameEvents.PlayerStatSources.Add("Game", MapBeyond.PlayerStats);
+        using var finalTaken = IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]);
+
+        var instance = new InstanceState();
+        instance.AreaStats(() => new Dictionary<uint, int>
+        {
+            [Program.Stats.Key("map_beyond_boss_grants_special_buff_on_death")!.Value] = 1,
+        });
+        var conn = new ClientState(new(1, "ghorr-test", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            Character = "GhorrTester",
+            PlayerLife = 1000,
+            PlayerMana = 100,
+            Instance = instance,
+            Pools = new(1, 1000, 100, 0, 0),
+            EvasionEntropy = 100,
+            IncomingHitRandom = new Random(7),
+        };
+        var hitter = new SpawnedMonster("hitter", new(0, 0, 0), 0, 0, 1000) { Level = 1 };
+        var melee = new MonsterAttack(0, 1, 10, DamagePacket.Of(DamageType.Physical, 100, 100));
+        var ranged = new MonsterAttack(0, 1, 50, DamagePacket.Of(DamageType.Fire, 100, 100)) { Ranged = true };
+        var spell = new MonsterAttack(0, 1, 50, DamagePacket.Of(DamageType.Fire, 100, 100)) { Spell = true };
+
+        uint TakeCommit(MonsterAttack attack)
+        {
+            conn.PlayerLife = 1000;
+            conn.EvasionEntropy = 100;
+            var hit = Game.CommitMonsterHitLocked("test", conn, 1, hitter, attack, conn.Clock.Elapsed.TotalSeconds, (0, 0), (0, 0), checkRange: false);
+            Assert.NotNull(hit);
+            return 1000u - hit!.Life;
+        }
+
+        uint TakeSyntheticSpell()
+        {
+            conn.PlayerLife = 1000;
+            Assert.True(Game.TrySyntheticEnemyHit(conn, DamageType.Fire, 100, block: false, spell: true, suppress: false, out var hit));
+            return 1000u - hit.Life;
+        }
+
+        uint TakeIgnite(double from)
+        {
+            conn.PlayerLife = 1000;
+            conn.ElementalAilments.Clear();
+            conn.NonChaosDotTakenCarry = conn.NonChaosDotBypassCarry = 0;
+            conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Ignite, 100, 4, from, _ => 0, new Random(1));
+            Game.AdvancePlayerAilmentsLocked(conn, from, from + 1.0, Game.CharacterPlayerStats(conn));
+            return 1000u - conn.PlayerLife;
+        }
+
+        double CurrentFinalTakenFactor()
+        {
+            var stats = Game.CharacterPlayerStats(conn);
+            return IncomingResourceDefences.FinalTakenFactor(conn.Pools,
+                name => Program.Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0);
+        }
+
+        try
+        {
+            // Baseline (Ghorr inactive): every path deals full 100 damage and factor is 1.0.
+            Assert.Equal(100u, TakeCommit(melee));
+            Assert.Equal(100u, TakeCommit(ranged));
+            Assert.Equal(100u, TakeCommit(spell));
+            Assert.Equal(100u, TakeSyntheticSpell());
+            Assert.Equal(100, Game.DamagePlayerHitTyped(conn, 100, 0, 0, 0, Game.CharacterPlayerStats(conn),
+                DamagePacket.Of(DamageType.Physical, 100, 100)));
+            Assert.Equal(100u, TakeIgnite(10));
+            Assert.Equal(1.0, CurrentFinalTakenFactor(), 6);
+
+            // Grant Ghorr's Magnificence by killing the Flesh faction boss.
+            var ghorrFaction = Assert.IsType<BeyondCatalog.Faction>(BeyondCatalog.ByRow(1));
+            var ghorr = new SpawnedMonster("Ghorr", new(0, 0, 0), 0, 0, 1000) { Dead = true, Rarity = MonsterRarity.Unique };
+            MapBeyond.Kill(new(conn, ghorr, ghorrFaction.BossVariety, (0, 0)));
+
+            // GameEvents.IncomingDamage is NOT used by Ghorr (no double-application).
+            Assert.Equal(100, GameEvents.AdjustIncomingDamage(conn, 100));
+
+            // Every incoming damage path takes 10% less (90, never 81): melee, ranged/projectile, monster spell,
+            // synthetic spell (shrine/strongbox), direct typed hit (labyrinth trap), ignite DoT, and RF/ground factor.
+            Assert.Equal(90u, TakeCommit(melee));
+            Assert.Equal(90u, TakeCommit(ranged));
+            Assert.Equal(90u, TakeCommit(spell));
+            Assert.Equal(90u, TakeSyntheticSpell());
+            Assert.Equal(90, Game.DamagePlayerHitTyped(conn, 100, 0, 0, 0, Game.CharacterPlayerStats(conn),
+                DamagePacket.Of(DamageType.Physical, 100, 100)));
+            Assert.Equal(90u, TakeIgnite(30));
+            Assert.Equal(0.9, CurrentFinalTakenFactor(), 6);
+
+            // SurvivorsRun compatibility: GameEvents.IncomingDamage (60%) composes cleanly with Ghorr (0.9) -> 54.
+            using (GameEvents.IncomingDamage.Add("Game", (_, dmg) => SurvivorsRules.IncomingDamage(dmg, SurvivorsRules.IncomingDamagePercent)))
+            {
+                Assert.Equal(60, GameEvents.AdjustIncomingDamage(conn, 100));
+                Assert.Equal(54u, TakeCommit(melee));
+            }
+
+            // Clearing Ghorr restores full damage.
+            MapBeyond.Leave(conn);
+            Assert.Equal(100u, TakeCommit(melee));
+            Assert.Equal(1.0, CurrentFinalTakenFactor(), 6);
+        }
+        finally
+        {
+            MapBeyond.Leave(conn);
+            PlayerInventories.Forget(conn.Character!);
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);

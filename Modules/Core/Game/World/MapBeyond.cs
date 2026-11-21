@@ -27,11 +27,13 @@ public static partial class MapBeyond
     /// <summary>HellscapeLifeScalingPerLevel more-life stat, handed over to MonsterModEffects in GameModule.Load.</summary>
     public const string LifeStat = "beyond_monster_life_+%_final";
 
-    // 3.19–3.29 Beyond spawn/merge parameters (poewiki "Beyond", 1 screen ~50 cells).
+    // 3.19–3.29 Beyond spawn/merge parameters (poewiki "Beyond": 15% base orb chance, 4 orbs merge; 1 screen ~50 cells).
     public const double BasePortalChance = 15.0;
     public const double BaseMergeRadius = 45.0;
     public const double MinMergeRadius = 10.0;
     public const int MergeThreshold = 4;
+    // shortcut: server estimate for boss portal ramp — poewiki only states a stacking chance after "a substantial
+    // number" of packs; GGG does not publish exact threshold or per-pack step values.
     public const int BossMinPacks = 6;
     public const double BossChanceStep = 8.0;
     const int MaxActiveOrbs = 60;
@@ -189,6 +191,7 @@ public static partial class MapBeyond
     public static async Task Enter(ClientState conn)
     {
         if (BeyondCatalog.All.Count == 0 || conn.Layout.Walkable is null) return;
+        await RestoreBossBuffs(conn);
         bool hasMap = MapRunOf(conn) is not null;
         bool forced = Stat(conn, "map_beyond_rules") > 0;
         bool invasion = Stat(conn, "map_rare_monsters_spawn_X_beyond_portals") > 0
@@ -253,7 +256,7 @@ public static partial class MapBeyond
 
     public static async Task Tick(ClientState conn, double seconds)
     {
-        if (!conn.Closed && !conn.LeavingArea) await TickBossBuffs(conn, seconds);
+        if (!conn.Closed && !conn.LeavingArea) await TickBossBuffs(conn);
         if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Instance is null
             || Of(conn) is not { State.Active: true } area) return;
 

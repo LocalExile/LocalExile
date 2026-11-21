@@ -53,7 +53,8 @@ public static partial class MapEssences
                 return true;
             }
             var monolith = area.Monoliths![target.Index];
-            var result = Corrupt(monolith, MapRunOf(conn)!.Area.Level, MapModsOf(conn) ?? MapMods.None, Random.Shared);
+            int level = Math.Clamp(MapRunOf(conn)?.Area.Level ?? ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+            var result = Corrupt(monolith, level, MapModsOf(conn) ?? MapMods.None, Random.Shared);
             if (result is null)
             {
                 Console.WriteLine(Log("already corrupted or released; nothing consumed"));
@@ -91,7 +92,7 @@ public static partial class MapEssences
     static async Task<bool> Release(ClientState conn, Area area, Monolith monolith)
     {
         if (monolith.Stage >= 4 || monolith.Monster != 0 || Monsters.Find(monolith.Variety) is not { Supported: true } variety) return false;
-        byte level = (byte)Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
+        byte level = (byte)Math.Clamp(MapRunOf(conn)?.Area.Level ?? ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
         var mods = MapEssenceCatalog.Mods(conn, variety, level, monolith.Essences);
         if (monolith.ForcedRelease && ItemsFor(conn).Mods.ById("RemnantOfCorruptionMonsterStats") is { } empowered)
             mods = MonsterModRolls.Value.Create([.. mods.Mods, empowered.Roll(ModSection.Implicit, Random.Shared)], mods.NameWords, MonsterRarity.Rare, level);

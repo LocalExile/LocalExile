@@ -311,8 +311,12 @@ public static partial class Game
         if (MapBossFights.Current.Unlock(CharacterName(conn), variety.Id) is { } stone)
         {
             if (stone.Flag.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
+            var stoneType = ItemsFor(conn).Find(stone.ItemId);
+            if (stoneType is not null
+                && QuestRewardCatalog.Load().Find(111)?.Choices.FirstOrDefault(c => c.ItemRow == stoneType.Row)?.RequiredLeagueFlag is int voidstoneLqf)
+                await SetLeagueQuestFlags(remote, stream, ciphers, conn, [voidstoneLqf]);
             await DropGroundItem(remote, stream, ciphers, conn, stone.ItemId, at, m.Label);
-            string name = ItemsFor(conn).Find(stone.ItemId)?.Name ?? stone.ItemId.Split('/')[^1];
+            string name = stoneType?.Name ?? stone.ItemId.Split('/')[^1];
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Atlas: {name} unlocked."),
                 $"0x0017 Voidstone slot {stone.Slot} from {m.Label}");
         }
@@ -344,6 +348,12 @@ public static partial class Game
         await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
         await RemoveDoneQuestItemsFromGround(remote, stream, ciphers, conn);
         string area = conn.Layout.Id;
+        if (area is "1_1_11_1" or "1_1_11_2" && !ClientHasQuestFlag(conn, "a1q3-KilledSeaWitch"))
+        {
+            ushort merveilLine = area == "1_1_11_1" ? (ushort)68 : (ushort)69; // MerveilEnterWrath / MerveilEnterAnger
+            await Send(remote, stream, ciphers, InstanceNpcs.TextAudio(0, 8, merveilLine),
+                $"0x01c7 Merveil area entry dialogue {merveilLine}");
+        }
         if (QuestsOf(conn).OnEntered(area) is { Count: > 0 } entered) await SetQuestFlags(remote, stream, ciphers, conn, entered);
         var chests = QuestsOf(conn).Chests(area);
         var near = QuestsOf(conn).NearObjects(area);
@@ -352,7 +362,7 @@ public static partial class Game
         var notes = new List<string>();
         var placed = new QuestObjectTypes.AreaPlacements(area, conn.Seed, notes);
         var doors = PlacedQuestDoors(conn, placed);
-        lock (conn.QuestNpcs) conn.QuestNpcs.AddRange([.. QuestNpcCandidates(remote, conn, placed), .. AppearedBefore(conn)]);
+        lock (conn.QuestNpcs) conn.QuestNpcs.AddRange([.. QuestNpcCandidates(remote, conn, placed), .. AppearedBefore(conn, placed)]);
         await UpdateQuestNpcs(remote, stream, ciphers, conn, "entering the area");
         var nearSpawns = QuestsOf(conn).NearSpawns(area);
         if (chests.Count + near.Count + blockers.Count + questObjects.Count + nearSpawns.Count + doors.Count == 0) return;
@@ -434,8 +444,11 @@ public static partial class Game
 
     // ---- the engine's quest objects (Quests.ObjectRule) ----
 
-    // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned).
-    public static bool QuestObjectTransitioned(ClientState conn, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag);
+    // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned), unless an
+    // UntransitionedBy flag has returned it to state 1 (Prisoner's Gate spikes reopening on a1q9-RoadOpened).
+    public static bool QuestObjectTransitioned(ClientState conn, Quests.ObjectRule rule) =>
+        rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag)
+        && (rule.UntransitionedBy is null || !ClientHasQuestFlag(conn, rule.UntransitionedBy));
 
     public static byte[] QuestObjectBlob(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
     {
@@ -579,7 +592,8 @@ public static partial class Game
     {
         List<(uint Id, Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> objects;
         lock (conn.QuestObjects)
-            objects = [.. conn.QuestObjects.Where(o => o.Value.Rule.TransitionedBy is { } f && effective.Contains(f)).Select(o => (o.Key, o.Value.Rule, o.Value.At, o.Value.Info))];
+            objects = [.. conn.QuestObjects.Where(o => o.Value.Rule.TransitionedBy is { } f && effective.Contains(f)
+                || o.Value.Rule.UntransitionedBy is { } u && effective.Contains(u)).Select(o => (o.Key, o.Value.Rule, o.Value.At, o.Value.Info))];
         foreach (var (id, rule, at, info) in objects)
         {
             bool done = QuestObjectTransitioned(conn, rule);
@@ -804,7 +818,10 @@ public static partial class Game
             lock (conn.Npcs) conn.Npcs.Remove(npcId);
             byte level = (byte)Math.Clamp(Packs.For(conn.Layout.Id)?.AreaLevel ?? 1, 1, 100);
             Console.WriteLine($"[gateway] {remote} {npc.Npc.Name} turns into {variety.Name} ({talk.Option})");
-            await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, npc.X, npc.Y);
+            uint bossId = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, npc.X, npc.Y);
+            if (rule.Variety == "Metadata/Monsters/Skeletons/SkeletonBossFairgraves")
+                await Send(remote, stream, ciphers, InstanceNpcs.TextAudio(bossId, 4, 153),
+                    "0x01c7 Fairgraves combat dialogue (FairgravesAttacks)");
         }
     }
 
@@ -826,7 +843,29 @@ public static partial class Game
         foreach (var (rule, x, y) in conn.QuestNear)
         {
             if (Dist(at, (x, y)) > Quests.SightRange || rule.Flags.All(conn.HasQuestFlag)) continue;
-            if (rule.Needs is null) { await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags); continue; }
+            bool pietySpikeIntro = rule.ObjectType == "Metadata/NPC/Act1/PietyBlockage" && !conn.HasQuestFlag("a1q9-RoadBlocked");
+            if (rule.Needs is null)
+            {
+                await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags);
+                if (pietySpikeIntro)
+                {
+                    // PietyBlockage.ot has no client PlayTextAudio; send her class-specific Prisoner's Gate line via 0x1c7.
+                    ushort line = conn.ClassRow switch
+                    {
+                        4 => 388, // Duelist
+                        5 => 389, // Shadow
+                        6 => 390, // Templar
+                        1 => 391, // Witch
+                        0 => 392, // Marauder
+                        3 => 393, // Ranger
+                        2 => 394, // Scion
+                        _ => 387, // PietyIntroSpikePassageNormal
+                    };
+                    await Send(remote, stream, ciphers, InstanceNpcs.TextAudio(0, 31, line),
+                        $"0x01c7 Piety Prisoner's Gate dialogue {line}");
+                }
+                continue;
+            }
             // A conditional sight (Quests.NearWith): only with its needs, and the quest items its flags finish go.
             if (!rule.Needs.All(f => ClientHasQuestFlag(conn, f))) continue;
             await ConsumeQuestItemsAndSet(remote, stream, ciphers, conn, [.. rule.Flags.Where(f => !conn.HasQuestFlag(f))],
