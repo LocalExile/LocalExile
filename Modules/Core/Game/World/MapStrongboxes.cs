@@ -29,6 +29,7 @@ public static partial class MapStrongboxes
         public List<Wave> Waves { get; init; } = [];
         public List<VaalSpark> Sparks { get; init; } = [];
         public List<VesselProjectileCast> ThrownWeapons { get; init; } = [];
+        public List<VaalFissure> Fissures { get; init; } = [];
         public List<VaalFirestorm> Firestorms { get; init; } = [];
         public List<VaalCausticArrow> CausticArrows { get; init; } = [];
         public List<VaalFlameblast> Flameblasts { get; init; } = [];
@@ -71,6 +72,7 @@ public static partial class MapStrongboxes
         public volatile bool Active;
         public SparkSkill? SparkSkill;
         public VesselProjectileSkill? ThrownWeaponSkill;
+        public FissureSkill? FissureSkill;
         public FirestormSkill? FirestormSkill;
         public FlameblastSkill? FlameblastSkill;
         public CausticArrowSkill? CausticArrowSkill;
@@ -209,7 +211,7 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0 || b.CausticArrows.Count > 0 || b.Sparks.Count > 0 || b.ThrownWeapons.Count > 0);
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0 || b.CausticArrows.Count > 0 || b.Sparks.Count > 0 || b.ThrownWeapons.Count > 0 || b.Fissures.Count > 0);
 
     static void Keep(ClientState conn, Area area)
     {
@@ -710,6 +712,7 @@ public static partial class MapStrongboxes
                 if (box.Flameblasts.Count != 0) await TickFlameblasts(conn, area, box, now);
                 if (box.CausticArrows.Count != 0) await TickCausticArrows(conn, area, box, now);
                 if (box.Sparks.Count != 0) await TickSparks(conn, area, box, now);
+                if (box.Fissures.Count != 0) await TickFissures(conn, area, box, now);
                 if (box.ThrownWeapons.Count != 0)
                 {
                     var skill = area.ThrownWeaponSkill ??= ReadThrownWeapon(conn, box.ThrownWeapons[0].Daemon);

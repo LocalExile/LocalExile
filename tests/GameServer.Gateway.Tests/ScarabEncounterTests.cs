@@ -295,6 +295,14 @@ public sealed class ScarabEncounterTests
             await MapStrongboxes.Tick(boxPeer.Conn, throwStart + TimeSpan.FromSeconds(7));
             Assert.Empty(Boxes()[weaponBox.Index].ThrownWeapons);
             Assert.DoesNotContain(thrown.Actor, boxInstance.World.MonsterOrigins.Keys);
+            var fissureMod = Program.Items.Mods.ById("ChestSupporterVaalVolcanicFissure")!;
+            var fissureBox = vessels.First(b => b.Mods.Any(m => m.Hash == fissureMod.Hash));
+            boxOwner.Conn.Walk.Teleport(fissureBox.X, fissureBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(fissureBox.Id, 0, 1, 0), 0));
+            var fissure = Assert.Single(Boxes()[fissureBox.Index].Fissures);
+            var slam = Assert.Single(boxInstance.World.MonsterOrigins[fissure.Actor].Object.Skills!);
+            Assert.Equal((74619u, 73947u, 73948u), (slam.EffectsPerLevelRow, slam.StatSetsPerLevelRow, Assert.Single(slam.ExtraStatSets).Row));
+            Assert.DoesNotContain(fissure.Actor, Boxes()[fissureBox.Index].Guards);
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
             var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2"), Slot("ScarabEssence4")], Program.Items.Mods);

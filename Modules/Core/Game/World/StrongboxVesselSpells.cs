@@ -49,6 +49,14 @@ public static partial class MapStrongboxes
         // The Vaalsmithed prefixes share one native mod family. The suffix has its own family.
         foreach (var (_, daemon, effects) in Daemons(conn, type, box))
         {
+            // The fissure prefix names the trigger variety, which has no grant. Only the armed variety owns the action.
+            if (daemon == FissureTrigger)
+            {
+                var skill = area.FissureSkill ??= ReadFissure(conn);
+                var cast = PrepareFissure(conn, box, skill);
+                box.Fissures.Add(cast);
+                return (cast, skill.Slam);
+            }
             if (effects.Contains(ThrownWeaponEffect))
             {
                 var skill = area.ThrownWeaponSkill ??= ReadThrownWeapon(conn, daemon);
@@ -110,6 +118,13 @@ public static partial class MapStrongboxes
         {
             var skill = area.CausticArrowSkill ??= ReadCausticArrow(player, cast.Daemon);
             Watch(cast, cast.Steps.Length, skill.ReleaseTicks + skill.StepTicks, skill.StepTicks);
+        }
+
+        foreach (var cast in box.Fissures)
+        {
+            var skill = area.FissureSkill ??= ReadFissure(player);
+            Register(cast, Enumerable.Range(cast.Landed, cast.Samples(box) - cast.Landed)
+                .Select(i => skill.Sample(cast, box, i) / (double)TimeSpan.TicksPerSecond));
         }
 
         foreach (var cast in box.Sparks)
