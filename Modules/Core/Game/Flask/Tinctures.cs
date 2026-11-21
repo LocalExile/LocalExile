@@ -553,7 +553,7 @@ public static partial class Game
             if (stat == "item_rarity_+%_per_toxicity_up_to_100%_from_tincture" && stacks > 0)
                 Add("base_item_found_rarity_+%", Math.Min(100, (int)Math.Clamp((long)value * stacks, 0, 100)));
             else if (stat == "fire_damage_taken_+_per_toxicity_from_tincture" && stacks > 0)
-                Add("fire_damage_taken_+%", ActorScale.Saturate((long)value * stacks));
+                Add("fire_damage_taken_+", ActorScale.Saturate((long)value * stacks));
             else if (weaponApplied)
             {
                 if (stat == "penetrate_elemental_resistances_%_per_toxicity_with_tinctured_weapons" && stacks > 0)

@@ -332,10 +332,16 @@ public class TinctureTests
             Assert.True(conn3.TinctureEffects.LifeBurn);
             double t3 = conn3.TinctureEffects.Of(slot3.Id)!.ActivatedAt;
 
+            var wildfire = items.Mods.All.Single(m => m.Id == "TinctureFireDamageTakenPerToxicityUnique__1");
+            var wildStats = Tinctures.ScaledMods(baseTincture with { Mods = [wildfire.With(ModSection.Explicit, [-1], new Random(7))] }, items.Mods, 1);
+            conn3.TinctureEffects.UpdateScaling(slot3.Id, conn3.TinctureEffects.Of(slot3.Id)!.EffectMultiplier, wildStats);
             var stats3 = Game.CharacterPlayerStats(conn3);
             List<uint>? deadIds = null;
             Game.AdvanceTincturesLocked(conn3, now: t3 + 1.42, seconds: 0.71, stats3, out manaDrain, out lifeDrain, ref deadIds);
             Assert.Equal(2, conn3.TinctureEffects.BurnStacks);
+            var burning = Game.CharacterStatSources(conn3).Stats;
+            Assert.Equal(-2, PlayerDamageTaken.Flat(DamageType.Fire, attack: false, name => Stat(burning, name)));
+            Assert.Equal(0, Stat(burning, "fire_damage_taken_+%"));
             Assert.Equal(60, Stat(Game.CharacterStatSources(conn3).Stats, "non_lethal_life_loss_%_per_minute_per_tincture_toxicity"));
             Assert.Equal(0, manaDrain);
             Assert.True(lifeDrain > 0);
