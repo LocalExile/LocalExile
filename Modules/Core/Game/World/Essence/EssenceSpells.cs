@@ -243,8 +243,24 @@ public static partial class MapEssences
             });
         if (id == 0) return 0;
         await PlayPulse(conn, id, at, spell);
+        // Fire and chaos have no element nova daemon action (the RepeatedPulse action always draws the frost pulse), so
+        // their own pulse art is spawned over it as an effect object for the wind-up's duration.
+        if (spell.Kind is "fire" or "chaos")
+        {
+            uint pulse = SpawnEffect(conn, at, spell.Kind == "fire" ? FirePulseArt : ChaosPulseArt, 5f);
+            _ = RemovePulseLater(conn, pulse, 2.0);
+        }
         Console.WriteLine($"[map-content] essence pulse daemon {spell.Daemon} {spell.Kind}, radius {radius}");
         return id;
+    }
+
+    const string FirePulseArt = "Metadata/Effects/Spells/pulses/firepulse.ao";
+    const string ChaosPulseArt = "Metadata/Effects/Spells/pulses/chaospulse.ao";
+
+    static async Task RemovePulseLater(ClientState conn, uint id, double seconds)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(seconds));
+        RemoveEffect(conn, id);
     }
 
     /// <summary>One pulsation of the wind-up: re-plays the daemon's pulse nova action in place.</summary>
@@ -278,8 +294,12 @@ public static partial class MapEssences
     sealed class EssenceEffects
     {
         public readonly List<(Dictionary<uint, int> Stats, double Until, ushort Buff, uint Key)> Debuffs = [];
-        public readonly List<(double Dps, double Until, ushort Buff)> Degens = [];
-        public double DegenShare;
+        /// <summary>Misery's «Essence of Misery» stacks: each a chaos degeneration with its own expiry. The buff (744)
+        /// shows the live count; the degeneration share rides <c>TrapDegenPerSecond</c>.</summary>
+        public readonly List<(double Dps, double Until)> MiseryStacks = [];
+        public ushort MiseryBuff;
+        public int MiserySentCount;
+        public double MiseryShare;
     }
     static readonly RuleTable<ClientState, EssenceEffects> Effects = new();
 
@@ -308,15 +328,8 @@ public static partial class MapEssences
         {
             foreach (var gone in effects.Debuffs.Where(d => d.Until <= now).ToArray())
             { effects.Debuffs.Remove(gone); goneBuffs.Add(gone.Buff); debuffChanged = true; }
-            foreach (var gone in effects.Degens.Where(d => d.Until <= now).ToArray())
-            { effects.Degens.Remove(gone); goneBuffs.Add(gone.Buff); }
-            double dps = effects.Degens.Sum(d => d.Dps);
-            if (dps != effects.DegenShare)
-            {
-                lock (conn.Monsters) conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - effects.DegenShare + dps);
-                effects.DegenShare = dps;
-            }
         }
+        TickMisery(conn, effects);
         if (conn.Closed) return;
         var (remote, stream, ciphers) = conn.Wire;
         foreach (ushort buff in goneBuffs)
@@ -329,8 +342,12 @@ public static partial class MapEssences
     {
         if (Effects.TryGetValue(conn, out var effects))
         {
-            lock (conn.Monsters) conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - effects.DegenShare);
-            lock (effects) { effects.Debuffs.Clear(); effects.Degens.Clear(); effects.DegenShare = 0; }
+            lock (conn.Monsters) conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - effects.MiseryShare);
+            lock (effects)
+            {
+                effects.Debuffs.Clear(); effects.MiseryStacks.Clear();
+                effects.MiseryShare = 0; effects.MiseryBuff = 0; effects.MiserySentCount = 0;
+            }
         }
         Effects.Remove(conn);
     }

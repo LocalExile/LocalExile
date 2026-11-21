@@ -2084,7 +2084,12 @@ public static partial class Game
             outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, conn.Walk.Position(now), m.Walk.Position(now), checkRange: true, sequence: sequence);
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0x{sequence:x4})")) return;
-        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (outcome is not null)
+        {
+            // A Misery rare's attack applies an extra «Essence of Misery» stack to the player it hit (a no-op otherwise).
+            MapEssences.MiseryOnAttack(conn, m, conn);
+            await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        }
     }
 
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
