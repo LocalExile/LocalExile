@@ -245,6 +245,12 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x1421f2b40` / `0x1421f2980` | Fn | item write (u16 length + data) / data |
 | `0x1421f2c30` / `0x1421f2d00` | Fn | item read (length) / data: type hash → ItemTypeRegister, flags, components (slot 5) |
 | `0x141fabcc0` | Fn | ItemTypeRegister lookup by HASH32 |
+| `0x142401e00` | Fn | item description builder (tooltip and header): the bytes the name symbol is picked from ([13](13-items.md) §2f) |
+| `0x140c99de7` / `0x1416d0df0` | Fn | the symbol beside an item's name: tooltip header / item header ([13](13-items.md) §2f) |
+| `0x140c9a7e0` / `0x1416d11b0` | call site | draw the picked name symbol (rdx = sprite name): tooltip / item header |
+| `0x1400f2c70` | Fn | sprite from a UI image name (`art/uiimages1.txt`) |
+| `0x1416edcb0` | Fn | item description copy, field by field |
+| `0x14013fb60` | Fn | an entity's component by name (here "Mods") |
 | `0x1421f2800` | Fn | the four type hashes with a trailing u16 |
 | `0x1421ed330`, `0x1421e6050`, `0x1421e9790`, `0x1424b5720`, `0x1424a3f80`, `0x1423fb5f0`, `0x1424755d0` | Fn | item component reads: Base, Mods, Sockets, Quality, Charges, Stack, SkillGem |
 | `0x1421edee0`, `0x1421e7b00` | Fn | debug dumps of the Base and Mods components: each field's name ([13](13-items.md) §2f) |

@@ -11,6 +11,9 @@ An item's type is a **BaseItemTypes row**. The client's `Metadata/ItemTypeRegist
 column, which is MurmurHash2 of the row's Id: the same hash as object types (`InstanceEntities.ObjectTypeHash`;
 `Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1` → 3652280879). Lookup: `0x1421f2d00` → `0x141fabcc0` (sorted array of
 0x30-byte entries keyed by the u32).
+A BaseItemTypes row added to the client's table is registered under the hash of its Id, not under its HASH32 column: an
+item sent with a column value that was not that hash closed the client as it reached the ground, and the same row with
+the Id's hash dropped and worked (live 2026-11-20, a test currency copied from the Divine Orb's rows).
 
 Components come from the `.it` files, merged like `.ot` files ([04](04-player-entity.md), `scripts/re/ot_components.py`)
 with two differences: nothing is prepended (no Positioned), and most leaf rows have no `.it` of their own, so their
@@ -595,6 +598,27 @@ Bits 0, 8 and 9 are unnamed.
 writer `0x1421ece10` sends.
 
 Display kinds of a mod line (`0x1424e6250`): 2 crafted, 3 fractured, 4 mutated (Foulborn), 7 divergent.
+
+**The symbol beside the name** (tooltip header `0x140c99de7`, item header `0x1416d0df0`; read from the code) is picked
+from bytes of the item description the builder `0x142401e00` fills, first match wins: item kind 0x4c Archnemesis;
+`+0xf3d` Heist Stolen (`+0xf3e` Contraband instead); `+0xf36` Synthesised; `+0xf35` Fractured; `+0xf37` Breach; `+0xf38`
+VestigialUniqueItemsIcons; then veiled mods and the rest (`0x140c99e6b`). Each is a sprite name
+(`Art/2DArt/UIImages/InGame/...`) in rdx that `0x1400f2c70` turns into a sprite through `art/uiimages1.txt`
+([tooling](../re/tooling.md) §3): the tooltip draws it from `0x140c9a7e0`, the header from `0x1416d11b0`.
+Every byte `+0xf2d`..`+0xf51` of the description is a field the copy `0x1416edcb0` takes, so no flag byte is free; the
+padding `+0x1021`..`+0x1027` is not copied. Confirmed live (2026-11-20): code run at `0x142402b2c` (the item at
+`rsp+0x6718`, before the builder's two paths split) that read the enchant list and wrote an answer into that padding was
+seen by both pickers, and a sprite of a new `art/uiimages1.txt` line drawn there showed beside the name in the tooltip
+and on the ground label.
+
+**The Mods component's lists** (dump `0x1421e7b00`): vectors of 0x38-byte mods at `+0xc0` implicit, `+0xd8` explicit,
+`+0xf0` enchant, `+0x108` hellscape; a mod's `+0x28` points at its Mods.dat row, whose first field is the Id
+(UTF-16). The component is looked up by name with `0x14013fb60` on the item's entity.
+
+**Loot filters and enchantments** (live 2026-11-20): an enchantment shows on an unidentified item and
+`HasEnchantment "<Name>"` matches its Mods.dat `Name`; a Mods row added to the client's table (GenerationType 10, no
+stats) in the enchant list draws no tooltip line and is matched while the item is unidentified. Explicit mods are not
+sent before identification, so `HasExplicitMod` cannot see an unidentified item.
 
 `/item_state [state …]` switches corrupted, mirrored, split, synthesised and each influence on the held item, and `clear`
 removes them all (`ItemStates`).
