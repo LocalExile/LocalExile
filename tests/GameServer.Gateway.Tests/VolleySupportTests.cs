@@ -56,21 +56,30 @@ public sealed class VolleySupportTests
         c.Monsters.Clear();
         var bag = Game.ItemsOf(c);
         var bow = bag.Items(PlayerInventories.Weapon1).Single();
+        var reach = new UniqueCatalog(Program.Items).Create("Reach of the Council", new Random(23))!;
         var gem = Game.GemSkillEffects(c).Single();
-        foreach (var (barrage, wall, start) in new[] { (false, false, 10d), (false, true, 15d), (true, false, 20d) })
+        foreach (var (unique, barrage, wall, start) in new[]
         {
-            bag.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = barrage ? [3] : [2, 1] });
+            (false, false, false, 10d), (false, true, false, 15d),
+            (true, false, false, 20d), (true, false, true, 25d), (true, true, false, 30d)
+        })
+        {
+            // The unique provides Greater Volley to its socketed active gem even with the support unlinked.
+            bag.Change(PlayerInventories.Weapon1, bow.Id, item => (unique ? reach : bow.Item) with
+            {
+                Sockets = item.Sockets, Links = barrage ? [3] : unique ? [1, 1, 1] : [2, 1]
+            });
             c.ProjectileWalls.Clear();
             if (wall) c.ProjectileWalls.Add((102, 96));
             c.Clock.Start();
             Assert.True(await Game.CastGemSkill("volley", battle.Stream, battle.Ciphers, c, gem.Id,
                 (100, 100), (175, 100), sequence: 0x8013, actionToken: c.ActionCount, swingAt: start));
             c.Clock.Stop();
-            var shots = new SortedDictionary<long, ProjectileEntity>();
+            var shots = new SortedDictionary<long, (ProjectileEntity Shot, ProjectileVector Outbound)>();
             for (int step = 0; step <= 400; step++)
             {
                 battle.Session.AdvanceTo(ProjectileRuntime.Time(start + step / 200d));
-                foreach (var p in battle.Session.Runtime.Projectiles) shots.TryAdd(p.Id, p);
+                foreach (var p in battle.Session.Runtime.Projectiles) shots.TryAdd(p.Id, (p, p.Direction));
             }
             // The normal volley visits the centre and paired sides. The wall crosses only the line
             // from the owner's cell to the first positive point. Barrage sweeps nine, then four points.
@@ -78,16 +87,20 @@ public sealed class VolleySupportTests
                 : wall ? [0,-1,2,-2,3,-3,4,-4] : [0,1,-1,2,-2,3,-3,4,-4];
             var arrows = shots.Values.ToArray();
             Assert.Equal(slots.Length, arrows.Length);
-            Assert.Equal(barrage ? slots.Length : 1, arrows.Select(p => p.CreatedAt).Distinct().Count());
-            Assert.Equal(barrage ? slots.Length : 1, arrows.Select(p => p.EmissionId).Distinct().Count());
+            Assert.Equal(barrage ? slots.Length : 1, arrows.Select(p => p.Shot.CreatedAt).Distinct().Count());
+            Assert.Equal(barrage ? slots.Length : 1, arrows.Select(p => p.Shot.EmissionId).Distinct().Count());
             for (int i = 0; i < slots.Length; i++)
             {
                 double y = -slots[i] * (barrage ? 7 : 80 / 10.869565);
-                Assert.Equal(100 + y, arrows[i].Use.Origin.Y, 4);
-                Assert.Equal(100 + y, arrows[i].Use.Aim.Y, 4);
-                Assert.Equal(175, arrows[i].Use.Aim.X, 6);
-                if (barrage) Assert.Equal(Math.Sign(y), Math.Sign(arrows[i].Direction.Y));
-                else Assert.Equal(new ProjectileVector(1, 0), arrows[i].Direction);
+                var (shot, outbound) = arrows[i];
+                Assert.Equal(100 + y, shot.Use.Origin.Y, 4);
+                Assert.Equal(100 + y, shot.Use.Aim.Y, 4);
+                Assert.Equal(175, shot.Use.Aim.X, 6);
+                if (barrage) Assert.Equal(Math.Sign(y), Math.Sign(outbound.Y));
+                else Assert.Equal(new ProjectileVector(1, 0), outbound);
+                bool returns = unique && !barrage && Math.Abs(slots[i]) == 3;
+                Assert.Equal(returns, shot.Profile.Returns);
+                Assert.Equal(returns ? 1 : 0, shot.Phase);
             }
         }
     }

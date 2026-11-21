@@ -2,14 +2,16 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    sealed record ParallelFiringPoints(int PerSide, int XDistance, int YDistance)
+    sealed record ParallelFiringPoints(int PerSide, int XDistance, int YDistance, bool ThirdPointReturns)
     {
         public static ParallelFiringPoints? From(Func<string, int> get)
         {
             int points = get("support_parallel_projectile_number_of_points_per_side");
             ArgumentOutOfRangeException.ThrowIfNegative(points);
             return points == 0 ? null : new(points, get("virtual_additional_projectiles_fire_parallel_x_dist"),
-                get("additional_projectiles_fire_parallel_y_dist"));
+                get("additional_projectiles_fire_parallel_y_dist"), points >= 3
+                && get("arrows_from_third_firing_point_return") != 0 && get("skill_can_fire_arrows") != 0
+                && get("main_hand_weapon_type") == WeaponTypeStats.Bow);
         }
 
         // The simultaneous layout (3.29.3c, 0x141bbb460) visits the centre, then +k and -k.
@@ -40,12 +42,14 @@ public static partial class Game
             {
                 var offset = side * (slot * (double)XDistance / 10.869565)
                     + forward * (Math.Abs(slot) * (double)YDistance / 10.869565);
+                // The shared emitter copies the absolute layout slot to every admitted member (3.29.3c).
+                bool returns = ThirdPointReturns && Math.Abs(slot) == 3;
                 // Each side visit advances the fourth seed word by 529, even for an empty group.
                 var rng = random ? new AnimationVariantSelector.NativeRandom([use.Sequence, 0, use.RepeatsLeft,
                     (uint)(529 * visit), use.Emitter.Id, 0, unchecked((uint)slot)]) : default;
                 for (int i = 0; i < size; i++)
                     launches[next++] = new(offset, random ? rng.Range(0, 6.2831855f) : fan.Angle(i, size, aim.Length),
-                        CheckSourcePath: slot != 0);
+                        CheckSourcePath: slot != 0) { GrantsReturn = returns };
             }
         }
 

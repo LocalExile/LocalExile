@@ -77,6 +77,8 @@ Nothing yet.
   Barrage mines and ordinary traps fire on their own contact frames, and throw time scales with the final shot count.
   Volley and Greater Volley release from distinct firing points. Extra arrows share each point’s spread.
   Linked Barrage shots sweep the points in order. Position, direction and blocked side launches have Gateway coverage.
+  Reach of the Council returns every arrow from either third firing point in a simultaneous volley, including
+  Barrage's extra endpoint volleys. Gateway tests cover the bow's socketed Greater Volley and a blocked earlier point.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.

@@ -123,7 +123,9 @@ public static partial class Game
         double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
         origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
         var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get);
-        profile = clientDrawn ? ClientDrawnProfile(conn, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
+        int VolleyStat(string name) => Stats.Key(name) is uint key
+            ? character.GetValueOrDefault(key) + shot.SkillStats.GetValueOrDefault(key) : 0;
+        profile = clientDrawn ? ClientDrawnProfile(conn, profile, VolleyStat, sequence, target - origin) : NativeVolley(profile, VolleyStat);
         return new(profile, new(PlayerId, session.Conn.ProjectileEpoch), new(PlayerId, session.Conn.ProjectileEpoch), 1,
             origin, target)
             { LaunchSource = caster, Sequence = sequence, Payload = shot, ReturnAnchor = new(PlayerId, session.Conn.ProjectileEpoch) };

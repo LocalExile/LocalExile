@@ -72,7 +72,8 @@ public static partial class Game
                     {
                         var member = members?[j] ?? new(default, angles?[j] ?? fan.Angle(j, size, ray.Length));
                         launches[next++] = member with { Offset = offset + member.Offset,
-                            Angle = angle + member.Angle, SimultaneousWithPrevious = j != 0, GrantsReturn = ReturnEnds };
+                            Angle = angle + member.Angle, SimultaneousWithPrevious = j != 0,
+                            GrantsReturn = ReturnEnds || member.GrantsReturn };
                     }
                 }
             }
