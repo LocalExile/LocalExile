@@ -36,6 +36,9 @@ public sealed partial class PlayerInventories
     CharacterSaves.OpeningTutorial? newTutorial;
     private bool _stale;  // dropped after a failed save: the database has the items as they are
     private bool _unsaved;  // ChangeUnsaved changed something the database doesn't have yet
+    private long _structureVersion;
+    /// <summary>Monotonic counter incremented on structural inventory changes (not flask charge or gem XP ticks).</summary>
+    public long StructureVersion => Volatile.Read(ref _structureVersion);
     // Items offered to an NPC while the sell window is open (id → its cell in the offer). As in 3.29 an offered item stays
     // in its inventory cell, a greyed imprint that keeps its size and collision, until the sale ends: nothing can take its
     // cell, so a cancel always puts every item back where it was. In memory only: a sale that ends any other way (a
@@ -72,8 +75,9 @@ public sealed partial class PlayerInventories
 
     /// <summary>Writes the character's save (every inventory, with item ids and cells, and the start weapon), in a
     /// transaction of its own or the one it runs in (<see cref="Saves"/>).</summary>
-    void Persist()
+    void Persist(bool structural = true)
     {
+        if (structural) Interlocked.Increment(ref _structureVersion);
         if (_owner is not { } owner) return;
         Saves.Atomically(() =>
         {
@@ -639,7 +643,7 @@ public sealed partial class PlayerInventories
     {
         bool unsaved;
         lock (_lock) unsaved = _unsaved;
-        if (unsaved && !_stale) Persist();
+        if (unsaved && !_stale) Persist(structural: false);
     }
 
     /// <summary>Saves every loaded character's unsaved changes (the Gateway's timer, its shutdown). One that can't be

@@ -56,6 +56,10 @@ public static partial class Game
         TimedBlind.Apply(PlayerEvasionBase(conn, ResourceEffectsTime(conn)), PlayerBlindValue(conn, player).Less);
     public static int PlayerEvasion(ClientState conn, double now) =>
         TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn).Less);
+    // Caller already ran EnsureConditionalItemPools for this snapshot; avoid re-running EquipmentStatSources.
+    internal static int PlayerEvasionPrepared(ClientState conn, double now, IReadOnlyDictionary<uint, int>? player = null) =>
+        TimedBlind.Apply(conn.Walk.Moving(now) && conn.Pools.EvasionWhileMoving is int moving ? moving : conn.Pools.Evasion,
+            PlayerBlindValue(conn, player).Less);
     static void WithBlind(ClientState conn, Dictionary<uint, int> stats)
     {
         var blind = PlayerBlindValue(conn, stats);

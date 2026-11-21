@@ -141,9 +141,13 @@ public static partial class Game
 
     // World output already batches at the frame boundary. Preserve the tick's projection order when it mixes
     // World and immediate records; predictive retains its existing one-write send batch.
-    static Task<bool> SendPlayerTickBatch(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, Func<Task<bool>> body) => conn.LockstepClient ? body()
-            : Program.SendBatched(remote, stream, ciphers, body);
+    // Share one keyed PlayerStatsScope across the tick's presentation checks so unchanged stats are not rebuilt per check.
+    static async Task<bool> SendPlayerTickBatch(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, Func<Task<bool>> body)
+    {
+        using var statScope = PlayerStatsScope(conn);
+        return await (conn.LockstepClient ? body() : Program.SendBatched(remote, stream, ciphers, body));
+    }
 
     // The caller declares one complete World record and its target. Opaque sends retain their original path.
     public static Task SendWorldRecord(string remote, NetworkStream stream, ConnectionCiphers ciphers,

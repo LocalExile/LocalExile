@@ -132,6 +132,15 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+            // Fast path: when Soul Eater is inactive, has no buffs/souls, no map mod, no passive/gear source, and
+            // using_flask matches what was sent, nothing can change — avoid a full stat build on every 250 ms tick.
+            if (!conn.SoulEater.Enabled && conn.SoulEater.AuraBuff == 0 && conn.SoulEater.SentStacks == 0
+                && conn.SoulEater.Souls.Count == 0 && !MapSoulEater(conn)
+                && AnyFlaskEffect(conn) == conn.SoulEater.SentUsingFlask
+                && TryCachedStaticSources(conn, out var staticSources)
+                && StaticStatValue(conn, staticSources, SoulEaterStat) == 0
+                && StaticStatValue(conn, staticSources, SoulEaterHitStat) <= 0)
+                return null;
             // Refresh the source before deciding what to publish. Recovery flasks can start/end without a soul gain.
             var currentStats = CharacterPlayerStats(conn);
             double now = conn.Clock.Elapsed.TotalSeconds;

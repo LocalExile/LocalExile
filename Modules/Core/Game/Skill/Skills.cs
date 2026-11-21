@@ -266,7 +266,9 @@ public static partial class Game
             // Values and membership describe the same snapshot. A new command must not add a replacement key
             // after values were copied and fault a background recovery/condition-refresh task.
             var devSet = rawOverrides.Keys.ToHashSet();
-            foreach (var (k, v) in BaseStats(conn)) built.TryAdd(k, v);
+            StatSourcesResult? prepared;
+            lock (conn.Monsters) prepared = conn.StatSourcesCache;
+            foreach (var (k, v) in BaseStats(conn, ensurePools: false, preparedSources: prepared)) built.TryAdd(k, v);
             EnsureFortificationPools(conn);
             // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
             // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances
@@ -326,7 +328,7 @@ public static partial class Game
         double statsAt = conn.Clock.Elapsed.TotalSeconds;
         bool moving = conn.Walk.Moving(statsAt);
         var recovery = PanelStats.WhileMoving(Get, moving);
-        if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasion(conn, statsAt);
+        if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasionPrepared(conn, statsAt);
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
         bool lowLife = CriticalOnLowLife(conn, stats);
         ConfigureLeech(conn, Get, rawOverrides, lowLife);
@@ -497,18 +499,27 @@ public static partial class Game
     // The character's own stats: the class's attributes and the pools (ClassAttributes), then every other stat of the
     // allocated passives, summed (increased life and the attributes are already in the pools; the rest, such as increased
     // spell damage, the client only shows).
-    public static IEnumerable<(uint, int)> BaseStats(ClientState conn)
+    public static IEnumerable<(uint, int)> BaseStats(ClientState conn) => BaseStats(conn, ensurePools: true, preparedSources: null);
+
+    static IEnumerable<(uint, int)> BaseStats(ClientState conn, bool ensurePools, StatSourcesResult? preparedSources)
     {
         var seen = new HashSet<uint>();
         foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with
         {
-            Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn),
+            Accuracy = PlayerAccuracy(conn),
+            Evasion = ensurePools ? PlayerEvasion(conn) : PlayerEvasionPrepared(conn, ResourceEffectsTime(conn)),
             FireResistance = Resistance(conn, DamageType.Fire), ColdResistance = Resistance(conn, DamageType.Cold),
             LightningResistance = Resistance(conn, DamageType.Lightning), ChaosResistance = Resistance(conn, DamageType.Chaos),
         })) if (seen.Add(k)) yield return (k, v);
-        List<ushort> nodes;
-        lock (conn.Monsters) nodes = [.. conn.Passives];
-        var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        Dictionary<uint, int> extra;
+        if (preparedSources is not null)
+            extra = new Dictionary<uint, int>(CharacterStatSources(conn, null, null, preparedSources).Stats);
+        else
+        {
+            List<ushort> nodes;
+            lock (conn.Monsters) nodes = [.. conn.Passives];
+            extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        }
         IReadOnlyList<(uint Key, int Value)> siphoning;
         lock (conn.Monsters) siphoning = SiphoningRawStatsLocked(conn, extra);
         foreach (var (key, value) in siphoning)

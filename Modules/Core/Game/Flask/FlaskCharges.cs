@@ -86,19 +86,26 @@ public static partial class Game
     // times its gain multiplier (the character's increased flask charges gained, the flask's increased charge recovery),
     // whole charges now and the rest kept, up to its maximum with its mods; the changed flasks in one S→C 0xbf, saved with
     // the next save. The character's stats are only worked out when some flask that is not full gains.
+    internal static readonly IReadOnlyDictionary<string, int> EmptyLocalStats = new Dictionary<string, int>();
+    internal static IReadOnlyDictionary<string, int> FlaskLocalStats(Item item, ModCatalog mods) =>
+        item.Mods.Count == 0 ? EmptyLocalStats : ItemModStats.Local(item, mods);
+
     public static async Task GainFlaskCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> chargesFor, string why)
     {
-        var gaining = new List<(InventoryItem Flask, IReadOnlyDictionary<string, int> Local, Flasks.Flask Charges, double Gain)>();
+        var catalog = ItemsFor(conn);
+        var mods = catalog.Mods;
+        List<(InventoryItem Flask, IReadOnlyDictionary<string, int> Local, Flasks.Flask Charges, double Gain)>? gaining = null;
         foreach (var flask in ItemsOf(conn).Items(PlayerInventories.Flask))
         {
-            if (ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } baseCharges) continue;
-            var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods);
+            if (catalog.ByHash(flask.Item.TypeHash) is not { } type || catalog.FlaskChargesOf(type) is not { } baseCharges) continue;
+            var local = FlaskLocalStats(flask.Item, mods);
             var charges = FlaskCharges.Of(baseCharges, local);
+            if (flask.Item.Charges >= charges.MaxCharges) continue;
             double gain = chargesFor(flask, local);
-            if (gain > 0 && flask.Item.Charges < charges.MaxCharges) gaining.Add((flask, local, charges, gain));
+            if (gain > 0) (gaining ??= []).Add((flask, local, charges, gain));
         }
-        if (gaining.Count == 0) return;
+        if (gaining is null) return;
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
         await ChangeFlaskBar(remote, stream, ciphers, conn, items =>
@@ -106,7 +113,7 @@ public static partial class Game
             List<InventoryItem> changed = [];
             foreach (var (flask, local, charges, gain) in gaining)
             {
-                if (!CanGainFlaskCharges(conn, flask)) continue;
+                if (!CanGainFlaskCharges(conn, flask, local, character)) continue;
                 int whole = conn.FlaskChargeCarry.Take(flask.Id, gain * FlaskCharges.GainMultiplier(local, Get));
                 if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, i => Flasks.Gain(i, charges, whole)) is { } done)
                 {
@@ -117,18 +124,21 @@ public static partial class Game
         }, changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
     }
 
-    public static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask)
+    public static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask) =>
+        CanGainFlaskCharges(conn, flask, null, null);
+
+    internal static bool CanGainFlaskCharges(ClientState conn, InventoryItem flask,
+        IReadOnlyDictionary<string, int>? local, IReadOnlyDictionary<uint, int>? playerStats)
     {
         var activeEffect = conn.UtilityFlaskEffects.Of(flask.Id);
-        if (FlaskEnchantments.BlocksGain(ItemModStats.Local(flask.Item, ItemsFor(conn).Mods),
-                activeEffect is not null && activeEffect.Ends > conn.Clock.Elapsed.TotalSeconds)) return false;
+        local ??= FlaskLocalStats(flask.Item, ItemsFor(conn).Mods);
+        bool running = activeEffect is not null && activeEffect.Ends > conn.Clock.Elapsed.TotalSeconds;
+        if (FlaskEnchantments.BlocksGain(local, running)) return false;
         var rules = LeagueFor(conn).Rules;
         if (rules.UtilityFlaskChargesWhileActive || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
             || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
-        var active = conn.UtilityFlaskEffects.Of(flask.Id);
-        bool running = active is not null && active.Ends > conn.Clock.Elapsed.TotalSeconds;
         bool exception = rules.UtilityFlaskExceptionStat is { } stat && Stats.Key(stat) is uint key
-            && CharacterPlayerStats(conn).GetValueOrDefault(key) > 0;
+            && (playerStats ?? CharacterPlayerStats(conn)).GetValueOrDefault(key) > 0;
         return LeagueGameplay.CanGainUtilityCharges(!rules.UtilityFlaskChargesWhileActive, running, exception);
     }
 

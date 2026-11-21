@@ -3324,6 +3324,7 @@ public static partial class Game
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill, bool byHit = true)
     {
+        using var statScope = PlayerStatsScope(conn);
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;
         lock (conn.Monsters)
@@ -3428,8 +3429,9 @@ public static partial class Game
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
             // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
-            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
+            var dropStats = CharacterPlayerStats(conn);
+            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m, dropStats),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m, dropStats), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.

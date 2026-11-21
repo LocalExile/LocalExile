@@ -13,9 +13,32 @@ public static partial class Game
         IReadOnlyDictionary<string, bool> captured, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         ItemCatalog catalog, IReadOnlyCollection<Item>? active = null)
     {
-        bool lifeModifier = equipment.Any(e => e.Row != PlayerInventories.BodyArmour
-            && (active is null || active.Any(item => ReferenceEquals(item, e.Item.Item)))
-            && e.Item.Item.Mods.Any(m => catalog.Mods.ByHash(m.Hash)?.Tags.Contains("life") == true));
-        return new Dictionary<string, bool>(captured) { [NoOtherLifeModifiersCondition] = !lifeModifier };
+        var copy = new Dictionary<string, bool>(captured);
+        ApplyQualifiedEquipmentItemFlags(copy, equipment, catalog, active);
+        return copy;
+    }
+
+    internal static void ApplyQualifiedEquipmentItemFlags(
+        Dictionary<string, bool> flags, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        ItemCatalog catalog, IReadOnlyCollection<Item>? active = null)
+    {
+        bool lifeModifier = false;
+        for (int i = 0; i < equipment.Count && !lifeModifier; i++)
+        {
+            var e = equipment[i];
+            if (e.Row == PlayerInventories.BodyArmour) continue;
+            if (active is not null)
+            {
+                bool found = false;
+                foreach (var item in active)
+                    if (ReferenceEquals(item, e.Item.Item)) { found = true; break; }
+                if (!found) continue;
+            }
+            var mods = e.Item.Item.Mods;
+            for (int m = 0; m < mods.Count; m++)
+                if (catalog.Mods.ByHash(mods[m].Hash)?.Tags.Contains("life") == true)
+                { lifeModifier = true; break; }
+        }
+        flags[NoOtherLifeModifiersCondition] = !lifeModifier;
     }
 }

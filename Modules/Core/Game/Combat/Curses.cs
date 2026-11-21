@@ -162,38 +162,67 @@ public static partial class Game
 
     static void CursesTickLocked(ClientState conn, double now, List<byte> bytes)
     {
-        var active = conn.Auras.Values.Where(a => CurseCatalog.Hex(a.EffectId) && !ExternalTemporalChains(conn, a.EffectId)).ToArray();
-        var player = active.Length > 0 ? CharacterPlayerStats(conn) : null;
-        var auras = active.TakeLast(player is null ? 0 : CurseLimit(conn, player))
-            .Select(a => (Aura: a, Gem: SupportedSkill(conn, a.SkillId)))
-            .Select(a => (a.Aura, a.Gem, Radius: CurseRadius(conn, a.Aura.SkillId, true, a.Gem, player))).ToArray();
+        bool externalTemporalChains = ExternalTemporalChains(conn, "TemporalChains");
+        (AuraCatalog.Aura Aura, SupportedGem Gem, int Radius)[] auras = [];
+        IReadOnlyDictionary<uint, int>? player = null;
+        if (conn.Auras.Count > 0)
+        {
+            var active = conn.Auras.Values.Where(a => CurseCatalog.Hex(a.EffectId) && !ExternalTemporalChains(conn, a.EffectId)).ToArray();
+            if (active.Length > 0)
+            {
+                player = CharacterPlayerStats(conn);
+                auras = active.TakeLast(CurseLimit(conn, player))
+                    .Select(a => (Aura: a, Gem: SupportedSkill(conn, a.SkillId)))
+                    .Select(a => (a.Aura, a.Gem, Radius: CurseRadius(conn, a.Aura.SkillId, true, a.Gem, player))).ToArray();
+            }
+        }
         var here = conn.Walk.Position(now);
         foreach (var (id, m) in conn.Monsters)
         {
-            foreach (var curse in m.Curses.All.Values.Where(c => c.Mark && (m.Dead || m.Life == 0 || c.Caster == conn.PeerId && conn.PlayerLife == 0)).ToArray())
-                m.Curses.Remove(curse.Caster, curse.Effect);
-            foreach (var curse in m.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Aura).ToArray())
-                if (conn.PlayerLife == 0 || m.Dead || !auras.Any(a => a.Aura.SkillId == curse.Skill && Dist(m.Walk.Position(now), here) <= a.Radius))
-                    m.Curses.Remove(curse.Caster, curse.Effect);
-            if (conn.PlayerLife > 0 && !InTown(conn))
-                foreach (var aura in auras)
-                    if (Dist(m.Walk.Position(now), here) <= aura.Radius) ApplyCurseLocked(conn, m, aura.Aura.SkillId, now, true, aura.Gem, player);
-            m.Curses.Expire(now);
-            var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next) || next.Buff != c.Buff).ToArray();
-            foreach (var old in changed)
-            { bytes.AddRange(InstanceEntities.RemoveBuff(id, old.Buff)); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
-            foreach (var curse in m.Curses.All.Values.Where(c => !m.Curses.Presented.ContainsKey((c.Caster, c.Effect))))
+            bool hasCurses = m.Curses.All.Count > 0 || m.Curses.Presented.Count > 0;
+            if (hasCurses || auras.Length > 0)
             {
-                bytes.AddRange(InstanceEntities.AddBuff(id, curse.Buff, curse.Row, PlayerId, curse.Skill,
-                    u68: double.IsFinite(curse.Until) ? BitConverter.SingleToUInt32Bits((float)Math.Max(0, curse.Until - now)) : null));
-                m.Curses.Presented[(curse.Caster, curse.Effect)] = curse;
+                if (m.Curses.All.Count > 0)
+                {
+                    foreach (var curse in m.Curses.All.Values.Where(c => c.Mark && (m.Dead || m.Life == 0 || c.Caster == conn.PeerId && conn.PlayerLife == 0)).ToArray())
+                        m.Curses.Remove(curse.Caster, curse.Effect);
+                    foreach (var curse in m.Curses.All.Values.Where(c => c.Caster == conn.PeerId && c.Aura).ToArray())
+                        if (conn.PlayerLife == 0 || m.Dead || !auras.Any(a => a.Aura.SkillId == curse.Skill && Dist(m.Walk.Position(now), here) <= a.Radius))
+                            m.Curses.Remove(curse.Caster, curse.Effect);
+                }
+                if (auras.Length > 0 && conn.PlayerLife > 0 && !InTown(conn))
+                    foreach (var aura in auras)
+                        if (Dist(m.Walk.Position(now), here) <= aura.Radius) ApplyCurseLocked(conn, m, aura.Aura.SkillId, now, true, aura.Gem, player);
+                if (m.Curses.All.Count > 0) m.Curses.Expire(now);
+                if (m.Curses.Presented.Count > 0)
+                {
+                    var changed = m.Curses.Presented.Values.Where(c => !m.Curses.All.TryGetValue((c.Caster, c.Effect), out var next) || next.Buff != c.Buff).ToArray();
+                    foreach (var old in changed)
+                    { bytes.AddRange(InstanceEntities.RemoveBuff(id, old.Buff)); m.Curses.Presented.Remove((old.Caster, old.Effect)); }
+                }
+                if (m.Curses.All.Count > 0)
+                    foreach (var curse in m.Curses.All.Values)
+                    {
+                        if (m.Curses.Presented.ContainsKey((curse.Caster, curse.Effect))) continue;
+                        bytes.AddRange(InstanceEntities.AddBuff(id, curse.Buff, curse.Row, PlayerId, curse.Skill,
+                            u68: double.IsFinite(curse.Until) ? BitConverter.SingleToUInt32Bits((float)Math.Max(0, curse.Until - now)) : null));
+                        m.Curses.Presented[(curse.Caster, curse.Effect)] = curse;
+                    }
             }
-            double slow = m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
-                ? m.Curses["temporal_chains_action_speed_+%_vs_rare_or_unique_final"] : m.Curses["temporal_chains_action_speed_+%_final"];
-            if (!ExternalTemporalChains(conn, "TemporalChains"))
+            double slow = m.Curses.All.Count == 0 ? 0
+                : m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+                    ? m.Curses["temporal_chains_action_speed_+%_vs_rare_or_unique_final"] : m.Curses["temporal_chains_action_speed_+%_final"];
+            if (!externalTemporalChains)
             {
                 double oldRate = m.RecipientDebuffRate;
-                double rate = RecipientEffectTime.Rate(2, n => m.Effects[n]);
+                double rate;
+                if (m.Curses.All.Count == 0 && m.EncounterStats is null && m.TemporaryStats.Count == 0 && ReferenceEquals(m.Mods, MonsterModSet.None))
+                    rate = 1;
+                else
+                {
+                    var effects = m.Effects;
+                    rate = RecipientEffectTime.Rate(2, n => effects[n]);
+                }
                 if (rate != oldRate)
                 {
                     SettleBleeding(m, now);
@@ -204,12 +233,15 @@ public static partial class Game
                     m.Ruptures.SetExpiryRate(now, rate);
                     m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
                 }
-                m.ReceivedActionFactor = Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100); m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
+                // SlowestActionFactor is <= 1, so when slow == 0 (no Temporal Chains), Max(floor, 1) is always 1.
+                m.ReceivedActionFactor = slow == 0 ? 1 : Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100);
+                m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
             }
             if (m.Curses.PresentedVersion != m.Curses.Version)
             {
                 var keys = m.Curses.PresentedStats.Concat(m.Curses.Stats.Keys).Distinct().ToArray();
-                bytes.AddRange(InstanceEntities.StatsUpdate(id, keys.Select(n => (Key: Stats.Key(n), Value: m.Effects[n]
+                var effects = m.Effects;
+                bytes.AddRange(InstanceEntities.StatsUpdate(id, keys.Select(n => (Key: Stats.Key(n), Value: effects[n]
                         + SpiderRecipientStat(m, n, now)))
                     .Where(p => p.Key is not null).Select(p => (p.Key!.Value, p.Value)).ToList()));
                 m.Curses.PresentedStats.Clear(); m.Curses.PresentedStats.UnionWith(m.Curses.Stats.Keys);

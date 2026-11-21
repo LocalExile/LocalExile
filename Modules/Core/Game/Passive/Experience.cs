@@ -42,24 +42,32 @@ public static partial class Game
 
     // All production gains/resets serialize the shared XP ledger before publishing a connection copy.
     // Lock order is character XP -> connection -> database. No monitor is held across network waits.
-    public static ExperienceChange? RecordExperienceGain(ClientState conn, uint gain)
+    public static ExperienceChange? RecordExperienceGain(ClientState conn, uint gain) =>
+        RecordExperienceGain(conn, gain, saveNow: true);
+
+    internal static ExperienceChange? RecordExperienceGain(ClientState conn, uint gain, bool saveNow)
     {
         var updates = LevelUpdatesFor(conn);
+        ExperienceChange? change;
         lock (updates.Gate)
-        lock (conn.Monsters)
         {
-            if (HardcoreProgressBlocked(conn)) return null;
-            var rules = LeagueFor(conn).Rules;
-            var (before, after) = CharacterSaves.AddExperience(CharacterName(conn), conn.Experience,
-                // An older area may have stale pools. Scale against the shared ledger's current level, not that copy.
-                xp => Progression.AddExperience(xp, LeagueRules.Scale(gain,
-                    rules.ExperienceMultiplier(Progression.LevelFor(xp, CharacterStats.LevelStarts))), CharacterStats.LevelStarts));
-            if (after == before) return null;
-            bool levelChanged = Progression.LevelFor(after, CharacterStats.LevelStarts) != conn.Pools.Level;
-            if (levelChanged) CharacterSaves.SaveExperience(CharacterName(conn));
-            conn.Experience = after;
-            return new(++updates.Revision, before, after, levelChanged);
+            lock (conn.Monsters)
+            {
+                if (HardcoreProgressBlocked(conn)) return null;
+                var rules = LeagueFor(conn).Rules;
+                var (before, after) = CharacterSaves.AddExperience(CharacterName(conn), conn.Experience,
+                    // An older area may have stale pools. Scale against the shared ledger's current level, not that copy.
+                    xp => Progression.AddExperience(xp, LeagueRules.Scale(gain,
+                        rules.ExperienceMultiplier(Progression.LevelFor(xp, CharacterStats.LevelStarts))), CharacterStats.LevelStarts));
+                if (after == before) return null;
+                bool levelChanged = Progression.LevelFor(after, CharacterStats.LevelStarts) != conn.Pools.Level;
+                conn.Experience = after;
+                change = new(++updates.Revision, before, after, levelChanged);
+            }
+            // Flush level-up XP outside conn.Monsters so SQLite disk I/O never stalls combat or movement handlers.
+            if (saveNow && change.LevelChanged) CharacterSaves.SaveExperience(CharacterName(conn));
         }
+        return change;
     }
 
     public static uint CurrentExperience(ClientState conn) =>
@@ -120,10 +128,10 @@ public static partial class Game
             {
                 int level;
                 lock (updates.Gate)
-                lock (conn.Monsters)
                 {
                     CharacterSaves.SaveExperience(CharacterName(conn));
-                    level = Progression.LevelFor(CurrentExperience(conn), CharacterStats.LevelStarts);
+                    lock (conn.Monsters)
+                        level = Progression.LevelFor(CurrentExperience(conn), CharacterStats.LevelStarts);
                 }
                 var request = new ControlRequest { Op = "set_level", Ticket = conn.Ticket, Level = level };
                 var result = await (control is null ? InstanceControl.CallAsync(request) : control(request));

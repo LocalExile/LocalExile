@@ -66,6 +66,14 @@ public static partial class Game
             if (conn.SentWard == ward && conn.SentAdrenalineUntil == adrenaline
                 && conn.SentStunRecoveryUntil == recovery && conn.SentEnduringCryUntil == cry)
                 return null;
+            // First area tick with no Ward, Adrenaline, Stun Recovery or Enduring Cry active: baseline already sent at area entry.
+            if (conn.SentWard is null && ward == (0u, false)
+                && !double.IsFinite(adrenaline) && !double.IsFinite(recovery) && !double.IsFinite(cry))
+            {
+                conn.SentWard = ward; conn.SentAdrenalineUntil = adrenaline;
+                conn.SentStunRecoveryUntil = recovery; conn.SentEnduringCryUntil = cry;
+                return null;
+            }
             var bytes = new List<byte>();
             if (conn.WardBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.WardBuff));
             if (conn.AdrenalineBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.AdrenalineBuff));

@@ -63,6 +63,84 @@ public static partial class Game
                 return [InstanceEntities.PlayerExperienceUpdate(PlayerId, value)];
             });
         }
+        // Coalesce multi-kill gem XP, flask charge and remaining-monster updates just like PlayerExperience:
+        // a pack kill otherwise queues 5+ inventory packets and a gate turn per corpse.
+        Dictionary<byte, HashSet<uint>>? gemRowsPending;
+        bool gemRowsQueued;
+        public void GemRowsChanged(IReadOnlyList<(byte Row, uint[] Items)> rows)
+        {
+            if (rows.Count == 0) return;
+            lock (Conn.Monsters)
+            {
+                gemRowsPending ??= [];
+                foreach (var (row, ids) in rows)
+                {
+                    if (!gemRowsPending.TryGetValue(row, out var set)) gemRowsPending[row] = set = [];
+                    foreach (uint id in ids) set.Add(id);
+                }
+                if (gemRowsQueued) return;
+                gemRowsQueued = true;
+            }
+            Packet(() =>
+            {
+                gemRowsQueued = false;
+                if (gemRowsPending is not { Count: > 0 } pending) return null;
+                gemRowsPending = null;
+                var items = ItemsOf(Conn);
+                List<byte>? bytes = null;
+                foreach (var (row, ids) in pending)
+                {
+                    var current = new List<InventoryItem>(ids.Count);
+                    foreach (var it in items.Items(row))
+                        if (ids.Contains(it.Id)) current.Add(it);
+                    if (current.Count == 0) continue;
+                    var packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
+                        items.NextRevision(row), [.. current.Select(c => c.Id)], current);
+                    (bytes ??= []).AddRange(packet);
+                }
+                return bytes is null ? null : [.. bytes];
+            }, "gem experience");
+        }
+        HashSet<uint>? flasksPending;
+        bool flasksQueued;
+        public void FlaskBarChanged(IReadOnlyList<InventoryItem> changed)
+        {
+            if (changed.Count == 0) return;
+            lock (Conn.Monsters)
+            {
+                flasksPending ??= [];
+                foreach (var item in changed) flasksPending.Add(item.Id);
+                if (flasksQueued) return;
+                flasksQueued = true;
+            }
+            Packet(() =>
+            {
+                flasksQueued = false;
+                if (flasksPending is not { Count: > 0 } pending) return null;
+                flasksPending = null;
+                var items = ItemsOf(Conn);
+                var current = new List<InventoryItem>(pending.Count);
+                foreach (var it in items.Items(PlayerInventories.Flask))
+                    if (pending.Contains(it.Id)) current.Add(it);
+                return current.Count == 0 ? null : InstanceItems.InventoryChange(
+                    PlayerInventories.InventoryId(PlayerInventories.Flask),
+                    items.NextRevision(PlayerInventories.Flask), [.. current.Select(c => c.Id)], current);
+            });
+        }
+        bool remainingQueued;
+        public void RemainingMonstersChanged()
+        {
+            lock (Conn.Monsters)
+            {
+                if (remainingQueued) return;
+                remainingQueued = true;
+            }
+            Enqueue(() =>
+            {
+                lock (Conn.Monsters) remainingQueued = false;
+                return SendRemainingMonsters(remote, stream, ciphers, Conn);
+            });
+        }
         sealed class Visual(uint id, ProjectileHeight height)
         {
             public readonly uint Id = id;
@@ -116,6 +194,7 @@ public static partial class Game
 
         public void Advance()
         {
+            using var statScope = PlayerStatsScope(Conn);
             // Match the existing XP -> connection lock order. Kill reactions may gain XP synchronously.
             lock (LevelUpdatesFor(Conn).Gate)
             lock (Conn.Monsters)
@@ -131,6 +210,7 @@ public static partial class Game
 
         public void AdvanceTo(long at)
         {
+            using var statScope = PlayerStatsScope(Conn);
             lock (LevelUpdatesFor(Conn).Gate)
             lock (Conn.Monsters)
             {
@@ -314,13 +394,17 @@ public static partial class Game
         {
             try
             {
-                await foreach (var intent in output.Reader.ReadAllAsync())
-                    if (Active)
-                    {
-                        ProjectileOutputGuard.Value = () => Active;
-                        try { await intent(); }
-                        finally { ProjectileOutputGuard.Value = null; }
-                    }
+                while (await output.Reader.WaitToReadAsync())
+                {
+                    using var statScope = PlayerStatsScope(Conn);
+                    while (output.Reader.TryRead(out var intent))
+                        if (Active)
+                        {
+                            ProjectileOutputGuard.Value = () => Active;
+                            try { await intent(); }
+                            finally { ProjectileOutputGuard.Value = null; }
+                        }
+                }
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException)
             { Conn.Closed = true; Invalidate(); }

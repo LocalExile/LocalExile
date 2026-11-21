@@ -4,6 +4,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    static readonly IReadOnlySet<uint> EmptyMonsterIds = new HashSet<uint>();
     // The taunted buff (BuffDefinitions 408) is IsRecovery (+0x7c), so 0x1c1 carries one u32 per GrantedStats entry
     // (taunt_target_id, is_taunted; reader 0x141fe6090): the taunter and 1.
     static readonly IReadOnlyList<uint> TauntedBuffValues = [PlayerId, 1];
@@ -80,18 +81,30 @@ public static partial class Game
                 ushort[] currentNodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
                 var current = nodes.SequenceEqual(currentNodes) ? all
                     : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(conn).HardMode, EnemyAuraActs);
-                var auras = current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
-                int? blindRadius = PassiveBuffAuras.BlindRadius(current);
-                var player = CharacterPlayerStats(conn);
+                var auras = current.Count == 0 ? [] : current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
+                int? blindRadius = current.Count == 0 ? null : PassiveBuffAuras.BlindRadius(current);
+                int nearbyBlind, nearbyIntimidate, perAilmentType;
+                if (TryCachedStaticSources(conn, out var staticSources))
+                {
+                    nearbyBlind = StaticStatValue(conn, staticSources, "virtual_nearby_enemies_are_blinded");
+                    nearbyIntimidate = StaticStatValue(conn, staticSources, "virtual_nearby_enemies_are_intimidated");
+                    perAilmentType = StaticStatValue(conn, staticSources, PerAilmentTypeTaken);
+                }
+                else
+                {
+                    var player = CharacterPlayerStats(conn);
+                    nearbyBlind = StatOf(player, "virtual_nearby_enemies_are_blinded");
+                    nearbyIntimidate = StatOf(player, "virtual_nearby_enemies_are_intimidated");
+                    perAilmentType = StatOf(player, PerAilmentTypeTaken);
+                }
                 // The influenced blind and unique intimidate BuffTemplates use 35 and 25 cells respectively.
-                if (StatOf(player, "virtual_nearby_enemies_are_blinded") > 0)
+                if (nearbyBlind > 0)
                     blindRadius = Math.Max(blindRadius ?? 0, 35);
-                if (StatOf(player, "virtual_nearby_enemies_are_intimidated") > 0)
+                if (nearbyIntimidate > 0)
                     auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
                 // Yoke of Suffering: each wearer keeps their own value on a shared monster (PerAilmentTypeTaken).
-                int perAilmentType = StatOf(player, PerAilmentTypeTaken);
                 var here = conn.Walk.Position(now);
                 uint? elementalKey = Stats.Key("elemental_damage_taken_+%");
                 // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp
@@ -233,10 +246,10 @@ public static partial class Game
                 }
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
-                HashSet<uint> inside = radius is int r
+                IReadOnlySet<uint> inside = radius is int r
                     ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
                         .Select(kv => kv.Key).ToHashSet()
-                    : [];
+                    : EmptyMonsterIds;
                 foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
                 {
                     bytes.AddRange(blinded ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId) : InstanceEntities.RemoveBuff(id, buff));
@@ -247,12 +260,12 @@ public static partial class Game
                 var aegis = PhysicalAegisStatus(conn, now);
                 int aegisRadius = alive && aegis.Active && PhysicalAegisHasBlind(conn, aegis)
                     ? PhysicalAegisRadius(conn, aegis) : 0;
-                HashSet<uint> aegisInside = aegisRadius > 0
+                IReadOnlySet<uint> aegisInside = aegisRadius > 0
                     ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 }
                             && kv.Value.Effects["cannot_be_blinded"] == 0
                             && Dist(kv.Value.Walk.Position(now), here) <= aegisRadius)
                         .Select(kv => kv.Key).ToHashSet()
-                    : [];
+                    : EmptyMonsterIds;
                 foreach (var (id, buff, blinded) in aegis.Blind.Reconcile(
                     aegisInside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
                 {

@@ -135,12 +135,14 @@ public static partial class Game
         ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
-            session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
+            if (GameEvents.MonsterKilled.Any)
+                session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
             GainPhasingOnKill(conn);
-            session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
+            if (MayExplodeOnKill(conn))
+                session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
@@ -153,12 +155,13 @@ public static partial class Game
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
             (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
                 conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
-        var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
-        foreach (var packet in gemPackets) session.Packet(packet);
+        var gemRows = new List<(byte Row, uint[] Items)>();
+        var (_, leveled) = CommitGemExperience(conn, gemXp, gemRows);
+        session.GemRowsChanged(gemRows);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
         if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - conn.Experience));
-        if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
+        if (xp > 0 && RecordExperienceGain(conn, xp, saveNow: false) is { } change)
         {
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             session.PlayerExperience(change.After);
@@ -172,15 +175,18 @@ public static partial class Game
                 session.World(PlayerId, PlayerLifeUpdate(conn));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
-                // Account-level persistence is a projection of the committed XP ledger.
-                session.Enqueue(async () => { await SynchronizeAccountLevel(conn); });
+                // Persist level-up XP outside conn.Monsters and synchronize account level.
+                session.Enqueue(async () =>
+                {
+                    CharacterSaves.SaveExperience(CharacterName(conn));
+                    await SynchronizeAccountLevel(conn);
+                });
             }
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
-        // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
-        // Game.MonsterKilled (MonsterRemaining.cs).
-        session.Enqueue(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
+        // The map overlay's "X monsters remain" (S→C 0x1a0): coalesced per burst like PlayerExperience.
+        session.RemainingMonstersChanged();
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
         // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
         // output task runs after it.
@@ -205,8 +211,9 @@ public static partial class Game
         if (modded is not { Cancel: true })
         {
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn, monster),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
+            var dropStats = CharacterPlayerStats(conn);
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn, monster, dropStats),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster, dropStats), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));
         }
@@ -241,33 +248,50 @@ public static partial class Game
     {
         var conn = session.Conn;
         if (HardcoreProgressBlocked(conn)) return;
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var items = ItemsOf(conn);
-        var changed = new List<InventoryItem>();
+        var catalog = ItemsFor(conn);
+        var mods = catalog.Mods;
+        List<(InventoryItem Flask, IReadOnlyDictionary<string, int> Local, Flasks.Flask Charges, double Gain)>? gaining = null;
         foreach (var flask in items.Items(PlayerInventories.Flask))
         {
-            if (!CanGainFlaskCharges(conn, flask)) continue;
-            if (ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } basis) continue;
-            var local = ItemModStats.Local(flask.Item, ItemsFor(conn).Mods); var charges = FlaskCharges.Of(basis, local);
+            if (catalog.ByHash(flask.Item.TypeHash) is not { } type || catalog.FlaskChargesOf(type) is not { } basis) continue;
+            var local = FlaskLocalStats(flask.Item, mods);
+            var charges = FlaskCharges.Of(basis, local);
             if (flask.Item.Charges >= charges.MaxCharges) continue;
-            int whole = conn.FlaskChargeCarry.Take(flask.Id, gain(flask, local) * FlaskCharges.GainMultiplier(local, Get));
+            double amount = gain(flask, local);
+            if (amount > 0) (gaining ??= []).Add((flask, local, charges, amount));
+        }
+        if (gaining is null) return;
+        var stats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var changed = new List<InventoryItem>(gaining.Count);
+        foreach (var (flask, local, charges, amount) in gaining)
+        {
+            if (!CanGainFlaskCharges(conn, flask, local, stats)) continue;
+            int whole = conn.FlaskChargeCarry.Take(flask.Id, amount * FlaskCharges.GainMultiplier(local, Get));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
                 changed.Add(item);
         }
-        if (changed.Count > 0)
-            session.Packet(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
-                items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
+        session.FlaskBarChanged(changed);
     }
 
     public static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
     {
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;
-        var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
-            Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } basis
-                || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
+        var catalog = ItemsFor(conn);
+        var mods = catalog.Mods;
+        var bar = new List<(uint Id, int Chance, bool Full)>();
+        bool anyNotFull = false;
+        foreach (var f in ItemsOf(conn).Items(PlayerInventories.Flask))
+        {
+            var local = FlaskLocalStats(f.Item, mods);
+            bool full = catalog.ByHash(f.Item.TypeHash) is not { } type || catalog.FlaskChargesOf(type) is not { } basis
+                || f.Item.Charges >= FlaskCharges.Of(basis, local).MaxCharges;
+            if (!full) anyNotFull = true;
+            bar.Add((f.Id, local.GetValueOrDefault("local_recharge_on_crit_%"), full));
+        }
+        if (!anyNotFull) return;
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");

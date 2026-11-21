@@ -16,17 +16,28 @@ public static partial class Game
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources,
         IReadOnlyDictionary<uint, int> overrides)
     {
+        var copy = new Dictionary<string, bool>(captured);
+        ApplyChargeOnslaught(conn, copy, sources, overrides);
+        return copy;
+    }
+
+    internal static void ApplyChargeOnslaught(ClientState conn,
+        Dictionary<string, bool> flags, IReadOnlyDictionary<uint, int> sources,
+        IReadOnlyDictionary<uint, int> overrides)
+    {
         int Get(string name) => Stats.Key(name) is uint key
             ? overrides.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
-        bool source = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
-            && SourceOnslaughtPredicates.Any(row => Get(row.Stat) != 0 && captured.GetValueOrDefault(row.Condition));
-        bool onslaught = source || captured.GetValueOrDefault("independent_onslaught");
-        return new Dictionary<string, bool>(captured)
-        {
-            ["source_onslaught"] = source,
-            ["_while_have_onslaught"] = onslaught,
-            ["_while_onslaught_is_active"] = onslaught,
-        };
+        bool source = false;
+        if (CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0)
+            for (int i = 0; i < SourceOnslaughtPredicates.Length; i++)
+            {
+                var row = SourceOnslaughtPredicates[i];
+                if (Get(row.Stat) != 0 && flags.GetValueOrDefault(row.Condition)) { source = true; break; }
+            }
+        bool onslaught = source || flags.GetValueOrDefault("independent_onslaught");
+        flags["source_onslaught"] = source;
+        flags["_while_have_onslaught"] = onslaught;
+        flags["_while_onslaught_is_active"] = onslaught;
     }
 
     public static bool ChargeOnslaughtActive(ClientState conn) => CurrentGameWork && !conn.Closed
@@ -47,6 +58,15 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+            // Skip rebuilding conditional pools every 250 ms tick when the character has no conditional Onslaught source.
+            if (!ChargeOnslaughtActive(conn) && !ChargeOnslaughtVisuals.TryGetValue(conn, out _)
+                && TryCachedStaticSources(conn, out var staticSources))
+            {
+                bool hasSource = false;
+                for (int i = 0; i < SourceOnslaughtPredicates.Length; i++)
+                    if (StaticStatValue(conn, staticSources, SourceOnslaughtPredicates[i].Stat) != 0) { hasSource = true; break; }
+                if (!hasSource) return null;
+            }
             EnsureConditionalItemPools(conn);
             bool active = ChargeOnslaughtActive(conn);
             if (!active && !ChargeOnslaughtVisuals.TryGetValue(conn, out _)) return null;

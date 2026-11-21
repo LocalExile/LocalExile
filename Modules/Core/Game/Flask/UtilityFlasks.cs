@@ -99,9 +99,12 @@ public static partial class Game
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
     // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
-    public static int IncreasedItemRarity(ClientState conn, SpawnedMonster? monster = null)
+    public static int IncreasedItemRarity(ClientState conn, SpawnedMonster? monster = null) =>
+        IncreasedItemRarity(conn, monster, null);
+
+    internal static int IncreasedItemRarity(ClientState conn, SpawnedMonster? monster, IReadOnlyDictionary<uint, int>? playerStats)
     {
-        var stats = CharacterPlayerStats(conn);
+        var stats = playerStats ?? CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
         return player + (MapModsOf(conn)?.Rarity ?? 0)
@@ -113,9 +116,12 @@ public static partial class Game
     // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls
     // (ItemDrops.Roll). A kill made with a supported skill adds the skill's own
     // base_killed_monster_dropped_item_quantity_+% (Item Quantity Support).
-    public static double ItemQuantityFactor(ClientState conn, SpawnedMonster? monster = null)
+    public static double ItemQuantityFactor(ClientState conn, SpawnedMonster? monster = null) =>
+        ItemQuantityFactor(conn, monster, null);
+
+    internal static double ItemQuantityFactor(ClientState conn, SpawnedMonster? monster, IReadOnlyDictionary<uint, int>? playerStats)
     {
-        var stats = CharacterPlayerStats(conn);
+        var stats = playerStats ?? CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
         return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)

@@ -54,9 +54,25 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
+    internal static bool MayExplodeOnKill(ClientState conn)
+    {
+        // Fast reject when no passive/item/override explosion stat is present and no utility flask or dynamic stat provider could add one.
+        if (GameEvents.PlayerStatSources.Any || conn.UtilityFlaskEffects.Sources().Count > 0 || conn.MagebloodBuffs.Count > 0) return true;
+        lock (conn.Monsters)
+        {
+            if (!TryCachedStaticSources(conn, out var sources)) return true;
+            return StaticStatValue(conn, sources, "enemies_explode_for_%_life_as_physical_damage") > 0
+                || StaticStatValue(conn, sources, "bleeding_enemies_explode_for_%_life_as_physical_damage") > 0
+                || StaticStatValue(conn, sources, "explode_enemies_for_25%_life_as_chaos_on_kill_chance_%") > 0
+                || StaticStatValue(conn, sources, "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%") > 0
+                || StaticStatValue(conn, sources, "explode_enemies_for_10%_life_as_fire_on_kill_chance_%") > 0;
+        }
+    }
+
     public static async Task<bool> ExplodeOnKill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
+        if (!MayExplodeOnKill(conn)) return false;
         var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int generic = Get("enemies_explode_for_%_life_as_physical_damage");

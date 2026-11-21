@@ -101,8 +101,9 @@ public static partial class Game
         if (modded is not { Cancel: true })
         {
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
+            var dropStats = CharacterPlayerStats(conn);
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster, dropStats),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster, dropStats),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } map) drops.Add(map);

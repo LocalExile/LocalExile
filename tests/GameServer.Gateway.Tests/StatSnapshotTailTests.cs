@@ -523,7 +523,8 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         // that needs more says why in its pull request and raises it there; one that needs less lowers it; a new
         // .NET runtime that moves the figure with no code change is measured again.
         // 66 752 for the same commit on .NET 10.0.15 / Windows, measured again on 2026-11-18.
-        const long Budget = 66_800;
+        // 36 056 after eliminating redundant equipment scans, dictionary copies and cache-miss work on 2026-11-21.
+        const long Budget = 40_000;
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 50; i++) Lookup();
         long perLookup = (GC.GetAllocatedBytesForCurrentThread() - allocated) / 50;

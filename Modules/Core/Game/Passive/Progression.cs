@@ -138,13 +138,24 @@ public static partial class Game
     // by client stat key. Worn items whose requirements the class, the passives and the other active items do not meet are
     // inactive (ItemModStats.Inactive): remembered per character for the weapon profile and the gem skills.
     public static (Dictionary<uint, int> Stats, AttributeModifiers Attributes) CharacterStatSources(ClientState conn,
-        IEnumerable<ushort>? nodes = null, int? level = null)
+        IEnumerable<ushort>? nodes = null, int? level = null) =>
+        CharacterStatSources(conn, nodes, level, preparedSources: null);
+
+    internal static (Dictionary<uint, int> Stats, AttributeModifiers Attributes) CharacterStatSources(ClientState conn,
+        IEnumerable<ushort>? nodes, int? level, StatSourcesResult? preparedSources)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
         var exemptions = GameEvents.ExemptItems(conn);
         if (exemptions.Count > 0)
             before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
-        var (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
+        Dictionary<uint, int> sources;
+        AttributeModifiers attributes;
+        HashSet<uint> inactive;
+        List<ItemModStats.Worn> worn;
+        if (preparedSources is not null && nodes is null && level is null)
+            (sources, attributes, inactive, worn) = (new(preparedSources.Sources), preparedSources.Attributes, new(preparedSources.Inactive), preparedSources.Worn);
+        else
+            (sources, attributes, inactive, worn) = EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot(), nodes, level);
         lock (conn.Monsters)
             if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired)
             {
@@ -202,44 +213,53 @@ public static partial class Game
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
         long probe = ConnectionPerformance.ProbeStart();   // Game_TRACE=lag: [latency-lookup]
         IReadOnlyDictionary<ushort, ushort> masteries;
-        Dictionary<ushort, string> tattoos;
-        Dictionary<ushort, ushort> tattooKeystones;
         AscendancyFamily family;
         AscendancyIdentity? selection;
+        ushort[] nodeArray;
+        Dictionary<uint, int> dev;
         lock (conn.Monsters)
         {
-            nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).Concat(conn.DescendancyNodes).ToArray();
+            nodeArray = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).Concat(conn.DescendancyNodes).ToArray();
             masteries = conn.MasteryEffects;
-            tattoos = new(conn.Tattoos);
-            tattooKeystones = new(conn.TattooKeystones);
             selection = conn.MainAscendancy.Selection;
             family = selection?.Family ?? AscendancyFamily.Normal;
+            dev = new(conn.PlayerStats);
         }
         AscendancyPolicies.RequireAvailable(conn, selection);
-        var selectedDefinition = selection is null ? null : Ascendancies.Find(selection);
-        var c = SkillsFor(conn).ClassFor(conn.ClassRow);
-        Dictionary<uint, int> dev;
-        lock (conn.Monsters) dev = new(conn.PlayerStats);
         var items = ItemsOf(conn);
-        var allocated = nodes.ToHashSet();
-        // Jewels in the passive tree count like worn items (their global mods, requirements and inactive state): the
-        // PassiveJewels1 pane holds one per allocated ordinary jewel socket and one per open cluster jewel socket. The
-        // Adorned scales corrupted magic jewels in those sockets before their mods are summed.
-        var treeJewels = items.Items(PlayerInventories.PassiveJewels)
-            .Where(i => IsNormalJewel(i.Item)
-                && (PassivesFor(conn).JewelNodeForSlot(i.X) is { } node && allocated.Contains(node) || ClusterSlotOpen(conn, i.X)))
-            .ToList();
-        // A Wildwood charm in one of the Primalist's three charm sockets counts like a worn item: its one Domain 35
-        // modifier reaches the stats while its Charm Socket descendancy node is allocated.
-        var charms = items.Items(PlayerInventories.PassiveJewels)
-            .Where(i => IsCharm(i.Item)
-                && PassivesFor(conn).CharmNodeForSlot(i.X) is { } charmNode && allocated.Contains(charmNode))
-            .ToList();
-        int adorned = AdornedPercent(treeJewels);
-        var worn = equipment.Select(e => e.Item)
-            .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
-            .Concat(charms)
-            .ToArray();
+        var passiveJewels = items.Items(PlayerInventories.PassiveJewels);
+        HashSet<ushort>? allocated = null;
+        List<InventoryItem> treeJewels = [];
+        List<InventoryItem> charms = [];
+        int adorned = 0;
+        InventoryItem[] worn;
+        if (passiveJewels.Count == 0)
+        {
+            worn = new InventoryItem[equipment.Count];
+            for (int i = 0; i < equipment.Count; i++) worn[i] = equipment[i].Item;
+        }
+        else
+        {
+            allocated = nodeArray.ToHashSet();
+            // Jewels in the passive tree count like worn items (their global mods, requirements and inactive state): the
+            // PassiveJewels1 pane holds one per allocated ordinary jewel socket and one per open cluster jewel socket. The
+            // Adorned scales corrupted magic jewels in those sockets before their mods are summed.
+            treeJewels = passiveJewels
+                .Where(i => IsNormalJewel(i.Item)
+                    && (PassivesFor(conn).JewelNodeForSlot(i.X) is { } node && allocated.Contains(node) || ClusterSlotOpen(conn, i.X)))
+                .ToList();
+            // A Wildwood charm in one of the Primalist's three charm sockets counts like a worn item: its one Domain 35
+            // modifier reaches the stats while its Charm Socket descendancy node is allocated.
+            charms = passiveJewels
+                .Where(i => IsCharm(i.Item)
+                    && PassivesFor(conn).CharmNodeForSlot(i.X) is { } charmNode && allocated.Contains(charmNode))
+                .ToList();
+            adorned = AdornedPercent(treeJewels);
+            worn = equipment.Select(e => e.Item)
+                .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
+                .Concat(charms)
+                .ToArray();
+        }
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
         var exemptions = GameEvents.ExemptItems(conn);
         if (exemptions.Count > 0)
@@ -257,7 +277,9 @@ public static partial class Game
         ReadAmounts recentAmounts;
         lock (conn.Monsters)
         {
-            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId));
+            var affectingAuras = AffectingAuras(conn);
+            auraEffects = StatConditions.AuraSet(affectingAuras.Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId));
+            var rawAuraSet = affectingAuras.Count == 0 ? auraEffects : StatConditions.AuraSet(affectingAuras.Select(a => a.EffectId));
             conditionNow = conn.Clock.Elapsed.TotalSeconds;
             recentEvents = conn.RecentEvents.Snapshot(conditionNow);
             recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
@@ -268,9 +290,9 @@ public static partial class Game
             mana = (int)conn.Pools.Mana;
             energyShield = (int)Math.Min(int.MaxValue, conn.Pools.EnergyShield);
             poisonStacks = conn.IncomingAilments.PoisonStacks(conditionNow);
-            conditionFlags = ItemConditionFlags(conn, conditionNow, null, out lifeReservationConditions);
+            conditionFlags = ItemConditionFlags(conn, conditionNow, null, out lifeReservationConditions, equipment, recentEvents, rawAuraSet);
             if (conditionFlags.GetValueOrDefault("cursed_by_vulnerability"))
-                auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability")
+                auraEffects = StatConditions.AuraSet(affectingAuras.Where(a => a.EffectId != "Vulnerability")
                     .Select(a => a.EffectId).Append("Vulnerability"));
             var measured = conn.RecentEvents.Amounts(conditionNow);
             measured.TryAdd(StatConditions.KilledEnemy, 0);
@@ -284,16 +306,29 @@ public static partial class Game
         afterConditionCapture?.Invoke();
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
-        var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
-            before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()],
+        ushort[] clusterPassives = conn.ClusterPassives.Count == 0 ? [] : [.. conn.ClusterPassives.Order()];
+        uint[] runItems = exemptions.Count == 0 ? [] : [.. exemptions.Order()];
+        var sourcesKey = new StatSourcesKey(nodeArray, masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
+            before, clusterPassives, conn.TattooRevision, runItems,
             auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield,
-            conditionFlags, recentAmounts, poisonStacks, ItemsFor(conn));
+            conditionFlags, recentAmounts, poisonStacks, ItemsFor(conn), EquipmentVersion: items.StructureVersion);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
         {
             PublishQualifiedItemLifeReservationPercent(conn, cached.Key.QualifiedItemLifeReservationPercent);
             conn.Performance.LookupHit(probe);
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         }
+        Dictionary<ushort, string> tattoos;
+        Dictionary<ushort, ushort> tattooKeystones;
+        lock (conn.Monsters)
+        {
+            tattoos = new(conn.Tattoos);
+            tattooKeystones = new(conn.TattooKeystones);
+        }
+        var selectedDefinition = selection is null ? null : Ascendancies.Find(selection);
+        var c = SkillsFor(conn).ClassFor(conn.ClassRow);
+        allocated ??= nodeArray.ToHashSet();
+        nodes = nodeArray;
         string missed = probe == 0 ? "" : conn.StatSourcesCache is { } previous ? previous.Key.Difference(sourcesKey) : "first build";
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
         // normal jewel in an ordinary tree socket; its local alternate-tree stats are read by TimelessJewelCatalog.
@@ -914,7 +949,8 @@ public static partial class Game
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
         int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
         IReadOnlyDictionary<string, bool>? Flags = null, ReadAmounts? Amounts = null,
-        int PoisonStacks = 0, ItemCatalog? Catalog = null, int QualifiedItemLifeReservationPercent = 0)
+        int PoisonStacks = 0, ItemCatalog? Catalog = null, int QualifiedItemLifeReservationPercent = 0,
+        long EquipmentVersion = 0)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -994,6 +1030,36 @@ public static partial class Game
 
     public sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
         HashSet<uint> Inactive, List<ItemModStats.Worn> Worn);
+
+    // Returns cached raw passive/equipment sources when equipment structure, passives, masteries, tattoos and level match
+    // the last build and no mod stat provider is active. Callers apply conn.PlayerStats (/set_stat) on top. Call under conn.Monsters.
+    internal static bool TryCachedStaticSources(ClientState conn, out IReadOnlyDictionary<uint, int> sources)
+    {
+        sources = null!;
+        if (GameEvents.Stats.Any || GameEvents.ItemStatSources.Any || conn.StatSourcesCache is not { } cached) return false;
+        var key = cached.Key;
+        if (key.EquipmentVersion != ItemsOf(conn).StructureVersion
+            || !ReferenceEquals(key.Catalog, ItemsFor(conn))
+            || key.ClassRow != conn.ClassRow || key.God != conn.God
+            || key.Level != conn.Pools.Level || key.TattooRevision != conn.TattooRevision
+            || !ReferenceEquals(key.Masteries, conn.MasteryEffects)
+            || key.ClusterPassives.Length != conn.ClusterPassives.Count
+            || key.RunItems.Length != GameEvents.ExemptItems(conn).Count)
+            return false;
+        if (key.Nodes.Length != conn.Passives.Count + conn.MainAscendancy.Allocated.Count + conn.DescendancyNodes.Count)
+            return false;
+        int i = 0;
+        foreach (ushort node in conn.Passives) if (key.Nodes[i++] != node) return false;
+        foreach (ushort node in conn.MainAscendancy.Allocated) if (key.Nodes[i++] != node) return false;
+        foreach (ushort node in conn.DescendancyNodes) if (key.Nodes[i++] != node) return false;
+        sources = cached.Sources;
+        return true;
+    }
+
+    internal static int StaticStatValue(ClientState conn, IReadOnlyDictionary<uint, int> sources, string name) =>
+        Stats.Key(name) is uint key
+            ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key)
+            : 0;
 
     // Only raw attribute keys are inputs. A final pool/panel attribute must never feed the flat bucket on a rebuild.
     public static AttributeModifiers AttributeInputs(IReadOnlyDictionary<string, long> raw, IReadOnlyDictionary<uint, int> dev) =>
@@ -2144,35 +2210,44 @@ public static partial class Game
                 ref conn.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
             if (share == 0) return ([], false);
             var items = ItemsOf(conn);
+            var catalog = ItemsFor(conn);
+            var skills = SkillsFor(conn);
+            int playerLevel = conn.Pools.Level;
+            bool leveled = false;
             Item? AddExperience(uint itemId, Item gem)
             {
-                if (IsInactive(conn, itemId) || ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
+                if (IsInactive(conn, itemId) || catalog.ByHash(gem.TypeHash) is not { } baseType || catalog.Gem(baseType) is not { } type) return null;
                 // The experience stops one point below the next level's threshold, where the client draws the "+", so a
                 // kill never levels a gem: only the player's click (0x31, or Level Up All's 0x32) writes the threshold.
                 // A gem already above the highest level the character meets keeps its experience and gains nothing.
-                int level = ItemsFor(conn).GemLevel(gem);
+                int level = type.Level(gem.GemExperience);
                 if (level < 0) return null; // -1 is a corrupted gem over its cap (GemType.Level)
-                int allowed = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
+                int allowed = Math.Min(skills.MaxLevelAt(type.Variant(gem.GemVariant).Effect, playerLevel), type.MaxLevel);
                 int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
                 if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
-                return gem with { GemExperience = (int)Math.Min((long)gem.GemExperience + share, cap) };
+                int nextXp = (int)Math.Min((long)gem.GemExperience + share, cap);
+                if (type.Level(nextXp) > level) leveled = true;
+                return gem with { GemExperience = nextXp };
             }
-            bool canLevel = items.SocketedGemPlaces().Any(place =>
-                AddExperience(place.ItemId, place.Gem) is { } after
-                && ItemsFor(conn).GemLevel(after) > ItemsFor(conn).GemLevel(place.Gem));
-            IReadOnlyList<PlayerSkillSource> sourcesBefore = canLevel ? CaptureGemSourceRowsLocked(conn) : [];
-            var changed = items.ChangeSocketedGems(AddExperience);
-            bool leveled = false;
+            // AddExperience caps at one point below the next level's threshold, so kills almost never level a gem;
+            // only capture source rows upfront when an edge-case threshold would actually advance a level.
+            IReadOnlyList<PlayerSkillSource> sourcesBefore = [];
+            var changed = items.ChangeSocketedGems((itemId, gem) =>
+            {
+                bool wasLeveled = leveled;
+                var updated = AddExperience(itemId, gem);
+                if (leveled && !wasLeveled) sourcesBefore = CaptureGemSourceRowsLocked(conn);
+                return updated;
+            });
+            if (changed.Count == 0) return ([], false);
             foreach (var (before, after) in changed.SelectMany(c => c.Gems))
             {
-                if (ItemsFor(conn).GemLevel(after) > ItemsFor(conn).GemLevel(before))
-                {
-                    leveled = true;
-                    Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} levels to {ItemsFor(conn).GemLevel(after)}");
-                }
+                int afterLevel = catalog.GemLevel(after);
+                if (afterLevel > catalog.GemLevel(before))
+                    Console.WriteLine($"[gateway] {CharacterName(conn)}'s {catalog.GemName(after)} levels to {afterLevel}");
                 else
-                    Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} gains experience " +
-                        $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(conn).GemLevel(after)})");
+                    Console.WriteLine($"[gateway] {CharacterName(conn)}'s {catalog.GemName(after)} gains experience " +
+                        $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {afterLevel})");
             }
             if (leveled)
             {

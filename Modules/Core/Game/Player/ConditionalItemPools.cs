@@ -12,25 +12,49 @@ public static partial class Game
             LifeReservation.FromInputs(MaximumLife, itemPercent, EfficiencyPct, Auras, AdditionalSkillReserved);
     }
 
+    static readonly (string When, string While)[] WhenWhileFlagPairs =
+    [
+        ("_when_on_full_life", "_while_on_full_life"),
+        ("_when_on_low_life", "_while_on_low_life"),
+        ("_when_not_on_low_life", "_while_not_on_low_life"),
+        ("_when_on_full_mana", "_while_on_full_mana"),
+        ("_when_on_low_mana", "_while_on_low_mana"),
+    ];
+
     public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
         IEnumerable<Item>? activeItems = null) =>
         ItemConditionFlags(conn, now, activeItems, out _);
 
     public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
-        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
+        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot) =>
+        ItemConditionFlags(conn, now, activeItems, out reservationSnapshot, equipment: null, recentEvents: null, auraEffects: null);
+
+    internal static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
+        IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment,
+        IReadOnlySet<string>? recentEvents, IReadOnlySet<string>? auraEffects)
     {
+        equipment ??= EquipmentForStats(conn);
         // The active items are worked out once: every check below would otherwise ask each worn item again.
-        activeItems = activeItems?.ToArray() ?? EquipmentForStats(conn)
-            .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
+        Item[] activeArray;
+        if (activeItems is Item[] arr) activeArray = arr;
+        else if (activeItems is not null) activeArray = activeItems.ToArray();
+        else
+        {
+            var list = new List<Item>(equipment.Count);
+            for (int i = 0; i < equipment.Count; i++)
+                if (!IsInactive(conn, equipment[i].Item.Id)) list.Add(equipment[i].Item.Item);
+            activeArray = [.. list];
+        }
         var ailments = conn.ElementalAilments.Snapshot(now);
         var leech = LeechOf(conn).Active(now);
         bool moving = conn.Walk.Moving(now), alive = conn.PlayerLife > 0;
-        var lifeReservation = LifeReservationForConditions(conn, activeItems, out reservationSnapshot);
+        var lifeReservation = LifeReservationForConditions(conn, activeArray, out reservationSnapshot);
         long manaRequired = (long)AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
             + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
             + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
         int manaReserved = (int)Math.Min(conn.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
-        var lowLifeSources = SelfCurseConditionInputs(conn, activeItems, conditionTime: now);
+        var lowLifeSources = SelfCurseConditionInputs(conn, activeArray, conditionTime: now);
         bool lowLife = alive && CriticalOnLowLife(conn, lowLifeSources);
         var physicalAegis = PhysicalAegisStatus(conn, now);
         string stance = StanceCatalog.Selected(conn.Auras.Values);
@@ -39,7 +63,7 @@ public static partial class Game
         bool catAspect = CatAspectRootActiveLocked(conn);
         bool catsStealth = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Stealth;
         bool catsAgility = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Agility;
-        var flags = new Dictionary<string, bool>
+        var flags = new Dictionary<string, bool>(96)
         {
             [RecentSavageHitItemFlag] = alive && !conn.Closed && !conn.LeavingArea
                 && conn.RecentEvents.Happened(StatConditions.TakenSavageHit, now),
@@ -76,13 +100,10 @@ public static partial class Game
             ["_while_es_leeching"] = alive && leech.EnergyShield,
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
-        var activeRings = activeItems?.ToArray() ?? EquipmentForStats(conn)
-            .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
-        foreach (var (key, value) in ConditionalRings(EquipmentForStats(conn), activeRings).Flags) flags[key] = value;
+        foreach (var (key, value) in ConditionalRings(equipment, activeArray).Flags) flags[key] = value;
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
         // The uniques spell the life/mana states with "when"; the same state answers both keys.
-        foreach (string state in new[] { "_on_full_life", "_on_low_life", "_not_on_low_life", "_on_full_mana", "_on_low_mana" })
-            flags["_when" + state] = flags["_while" + state];
+        foreach (var (whenKey, whileKey) in WhenWhileFlagPairs) flags[whenKey] = flags[whileKey];
         var weapons = WeaponProfileFor(conn);
         flags["_while_unarmed"] = weapons.Unarmed;
         flags["_while_wielding_staff"] = weapons.Staff;
@@ -136,11 +157,14 @@ public static partial class Game
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
                 charges.Converted(type), alive, ChargeScaling.CountsAsMaximum(type, observed));
         }
-        var equipmentFlags = QualifiedEquipmentItemFlags(flags, EquipmentForStats(conn), ItemsFor(conn), activeRings);
-        var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
-            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
-        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
-            StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
+        ApplyQualifiedEquipmentItemFlags(flags, equipment, ItemsFor(conn), activeArray);
+        ApplyHerEmbrace(conn, flags, activeArray, lowLifeSources, equipment);
+        ApplyElusive(conn, flags, lowLifeSources, activeArray, equipment);
+        ApplyAvatarOfFire(conn, flags, lowLifeSources, conn.PlayerStats, activeArray, equipment);
+        var phasingAuras = auraEffects ?? StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
+        ApplySourcePhasing(conn, flags, lowLifeSources, conn.PlayerStats, recentEvents ?? conn.RecentEvents.Snapshot(now),
+            phasingAuras, now);
+        return flags;
     }
 
     // Qualification can change the active item set after the coherent condition snapshot. Recompute only the

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using static Game;
 using static Program;
@@ -43,27 +44,58 @@ public static class LesserShrines
     {
         public readonly LesserShrineTrigger Trigger = new();
         public Stopwatch? Clock;
+        public ItemCatalog? CachedCatalog;
+        public SkillCatalog? CachedSkills;
+        public (uint Id, Item Item)[]? CachedActiveItems;
+        public Grant? CachedGrant;
     }
     sealed record Grant(string Source, int Effect, int Level);
     sealed record Request((int X, int Y) At, double Seconds, string Type);
     static readonly ConditionalWeakTable<PlayerInventories, State> States = new();
     static readonly ConditionalWeakTable<ClientState, List<Request>> Pending = new();
 
-    static Grant? Equipped(ClientState conn)
+    static Grant? Equipped(ClientState conn, State state)
     {
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
         var skills = SkillsFor(conn);
+        // Fast check against the last scanned active equipment snapshot; avoids scanning every item's mods on every kill/tick.
+        if (ReferenceEquals(state.CachedCatalog, catalog) && ReferenceEquals(state.CachedSkills, skills)
+            && state.CachedActiveItems is { } prev)
+        {
+            int idx = 0;
+            bool same = true;
+            foreach (byte row in ItemModStats.EquipmentRows)
+            {
+                foreach (var item in items.Items(row))
+                {
+                    if (IsInactive(conn, item.Id)) continue;
+                    if (idx >= prev.Length || prev[idx].Id != item.Id || !ReferenceEquals(prev[idx].Item, item.Item))
+                    { same = false; break; }
+                    idx++;
+                }
+                if (!same) break;
+            }
+            if (same && idx == prev.Length) return state.CachedGrant;
+        }
+        var active = new List<(uint Id, Item Item)>();
+        Grant? grant = null;
         foreach (byte row in ItemModStats.EquipmentRows)
         foreach (var item in items.Items(row))
         {
             if (IsInactive(conn, item.Id)) continue;
+            active.Add((item.Id, item.Item));
+            if (grant is not null) continue;
             foreach (var mod in item.Item.Mods)
             foreach (int levelRow in catalog.Mods.ByHash(mod.Hash)?.GrantedEffectLevels ?? [])
                 if (skills.EffectsPerLevel(levelRow) is { } level && skills.EffectId(level.Effect) == "TriggeredSummonLesserShrine")
-                    return new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level);
+                { grant = new($"{item.Id}/{mod.Hash}/{levelRow}", level.Effect, level.Level); break; }
         }
-        return null;
+        state.CachedCatalog = catalog;
+        state.CachedSkills = skills;
+        state.CachedActiveItems = [.. active];
+        state.CachedGrant = grant;
+        return grant;
     }
 
     static double Cooldown(ClientState conn, Grant? grant)
@@ -90,8 +122,8 @@ public static class LesserShrines
         var conn = kill.Conn;
         lock (conn.Monsters)
         {
-            var grant = Equipped(conn);
             var state = States.GetOrCreateValue(ItemsOf(conn));
+            var grant = Equipped(conn, state);
             double cooldown = Cooldown(conn, grant);
             lock (state)
             {
@@ -117,7 +149,7 @@ public static class LesserShrines
         lock (conn.Monsters)
         {
             var state = States.GetOrCreateValue(ItemsOf(conn));
-            var grant = Equipped(conn);
+            var grant = Equipped(conn, state);
             lock (state) Observe(state, conn, grant, Cooldown(conn, grant));
             if (!Pending.TryGetValue(conn, out var pending)) return;
             requests = [.. pending]; pending.Clear();

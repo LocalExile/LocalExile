@@ -38,14 +38,40 @@ public static partial class Game
     static Dictionary<string, bool> RequalifyHerEmbrace(ClientState conn, IReadOnlyDictionary<string, bool> flags,
         IEnumerable<Item>? activeItems = null, IReadOnlyDictionary<uint, int>? raw = null)
     {
-        if (conn.LeavingArea) return new(flags) { ["_while_in_her_embrace"] = false };
+        var copy = new Dictionary<string, bool>(flags);
+        ApplyHerEmbrace(conn, copy, activeItems, raw, equipment: null);
+        return copy;
+    }
+
+    internal static void ApplyHerEmbrace(ClientState conn, Dictionary<string, bool> flags,
+        IEnumerable<Item>? activeItems, IReadOnlyDictionary<uint, int>? raw,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment)
+    {
+        if (conn.LeavingArea) { flags["_while_in_her_embrace"] = false; return; }
         var state = HerEmbraceOf(conn);
-        var active = activeItems?.ToArray();
         bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
-        var hosts = alive ? ItemsOf(conn).EquipmentSnapshot()
-            .Where(e => active is null ? !IsInactive(conn, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
-            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods).GetValueOrDefault(HerEmbraceGain) > 0)
-            .Select(e => e.Item.Id).Order().ToArray() : [];
+        uint[] hosts = [];
+        if (alive)
+        {
+            equipment ??= ItemsOf(conn).EquipmentSnapshot();
+            var active = activeItems is Item[] arr ? arr : activeItems?.ToArray();
+            List<uint>? list = null;
+            var mods = ItemsFor(conn).Mods;
+            for (int i = 0; i < equipment.Count; i++)
+            {
+                var e = equipment[i];
+                if (active is null) { if (IsInactive(conn, e.Item.Id)) continue; }
+                else
+                {
+                    bool found = false;
+                    for (int a = 0; a < active.Length; a++)
+                        if (ReferenceEquals(active[a], e.Item.Item)) { found = true; break; }
+                    if (!found) continue;
+                }
+                if (PlainItemSum(e.Item.Item, mods).GetValueOrDefault(HerEmbraceGain) > 0) (list ??= []).Add(e.Item.Id);
+            }
+            if (list is not null) { list.Sort(); hosts = [.. list]; }
+        }
         double now = ResourceEffectsTime(conn);
         if (hosts.Length > 0) ResourceEffectsOf(conn);
         if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch || !state.Hosts.SequenceEqual(hosts))
@@ -56,7 +82,7 @@ public static partial class Game
         state.GainMilliseconds = raw is null ? 0 : GolemStat(raw, HerEmbraceGain);
         state.Degeneration = raw is null ? 0 : GolemStat(raw, HerEmbraceDegen);
         state.Settle(now);
-        return new(flags) { ["_while_in_her_embrace"] = alive && state.Hosts.Length > 0 && now < state.Until };
+        flags["_while_in_her_embrace"] = alive && state.Hosts.Length > 0 && now < state.Until;
     }
 
     public static void HerEmbraceOnIgniteLocked(ClientState conn, double now)

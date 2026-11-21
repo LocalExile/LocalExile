@@ -36,7 +36,15 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                var value = RecentEnemyHitStatsLocked(conn, CharacterPlayerStats(conn));
+                (int Count, int Chance) value;
+                if (TryCachedStaticSources(conn, out var staticSources))
+                {
+                    int count = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
+                    value = (count, RecentEnemyHits.Chance(count,
+                        StaticStatValue(conn, staticSources, RecentEnemyHits.PerHit),
+                        StaticStatValue(conn, staticSources, RecentEnemyHits.GenericChance)));
+                }
+                else value = RecentEnemyHitStatsLocked(conn, CharacterPlayerStats(conn));
                 if (conn.PresentedRecentEnemyHits == value) return null;
                 var stats = new Dictionary<uint, int>();
                 if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;

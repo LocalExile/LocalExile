@@ -42,16 +42,30 @@ public static partial class Game
     static Dictionary<string, bool> RequalifyElusive(ClientState conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
-        if (conn.LeavingArea) return new(flags)
-        { ["_while_affected_by_elusive"] = false, ["_while_elusive"] = false, ["_while_you_have_elusive"] = false };
+        var copy = new Dictionary<string, bool>(flags);
+        ApplyElusive(conn, copy, raw, activeItems, equipment: null);
+        return copy;
+    }
+
+    internal static void ApplyElusive(ClientState conn, Dictionary<string, bool> flags,
+        IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment)
+    {
+        if (conn.LeavingArea)
+        {
+            flags["_while_affected_by_elusive"] = false;
+            flags["_while_elusive"] = false;
+            flags["_while_you_have_elusive"] = false;
+            return;
+        }
         var state = ElusiveOf(conn);
         bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
         int Get(string n) => GolemStat(raw, n);
         string identity = "";
         if (alive && (Get(ElusiveOnCritical) > 0 || Get(ElusiveOnKill) > 0))
         {
-            var active = activeItems?.ToArray();
-            var sources = ItemsOf(conn).EquipmentSnapshot()
+            var active = activeItems is Item[] arr ? arr : activeItems?.ToArray();
+            var sources = (equipment ?? ItemsOf(conn).EquipmentSnapshot())
                 .Where(e => active is null ? !IsInactive(conn, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
                 .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods) is var item
                     && (item.GetValueOrDefault(ElusiveOnCritical) > 0 || item.GetValueOrDefault(ElusiveOnKill) > 0))
@@ -73,8 +87,9 @@ public static partial class Game
         double now = ResourceEffectsTime(conn);
         bool running = alive && state.Effect(now) > 0;
         conn.ElusiveUntil = running ? now + state.Remaining(now) : 0;
-        return new(flags)
-        { ["_while_affected_by_elusive"] = running, ["_while_elusive"] = running, ["_while_you_have_elusive"] = running };
+        flags["_while_affected_by_elusive"] = running;
+        flags["_while_elusive"] = running;
+        flags["_while_you_have_elusive"] = running;
     }
 
     public static bool TryGainElusiveLocked(ClientState conn, bool critical, bool kill, double now, Random? random = null)

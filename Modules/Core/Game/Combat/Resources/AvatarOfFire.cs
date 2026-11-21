@@ -51,32 +51,54 @@ public static partial class Game
     static Dictionary<string, bool> RequalifyAvatarOfFire(ClientState conn, IReadOnlyDictionary<string, bool> flags,
         IReadOnlyDictionary<uint, int> raw, IReadOnlyDictionary<uint, int> overrides, IEnumerable<Item>? activeItems = null)
     {
+        var copy = new Dictionary<string, bool>(flags);
+        ApplyAvatarOfFire(conn, copy, raw, overrides, activeItems, equipment: null);
+        return copy;
+    }
+
+    internal static void ApplyAvatarOfFire(ClientState conn, Dictionary<string, bool> flags,
+        IReadOnlyDictionary<uint, int> raw, IReadOnlyDictionary<uint, int> overrides,
+        IEnumerable<Item>? activeItems, IReadOnlyList<(byte Row, InventoryItem Item)>? equipment)
+    {
+        if (conn.LeavingArea)
+        {
+            flags["_while_you_have_avatar_of_fire"] = false;
+            flags["_while_you_do_not_have_avatar_of_fire"] = false;
+            return; // The transfer owner captures the frozen interval before retiring it.
+        }
         int Get(string name) => Stats.Key(name) is uint key
             ? overrides.TryGetValue(key, out int value) ? value : raw.GetValueOrDefault(key) : 0;
-        var equipment = ItemsOf(conn).EquipmentSnapshot();
-        var active = activeItems?.ToArray();
-        if (conn.LeavingArea) return new(flags)
-        {
-            ["_while_you_have_avatar_of_fire"] = false,
-            ["_while_you_do_not_have_avatar_of_fire"] = false,
-        }; // The transfer owner captures the frozen interval before retiring it.
         bool alive = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0;
-        uint[] hosts = alive && Get(AvatarRotationStat) > 0 ? [.. equipment
-            .Where(e => active is null ? !IsInactive(conn, e.Item.Id)
-                : active.Any(item => ReferenceEquals(item, e.Item.Item)))
-            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods).GetValueOrDefault(AvatarRotationStat) > 0)
-            .Select(e => e.Item.Id).Order()] : [];
+        uint[] hosts = [];
+        if (alive && Get(AvatarRotationStat) > 0)
+        {
+            equipment ??= ItemsOf(conn).EquipmentSnapshot();
+            var active = activeItems is Item[] arr ? arr : activeItems?.ToArray();
+            List<uint>? list = null;
+            var mods = ItemsFor(conn).Mods;
+            for (int i = 0; i < equipment.Count; i++)
+            {
+                var e = equipment[i];
+                if (active is null) { if (IsInactive(conn, e.Item.Id)) continue; }
+                else
+                {
+                    bool found = false;
+                    for (int a = 0; a < active.Length; a++)
+                        if (ReferenceEquals(active[a], e.Item.Item)) { found = true; break; }
+                    if (!found) continue;
+                }
+                if (PlainItemSum(e.Item.Item, mods).GetValueOrDefault(AvatarRotationStat) > 0) (list ??= []).Add(e.Item.Id);
+            }
+            if (list is not null) { list.Sort(); hosts = [.. list]; }
+        }
         var state = AvatarRotationOf(conn);
         double now = ResourceEffectsTime(conn);
         if (hosts.Length > 0) ResourceEffectsOf(conn); // Bind/retire the previous owner before installing this interval.
         state.Reconcile(CombatLifetime, conn.ProjectileEpoch, hosts, now);
         bool avatar = alive && (Get(AvatarKeystone) > 0 || state.Read(now).Active);
         if (Stats.Key(AvatarKeystone) is uint key && overrides.TryGetValue(key, out int replacement)) avatar = alive && replacement > 0;
-        return new(flags)
-        {
-            ["_while_you_have_avatar_of_fire"] = avatar,
-            ["_while_you_do_not_have_avatar_of_fire"] = alive && !avatar,
-        };
+        flags["_while_you_have_avatar_of_fire"] = avatar;
+        flags["_while_you_do_not_have_avatar_of_fire"] = alive && !avatar;
     }
 
     static Dictionary<uint, int> WithAvatarOfFire(ClientState conn, Dictionary<uint, int> sources)

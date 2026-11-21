@@ -31,7 +31,13 @@ public static partial class Game
     public static void GainPhasingOnKill(ClientState conn)
     {
         if (Stats.Key("phasing_for_4_seconds_on_kill_%") is not uint key) return;
-        int chance = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
+        int chance;
+        lock (conn.Monsters)
+        {
+            if (conn.PlayerStats.TryGetValue(key, out int set)) chance = set;
+            else if (TryCachedStaticSources(conn, out var cached)) chance = cached.GetValueOrDefault(key);
+            else chance = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
+        }
         if (chance <= 0 || Random.Shared.Next(100) >= Math.Min(100, chance)) return;
         // The game clock: projectile contacts carry their own quanta origin.
         double at = conn.Clock.Elapsed.TotalSeconds;

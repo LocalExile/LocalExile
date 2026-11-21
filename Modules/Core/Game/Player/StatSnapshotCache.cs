@@ -126,7 +126,7 @@ public static partial class Game
         uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
-            Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools with { Evasion = PlayerEvasion(conn, stats) },
+            Stats = stats, RawOverrides = rawOverrides, DevSet = devSet, Pools = conn.Pools with { Evasion = PlayerEvasionPrepared(conn, ResourceEffectsTime(conn), stats) },
             Skills = SkillsFor(conn), Items = ItemsFor(conn), ClassRow = conn.ClassRow,
             MainRow = mainRow, OffRow = offRow,
             MainInactive = [.. mainRow.Select(i => IsInactive(conn, i.Id))], OffInactive = [.. offRow.Select(i => IsInactive(conn, i.Id))],
