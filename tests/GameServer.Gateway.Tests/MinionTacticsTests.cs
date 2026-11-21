@@ -39,6 +39,65 @@ public sealed class MinionTacticsTests
     }
 
     [Fact]
+    public async Task Eviscerating_reaper_follows_until_the_owner_requests_its_dash()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 };
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            ushort source = f.Equip(("Summon Reaper of Eviscerating", 20)).Single();
+            var definition = Game.SummonData.Find("SummonReaperAltY")!;
+            uint id = await Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, source, definition, (100, 100));
+            var reaper = f.Conn.Summons.Fighters[id];
+            f.Conn.Walk.Teleport(100, 100, 0);
+            reaper.Monster.Walk.Teleport(100, 100, 0);
+            var target = Enemy(f, 900, 105);
+
+            Game.GolemStepLocked("test", f.Stream, f.Ciphers, f.Conn, reaper, clock.Time);
+            Assert.Null(reaper.Pending);
+            Assert.Equal(0u, reaper.Target);
+            Assert.True(await Game.CastSummon("test", f.Stream, f.Ciphers, f.Conn, source, definition,
+                (105, 100), 900, f.Conn.ActionInterruptionGeneration, () => true));
+            Assert.Same(reaper, Assert.Single(f.Conn.Summons.Fighters).Value);
+            var command = Assert.IsType<GolemState.Action>(reaper.Pending);
+            Assert.Equal(10584, command.Ability.Effect);
+            Assert.Same(target, command.Victim);
+        }
+        finally { Game.AreaUpdateContext.Value = outer; }
+    }
+
+    [Fact]
+    public async Task Meat_shield_taunts_after_an_accepted_hit_and_drops_the_roll_when_unlinked()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 };
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            f.Equip(("Summon Skeletons", 20), ("Meat Shield Support", 20)); Link(f, 2);
+            var fighter = f.Conn.Summons.Fighters[await Skeleton(f)];
+            f.Conn.Minions.Random = new ZeroRandom();
+            var near = Enemy(f, 900, 105);
+            Assert.True(Hit(f, fighter, 900, near, clock.Time));
+            Assert.Equal(20, fighter.Own[Program.Stats.Key("minion_chance_to_taunt_on_hit_%")!.Value]);
+            Assert.Equal(4d, fighter.Taunts[900]);
+            var targetAt = near.Walk.Position(clock.Time);
+            var (chosen, _) = Assert.IsType<(GolemState.Golem?, double)>(
+                Invoke("GolemTargetLocked", f.Conn, 900u, near, targetAt, clock.Time, 0d));
+            Assert.Same(fighter, chosen);
+
+            Link(f, 1, 1);
+            clock.Time = 2;
+            Assert.True(Hit(f, fighter, 900, near, clock.Time));
+            Assert.Equal(4d, fighter.Taunts[900]);
+        }
+        finally { Game.AreaUpdateContext.Value = outer; }
+    }
+
+    [Fact]
     public async Task Predator_grants_only_its_active_companion_and_prioritizes_one_living_prey_until_expiry_or_source_loss()
     {
         using var f = new MinionUtilityTests.Fixture();
