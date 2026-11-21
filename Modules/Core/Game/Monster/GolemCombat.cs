@@ -468,6 +468,7 @@ public static partial class Game
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], Random.Shared);
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now);
+            MinionExposureOnHitLocked(g, target, mitigated, a.Attack.Spell, now);
             InflictMonsterBlind(conn, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 Random.Shared);
             MinionAilmentsLocked(conn, g, a, id, target, critical, now);
