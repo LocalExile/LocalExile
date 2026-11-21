@@ -23,13 +23,71 @@ public static partial class Game
     /// choice) when it has any, else freshly rolled for its rarity. Area packs pass <paramref name="alone"/> false;
     /// their magic monsters share one roll per monster name in the instance.</summary>
     public static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
-        MonsterModSet? kept, bool alone)
+        MonsterModSet? kept, bool alone) =>
+        MonsterModsFor(conn, variety, level, rarity, kept, alone, extraMagicMods: 0);
+
+    /// <summary>Overload allowing an area/cell to grant additional modifiers to magic monsters
+    /// (<c>map_magic_monster_num_additional_modifiers</c>).</summary>
+    public static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
+        MonsterModSet? kept, bool alone, int extraMagicMods)
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
         var rolls = MonsterModRolls.Value;
-        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
-        var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
-        lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);
+        int magicExtra = rarity == MonsterRarity.Magic
+            ? Math.Max(0, extraMagicMods + (MapModsOf(conn)?.Get("map_magic_monster_num_additional_modifiers") ?? 0))
+            : 0;
+        if (rarity != MonsterRarity.Magic) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
+        if (magicExtra == 0)
+        {
+            if (alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
+            var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
+            lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);
+        }
+        int want = 1 + magicExtra;
+        if (alone) return RollMagicWithExtra(rolls, variety, level, want, alone: true, Random.Shared);
+        var sharedExtra = MagicModsOf.GetValue(conn.Instance, _ => []);
+        string key = $"{variety.Name}|+{magicExtra}";
+        lock (sharedExtra)
+        {
+            var tags = rolls.TagsOf(variety, MonsterRarity.Magic, alone: false);
+            bool Fits(MonsterModSet s) => s.Affixes.All(a => rolls.Mods.ByHash(a.Hash) is { } m && m.Level <= level && m.WeightFor(tags) > 0);
+            if (sharedExtra.TryGetValue(key, out var existing) && Fits(existing)) return existing;
+            string scopedKey = key + "|" + string.Join(",", tags.Order(StringComparer.Ordinal));
+            if (!sharedExtra.TryGetValue(scopedKey, out existing))
+                sharedExtra[scopedKey] = existing = RollMagicWithExtra(rolls, variety, level, want, alone: false, Random.Shared);
+            sharedExtra.TryAdd(key, existing);
+            return existing;
+        }
+    }
+
+    static MonsterModSet RollMagicWithExtra(MonsterModCatalog rolls, MonsterCatalog.Variety variety, int level, int want, bool alone, Random rng)
+    {
+        var set = rolls.Roll(variety, level, MonsterRarity.Magic, rng, alone, count: want);
+        var currentAffixes = set.Affixes.ToList();
+        if (currentAffixes.Count >= want) return set;
+        // Rarity.dat caps magic prefix+suffix at 1+1=2; when a map/cell grants +2 additional magic mods (want=3),
+        // draw remaining distinct-family mods from the monster's pool so all requested affixes apply.
+        var tags = rolls.TagsOf(variety, MonsterRarity.Magic, alone);
+        var pool = rolls.Pool(tags, level, rolls.RollUnsupported);
+        var chosen = currentAffixes.Select(a => rolls.Mods.ByHash(a.Hash)).OfType<ModCatalog.Mod>().ToList();
+        var all = set.Mods.ToList();
+        while (chosen.Count < want)
+        {
+            var allowed = pool.Where(p => !chosen.Any(c => c.Hash == p.Mod.Hash || c.Families.Intersect(p.Mod.Families).Any())).ToList();
+            if (allowed.Count == 0) break;
+            long total = allowed.Sum(p => (long)p.Weight);
+            if (total <= 0) break;
+            long pick = rng.NextInt64(total);
+            var picked = allowed[^1].Mod;
+            foreach (var (mod, weight) in allowed)
+            {
+                if (pick < weight) { picked = mod; break; }
+                pick -= weight;
+            }
+            chosen.Add(picked);
+            all.Add(picked.Roll(ModSection.Explicit, rng));
+        }
+        return rolls.Create(all, set.NameWords, MonsterRarity.Magic, level);
     }
 
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the
@@ -53,13 +111,20 @@ public static partial class Game
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
-        int additionalCritical = 0)
+        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null)
     {
         var e = m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
-        int chance = e.CriticalChance + additionalCritical;
+        int baseCrit = e.CriticalChance;
+        if (baseCrit == 0 && e["critical_strike_chance_+%"] is int incCrit and > 0)
+            baseCrit = (int)Math.Clamp(500L * (100 + incCrit) / 100, 0, 10_000);
+        int chance = baseCrit + additionalCritical;
         critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
-        double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
+        int extraMult = critical
+            ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e["base_critical_strike_multiplier_+"] + (extraCriticalMultiplier?.Invoke() ?? 0))
+            : 0;
+        int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
+        double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
@@ -176,7 +241,7 @@ public static partial class Game
     }
 
     public static int SelfCriticalReduction(Func<string, int> get) =>
-        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? MonsterModEffects.CriticalMultiplier
+        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? 100
             : get("base_self_critical_strike_multiplier_-%");
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled

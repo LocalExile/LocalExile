@@ -76,6 +76,30 @@ public sealed partial class InstanceState
         lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
     }
 
+    int? _leagueCategory;
+
+    /// <summary>The league category the instance is played in (InstanceEvents.LeagueCategory), composed by its first
+    /// connection and kept with <see cref="AreaStats"/>: the seed and the generated level depend on it.</summary>
+    public int LeagueCategory(Func<int> compose)
+    {
+        lock (_areaStatsGate) return _leagueCategory ??= compose();
+    }
+
+    IReadOnlyList<(ushort Plugin, byte[] State)>? _terrainPluginStates;
+
+    /// <summary>The terrain plugin states the instance is played with (InstanceEvents.TerrainPluginStates), composed by its
+    /// first connection and kept with <see cref="AreaStats"/>: a party member gets the same level.</summary>
+    public IReadOnlyList<(ushort Plugin, byte[] State)> TerrainPluginStates(Func<IReadOnlyList<(ushort Plugin, byte[] State)>> compose)
+    {
+        lock (_areaStatsGate) return _terrainPluginStates ??= compose();
+    }
+
+    /// <summary>The instance is played without terrain plugin states from now on (0x1d carries other extra data).</summary>
+    public void DropTerrainPluginStates()
+    {
+        lock (_areaStatsGate) _terrainPluginStates = [];
+    }
+
     /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
     public IReadOnlyDictionary<uint, int>? KeptAreaStats
     {

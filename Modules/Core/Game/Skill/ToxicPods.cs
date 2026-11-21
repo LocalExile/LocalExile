@@ -59,7 +59,7 @@ public static partial class Game
             monster.Life = life;
             monster.Aggro = life > 0;
             if (stage) CommitProjectileBossStage(this, id, monster, now);
-            World(id, InstanceProtocol.LifeUpdate(id, life));
+            World(id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(monster, life)));
             if (life > 0) return false;
             monster.Dead = true;
             monster.LastHitBy = Conn;

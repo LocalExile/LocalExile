@@ -98,6 +98,8 @@ public static partial class Game
             + monster.Mods.Effects["curse_effect_on_self_+%"] + addedEffect) / 100.0)
             * Math.Max(0, 1 + Own("support_blasphemy_curse_effect_+%_final") / 100.0)
             * Math.Max(0, 1 + Own("support_hextouch_curse_effect_+%_final") / 100.0)
+            * Math.Max(0, 1 + monster.Mods.Effects["curse_effect_on_self_+%_final"] / 100.0)
+            * Math.Max(0, 1 + monster.Mods.Effects["map_monsters_curse_effect_on_self_+%_final"] / 100.0)
             * effectMultiplier;
         var stats = gem.Stats.Where(p => CurseRecipientStats.Contains(Stats.Name(p.Key) ?? ""))
             .ToDictionary(p => Stats.Name(p.Key)!, p => (int)Math.Truncate(p.Value * factor));
