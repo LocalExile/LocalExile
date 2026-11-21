@@ -6,7 +6,7 @@ static class Act1Areas
 {
     public const string Strand = "1_1_1", LioneyesWatch = "1_1_town", Coast = "1_1_2", TidalIsland = "1_1_2a", MudFlats = "1_1_3",
         FetidPool = "1_1_3a", FloodedDepths = "1_1_4_0", SubmergedPassage = "1_1_4_1", UpperPrison = "1_1_7_2", PrisonersGate = "1_1_8",
-        ShipGraveyard = "1_1_9", ShipGraveyardCave = "1_1_9a", CavernOfAnger = "1_1_11_2", SouthernForest = "1_2_1", WesternForest = "1_2_9";
+        ShipGraveyard = "1_1_9", ShipGraveyardCave = "1_1_9a", CavernOfWrath = "1_1_11_1", CavernOfAnger = "1_1_11_2", SouthernForest = "1_2_1", WesternForest = "1_2_9";
 }
 
 /// <summary>MonsterVarieties Ids of Act 1's quest monsters (rows in brackets).</summary>
@@ -87,6 +87,7 @@ sealed class Act1 : Act
             // in Act1Complete). Tarkleigh's "Brutus Reward" is offer 7, Nessa's "Prison Reward" offer 8 (magic armour).
             new Quest("a1q2")
             {
+                On.Object(UpperPrison, "Metadata/NPC/Act1/PietyPrison", "SeenPietyPrison"),
                 On.Near(UpperPrison, "Metadata/NPC/Act1/PietyPrison", "SeenPietyPrison"),
                 On.Seen(UpperPrison, Act1Monsters.Brutus, "a1q2-SeenBrutus"),
                 On.Killed(UpperPrison, Act1Monsters.Brutus, "a1q2-KilledBrutus"),
@@ -121,6 +122,9 @@ sealed class Act1 : Act
             // opens in Act 2 (the Thaumetic Emblem), so the quest ends there.
             new Quest("a1q9")
             {
+                On.Object(PrisonersGate, "Metadata/NPC/Act1/PietyBlockage", "a1q9-RoadBlocked"),
+                On.Object(PrisonersGate, "Metadata/QuestObjects/Spikes/SpikeBlockage", "a1q9-RoadBlocked", "a1q9-RoadOpened"),
+                On.Object(PrisonersGate, "Metadata/QuestObjects/Spikes/SpikeBlockage2", "a1q9-RoadBlocked", "a1q9-RoadOpened"),
                 On.Near(PrisonersGate, "Metadata/NPC/Act1/PietyBlockage", "a1q9-SeenBlockage", "a1q9-RoadBlocked"),
                 On.Exit(PrisonersGate, WesternForest, "a1q9-RoadOpened"),
                 On.Blocker(PrisonersGate, "Metadata/QuestObjects/Spikes/SpikeBlockageBlocker", 4, "a1q9-RoadOpened"),

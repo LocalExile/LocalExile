@@ -138,7 +138,8 @@ public static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
-    // A gem melee attack's contact: the skill's own rig clip when the data has one (Ground Slam's groundslam_maul, 0.633
+    // A gem melee attack's contact: the exact single clip its ACT stance names (animation_skill_clips: Heavy Strike), then
+    // the skill's own rig clip when the data has one (Ground Slam's groundslam_maul, 0.633
     // of the attack), else the class's attack1 keyframe (AttackContactDelay: 0.692 for the Str rig's attack1_maul, the
     // default attack's own swing). The clip is taken to stretch to the attack time, as the client plays it, so the
     // server's hit lands where the client's weapon visually hits. clip/fraction come back for the sweep's log.
@@ -151,7 +152,8 @@ public static partial class Game
         // Sweep's Animation row (173) and its sweep_maul, whose contact is 350 of 1375 ms; without it the hit fell back
         // to attack1's 0.69 and landed long after the swing (live 2026-11-09).
         if (SkillsFor(conn).EffectId(effect) is { } effectId
-            && (Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId))
+            && (Animations.ActAttackContact(ao, weapon, effectId)
+                ?? Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId))
                 ?? (TransfiguredBase(effectId) is { } baseId ? Animations.SkillAttackContact(ao, weapon, SkillClipName(baseId)) : null)) is { } found)
         {
             (clip, fraction) = (found.Name, found.Contact);
@@ -1632,14 +1634,18 @@ public static partial class Game
                 var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
                 var context = ReservationContext(conn, skillId);
                 string? stance = AuraCatalog.IsStance(effectId) ? conn.Stance : null;
+                bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisuals(conn, skillId, effectId, hasSource);
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance), reservation.ManaFlat, reservation.ManaPercent,
                     Level: level, Quality: quality, LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
-                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SourceBuff: hasSource ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant,
                     SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId));
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
                 var proposedAuras = conn.Auras.Values.Append(aura).ToArray();
                 long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, proposedAuras)
                     + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
@@ -1680,10 +1686,11 @@ public static partial class Game
         }
         if (aura.SourceBuff is ushort source)
             yield return InstanceEntities.AddBuff(PlayerId, source, aura.BuffRow, PlayerId, aura.SkillId,
-                auraSource: true, displayState: 0);
+                auraSource: true, displayState: 0, visual: aura.SourceVisual);
         yield return InstanceEntities.AddBuff(PlayerId, aura.Buff, aura.BuffRow, PlayerId, aura.SkillId,
             u68: BitConverter.SingleToUInt32Bits((float)duration),
-            activeSkill: Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null);
+            activeSkill: Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null,
+            visual: aura.BuffVisual);
     }
 
     public static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -2005,6 +2012,70 @@ public static partial class Game
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 
+    // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
+    // action onto an object in the area. Applies in both lockstep and predictive modes; safely ignored when idle,
+    // blocked, or when the target object is absent or dead.
+    public static async Task RetargetAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint targetId, long readAt = 0)
+    {
+        if (conn.Closed || conn.LeavingArea) return;
+        (int X, int Y)? fallbackPos = null;
+        if (targetId != PlayerId)
+        {
+            lock (conn.Npcs)
+                if (conn.Npcs.TryGetValue(targetId, out var npc)) fallbackPos = (npc.X, npc.Y);
+            if (fallbackPos is null && conn.Instance?.Ground.Get(targetId) is { } ground)
+                fallbackPos = (ground.GridX, ground.GridY);
+        }
+
+        bool aimLockstepChannel = false;
+        using (ProjectileMutation(conn))
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            double at = Math.Max(conn.ClockAt(readAt), conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+            if (conn.Closed || conn.LeavingArea || PlayerActionBlocked(conn, at, now))
+                return;
+
+            (int X, int Y) aim;
+            bool isMonster = false;
+            if (conn.Monsters.TryGetValue(targetId, out var monster))
+            {
+                if (monster.Dead || monster.Life == 0) return;
+                aim = monster.Walk.Position(at);
+                isMonster = true;
+            }
+            else if (targetId == PlayerId)
+                aim = conn.Walk.Position(at);
+            else if (fallbackPos is { } pos)
+                aim = pos;
+            else
+                return;
+
+            bool lockstepActive = conn.LockstepHold.Active || conn.LockstepSkill.Active;
+            if (conn.LockstepClient || lockstepActive)
+            {
+                conn.LockstepHold.Update(aim);
+                if (conn.LockstepSkill.Held)
+                {
+                    conn.LockstepSkill.Retarget(isMonster ? targetId : null, aim);
+                    if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                    {
+                        ChannelAimedAt(conn, aim.X, aim.Y, at);
+                        conn.LastChannelUpdateAt = now;
+                    }
+                    aimLockstepChannel = conn.LockstepSkill.Channel is not null;
+                }
+            }
+            else if (conn.ChannelSkill != 0)
+            {
+                ChannelAimedAt(conn, aim.X, aim.Y, at);
+                conn.LastChannelUpdateAt = now;
+            }
+        }
+        if (aimLockstepChannel)
+            await AimLockstepChannel(remote, stream, ciphers, conn);
+    }
+
     // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
     // as part of the channel); the walk gets its usual speed back.
     public static void ChannelReleased(ClientState conn, double at)
@@ -2270,6 +2341,8 @@ public static partial class Game
         // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
         // (GroundSlamWave); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action;
+        int frostboltCap = ring ? Stat("ice_nova_number_of_frost_bolts_to_cast_on") : 0;
+        double frostboltMore = 1;
         int artVariation = ring ? SkillArtVariation(conn, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
@@ -2286,15 +2359,36 @@ public static partial class Game
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
             (int X, int Y) end = fissure ? VolcanicFissureSweep.End(conn.Layout, from, to, radius) : default;
             double reachLimit = wave ? waveLength : fissure ? Dist(from, end) : radius;
-            var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
+            // Ice Nova of Frostbolts expands from up to N active player Frostbolt projectiles near the aimed point,
+            // with its native damage multiplier, instead of only expanding once around the caster.
+            List<(int X, int Y)>? centres = null;
+            if (frostboltCap > 0 && conn.ProjectileRuntime is { Active: true } session)
+            {
+                var frostbolts = session.Runtime.Projectiles
+                    .Where(p => p.Use.Owner.Id == PlayerId
+                        && p.Use.Payload is ProjectileOffense { FromTotem: false, FromTrapOrMine: false } shot
+                        && SkillsFor(conn).EffectId(shot.Effect) is "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale")
+                    .Select(p => (X: (int)Math.Round(p.Position.X), Y: (int)Math.Round(p.Position.Y)))
+                    .Where(p => Dist(to, p) <= Math.Max(60, radius + 30))
+                    .OrderBy(p => Dist(to, p))
+                    .Take(frostboltCap)
+                    .ToList();
+                if (frostbolts.Count > 0)
+                {
+                    centres = frostbolts;
+                    frostboltMore = Math.Max(0, 1 + Stat("ice_nova_damage_when_cast_on_frostbolt_+%_final") / 100.0);
+                }
+            }
+            IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
+                conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: fissure
-                    ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, centre)))
+                    ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
                     && e.Distance <= reachLimit
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
-                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
-                .ToList();
+                    && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)));
+            var found = (centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt)).ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
             if (ring || wave || fissure)
@@ -2481,6 +2575,7 @@ public static partial class Game
                         };
                     }
                     var contactHit = profile.Hit;
+                    if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     if (waveCloseDamage != 0 && victim < reach.Length)
                         contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
@@ -3102,10 +3197,26 @@ public static partial class Game
 
     // A boss whose variety has the big life bar (MonsterVarieties BossHealthBar) shows it at the top of the screen once it
     // aggroes: its StateMachine's boss_life_bar (Metadata/Monsters/BossLifeBar.ot) and aggro (Hillock's aggro effect) go to 1.
-    public static Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn) =>
-        SendWorldRecord(remote, stream, ciphers, conn, id, [],
+    public static async Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn)
+    {
+        await SendWorldRecord(remote, stream, ciphers, conn, id, [],
             $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1",
             atGate: () => BossLifeBarRecord(conn, id, m));
+        if (m.Variety?.Id == "Metadata/Monsters/Brute/BossBrute")
+        {
+            ushort line = (ushort)Random.Shared.Next(898, 905); // BrutusIntroRandom..BrutusIntro7
+            await Send(remote, stream, ciphers, InstanceNpcs.TextAudio(id, 7, line),
+                $"0x01c7 Brutus intro dialogue {line}");
+        }
+        else if (m.Variety?.Id == "Metadata/Monsters/seawitchillusion/BossMerveil")
+        {
+            int transition = m.Variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
+            if (transition >= 0)
+                await SendWorldRecord(remote, stream, ciphers, conn, id,
+                    InstanceEntities.TransitionableUpdate(id, (byte)transition, 2),
+                    $"0x02bc Merveil 0x{id:x} fight intro Transitionable → 2");
+        }
+    }
 
     internal static byte[]? BossLifeBarRecord(ClientState conn, uint id, SpawnedMonster m)
     {
@@ -3115,7 +3226,9 @@ public static partial class Game
                 || m.Variety is not { } v || m.States is not { } states) return null;
             int index = v.ComponentsOrBase.ToList().IndexOf("StateMachine");
             if (index < 0) return null;
-            m.States = states.Set("boss_life_bar", 1).Set("aggro", 1);
+            var next = states.Set("boss_life_bar", 1).Set("aggro", 1);
+            if (v.Id == "Metadata/Monsters/Brute/BossBrute") next = next.Set("dialogue_lines", 1);
+            m.States = next;
             return InstanceEntities.StateMachineUpdate(id, (byte)index, m.States);
         }
     }
@@ -3365,7 +3478,7 @@ public static partial class Game
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
+            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -3378,6 +3491,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
         drops.AddRange(MadeDrops(conn, modded));
+        modded?.ApplyTransforms(drops);
         if (MapBeyond.CorruptsDrops(conn, m.Variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {

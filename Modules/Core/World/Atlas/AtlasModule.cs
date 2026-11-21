@@ -174,7 +174,7 @@ static class AtlasFeature
     [
         6, 7,                         // Unlocked5thMapDeviceSlot, Unlocked6thMapDeviceSlot
         225, 351, 352,                // MapDeviceMavenUnlocked, MapDeviceTangleUnlocked, MapDeviceCleansingFireUnlocked
-        219, 220, 221, 222,           // PrimordialWatchstoneUnlocked Maven / UberElder / Tangled / CleansingFire
+        219, 220, 221, 222, 708, 709, // PrimordialWatchstoneUnlocked Maven / UberElder / Tangled / CleansingFire + QuestRewards#111 Eldritch / Originator
         290, 607,                     // VoidstoneSocketed, PickedUpVoidstone
         1019,                         // AtlasMavenCollectedEnoughMaps
         1100, 1101, 1102, 1103, 1104, 1161, // VoidMavenCollectedEnoughMaps1–6

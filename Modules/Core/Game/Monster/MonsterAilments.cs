@@ -412,17 +412,21 @@ public static partial class Game
                 foreach (var (kind, removed, added, magnitude) in a.Present(now))
                 {
                     if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now),
+                        AilmentArtVisual(conn, kind switch { Kind.Chill => "chill", Kind.Freeze => "freeze", _ => "shock" })),
+                        $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
                 }
             }
             double action = MonsterActionFactor(m, now, freeze: false);
             // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
             // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
+            bool speedFloored = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0;
             var movement = MaimedMovementFactor(m, now);
-            if (trap != 1) movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
-            double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
+            if (trap != 1 && !(speedFloored && trap < 1))
+                movement = (movement.Factor * trap, (int)Math.Round((100 + movement.Pct) * trap - 100));
+            double walk = (speedFloored ? Math.Max(1, action) : action)
                 * movement.Factor;
-            if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
+            if (!speedFloored) walk *= vines;
             if (walk != a.WalkFactor)
             {
                 // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
@@ -477,10 +481,11 @@ public static partial class Game
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
-    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
+    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0, ushort? visual = null) =>
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
-            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
+            u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null,
+            visual: visual);
     public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,

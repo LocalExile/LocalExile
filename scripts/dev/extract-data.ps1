@@ -42,17 +42,19 @@ $manifest = @(
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     # After area-transitions and room-points: --all also takes the object types those files name. The Labyrinth's
     # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name; so is
-    # Oshabi's soul tree, which the Harvest module places itself (no table, room or tile line names it).
+    # Oshabi's soul tree, which the Harvest module places itself (no table, room or tile line names it), and the Allflame
+    # encounter rooms' lamp and barrels (only those TerrainFeatures rooms name them).
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
                 'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker',
-                'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree'); Version = 12; Needs = @('tables', 'area-transitions', 'room-points')
+                'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree', 'Metadata/Terrain/Leagues/Deepwater/Objects/CursedTreasureChestEncounterLamp',
+                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
        UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 9; Needs = @('tables')
+       Args = @('scripts/re/anim_contacts.py'); Version = 10; Needs = @('tables')
        UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), every contact frame of a clip, and all named events and clip lengths including clips without contact' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
@@ -80,7 +82,7 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()
        UsedBy = 'the Patch server''s root hash of the local GGPK (live.ps1 refreshes it before each client start; the HNC mask is in client.db)' }
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'; Servers = $true
-       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 4; Needs = @()
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 5; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 2; Needs = @()

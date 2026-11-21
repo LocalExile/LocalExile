@@ -20,6 +20,13 @@ static class Act3Monsters
     public const string Piety = "Metadata/Monsters/Axis/PietyBoss";                         // 1421, The Lunaris Temple
     public const string Dominus = "Metadata/Monsters/Pope/Pope";                            // 1678 Dominus, High Templar (mapboss2)
     public const string DominusAscendant = "Metadata/Monsters/Dominusdemon/Dominusdemon";   // 1688, his second form
+    public static readonly string[] DominusLegionnaires =
+        ["Metadata/Monsters/Axis/AxisEliteSoldierBoss1", "Metadata/Monsters/Axis/AxisEliteSoldierBoss2",
+         "Metadata/Monsters/Axis/AxisCasterBoss1"];
+    public const string Alal = "Metadata/Monsters/DemonFemale/DemonFemaleBoss1";
+    public const string Kali = "Metadata/Monsters/DemonModular/DemonFemaleRangedBoss1";
+    public const string Orcus = "Metadata/Monsters/DemonModular/DemonModularBoss1";
+    public static readonly string[] DominusMiscreations = [Alal, Kali, Orcus];
 }
 
 /// <summary>BaseItemTypes Ids of Act 3's quest items (rows in brackets).</summary>
@@ -258,6 +265,14 @@ sealed class Act3 : Act
                 On.Object(ImperialGardens, Act3Objects.EpicDoor, "a3q9-UsedTowerKey"),
                 On.Blocker(ImperialGardens, Act3Objects.EpicDoorBlocker, 4, "a3q9-UsedTowerKey"),
                 On.Exit(ImperialGardens, SceptreOfGod, "a3q9-UsedTowerKey"),
+                // The three tower legionnaires precede the three miscreations, then Dominus forms at mapboss2.
+                On.Forms(UpperSceptreOfGod, Act3Monsters.DominusLegionnaires, Act3Monsters.Alal, "mapboss3"),
+                On.Forms(UpperSceptreOfGod, Act3Monsters.DominusLegionnaires, Act3Monsters.Kali, "mapboss4"),
+                On.Forms(UpperSceptreOfGod, Act3Monsters.DominusLegionnaires, Act3Monsters.Orcus, "mapboss5"),
+                On.Forms(UpperSceptreOfGod, Act3Monsters.DominusMiscreations, Act3Monsters.Dominus, "mapboss2"),
+                On.Seen(UpperSceptreOfGod, Act3Monsters.DominusLegionnaires[0], "a3q10-DominusFightStarted"),
+                On.Seen(UpperSceptreOfGod, Act3Monsters.DominusLegionnaires[1], "a3q10-DominusFightStarted"),
+                On.Seen(UpperSceptreOfGod, Act3Monsters.DominusLegionnaires[2], "a3q10-DominusFightStarted"),
                 On.Seen(UpperSceptreOfGod, Act3Monsters.Dominus, "a3q10-DominusFightStarted", "a3q10-SeenDominus"),
                 On.SecondForm(UpperSceptreOfGod, Act3Monsters.Dominus, Act3Monsters.DominusAscendant),
                 On.Killed(UpperSceptreOfGod, Act3Monsters.DominusAscendant, "a3q10-KilledDominus", "a3q10-SeenDialla"),

@@ -341,6 +341,11 @@ public sealed partial class DelveModule
             if (!DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m.Finish(attempt.Plan.Id) : null)) return;
             character.Change(DepthKey, text => Math.Max(int.TryParse(text, out int deepest) ? deepest : 0, trip.Depth).ToString());
             if (!trip.TryComplete(false)) return;
+            if (attempt.Plan.Reward)
+            {
+                uint azurite = (uint)(30 + Math.Max(0, trip.Depth - 1) * 10);
+                ChangeEquipment(attempt.Account, p => p with { Azurite = p.Azurite + azurite });
+            }
             conn.Instance.SetState(DestinationFlag(player));
             var at = state.CrawlerCell;
             for (int i = 0; i < drops.Count; i++)
@@ -358,6 +363,8 @@ public sealed partial class DelveModule
         await EnsureDestinationLight(player, state, state.CrawlerCell);
         await CreateCrawlerBody(player, state, state.CrawlerCell.X, state.CrawlerCell.Y, trip.Heading(trip.Length), roaming: false);
         await PlayCompletionEffect(player, state, state.CrawlerCell);
+        if (attempt.Plan.Reward && Equipment(attempt.Account).Azurite >= 30 && !conn.HasQuestFlag("NikoHaveEnoughAzurite"))
+            await SetQuestFlags(remote, stream, ciphers, conn, ["NikoHaveEnoughAzurite"]);
         await PublishChart(module, player);
         foreach (var (id, ground) in groundItems)
         {
