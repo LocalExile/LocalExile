@@ -99,7 +99,7 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
     to reduce open cost (`0x1418b0a30`), then reloaded on `0xbf` via `Game.SendTabChange` so the client would not abort
     with `"Got an inventory set change for an inventory that isn't in the set"`
     ([#605](https://github.com/LocalExile/LocalExile/issues/605), [#710](https://github.com/LocalExile/LocalExile/issues/710)).
-  - The panel walks loaded items on reopen. With five populated special tabs (1,504 entries) in the regular uncapped 3.29.3d client, two Lockstep reopens produced main-loop gaps of 175 and 191 ms. With only the tab-loading method replaced by main’s unloading implementation, the same reopens measured 87 and 9 ms. Before visiting the tabs the largest observed gap on open was 5.3 ms. The earlier 3.29.3c measurement with five full tabs was about 1.5 s.
+  - The panel walks loaded items on reopen. With five populated special tabs (1,503 inventory entries) in the regular uncapped 3.29.3d client, two Lockstep reopens produced main-loop gaps of 175 and 191 ms. With only the tab-loading method replaced by main’s unloading implementation, the same reopens measured 87 and 9 ms. Before visiting the tabs the largest observed gap on open was 5.3 ms. The earlier 3.29.3c measurement with five full tabs was about 1.5 s.
   - Static 3.29.3c/d verification of `0x141d65f80` (inventory placement check): the very first lookup
     (`0x141d65830` at `0x141d65fd1`) returns null when `0xc1` removed the tab's inventory while `+0x58` kept its page
     shown, so hovering a held item over a revisited tab turns red and blocks manual left-click placement (`0x2a`),
