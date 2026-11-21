@@ -189,10 +189,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   rules reload. The server uses the attack midpoint and extends the base half-turn at 250 ms and 22.5° per pair.
   The daemon's actual release, pacing, return shape and graphical presentation still need a client observation.
 - The Vaalsmithed Volcanic Fissure mod names an unarmed trigger with no grants. The armed chest daemon owns the
-  Volcanic Slam action and both of its stat sets. At level 84 the first crack uses a 1.25 s attack, 60% physical
-  to fire conversion and 50% more area. The server releases it at the ordinary attack midpoint and uses the player
-  skill's wall-bounded straight sweep. Each resident can be hit once as that first sweep reaches them. The native
-  mortar eruption, five further cracks, their targeting and graphical timings still need work.
+  Volcanic Slam action and both of its stat sets. At level 84 its 1.25 s attack converts 60% of physical damage to
+  fire and has 50% more area. Each of six cracks can hit a resident once along the ground. Each eruption releases
+  eleven mortars (nine base, two from the second stat set). A mortar stopped by terrain deals no damage. Overlapping
+  landing areas hit independently. Crack progress, landing positions and committed hits survive a change of runner
+  or a rules reload. The server models a straight crack from the attack midpoint, a 20-cell throw and a new target
+  after each flight window. It samples positions at the decision frame, prefers the nearest opponent away from the
+  current endpoint within the caster's aggro range, and keeps the previous heading if nobody is in range. The
+  original crack shape, repeat cadence, target selection, individual hit damage and visuals still need client measurements.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

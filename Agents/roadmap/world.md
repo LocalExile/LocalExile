@@ -142,10 +142,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   fires six piercing arrows and leaves six-second patches of chaos ground along their paths. A Spark vessel releases
   one shared two-projectile volley and keeps its flight and contacts through a runner change. The Thrown Weapon
   prefix emits thirteen mirrored pairs from its axe daemon. The party shares their outgoing and return contacts.
+  Volcanic Fissure sends six wall-bounded cracks and eleven landing-only mortars per eruption.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
-- **Next.** Add the molten projectile eruption and five repeat cracks to the Vaalsmithed Volcanic Fissure prefix.
-  Its native caster and first ground sweep are in place. Measure the axe daemon's release and spiral spacing, and the Spark daemon's empty
-  action and repeat schedule. Blade Vortex comes from the separate *Of the Vaal* suffix. Check the Valdo completion reward.
+- **Next.** Implement Blade Vortex from the separate *Of the Vaal* suffix. Measure the fissure daemon's release, turns,
+  repeat cadence and mortar placement, the axe daemon's release and spiral spacing, and the Spark daemon's empty
+  action and repeat schedule. Check the Valdo completion reward.
   Check vessel hits on allied minions and animated weapons. Measure the caustic arrows' turns and trail spacing.
   Verify cast timing, targeting and visuals in
   the client, along with the level-70 Ice Nova and ordinary Firestorm box spells. Placement of the regular

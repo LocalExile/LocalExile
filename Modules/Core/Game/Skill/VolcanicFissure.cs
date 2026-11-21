@@ -3,6 +3,17 @@ using GameServer.Core.Projectiles;
 // A bounded ground sweep followed by the eruption. The server approximates the strip as a straight segment.
 public static class VolcanicFissureSweep
 {
+    public const int MortarDistance = 20;
+
+    public static ProjectileVector MortarAim((int X, int Y) from, (int X, int Y) end)
+    {
+        var origin = new ProjectileVector(end.X, end.Y);
+        return origin + (origin - new ProjectileVector(from.X, from.Y)).Unit * MortarDistance;
+    }
+
+    public static ProjectileProfile MortarVolley(ProjectileProfile profile, ushort sequence, uint owner, ProjectileVector direction, int repeat) =>
+        profile with { NativeVolley = new() { Angles = Game.RandomVolleyAngles(sequence, profile.Count, owner, direction, (uint)repeat) } };
+
     public static (int X, int Y) End(AreaLayout layout, (int X, int Y) from, (int X, int Y) aim, int radius)
     {
         var direction = GroundSlamWave.Direction(from, aim);
@@ -39,16 +50,12 @@ public static partial class Game
         ushort sequence, int repeat, double more, bool cryExerted)
     {
         var origin = ProjectileSession.Vector(end);
-        var direction = (origin - ProjectileSession.Vector(from)).Unit;
-        var aim = direction.Length > 0 ? origin + direction * 20 : origin + new ProjectileVector(20, 0);
+        var aim = VolcanicFissureSweep.MortarAim(from, end);
         var target = ((int)Math.Round(aim.X), (int)Math.Round(aim.Y));
         var use = CaptureGemProjectile(conn, session, skillId, gem, target, roll, sequence,
             cryExerted: cryExerted, repeat: repeat);
         var shot = (ProjectileOffense)use.Payload!;
-        var profile = use.Profile with
-        {
-            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, PlayerId, aim - origin, (uint)repeat) }
-        };
+        var profile = VolcanicFissureSweep.MortarVolley(use.Profile, sequence, PlayerId, aim - origin, repeat);
         session.Schedule(ProjectileRuntime.Time(now + GroundSlamWave.AdvanceSeconds(Dist(from, end))),
             () => conn.ProjectileActive(epoch) && conn.PlayerLife > 0,
             () => use with

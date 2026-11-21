@@ -303,6 +303,15 @@ public sealed class ScarabEncounterTests
             var slam = Assert.Single(boxInstance.World.MonsterOrigins[fissure.Actor].Object.Skills!);
             Assert.Equal((74619u, 73947u, 73948u), (slam.EffectsPerLevelRow, slam.StatSetsPerLevelRow, Assert.Single(slam.ExtraStatSets).Row));
             Assert.DoesNotContain(fissure.Actor, Boxes()[fissureBox.Index].Guards);
+            Assert.Contains(slam.Stats!, s => s.Key == Program.Stats.Key("total_number_of_projectiles_to_fire") && s.Value == 11);
+            var fissureStart = TimeSpan.FromTicks(fissure.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, fissureStart + TimeSpan.FromMilliseconds(626));
+            Assert.NotNull(Assert.Single(Boxes()[fissureBox.Index].Fissures).Landings);
+            await MapStrongboxes.Tick(boxPeer.Conn, fissureStart + TimeSpan.FromSeconds(1));
+            Assert.Equal(1, Assert.Single(Boxes()[fissureBox.Index].Fissures).Repeat!.Index);
+            await MapStrongboxes.Tick(boxPeer.Conn, fissureStart + TimeSpan.FromSeconds(4));
+            Assert.Empty(Boxes()[fissureBox.Index].Fissures);
+            Assert.DoesNotContain(fissure.Actor, boxInstance.World.MonsterOrigins.Keys);
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
             var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2"), Slot("ScarabEssence4")], Program.Items.Mods);

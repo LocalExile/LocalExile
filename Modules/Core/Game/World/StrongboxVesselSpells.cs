@@ -120,11 +120,10 @@ public static partial class MapStrongboxes
             Watch(cast, cast.Steps.Length, skill.ReleaseTicks + skill.StepTicks, skill.StepTicks);
         }
 
-        foreach (var cast in box.Fissures)
+        foreach (var cast in box.Fissures.Where(f => f.Removals is null))
         {
             var skill = area.FissureSkill ??= ReadFissure(player);
-            Register(cast, Enumerable.Range(cast.Landed, cast.Samples(box) - cast.Landed)
-                .Select(i => skill.Sample(cast, box, i) / (double)TimeSpan.TicksPerSecond));
+            Register(cast, skill.WatchTimes(cast, box));
         }
 
         foreach (var cast in box.Sparks)
