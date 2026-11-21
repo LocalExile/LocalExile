@@ -50,6 +50,8 @@ public sealed class VolleySupportTests
         using var battle = new ArrowRainAndMirageTests.Battle("Split Arrow", "Greater Volley Support", "Barrage Support");
         var c = battle.Conn;
         c.LockstepClient = true;
+        // Volley Fire belongs to the active Barrage gems. Split Arrow keeps its full parallel sweep.
+        c.PlayerStats[Program.Stats.Key("barrage_final_volley_fires_x_additional_projectiles_simultaneously")!.Value] = 6;
         c.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;
         c.Monsters.Clear();
         var bag = Game.ItemsOf(c);

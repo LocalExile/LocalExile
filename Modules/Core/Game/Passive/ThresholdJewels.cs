@@ -2,9 +2,8 @@ using GameServer.Core.Protocol.Instance;
 
 
 /// <summary>
-/// The server side of the threshold jewels. Each threshold mod names the attribute mask and the required total
-/// (<c>local_unique_jewel_..._with_40_dex_in_radius</c>), and the stat to grant. Path of Building's
-/// <c>getThreshold</c> sums the attributes of every ordinary passive in radius, allocated or not, and adds the
+/// The server side of the threshold jewels. Each threshold mod names its attribute condition and the stat to grant.
+/// Path of Building's <c>getThreshold</c> sums the attributes of every ordinary passive in radius, allocated or not, and adds the
 /// effect once the total reaches the threshold; the client applies the same local mods itself.
 ///
 /// The stat keys are the client's skill stats; the server's damage consumers currently read only some of them.
@@ -112,8 +111,14 @@ public static class ThresholdJewels
         if (condition.Contains("int", StringComparison.Ordinal) ||
             condition.Contains("intelligence", StringComparison.Ordinal)) attributes |= Attributes.Intelligence;
         if (attributes == Attributes.None) return false;
-        // The Infernal Cry line says "for Strength" and its text is the usual 40 Strength.
-        if (condition == "for_strength") required = 40;
+        // Skill-specific unique jewels kept their old stat IDs when 2.6.0 lowered their requirement from 50 to 40.
+        // Infernal Cry's "for Strength" condition also means 40 Strength.
+        if (condition == "for_strength" || (condition is "50_str" or "50_strength" or "50_dex" or "50_dexterity" or "50_int"
+            && id.StartsWith("local_unique_jewel_", StringComparison.Ordinal)))
+        {
+            required = 40;
+            return true;
+        }
         foreach (char c in condition)
         {
             if (!char.IsAsciiDigit(c)) continue;

@@ -63,9 +63,9 @@ read **unallocated** nodes:
 - Unnatural Instinct: allocated small passives in radius grant nothing; unallocated small passives in radius grant their
   bonuses.
 - Tempered/Transcendent Flesh/Mind/Spirit: part of the effect counts attributes on **unallocated** passives in radius.
-- The threshold jewels count "X in Radius"; the implementation must use the client's allocated-only rule (Path of
-  Building's `getThreshold` accumulates the node stats it iterates, so use it as the reference and verify the exact set
-  against the client).
+- Skill threshold jewels count attributes on ordinary passives in radius, including unallocated passives. In 2.6.0
+  their requirement fell from 50 to 40. Some current stat IDs still contain `_with_50_dex_in_radius` or the equivalent
+  Strength or Intelligence suffix. [GGG's 2.6.0 patch notes](https://www.pathofexile.com/forum/view-thread/1839765).
 
 ## What already works
 

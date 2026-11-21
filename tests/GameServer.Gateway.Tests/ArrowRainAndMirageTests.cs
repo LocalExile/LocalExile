@@ -2812,15 +2812,27 @@ public class ArrowRainAndMirageTests
         await VerifyPlacedBarrage(skill == "Split Arrow" ? "Locus Mine Support" : "Blastchain Mine Support");
         await VerifyActiveBarrage(weapon, "Barrage", [1, 1, 1, 1, 1, 1]);
         await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [7, 1, 1, 7]);
+        await VerifyActiveBarrage(weapon, "Barrage", [7, 1, 1, 1, 1, 7], volleyFire: true);
+        await VerifyActiveBarrage(weapon, "Barrage of Volley Fire", [13, 1, 1, 13], volleyFire: true);
     }
 
-    static async Task VerifyActiveBarrage(string weapon, string skill, int[] expectedGroups)
+    static async Task VerifyActiveBarrage(string weapon, string skill, int[] expectedGroups, bool volleyFire = false)
     {
         using var b = new Battle(skill);
         var items = Game.ItemsOf(b.Conn);
         var slot = items.Items(PlayerInventories.Weapon1).Single();
         items.Change(PlayerInventories.Weapon1, slot.Id, item => ItemCatalog.Create(Program.Items.Find(weapon)!) with
         { Sockets = item.Sockets, Links = item.Links });
+        if (volleyFire)
+        {
+            const byte jewelSlot = 9; // 40 Dexterity in radius, all on unallocated passives in this fixture.
+            b.Conn.Passives.Add(Game.PassivesFor(b.Conn).JewelNodeForSlot(jewelSlot)!.Value);
+            var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Volley Fire", new Random(29)));
+            items.Add(PlayerInventories.Cursor, 0, 0, jewel);
+            await Game.PlaceItem("active-barrage", b.Stream, b.Ciphers, b.Conn,
+                new(PlayerInventories.InventoryId(PlayerInventories.PassiveJewels), jewelSlot, 0, 0, 0, 0, 0));
+            Assert.Single(items.Items(PlayerInventories.PassiveJewels));
+        }
         var gem = Game.GemSkillEffects(b.Conn).Single();
         b.Enemy.Walk.Teleport(135, 100, 0);
         b.Conn.PlayerStats[Program.Stats.Key("no_barrage_projectile_spread")!.Value] = 1;

@@ -114,12 +114,13 @@ public static partial class Game
                 throw new InvalidOperationException($"Missing Barrage fire contact for {totem.VarietyId}.");
             fire = new(clip.LengthMs, contact, clip.Point, clip.Index);
         }
-        int ends = Get("barrage_final_volley_fires_x_additional_projectiles_simultaneously");
-        bool firesEnds = IsBarrageGem(SkillsFor(conn).EffectId(effect)) && Get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") == 0;
+        int ends = IsBarrageGem(SkillsFor(conn).EffectId(effect))
+            ? Get("barrage_final_volley_fires_x_additional_projectiles_simultaneously") : 0;
+        bool splitEnds = ends != 0 && Get("modifiers_to_number_of_projectiles_instead_apply_to_splitting") != 0;
         return new(action, start, seconds, count, fire,
             Get("cannot_cancel_skill_before_contact_point") != 0, Get("barrage_support_projectile_spread_+%"),
             Get("no_barrage_projectile_spread") != 0, ParallelFiringPoints.From(Get),
-            ends != 0, firesEnds ? ends : 0, Get("random_projectile_direction") != 0);
+            ends != 0, splitEnds ? 0 : ends, Get("random_projectile_direction") != 0);
     }
 
     static bool? BarrageAllowsMove(ClientState conn, double at)
