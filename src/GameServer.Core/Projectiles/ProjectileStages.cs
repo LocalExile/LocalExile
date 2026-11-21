@@ -61,6 +61,7 @@ public sealed partial class ProjectileRuntime
     {
         var child = recipe.Child;
         Validate(child);
+        bool hasForkedOrChained = recipe.InheritForkOrChain && parent.HasForkedOrChained;
         if (recipe.Sweep is { } sweep && child.Count > 1)
         {
             var startDirection = sweep.StartDirection(parent);
@@ -70,7 +71,7 @@ public sealed partial class ProjectileRuntime
             {
                 double fraction = i / (double)(child.Count - 1);
                 var direction = startDirection.Rotate(sweep.Radians * fraction);
-                void Emit() => SpawnChild(parent, child, ++sequence, origin, direction, distance);
+                void Emit() => SpawnChild(parent, child, ++sequence, origin, direction, distance, hasForkedOrChained);
                 if (i == 0) Emit();
                 else Schedule(Now + (long)Math.Round(sweep.Duration * fraction), Emit);
             }
@@ -84,16 +85,16 @@ public sealed partial class ProjectileRuntime
                 : recipe.Radial ? Math.Tau * i / child.Count + parent.EmissionNumber * 2.399963229728653
                 : child.Count <= 1 ? 0 : child.SpreadRadians * (i / (double)(child.Count - 1) - .5);
             var direction = recipe.RandomDirections ? parent.Direction.Rotate(angle) : baseDirection.Rotate(angle);
-            SpawnChild(parent, child, parent.ChildEmission, parent.Position, direction, parent.Distance);
+            SpawnChild(parent, child, parent.ChildEmission, parent.Position, direction, parent.Distance, hasForkedOrChained);
         }
         parent.EmissionNumber++;
     }
 
     void SpawnChild(ProjectileEntity parent, ProjectileProfile child, long emission,
-        ProjectileVector origin, ProjectileVector direction, double distance)
+        ProjectileVector origin, ProjectileVector direction, double distance, bool hasForkedOrChained)
     {
         var use = parent.Use with { Profile = child, Origin = origin, Aim = origin + direction * child.Range };
-        var spawned = Spawn(use, parent.UseId, emission, parent.Id, origin, direction);
+        var spawned = Spawn(use, parent.UseId, emission, parent.Id, origin, direction, hasForkedOrChained: hasForkedOrChained);
         // Point Blank/Far Shot measure the whole continuation from the original release.
         spawned.Distance = distance;
     }

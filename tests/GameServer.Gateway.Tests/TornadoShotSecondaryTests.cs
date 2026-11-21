@@ -4,12 +4,23 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class TornadoShotSecondaryTests
 {
-    sealed class Arena : IProjectileWorld
+    sealed class Arena(bool wall) : IProjectileWorld
     {
-        public IReadOnlyList<ProjectileActor> Actors(long from, long until) => [];
-        public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) => null;
-        public ProjectileHitResult Hit(ProjectileDamage damage) => ProjectileHitResult.Hit;
-        public void Publish(ProjectileEvent value) { }
+        public readonly List<ProjectileActor> Targets = [];
+        public readonly List<uint> Hits = [];
+        public readonly List<long> Redirects = [];
+        public IReadOnlyList<ProjectileActor> Actors(long from, long until) => Targets;
+        public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
+            wall && from.X < 60 && to.X >= 60 ? new((60 - from.X) / (to.X - from.X), new(-1, 0)) : null;
+        public ProjectileHitResult Hit(ProjectileDamage damage)
+        {
+            Hits.Add(damage.Target.Id);
+            return ProjectileHitResult.Hit;
+        }
+        public void Publish(ProjectileEvent value)
+        {
+            if (value.Kind == ProjectileEventKind.Redirect) Redirects.Add(value.Projectile.Id);
+        }
     }
 
     // Tornado Shot's primary arrow pierces and releases three secondary arrows at its endpoint. The server simulates
@@ -47,16 +58,47 @@ public sealed class TornadoShotSecondaryTests
     [Fact]
     public void Tornado_shot_children_continue_the_primary_distance()
     {
-        var runtime = new ProjectileRuntime(new Arena());
-        var profile = GatewayProjectileSkillProfiles.Resolve("TornadoShot",
-            "Metadata/Projectiles/TornadoShotArrow", _ => 0, 200, attack: true) with { Range = 100 };
-        runtime.Release(new ProjectileUse(profile, new(999), new(999), 1, new(0, 0), new(100, 0))
-            { Sequence = 1 });
+        foreach (var (grant, forbid, wall) in new[] { (0, 0, false), (1, 0, false), (1, 1, false), (1, 0, true) })
+        {
+            int Get(string key) => key switch
+            {
+                "number_of_chains" => 1,
+                "projectile_chain_from_terrain_chance_%" => wall ? 100 : 0,
+                "arrows_always_pierce_after_forking" => grant,
+                "virtual_projectiles_cannot_pierce" => forbid,
+                _ => 0
+            };
+            var arena = new Arena(wall);
+            if (wall) arena.Targets.Add(new(new(50), 2, _ => new(40, 20), 0));
+            var runtime = new ProjectileRuntime(arena);
+            var profile = GatewayProjectileSkillProfiles.Resolve("TornadoShot",
+                "Metadata/Projectiles/TornadoShotArrow", Get, 200, attack: true, arrows: true) with { Range = 100 };
+            runtime.Release(new ProjectileUse(profile, new(999), new(999), 1, new(0, 0), new(100, 0)) { Sequence = 1 });
+            var primary = Assert.Single(runtime.Projectiles);
+            double sample = wall ? .95 : .65;
+            runtime.AdvanceTo(ProjectileRuntime.Time(sample));
 
-        runtime.AdvanceTo(ProjectileRuntime.Time(.65));
-
-        var children = runtime.Projectiles.Where(p => p.ParentId != 0).ToArray();
-        Assert.Equal(3, children.Length);
-        Assert.All(children, child => Assert.InRange(child.Distance, 129.9, 130.1));
+            var children = runtime.Projectiles.Where(p => p.ParentId != 0).OrderBy(p => p.Id).ToArray();
+            Assert.Equal(3, children.Length);
+            double expectedDistance = wall ? 190 : 130;
+            Assert.All(children, child => Assert.InRange(child.Distance, expectedDistance - .1, expectedDistance + .1));
+            if (wall)
+            {
+                Assert.Equal([primary.Id], arena.Redirects);
+                Assert.Equal([50u], arena.Hits);
+                arena.Redirects.Clear();
+                arena.Hits.Clear();
+            }
+            // The secondary can pierce from its first hit only if the primary already chained off the wall.
+            var arrow = children[0];
+            for (uint id = 1; id <= 4; id++)
+            {
+                var point = arrow.Position + arrow.Direction * (id * 5);
+                arena.Targets.Add(new(new(id), 2, _ => point, 0));
+            }
+            runtime.AdvanceTo(ProjectileRuntime.Time(sample + .3));
+            Assert.Equal(wall ? Array.Empty<long>() : [arrow.Id], arena.Redirects);
+            Assert.Equal(grant != 0 && forbid == 0 ? new uint[] { 1, 2, 3, 4 } : [1, 2], arena.Hits);
+        }
     }
 }

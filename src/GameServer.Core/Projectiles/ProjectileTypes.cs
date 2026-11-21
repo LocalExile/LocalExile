@@ -59,6 +59,8 @@ public sealed record ProjectileSweep(long Duration, double Radians, Func<Project
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
+    /// <summary>The new stage copies whether the source has already forked or chained.</summary>
+    public bool InheritForkOrChain { get; init; }
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
     public ProjectileSweep? Sweep { get; init; }
@@ -178,6 +180,8 @@ public sealed record ProjectileProfile(string Id)
     public bool IgnoreTerrainOnReturn { get; init; }
     /// <summary>Return-phase grant; CannotPierce still overrides it.</summary>
     public bool PierceAllOnReturn { get; init; }
+    /// <summary>Contacts pierce after this flight or a continuation ancestor has forked or chained.</summary>
+    public bool PierceAllAfterForkOrChain { get; init; }
     public bool ExcludeTurnaroundTarget { get; init; }
     /// <summary>Skip contacts denied by direct-hit admission before running contact stages.</summary>
     public bool SkipDeniedReturnContacts { get; init; }
@@ -324,6 +328,7 @@ public sealed class ProjectileEntity
     internal void SetForkSegment(ProjectileVector origin) =>
         ForkSegment = (origin.Cell, (Position + Direction * Remaining).Cell);
     internal bool PiercesAllFromLaunch { get; init; }
+    internal bool HasForkedOrChained;
     readonly Random? pierceRandom;
     int nextPierceRoll;
 
@@ -362,7 +367,8 @@ public sealed class ProjectileEntity
             if (consume) nextPierceRoll = random.Next(100);
             if (roll < Profile.PierceFailureChancePercent) return false;
         }
-        if (PiercesAllFromLaunch || Phase > 0 && Profile.PierceAllOnReturn || Pierce < 0) return true;
+        if (PiercesAllFromLaunch || HasForkedOrChained && Profile.PierceAllAfterForkOrChain
+            || Phase > 0 && Profile.PierceAllOnReturn || Pierce < 0) return true;
         if (Pierce == 0) return false;
         if (consume) Pierce--;
         return true;

@@ -137,10 +137,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileEntity Spawn(ProjectileUse use, long useId, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
-        int index = 0, bool piercesAll = false, int additionalForks = 0, int additionalChains = 0)
+        int index = 0, bool piercesAll = false, int additionalForks = 0, int additionalChains = 0,
+        bool hasForkedOrChained = false)
     {
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
-            { VolleyIndex = index, PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll };
+        {
+            VolleyIndex = index,
+            PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll,
+            HasForkedOrChained = continuing?.HasForkedOrChained ?? hasForkedOrChained
+        };
         projectiles.Add(p.Id, p);
         if (continuing is { } previous)
         {
@@ -444,11 +449,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                     is { } chainTarget
                 && p.Random.Next(100) < p.TerrainChainChance)
             {
-                p.Chain--;
                 p.Position += c.Normal * .001;
-                p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
-                p.Remaining = p.Profile.Range;
-                Redirect(p, p.Position);
+                Chain(p, chainTarget, p.Position);
             }
             else if (p.TerrainBounces > 0)
             {
@@ -542,13 +544,20 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
         if (!profile.CannotChain && p.Chain > 0 && Nearby(p, actors).FirstOrDefault() is { } next)
         {
-            p.Chain--; p.Direction = (next.Position(Now) - p.Position).Unit;
-            // A chain jump starts a new movement instance, so its 15 m cap is fresh; Distance stays total for Far Shot.
-            p.Remaining = p.Profile.Range;
-            Redirect(p, target.Position(Now));
+            Chain(p, next, target.Position(Now));
             return true;
         }
         return false;
+    }
+
+    void Chain(ProjectileEntity p, ProjectileActor next, ProjectileVector contact)
+    {
+        p.Chain--;
+        p.HasForkedOrChained = true;
+        p.Direction = (next.Position(Now) - p.Position).Unit;
+        // A chain jump gets a fresh range cap. Distance stays cumulative for Far Shot.
+        p.Remaining = p.Profile.Range;
+        Redirect(p, contact);
     }
 
     IEnumerable<ProjectileActor> Nearby(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => actors
@@ -579,6 +588,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void Fork(ProjectileEntity p, ProjectileActor contact)
     {
         p.Fork--;
+        p.HasForkedOrChained = true;
         int chance = p.Profile.ForkExtraProjectileChancePercent;
         int count = chance >= 100 || chance > 0 && p.Random.Next(100) < chance ? 3 : 2;
         var (origin, end) = p.ForkSegment;

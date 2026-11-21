@@ -251,7 +251,7 @@ public static class GatewayProjectileSkillProfiles
             Pierce = -1, CannotPierce = false,
             // The client draws its own primary arrow; a server object would be a second arrow from the bow contact.
             HideVisual = true,
-            EndEmission = new(child, Radial: true, BaseDirection: TornadoShotBaseDirection)
+            EndEmission = new(child, Radial: true, BaseDirection: TornadoShotBaseDirection) { InheritForkOrChain = true }
         };
     }
 

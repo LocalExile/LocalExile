@@ -86,10 +86,13 @@ public static class GatewayProjectileModifiers
             p = p with { Range = Math.Min(p.Range, maximum) };
         int pierceFailure = Math.Clamp(get("projectile_chance_to_not_pierce_%"), 0, 100);
         int forkAngle = get("forking_angle_+%");
+        // The 3.29.3c pierce decision tests this same arrow stat after either an executed fork or chain.
+        bool pierceAfterForkOrChain = arrows && get("arrows_always_pierce_after_forking") != 0;
         ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
             ForkAnglePercent = target.ForkAnglePercent + forkAngle,
             PierceFailureChancePercent = Math.Max(target.PierceFailureChancePercent, pierceFailure),
+            PierceAllAfterForkOrChain = target.PierceAllAfterForkOrChain || pierceAfterForkOrChain,
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get("projectile_return_%_chance"), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get("returning_projectiles_always_pierce") != 0,
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get("returned_projectile_speed_+%") / 100d)
