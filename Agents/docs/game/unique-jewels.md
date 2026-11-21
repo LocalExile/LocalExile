@@ -594,7 +594,7 @@ Condition handling and encounter rewards are separate from creating an item.
 | **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
 | **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
 | **Megalomaniac** | Medium Cluster Jewel | - | Adds 4 passives; smalls grant nothing; 3 random notable mods; corrupted | Four passives; three rolled notables and an empty small, with no jewel socket. |
-| **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Generates one of 17 aura modifier rows. |
+| **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Generates one of 17 aura modifier rows. The Pride variant uses the physical kill explosion while your own Pride is active. |
 | **The Balance of Terror** | Cobalt Jewel | 1 | Two random curse modifiers and elemental resistance | Generates elemental resistance and two distinct curse modifiers. |
 | **Watcher's Eye** | Prismatic Jewel | 1 | Two or three random aura modifiers | Generates three fixed modifiers and two aura modifiers (three for the level 86+ variant). |
 

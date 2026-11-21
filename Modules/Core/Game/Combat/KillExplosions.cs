@@ -47,6 +47,16 @@ public static partial class Game
     /// `Metadata/Effects/Spells/chaos_explode/chaos_explode.ao`, the client's own chaos blast (the purple one).</summary>
     public const string ChaosExplosionAo = "Metadata/Effects/Spells/chaos_explode/chaos_explode.ao";
 
+    internal const string PrideExplosionChance = "explode_enemies_for_10%_life_as_physical_on_kill_chance_%_while_using_pride";
+
+    internal static int PrideExplosionLifePct(ClientState conn, int chance, Random random)
+    {
+        if (chance <= 0) return 0;
+        lock (conn.Monsters)
+            if (!conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == "Pride")) return 0;
+        return GameServer.Core.World.RandomRolls.Chance(chance, 100, random) ? 10 : 0;
+    }
+
     /// <summary>"Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour
     /// prefix and the synthesis implicit). Every hostile living monster within the radius of the corpse takes X% of the
     /// dead monster's maximum life as physical damage, mitigated by its own resistances. The stat text and the wiki's
@@ -66,7 +76,8 @@ public static partial class Game
         lock (conn.Monsters) bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
-        int percent = generic + (bleeding ? bleedingPercent : 0);
+        int percent = ActorScale.Saturate((long)generic + (bleeding ? bleedingPercent : 0)
+            + PrideExplosionLifePct(conn, Get(PrideExplosionChance), Random.Shared));
         int chance = Get("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%");
         int chaosPercent = chance > 0 && Random.Shared.Next(100) < chance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
