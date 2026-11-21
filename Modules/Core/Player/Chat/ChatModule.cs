@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using GameServer.Core;
 using GameServer.Core.Chat;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
@@ -18,6 +19,8 @@ public sealed class ChatModule : IModule
         module.Lifetime.Own(chat);
         module.Lifetime.Own(ChatRoutes.Follow(chat.RouteChanged));
         GameEvents.Packet(InstanceChat.LinkItemId).Add(module.Manifest.Id, (conn, bytes) => chat.Linked(conn, InstanceChat.ReadLinkItem(bytes.AsSpan())));
+        GameEvents.Packet(InstanceChat.LinkOtherId).Add(module.Manifest.Id, (conn, bytes) => chat.LinkedOther(conn, InstanceChat.ReadLinkOther(bytes.AsSpan())));
+        GameEvents.Packet(InstanceChat.LinkAnotherId).Add(module.Manifest.Id, (conn, bytes) => chat.LinkedAnother(conn, InstanceChat.ReadLinkAnother(bytes.AsSpan())));
         GameEvents.Packet(InstanceChat.ChatId).Add(module.Manifest.Id, (conn, bytes) => chat.Typed(conn, InstanceChat.ReadChat(bytes.AsSpan())));
         GameEvents.Packet(InstanceChat.JoinChannelId).Add(module.Manifest.Id, (conn, bytes) => chat.Join(conn, bytes));
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => chat.Entered(conn));
@@ -32,6 +35,12 @@ sealed class ChatService : IDisposable
     readonly ChatServer _local = new(IPAddress.Loopback, 0);
     readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     readonly ConcurrentDictionary<ClientState, ConcurrentDictionary<byte, Item>> _linked = new();
+    readonly ConcurrentDictionary<ClientState, ConcurrentDictionary<byte, string>> _namedLinks = new();
+    static readonly Lazy<Dictionary<uint, string>> MtxNames = new(() =>
+        ClientTables.TableOrNull("MtxTypes") is { } rows
+            ? rows.Select((r, i) => (Id: (uint)(i + 1), Name: r.Text("Name") ?? ""))
+                .Where(x => !string.IsNullOrWhiteSpace(x.Name)).ToDictionary(x => x.Id, x => x.Name)
+            : []);
 
     public ChatChannels Channels { get; } = new();
     public Action<string> Log { get; }
@@ -64,17 +73,97 @@ sealed class ChatService : IDisposable
     // C→S 0x12: an item of the line the next 0x15 brings. Read here, so the line shows it as it is now.
     public Task<bool> Linked(ClientState conn, InstanceChat.LinkItem link)
     {
-        var stash = StashOf(conn);
-        IReadOnlyList<InventoryItem> items = stash.TabOf(link.InventoryId) is int tab ? stash.Inventory(tab).Items
-            : PlayerInventories.Row(link.InventoryId) is byte row ? ItemsOf(conn).Items(row) : [];
-        if (items.FirstOrDefault(i => i.Id == link.ItemId) is { } linked) _linked.GetOrAdd(conn, _ => new())[link.Index] = linked.Item;
+        Item? found = link.Manager == 1 ? FindShopOrTradeItem(conn, link.InventoryId, link.ItemId) : null;
+        if (found is null)
+        {
+            var stash = StashOf(conn);
+            IReadOnlyList<InventoryItem> items = stash.TabOf(link.InventoryId) is int tab ? stash.Inventory(tab).Items
+                : PlayerInventories.Row(link.InventoryId) is byte row ? ItemsOf(conn).Items(row) : [];
+            found = items.FirstOrDefault(i => i.Id == link.ItemId)?.Item;
+        }
+        if (found is not null) _linked.GetOrAdd(conn, _ => new())[link.Index] = found;
         else Log($"{conn.Wire.Remote} <= 0x0012 link of {link}: no such item");
         return Task.FromResult(true);
     }
 
+    static Item? FindShopOrTradeItem(ClientState conn, uint inventoryId, uint itemId)
+    {
+        if (conn.Shop is { } shop && shop.Items.TryGetValue(itemId, out var entry) && entry.Tab == inventoryId)
+            return entry.Item.Item;
+        if (conn.Sale is { } sale)
+        {
+            if (inventoryId == sale.Mine && ItemsOf(conn).Offered().FirstOrDefault(i => i.Id == itemId) is { } mine)
+                return mine.Item;
+            if (inventoryId == sale.Theirs && sale.Reward.FirstOrDefault(i => i.Id == itemId) is { } reward)
+                return reward.Item;
+        }
+        if (conn.Trade is { } trade)
+        {
+            if (inventoryId == PlayerTradeMine && ItemsOf(conn).Offered().FirstOrDefault(i => i.Id == itemId) is { } mine)
+                return mine.Item;
+            if (inventoryId == PlayerTradeTheirs)
+            {
+                var other = trade.Other(conn);
+                uint ownerId = 0;
+                lock (trade.Lock)
+                    ownerId = trade.Views[other].FirstOrDefault(kv => kv.Value == itemId).Key;
+                if (ownerId != 0 && ItemsOf(other).Offered().FirstOrDefault(i => i.Id == ownerId) is { } theirs)
+                    return theirs.Item;
+            }
+        }
+        return null;
+    }
+
+    // C→S 0x13: microtransaction link (0x14018ee00) or non-inventory item id. MTX records are not BaseItemTypes items,
+    // so resolve their display name to replace the placeholder '_' instead of leaving a bare underscore.
+    public Task<bool> LinkedOther(ClientState conn, InstanceChat.LinkOther link)
+    {
+        if (MtxNames.Value.TryGetValue(link.Id, out var mtxName))
+            _namedLinks.GetOrAdd(conn, _ => new())[link.Index] = $"[{mtxName}]";
+        else if (conn.Instance.Ground.Get(link.Id) is { } ground)
+            _linked.GetOrAdd(conn, _ => new())[link.Index] = ground.Item;
+        else
+            Log($"{conn.Wire.Remote} <= 0x0013 link of {link}: unresolved");
+        return Task.FromResult(true);
+    }
+
+    // C→S 0x14: ground item link by world object id (0x14018f5d0).
+    public Task<bool> LinkedAnother(ClientState conn, InstanceChat.LinkAnother link)
+    {
+        if (conn.Instance.Ground.Get(link.ObjectId) is { } ground)
+            _linked.GetOrAdd(conn, _ => new())[link.Index] = ground.Item;
+        else
+            Log($"{conn.Wire.Remote} <= 0x0014 ground link of {link}: no such ground item");
+        return Task.FromResult(true);
+    }
+
+    // Expands text-only links (C→S 0x13 MTX names) in place and shifts remaining item link offsets so S→C 0x17
+    // item indices still land on their exact '_' placeholders.
+    static (string Text, IReadOnlyList<uint> Links) ExpandNamedLinks(string text, IReadOnlyList<uint> links, int cut,
+        ConcurrentDictionary<byte, string>? named)
+    {
+        if (named is null || named.IsEmpty || links.Count == 0) return (text, links);
+        uint[] adjusted = [.. links];
+        // Process right-to-left by position so earlier replacements do not shift indices we still need to inspect.
+        var replacements = links.Select((pos, i) => (Index: (byte)i, At: (int)pos - cut))
+            .Where(x => named.ContainsKey(x.Index) && x.At >= 0 && x.At < text.Length && text[x.At] == ChatWire.ItemMark)
+            .OrderByDescending(x => x.At)
+            .ToArray();
+        if (replacements.Length == 0) return (text, links);
+        foreach (var (index, at) in replacements)
+        {
+            string label = named[index];
+            text = string.Concat(text.AsSpan(0, at), label, text.AsSpan(at + 1));
+            int delta = label.Length - 1;
+            for (int i = 0; i < adjusted.Length; i++)
+                if ((int)adjusted[i] - cut > at) adjusted[i] = (uint)((int)adjusted[i] + delta);
+        }
+        return (text, adjusted);
+    }
+
     // The linked items of a line, where they stand in its text: cut is what the text lost from the front of the typed line.
-    static IReadOnlyList<(int At, Item Item)> Placed(InstanceChat.ChatInput chat, ConcurrentDictionary<byte, Item>? linked, string text, int cut) =>
-        linked is null ? [] : [.. chat.Links.Select((link, index) => (At: (int)link - cut, Item: linked.GetValueOrDefault((byte)index)))
+    static IReadOnlyList<(int At, Item Item)> Placed(IReadOnlyList<uint> links, ConcurrentDictionary<byte, Item>? linked, string text, int cut) =>
+        linked is null ? [] : [.. links.Select((link, index) => (At: (int)link - cut, Item: linked.GetValueOrDefault((byte)index)))
             .Where(l => l.Item is not null && l.At >= 0 && l.At < text.Length && text[l.At] == ChatWire.ItemMark).Select(l => (l.At, l.Item!))];
 
     static IReadOnlyList<ChatFrameItem>? FrameItems(ClientState conn, IReadOnlyList<(int At, Item Item)> placed, string text) =>
@@ -82,8 +171,8 @@ sealed class ChatService : IDisposable
 
     // The items of the sender's own line, as the 0x17 it comes back with carries them: in the order of the text, up to
     // the limit the client reads.
-    static IReadOnlyList<ChatLineItem> OwnLine(InstanceChat.ChatInput chat, ConcurrentDictionary<byte, Item>? linked, string text, int cut) =>
-        [.. Placed(chat, linked, text, cut).OrderBy(l => l.At).Take(ChatWire.MaxItems).Select(l => new ChatLineItem((uint)l.At, l.Item.Wire()))];
+    static IReadOnlyList<ChatLineItem> OwnLine(IReadOnlyList<uint> links, ConcurrentDictionary<byte, Item>? linked, string text, int cut) =>
+        [.. Placed(links, linked, text, cut).OrderBy(l => l.At).Take(ChatWire.MaxItems).Select(l => new ChatLineItem((uint)l.At, l.Item.Wire()))];
 
     /// <summary>The items of a line from a chat server that this client can be shown: the others stay '_'.</summary>
     public IReadOnlyList<ChatLineItem>? LineItems(ClientState conn, string text, IReadOnlyList<ChatFrameItem>? items)
@@ -97,6 +186,7 @@ sealed class ChatService : IDisposable
     public async Task<bool> Typed(ClientState conn, InstanceChat.ChatInput chat)
     {
         _linked.TryRemove(conn, out var linked);
+        _namedLinks.TryRemove(conn, out var namedLinks);
         if (chat.IsCommand) return false;
         string name = CharacterName(conn);
         Log($"{conn.Wire.Remote} <= 0x0015 chat \"{chat.Text}\"");
@@ -107,29 +197,41 @@ sealed class ChatService : IDisposable
         switch (channel)
         {
             case TypedChannel.Local:
-                await SayLocally(conn, text, name, OwnLine(chat, linked, text, prefix));
+            {
+                var (finalText, finalLinks) = ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
+                await SayLocally(conn, finalText, name, OwnLine(finalLinks, linked, finalText, prefix));
                 break;
+            }
             case TypedChannel.Party:
+            {
+                var (finalText, finalLinks) = ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
                 // The party is a module's to know, so the framework hands the line over; nothing else keeps it.
-                if (!await GameEvents.RunPartyChat(conn, text, OwnLine(chat, linked, text, prefix)))
-                    Log($"{conn.Wire.Remote} <= 0x0015 party line \"{text}\" from {name} with no party to take it");
+                if (!await GameEvents.RunPartyChat(conn, finalText, OwnLine(finalLinks, linked, finalText, prefix)))
+                    Log($"{conn.Wire.Remote} <= 0x0015 party line \"{finalText}\" from {name} with no party to take it");
                 break;
+            }
             case TypedChannel.Global or TypedChannel.Trade:
+            {
+                var (finalText, finalLinks) = ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
                 var kind = channel == TypedChannel.Global ? ChatChannelKind.Global : ChatChannelKind.Trade;
                 var session = Session(conn);
                 await session.Ready;
-                session.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Say, Kind: kind, Text: text, Items: FrameItems(conn, Placed(chat, linked, text, prefix), text))));
+                session.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Say, Kind: kind, Text: finalText, Items: FrameItems(conn, Placed(finalLinks, linked, finalText, prefix), finalText))));
                 break;
+            }
             case TypedChannel.Whisper:
+            {
                 // "@Name the text".
                 int space = text.IndexOf(' ');
                 if (space <= 0 || text[(space + 1)..].Trim() is not { Length: > 0 } whisper) break;
                 int start = text.Length - text[(space + 1)..].TrimStart().Length;
+                var (finalWhisper, finalLinks) = ExpandNamedLinks(whisper, chat.Links, prefix + start, namedLinks);
                 var whispering = Session(conn);
                 await whispering.Ready;
-                whispering.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whisper, text[..space], Text: whisper,
-                    Items: FrameItems(conn, Placed(chat, linked, whisper, prefix + start), whisper))));
+                whispering.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whisper, text[..space], Text: finalWhisper,
+                    Items: FrameItems(conn, Placed(finalLinks, linked, finalWhisper, prefix + start), finalWhisper))));
                 break;
+            }
         }
         return true;
     }
@@ -207,6 +309,7 @@ sealed class ChatService : IDisposable
     public Task Leaving(ClientState conn, string why)
     {
         _linked.TryRemove(conn, out _);
+        _namedLinks.TryRemove(conn, out _);
         if (why == "disconnected" && !conn.LeavingArea && conn.PendingTransfer is null
             && _sessions.TryGetValue(CharacterName(conn), out var session) && ReferenceEquals(session.Conn, conn)
             && _sessions.TryRemove(CharacterName(conn), out _))
