@@ -43,6 +43,8 @@ public static class GameDataFiles
         ("AtlasVoidstoneSlots", "Atlas Voidstones"),
         ("Words", "item names"),
         ("ItemVisualIdentity", "unique map artwork"),
+        ("CharacterAudioEvents", "player character voice line events"),
+        ("CharacterEventTextAudio", "player character voice line class mappings"),
     ];
 
     /// <summary>The generated tables (client.db: extract-data.ps1's generators, scripts/dev/generated_tables.py) features

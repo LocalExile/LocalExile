@@ -201,6 +201,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
+- Merveil's Caverns Trick Chests (`AmarissaTrickChest` in `1_1_11_1`, `AmbrosiaTrickChest` in `1_1_11_2`) spawn in
+  their chambers, open with loot and ambush with risen targetable Amarissa/Ambrosia plus Slimy Bloodsuckers
+  (not checked live). Code: `Rules.TrickChests.cs`, `Act1.cs`.
+- Player character voice lines (`CharacterAudioEvents`): area entry (`Visited-*` via post-`0x2bb` `0x2bc` diff,
+  Act 4 mines, first Atlas map), campaign and pinnacle boss kills and first NPC meetings trigger natively via
+  `PlayerQuestFlagsUpdate` `0x2bc` (not checked live). Docs: [12](../docs/protocol/12-quests.md).
 
 ## Not working yet
 

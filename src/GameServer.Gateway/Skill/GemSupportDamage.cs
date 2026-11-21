@@ -34,7 +34,7 @@ public static class GemSupportDamage
         "support_clustertrap_damage_+%_final", "support_multithrow_damage_+%_final",
         "support_gem_mine_damage_+%_final", "support_remote_mine_2_damage_+%_final",
         "support_locus_mine_damage_+%_final", "support_additional_totem_damage_+%_final",
-        "support_focused_ballista_totem_damage_+%_final"
+        "support_focused_ballista_totem_damage_+%_final", "support_brand_damage_+%_final"
     ];
 
     /// <summary>Each matching support modifier applies once to the portion's complete visited-type set.

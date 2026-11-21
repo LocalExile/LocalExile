@@ -40,7 +40,10 @@ public static partial class Game
                 conn.LockstepHold.Update((here.X + dx, here.Y + dy));
                 conn.LockstepSkill.Update((here.X + dx, here.Y + dy));
                 if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                {
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+                    SnipeAimedAt(conn, (here.X + dx, here.Y + dy));
+                }
             }
             else if (id == InstanceProtocol.LockstepMoveStopId)
             {
@@ -125,6 +128,7 @@ public static partial class Game
                 ended = channel;
                 conn.ChannelSkill = 0;
                 conn.ChannelGeneration++;
+                SnipeWakeChannel(conn);
             }
             // Readiness belongs to the client's frame. Projectile time may already be ahead of it; using that
             // clock can start a Move before pickup completion, whose cleanup then discards the new path.

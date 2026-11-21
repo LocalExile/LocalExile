@@ -21,6 +21,7 @@ public static partial class Game
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
             + PerAilmentTypeTakenPct(m, now)
+            + BrandMonsterTakenPctLocked(m)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0))
         * MonsterToughnessFactor(m.Effects);
 

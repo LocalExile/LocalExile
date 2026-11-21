@@ -41,6 +41,8 @@ public sealed class QuestObjectsModule : IModule
             await SpawnTrialObjects(remote, stream, ciphers, conn);
             // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
             await StartQuestArea(remote, stream, ciphers, conn);
+            await SpawnLoreObjects(remote, stream, ciphers, conn);
+            await SpawnTrickChests(remote, stream, ciphers, conn);
             await TickBeacon(conn);
         });
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => TickBeacon(conn));
@@ -86,11 +88,10 @@ public sealed class QuestObjectsModule : IModule
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithDartSlow);
         GameEvents.NpcTalk.Add(module.Manifest.Id, async (conn, id, npc) =>
         {
-            if (LabyrinthTrials.IsGlyph(npc.Npc.Id))
+            if (IsLoreType(npc.Npc.Id))
             {
-                var (glyphRemote, glyphStream, glyphCiphers) = conn.Wire;
-                await ReadTrialMonograph(glyphRemote, glyphStream, glyphCiphers, conn, id, npc);
-                return true;
+                var (loreRemote, loreStream, loreCiphers) = conn.Wire;
+                return await ReadLoreObject(loreRemote, loreStream, loreCiphers, conn, id, npc);
             }
             if (npc.Npc.Id != TutorialObjects.Exile) return false;
             var (remote, stream, ciphers) = conn.Wire;
@@ -112,6 +113,7 @@ public sealed class QuestObjectsModule : IModule
             lock (conn.GlyphNests)
                 nests = [.. conn.GlyphNests.Where(e => Dist((e.Value.At.X, e.Value.At.Y), at) <= radius).Select(e => (e.Key, e.Value))];
             foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
+            await OpenTrickChestsNear(remote, stream, ciphers, conn, at, radius);
         });
         // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
         GameEvents.SkillCast.Add(module.Manifest.Id, (conn, effect, skillId, from, current) =>
@@ -166,6 +168,7 @@ public sealed class QuestObjectsModule : IModule
             }
             // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
             if (QuestobjectsRules.PickLabyrinthStash(conn, use.TargetId)) return false;
+            if (await UseTrickChest(remote, stream, ciphers, conn, use, requestedAt)) return true;
             return await UseTrialObject(remote, stream, ciphers, conn, use);
         });
     }

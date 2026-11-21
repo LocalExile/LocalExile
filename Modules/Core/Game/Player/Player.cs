@@ -206,6 +206,8 @@ public static partial class Game
             // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely
             // returns on the zero life, so nothing else clears ChannelSkill).
             WinterOrbRetire(conn);
+            SnipeRetire(conn);
+            MirageWarriorsRetire(conn);
             conn.RetireOwnedCombat();
             conn.ChannelSkill = 0;
             conn.ChannelGeneration++;
@@ -514,6 +516,7 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
+        speed += BrandCastSpeedBonusPct(conn, effect, player, own);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
         return GolemStat(own, "base_spell_cast_time_ms_override") is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
