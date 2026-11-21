@@ -252,6 +252,25 @@ def default_attack_pools(text, animations, views):
     return result
 
 
+def mine_barrage(fetch_missing):
+    """The sole RemoteMine actor used by placed skills, with its own projectile contact and muzzle."""
+    act = "Metadata/MiscellaneousObjects/RemoteMine.act"
+    if fetch_missing:
+        fetch([act])
+    text = read_text(act)
+    if text is None:
+        raise ValueError(f"Missing mine ACT: {act}")
+    ao = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M).group(1)
+    fire, _ = stance_actions(text, ("BarrageFireMain",))["Unarmed"]["BarrageFireMain"]
+    amd = amd_of(ao, fetch_missing=fetch_missing)
+    animations = rig_clips(amd, ao, fetch_missing=fetch_missing)
+    index, clip = next((i, a) for i, a in enumerate(animations) if a["name"] == fire)
+    if fire != "barrage" or first_contact(clip["events"]) is None:
+        raise ValueError(f"Missing RemoteMine Barrage firing contact: {ao}/{fire}")
+    return ao, {"amd": amd, "act": act, "animations": contacts([clip]), "positions": positions([clip]),
+                "contacts": every_contact([clip]), "indices": {fire: index}, "clips": named_clips([clip])}
+
+
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "animation-contacts.json")
     fetch_missing = "--cached-only" not in sys.argv
@@ -281,6 +300,8 @@ def main():
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao, fetch_missing=fetch_missing))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
               f"{len(result[ao]['defaultAttack'])} default attack stances", file=sys.stderr)
+    mine_ao, mine = mine_barrage(fetch_missing)
+    result[mine_ao] = mine
     with open(dest + ".tmp", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=1)
     os.replace(dest + ".tmp", dest)   # never leave a truncated file for the Gateway

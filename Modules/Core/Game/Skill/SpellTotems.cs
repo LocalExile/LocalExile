@@ -72,22 +72,8 @@ public static partial class Game
         if (!SkillsFor(conn).IsAttack(gem.Effect) && TotemCastSeconds(conn, skill) is double seconds && Stats.Key("cast_speed_+%") is uint speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(conn).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(conn).IsAttack(gem.Effect))
-        {
-            foreach (var (key, value) in WeaponStats(conn, WeaponFor(conn), CharacterPlayerStats(conn))) payload[key] = value;
-            double attackSeconds = attackTime ?? TotemAttackSeconds(conn, skill);
-            payload[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(100 * (WeaponFor(conn).AttackMs / (attackSeconds * 1000) - 1));
-            payload[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / attackSeconds);
-            if (Stats.Key("main_hand_weapon_type") is uint weaponType)
-                payload[weaponType] = WeaponTypeStats.Of(ActiveMainHand(conn)?.Type?.Class);
-            if (GolemStat(gem.Stats, "is_ranged_attack_totem") != 0)
-            {
-                var inputs = MergeSkillStats(CharacterPlayerStats(conn), gem.Stats);
-                ApplyProjectilePanelStats(gem.Effect, payload, inputs, ArrowsFor(conn, gem.Effect));
-                // The firing action reads these spread controls directly from the proxy skill.
-                foreach (string name in new[] { "no_barrage_projectile_spread", "barrage_support_projectile_spread_+%" })
-                    if (Stats.Key(name) is uint key && inputs.TryGetValue(key, out int value)) payload[key] = value;
-            }
-        }
+            ApplyProxyAttackStats(conn, gem, payload, attackTime ?? TotemAttackSeconds(conn, skill),
+                projectiles: GolemStat(gem.Stats, "is_ranged_attack_totem") != 0);
         var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
         return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
     }
@@ -161,8 +147,7 @@ public static partial class Game
             {
                 // The same placed actor can begin its next attack with a different weapon speed or arrow count.
                 var next = TotemProxy(conn, totem.SkillId, seconds)!;
-                if (!BallistaActorSkills.TryGetValue(totem, out var sent) || sent.EffectsPerLevelRow != next.EffectsPerLevelRow
-                    || sent.StatSetsPerLevelRow != next.StatSetsPerLevelRow || !sent.Stats!.SequenceEqual(next.Stats!))
+                if (!BallistaActorSkills.TryGetValue(totem, out var sent) || ProxySkillChanged(sent, next))
                 {
                     bytes.World(totem.Id, InstanceEntities.PlayerSkillsChange(totem.Id, [next], []));
                     BallistaActorSkills.AddOrUpdate(totem, next);

@@ -1,11 +1,45 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    static bool ProxySkillChanged(GrantedSkill sent, GrantedSkill next) =>
+        sent.EffectsPerLevelRow != next.EffectsPerLevelRow || sent.StatSetsPerLevelRow != next.StatSetsPerLevelRow
+        || !sent.Stats!.SequenceEqual(next.Stats!);
+
+    static void ApplyProxyAttackStats(ClientState conn, SupportedGem gem, Dictionary<uint, int> payload,
+        double seconds, bool projectiles)
+    {
+        var weapon = WeaponFor(conn);
+        var player = CharacterPlayerStats(conn);
+        foreach (var (key, value) in WeaponStats(conn, weapon, player)) payload[key] = value;
+        payload[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(100 * (weapon.AttackMs / (seconds * 1000) - 1));
+        payload[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
+        if (Stats.Key("main_hand_weapon_type") is uint weaponType)
+            payload[weaponType] = WeaponTypeStats.Of(ActiveMainHand(conn)?.Type?.Class);
+        if (!projectiles) return;
+        var inputs = MergeSkillStats(player, gem.Stats);
+        ApplyProjectilePanelStats(gem.Effect, payload, inputs, ArrowsFor(conn, gem.Effect));
+        foreach (string name in new[] { "no_barrage_projectile_spread", "barrage_support_projectile_spread_+%" })
+            if (Stats.Key(name) is uint key && inputs.TryGetValue(key, out int value)) payload[key] = value;
+    }
+
     // These are native description inputs, projected only onto the outgoing skill record.
     // Never put final counts back into supported/raw stats and resolve quantity modifiers twice.
     public static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats) =>
         ApplyProjectilePanelStats(effect, stats, stats, ArrowsForSkill(effect));
+
+    static int FiredProjectiles(ProjectileProfile profile, Func<string, int> get) =>
+        get("projectiles_rain") != 0 && profile.EndEmission is { } rain ? rain.Child.Count : profile.Count;
+
+    static int BarrageTimePercent(ClientState conn, int effect, Func<string, int> get, int perProjectile)
+    {
+        if (perProjectile == 0) return 0;
+        var groundRain = ArrowRainDefinition(SkillsFor(conn).EffectId(effect));
+        if ((groundRain?.Parameters ?? ResolveProjectilePanelParameters(effect)) is not { } parameters) return 0;
+        var profile = parameters.Resolve(get, 1, groundRain is not null || ArrowsFor(conn, effect));
+        return perProjectile * FiredProjectiles(profile, get);
+    }
 
     static void ApplyProjectilePanelStats(int effect, Dictionary<uint, int> stats, IReadOnlyDictionary<uint, int> inputs, bool bow)
     {
@@ -24,7 +58,9 @@ public static partial class Game
         // Arrow Nova's record describes the volley that leaves the landing cell, not its single payload arrow: the
         // client builds that volley from total_number_of_projectiles_to_fire, and 1 left it with one arrow
         // (live 2026-11-04: one SplitArrowDefault child instead of the nine the stats resolve to).
-        int total = Get("projectiles_rain") != 0 && profile.EndEmission is { } rain ? rain.Child.Count : profile.Count;
+        int total = FiredProjectiles(profile, Get);
+        int throwTime = Get("support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired");
+        if (throwTime != 0) Put("virtual_trap_and_mine_throwing_time_+%_final", throwTime * total);
         Put("total_number_of_projectiles_to_fire", total);
         Put("virtual_total_number_of_projectiles", total);
         if (arrows)

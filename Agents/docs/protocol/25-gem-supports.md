@@ -304,6 +304,18 @@ The ballista's `0x4000` skill record carries the projectile totals used by this 
 `BarrageFireMain` to the firing clip. DexterityTotem and Siege Ballista contact at 66/200 ms, Shrapnel Ballista
 at 83/200 ms. Extra `effect` tracks on the same ACT entry leave that body contact intact. The area Gateway
 sends a changed skill record before the next attack and retains the in-flight attack's count.
+
+A trap or mine throw uses a separate Barrage modifier. The 3.29.3c stat calculator multiplies the resolved
+arrow or projectile count by `support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired`
+and publishes `virtual_trap_and_mine_throwing_time_+%_final`. Each resolved shot adds 10% to the throwing
+time for the stock support. Three Locus shots take 390 ms of base mine throwing time, five Blastchain shots 450 ms.
+
+At detonation, a direct Barrage mine uses the owner's supported attack time and the mine's own firing clip.
+RemoteMine's `BarrageFireMain` maps to `barrage`, with the contact at 70/200 of **each firing clip**.
+The server captures aim, count and spread when the mine starts its action and releases the reservation then.
+The object stays until the firing action finishes. The client-visible muzzle and timing on both builds still need
+comparison with the server releases. Traps have their own ACT mappings and need separate firing checks.
+
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.

@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 public sealed class PlacedSkills
@@ -15,6 +16,10 @@ public sealed class PlacedSkills
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
         public DamageSnapshot? Offense { get; init; }
+        public double Armed { get; set; } = Armed;
+        public GrantedSkill? BarrageProxy;
+        // A detonated mine can still be playing the firing clips of its current attack.
+        public double ActionUntil;
         public double DetonateAt = double.PositiveInfinity;
         public bool SkitterTriggered;
         public int Chain;

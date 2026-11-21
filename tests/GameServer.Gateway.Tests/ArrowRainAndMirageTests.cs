@@ -2749,6 +2749,8 @@ public class ArrowRainAndMirageTests
             Assert.True(penalty > 0);
             Game.ApplyProjectilePanelStats(gem.Effect, stats);
             int count = stats[countKey];
+            Assert.Equal(count * stats[Program.Stats.Key("support_barrage_trap_and_mine_throwing_time_+%_final_per_projectile_fired")!.Value],
+                stats[Program.Stats.Key("virtual_trap_and_mine_throwing_time_+%_final")!.Value]);
             Assert.True(count > extra + 1);
             if (extra == 0) initialCount = count;
             Assert.Equal(initialCount + extra, count);
@@ -2806,6 +2808,57 @@ public class ArrowRainAndMirageTests
             VerifyBallistaBarrage();
         }
         else VerifyPowerSiphonBallista();
+        await VerifyMineBarrage(skill == "Split Arrow" ? "Locus Mine Support" : "Blastchain Mine Support");
+    }
+
+    static async Task VerifyMineBarrage(string support)
+    {
+        using var b = new Battle("Lightning Arrow", support, "Barrage Support");
+        var conn = b.Conn;
+        var gem = Game.GemSkillEffects(conn).Single();
+        var own = Game.SupportedSkill(conn, gem.Id).Stats;
+        var mine = new PlacedSkills.Placed(777, gem.Id, gem.Effect, (148, 100), true, 0, 10,
+            DamagePacket.Empty, own, 0, 0, false, 0) { DetonateAt = 1 };
+        conn.Placed.All.Add(mine.Id, mine);
+        conn.WorldOutput.ExistingObject(Program.PlayerId);
+        conn.WorldOutput.ExistingObject(mine.Id);
+        conn.PlayerSent = true;
+        conn.Wire = ("mine-barrage", b.Stream, b.Ciphers);
+        double duration = Game.SupportedAttackSeconds(conn, gem.Id, ushort.MaxValue);
+        conn.Clock.Start();
+        await Game.PlayerMinionsTick("mine-barrage", b.Stream, b.Ciphers, conn, 1);
+        Assert.Empty(conn.Placed.All);
+        Assert.Equal(1 + duration, Assert.Single(conn.Placed.Leaving).At, 6);
+        // The world can retire the animation before the projectile clock processes its scheduled contacts.
+        await Game.PlayerMinionsTick("mine-barrage", b.Stream, b.Ciphers, conn, 1 + duration);
+        conn.Clock.Stop();
+        Assert.Empty(conn.Placed.Leaving);
+        int count = support == "Locus Mine Support" ? 3 : 5;
+        Assert.Contains(mine.BarrageProxy!.Stats!, s => s.Key == StatKeys.VirtualTotalArrows && s.Value == count);
+        double interval = duration * .6 / count;
+        long first = ProjectileRuntime.Time(1 + duration * .4 + interval * 70 / 200);
+        var groups = new HashSet<long>();
+        for (int i = 0; i < count; i++)
+        {
+            long due = first + i * ProjectileRuntime.Time(interval);
+            b.Session.AdvanceTo(due - 1);
+            Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
+            b.Session.AdvanceTo(due);
+            if (support == "Blastchain Mine Support" && i >= 2)
+                Assert.DoesNotContain(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
+            else
+            {
+                var shot = Assert.Single(b.Session.Runtime.Projectiles, p => p.ParentId == 0 && p.VolleyIndex == i);
+                Assert.Equal(due, shot.CreatedAt);
+                Assert.True(groups.Add(shot.EmissionId));
+            }
+            if (i == 0)
+            {
+                conn.ActionCount++;
+                conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = 4;
+            }
+            if (i == 1 && support == "Blastchain Mine Support") conn.PlayerLife = 0;
+        }
     }
 
     static void VerifyPowerSiphonBallista()

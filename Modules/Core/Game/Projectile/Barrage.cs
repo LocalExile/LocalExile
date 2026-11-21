@@ -56,7 +56,7 @@ public static partial class Game
     static readonly RuleTable<ClientState, BarrageAttack> BarrageAttacks = new();
 
     static BarrageAttack? DirectBarrage(ClientState conn, ushort skill, int effect, int action, double start, double seconds,
-        TotemState.Totem? totem = null)
+        TotemState.Totem? totem = null, bool mine = false)
     {
         var own = SupportedSkill(conn, skill).Stats;
         if (GolemStat(own, "projectiles_barrage") == 0) return null;
@@ -72,7 +72,9 @@ public static partial class Game
         int count = ResolveProjectilePanelParameters(effect)!.Resolve(Get, 1, weapon.Bow).Count;
         if (count <= 1) return null;
         AnimationClip fire;
-        if (totem is null)
+        if (mine)
+            fire = Animations.ContactClip("Metadata/Effects/Spells/landmine_new/land_mine.ao", "barrage");
+        else if (totem is null)
         {
             string name = weapon.Bow ? "barrage_bow" : weapon.DualWield ? "barrage_wand_wand"
                 : weapon.Shield ? "barrage_wand_shield" : "barrage_wand";
