@@ -94,4 +94,46 @@ public class EncounterJewelTests
         }
         finally { Directory.Delete(folder, recursive: true); }
     }
+
+    [Fact]
+    public void Forbidden_and_incarnation_jewels_have_explicit_source_rows_and_opt_in_rolls()
+    {
+        using var store = new GameServer.Storage.GameDataStore(Path.Combine(Path.GetTempPath(), $"encounter-sources-{Guid.NewGuid():N}.db"));
+        using var db = GameServer.Storage.SqlUpdater.Open(store.Path);
+        var provider = new DropDataProvider();
+        provider.Replace(store);
+        var catalog = new UniqueCatalog(Program.Items);
+        var drops = new ItemDrops(Program.Items, uniques: catalog);
+        var random = new Random(8);
+        var sources = new[]
+        {
+            ("Metadata/Monsters/AtlasInvaders/CleansingMonsters/CleansingBoss", "Forbidden Flame"),
+            ("Metadata/Monsters/AtlasInvaders/ConsumeMonsters/ConsumeBoss", "Forbidden Flesh"),
+            ("Metadata/Monsters/AtlasMemory/AngerBoss", "Bound By Destiny"),
+            ("Metadata/Monsters/AtlasMemory/AngerBossUBER", "Bound By Destiny"),
+            ("Metadata/Monsters/AtlasMemory/BenevolenceBoss", "Bound By Destiny"),
+            ("Metadata/Monsters/AtlasMemory/BenevolenceBossUBER", "Bound By Destiny"),
+            ("Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBoss", "Bound By Destiny"),
+            ("Metadata/Monsters/AtlasMemory/IgnoranceBoss/IgnoranceBossUBER", "Bound By Destiny"),
+        };
+        foreach (var (boss, item) in sources)
+        {
+            Assert.True(catalog.Find(item)!.EncounterOnly);
+            Assert.Null(provider.Current.BossItems[(boss, item)].Chance);
+            Assert.Empty(drops.EncounterJewels(boss, 83, random, provider.Current));
+            using var command = db.CreateCommand();
+            command.CommandText = "INSERT INTO encounter_jewel_drop_overrides VALUES ($boss, $item, 1)";
+            command.Parameters.AddWithValue("$boss", boss);
+            command.Parameters.AddWithValue("$item", item);
+            command.ExecuteNonQuery();
+        }
+        provider.Replace(store);
+        foreach (var (boss, item) in sources)
+        {
+            var reward = Assert.Single(drops.EncounterJewels(boss, 83, random, provider.Current));
+            Assert.Equal(catalog.NameWord(catalog.Find(item)!), Assert.Single(reward.Item.NameWords));
+            Assert.False(reward.Item.Identified);
+        }
+        Assert.Empty(drops.EncounterJewels("unrelated monster", 83, random, provider.Current));
+    }
 }
