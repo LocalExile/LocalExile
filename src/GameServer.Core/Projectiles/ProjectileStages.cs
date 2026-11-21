@@ -10,7 +10,7 @@ public sealed partial class ProjectileRuntime
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
                 p.Direction = p.Direction.Rotate((p.Random.NextDouble() - .5) * Math.PI);
-                Publish(ProjectileEventKind.Redirect, p);
+                Redirect(p, p.Position);
                 Schedule(Now + p.Profile.WanderInterval, Wander);
             }
             Schedule(Now + p.Profile.WanderInterval, Wander);

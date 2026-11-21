@@ -58,12 +58,15 @@ public sealed class VolleySupportTests
         var bow = bag.Items(PlayerInventories.Weapon1).Single();
         var reach = new UniqueCatalog(Program.Items).Create("Reach of the Council", new Random(23))!;
         var gem = Game.GemSkillEffects(c).Single();
-        foreach (var (unique, barrage, wall, start) in new[]
+        foreach (var (unique, barrage, wall, angle, start) in new[]
         {
-            (false, false, false, 10d), (false, true, false, 15d),
-            (true, false, false, 20d), (true, false, true, 25d), (true, true, false, 30d)
+            (false, false, false, 0, 10d), (false, true, false, 0, 15d),
+            (true, false, false, 0, 20d), (true, false, true, 50, 25d), (true, true, false, 0, 30d),
+            (true, false, false, -50, 35d)
         })
         {
+            c.PlayerStats[Program.Stats.Key("forking_angle_+%")!.Value] = angle;
+            c.PlayerStats[Program.Stats.Key("chance_to_fork_extra_projectile_%")!.Value] = wall ? 100 : 0;
             // The unique provides Greater Volley to its socketed active gem even with the support unlinked.
             bag.Change(PlayerInventories.Weapon1, bow.Id, item => (unique ? reach : bow.Item) with
             {
@@ -108,8 +111,21 @@ public sealed class VolleySupportTests
                 bool returns = unique && !barrage && Math.Abs(slots[i]) == 3;
                 Assert.Equal(returns, shot.Profile.Returns);
                 Assert.Equal(returns ? 1 : 0, shot.Phase);
-                int forkChildren = unique && !barrage && Math.Abs(slots[i]) == 2 ? 2 : 0;
-                Assert.Equal(forkChildren, shots.Values.Count(p => p.Shot.ParentId == shot.Id));
+                var children = shots.Values.Where(p => p.Shot.ParentId == shot.Id).ToArray();
+                if (unique && !barrage && Math.Abs(slots[i]) == 2)
+                {
+                    // Each side aims 100 cells from the impact cell. The extra child is emitted between the sides.
+                    (int sideX, int sideY) = angle switch { 50 => (38, 92), -50 => (92, 38), _ => (71, 71) };
+                    (int X, int Y)[] offsets = wall ? [(sideX, -sideY), (100, 0), (sideX, sideY)] : [(sideX, -sideY), (sideX, sideY)];
+                    int impactX = (int)Math.Floor(shot.Position.X + .5), laneY = slots[i] > 0 ? 85 : 115;
+                    Assert.Equal(offsets.Length, children.Length);
+                    for (int j = 0; j < offsets.Length; j++)
+                    {
+                        var aim = new ProjectileVector(impactX + offsets[j].X, laneY + offsets[j].Y);
+                        Assert.InRange((children[j].Outbound - (aim - shot.Position).Unit).Length, 0, 1e-10);
+                    }
+                }
+                else Assert.Empty(children);
                 if (!barrage && Math.Abs(slots[i]) == 1)
                 {
                     // A third-point return can also damage these targets. Follow the first-point arrow itself.

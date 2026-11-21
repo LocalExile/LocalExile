@@ -85,8 +85,10 @@ public static class GatewayProjectileModifiers
         if (get("projectile_maximum_range_override") is > 0 and var maximum)
             p = p with { Range = Math.Min(p.Range, maximum) };
         int pierceFailure = Math.Clamp(get("projectile_chance_to_not_pierce_%"), 0, 100);
+        int forkAngle = get("forking_angle_+%");
         ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
+            ForkAnglePercent = target.ForkAnglePercent + forkAngle,
             PierceFailureChancePercent = Math.Max(target.PierceFailureChancePercent, pierceFailure),
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get("projectile_return_%_chance"), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get("returning_projectiles_always_pierce") != 0,

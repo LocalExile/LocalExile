@@ -78,7 +78,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Check Volley and Greater Volley at walls on a live client, including the firing actor with Barrage Support.
   Verify Reach of the Council's first-point pierce, second-point fork and third-point return on both clients,
   including a blocked side, stacked fork generations and Barrage's extra endpoint volleys.
-  Align the shared Fork fan with the contact direction and apply `forking_angle_+%` to its native 90-degree width.
+  Verify the ordinary Fork fan on both clients, including off-axis contacts and the two fork-angle passives.
   Check Ballista Barrage playback on both supported clients, including its muzzle and changes to arrow count between attacks.
   Check Power Siphon target selection on both clients, especially crowded cells, sight at terrain edges and special projectile modifiers.
   Check the Locus Mine detonation boundary at exactly three metres on both clients, including player movement during

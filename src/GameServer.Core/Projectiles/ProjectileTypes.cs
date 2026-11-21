@@ -4,6 +4,7 @@ public readonly record struct ProjectileActorKey(uint Id, int Generation = 0);
 
 public readonly record struct ProjectileVector(double X, double Y)
 {
+    internal (int X, int Y) Cell => ((int)Math.Floor(X + .5), (int)Math.Floor(Y + .5));
     public static ProjectileVector operator +(ProjectileVector a, ProjectileVector b) => new(a.X + b.X, a.Y + b.Y);
     public static ProjectileVector operator -(ProjectileVector a, ProjectileVector b) => new(a.X - b.X, a.Y - b.Y);
     public static ProjectileVector operator *(ProjectileVector a, double value) => new(a.X * value, a.Y * value);
@@ -158,6 +159,7 @@ public sealed record ProjectileProfile(string Id)
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
     public int ForkExtraProjectileChancePercent { get; init; }
+    public int ForkAnglePercent { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
     public double ChainRange { get; init; } = 60;
@@ -316,6 +318,9 @@ public sealed class ProjectileEntity
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal ((int X, int Y) Origin, (int X, int Y) End) ForkSegment { get; private set; }
+    internal void SetForkSegment(ProjectileVector origin) =>
+        ForkSegment = (origin.Cell, (Position + Direction * Remaining).Cell);
     internal bool PiercesAllFromLaunch { get; init; }
     readonly Random? pierceRandom;
     int nextPierceRoll;
