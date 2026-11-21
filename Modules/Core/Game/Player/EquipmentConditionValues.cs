@@ -19,6 +19,9 @@ public static partial class Game
         result["equipped_uncorrupted"] = qualified.Length - result["equipped_corrupted"];
         result["equipped_one_handed_sword"] = qualified.Count(e => catalog.ByHash(e.Item.Item.TypeHash)?.Class
             is "One Hand Sword" or "Thrusting One Hand Sword");
+        // "for each Dagger you're Wielding" (the Dagger Mastery's suppression): the active set's two hands.
+        result["equipped_dagger"] = qualified.Count(e => e.Row is PlayerInventories.Weapon1 or PlayerInventories.Offhand1
+            && catalog.ByHash(e.Item.Item.TypeHash)?.Class is "Dagger" or "Rune Dagger");
         result["equipped_unique_influence_amoung_equipped_non_amulet"] = Enum.GetValues<ItemInfluence>()
             .Count(i => i != ItemInfluence.None && qualified.Any(e => catalog.ByHash(e.Item.Item.TypeHash)?.Class != "Amulet"
                 && e.Item.Item.Influences.HasFlag(i)));
