@@ -732,6 +732,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
     public byte AttachFlags { get; init; }
 
+    /// <summary>Whether the monster blocks walkers on the client (<c>Positioned.blocking</c> in its <c>.ot</c>).
+    /// Non-blocking monsters such as Mirage Archer (<c>Mirage.ot</c>: <c>blocking = false</c>) clear the blocking byte
+    /// and set <c>flags1 0x08</c> (skip walker collision) so they do not trap the player inside a blocking footprint
+    /// where client A* favours 45-degree diagonals.</summary>
+    public bool Blocking { get; init; } = true;
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -767,8 +773,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
             switch (c)
             {
                 // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, blocking 1/0); non-blocking monsters also set
+                // flags1 0x08 + 1 (+0x1e6 bit 0x40, as PetObject does) so walkers pass through them.
+                case "Positioned":
+                    if (Blocking) w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1);
+                    else w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x0a).U8(0).U8(0).U8(1);
+                    break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod

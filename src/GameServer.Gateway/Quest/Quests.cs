@@ -139,6 +139,9 @@ public static partial class Quests
     {
         /// <summary>Advance the newly created NPC once to release its paused entrance animation.</summary>
         public bool AdvanceOnAppearance { get; init; }
+        /// <summary>Room/tile object where the NPC stands on a later visit to a fresh instance while the kill flag is
+        /// set and <see cref="GoneWith"/> is not (when no death site is remembered in this instance).</summary>
+        public string? AtObject { get; init; }
     }
     /// <summary>A dialogue row of the NPC with this option text hands in every carried copy of the item, setting its
     /// remove_flag in the same save, for rows whose own flags do not (Hargan's "Victario's Holdfasts" takes each Platinum
@@ -169,6 +172,9 @@ public static partial class Quests
     /// then. Using it is a <see cref="UsedRule"/>.</summary>
     public sealed record ObjectRule(string Area, string ObjectType, string? TransitionedBy) : Rule
     {
+        /// <summary>Optional flag that returns a transitioned object back to state 1 once set (Prisoner's Gate's
+        /// SpikeBlockage closes on <c>a1q9-RoadBlocked</c> and reopens on <c>a1q9-RoadOpened</c>).</summary>
+        public string? UntransitionedBy { get; init; }
         /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e65ae0) stops at
         /// every Positioned body with a size, open or not (the Apex door, object_size 6, live 2026-11-04).</summary>
         public bool GoneWhenTransitioned { get; init; }
@@ -221,6 +227,8 @@ public static partial class Quests
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);
         public static Rule UsedWith(string area, string objectType, string[] needs, params string[] flags) => new UsedRule(area, objectType, flags, needs);
         public static Rule Object(string area, string objectType, string? transitionedBy = null) => new ObjectRule(area, objectType, transitionedBy);
+        public static Rule Object(string area, string objectType, string? transitionedBy, string? untransitionedBy) =>
+            new ObjectRule(area, objectType, transitionedBy) { UntransitionedBy = untransitionedBy };
         public static Rule Door(string area, string objectType, string openedBy) =>
             new ObjectRule(area, objectType, openedBy) { GoneWhenTransitioned = true };
         public static Rule Spawns(string area, string objectType, string variety) => new SpawnRule(area, objectType, variety);
@@ -238,8 +246,8 @@ public static partial class Quests
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
         public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false,
-            bool advanceOnAppearance = false) =>
-            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance };
+            bool advanceOnAppearance = false, string? atObject = null) =>
+            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward) { AdvanceOnAppearance = advanceOnAppearance, AtObject = atObject };
         public static Rule HandIn(string npc, string option, string item, int? row = null) => new HandInRule(npc, option, item) { Row = row };
         public static Rule TalkRow(int row, params string[] flags) => new TalkRowRule(row, flags);
         public static Rule Portal(string area, string atObject, string to, string type) => new PortalRule(area, atObject, to, type);
@@ -682,8 +690,8 @@ public static partial class Quests
     /// </summary>
     public static class League
     {
-        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, AtlasUnlocked = 296,
-            UnlockedMapDevice = 350;
+        public const int HaveGuild = 2, UnlockedHideouts = 3, HaveHideout = 200, CraftedItemAtBench = 201,
+            AtlasUnlocked = 296, UnlockedMapDevice = 350, VisitedMenagerie = 408;
 
         /// <summary>The client's number of league quest flags (ids 1 to 0x776); a table's league flag column uses 1911 for none.</summary>
         public const int Count = 0x776;
@@ -693,7 +701,8 @@ public static partial class Quests
 
         /// <summary>Niko met in a map: his Delve options (View Subterranean Chart, Visit Mine Encampment) need it. NPCTalk
         /// columns 15-18 are league quest flag ids (16 required, 18 refused: the first-meeting "Talk to Niko" has 68 there).</summary>
-        public const int DelveEncounterComplete = 68;
+        public const int DelveCraftedDynamite = 19, DelveCraftedFlares = 20, DelveSulphiteUnlocked = 23,
+            DelveEncounterComplete = 68;
 
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
@@ -702,7 +711,7 @@ public static partial class Quests
         public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
-            DelveEncounterComplete, .. WorldPanelPins];
+            DelveSulphiteUnlocked, DelveEncounterComplete, .. WorldPanelPins];
 
         /// <summary>The bits the client keeps for these ids (id − 1).</summary>
         public static IEnumerable<int> Bits(IEnumerable<int> ids) => ids.Where(id => id > 0).Select(id => id - 1);

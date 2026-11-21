@@ -10,8 +10,7 @@ public static partial class Game
     /// <summary>Whether a stash tab goes out on area entry, so shop prices see the currency in it: a currency or grid tab
     /// (the only ones that hold shop currency) with currency (class StackableCurrency) in it.</summary>
     public static bool PreloadsForPrices(byte? tabType, IEnumerable<InventoryItem> inside, ItemCatalog catalog) =>
-        tabType is byte type && (type == StashRules.Currency || StashRules.IsGrid(type))
-        && inside.Any(i => catalog.ByHash(i.Item.TypeHash)?.Class == "StackableCurrency");
+        StashRules.PreloadsForPrices(tabType, inside, catalog);
 
     // The characters in god mode, by name, for the Gateway's lifetime: every area is a new connection, so without this an
     // area change or a relog silently ended /god.
@@ -67,16 +66,20 @@ public static partial class Game
                 string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? conn.Stance : null;
                 string effectId = StanceCatalog.IsSource(effect)
                     ? StanceCatalog.RuntimeEffectId(effect, conn.Stance) : selected;
+                bool hasSource = OwnAuraRestriction.IsAura(supported.Stats);
+                var (artVariation, hideVisual, sourceVisual, buffVisual) =
+                    ReservationCosmeticVisualsForGem(conn, gem.Gem, effectId, hasSource);
                 var candidate = new AuraCatalog.Aura(gem.Id, gem.Effect, effectId, gem.Name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance),
                     reservation.ManaFlat, reservation.ManaPercent,
                     LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
                     Level: supported.Level, Quality: supported.Quality,
-                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    SourceBuff: hasSource ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
-                    IsHerald: IsHeraldAura(effectId));
+                    IsHerald: IsHeraldAura(effectId),
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }
@@ -124,6 +127,12 @@ public static partial class Game
     public static async Task PlayerEnteredArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         conn.PlayerSent = true;
+        if (conn.Layout.Hash == StashCatalog.MenagerieHub)
+        {
+            bool visited;
+            lock (conn.Monsters) visited = conn.LeagueQuestFlags.Contains(Quests.League.VisitedMenagerie);
+            if (!visited) await SetLeagueQuestFlags(remote, stream, ciphers, conn, [Quests.League.VisitedMenagerie]);
+        }
         await StartGracePeriod(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, [], "0x01c1 passive buffs (entering the area)", atGate: () => PassiveBuffAuras.Presentation(conn));
     }
@@ -423,13 +432,7 @@ public static partial class Game
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
-        bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
-        if (bloodMagic)
-        {
-            life = (int)Math.Min(cost, int.MaxValue);
-            cost = 0;
-        }
-        else if (Lifetap.ConvertsCostToLife(own))
+        if (Lifetap.ConvertsCostToLife(own, player))
         {
             // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
             // therefore zero: the two conversions do not stack into 140%.
@@ -1085,9 +1088,9 @@ public static partial class Game
             }
             if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds, tickNow);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
-            if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
-                await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
+            // Recovery debits the resource selected when Bladefall started.
+            if (conn.BladefallTrarthus is { } blades && (blades.PaysLife ? blades.OutOfLife : conn.PlayerMana == 0))
+                await EndBladefallTrarthus(remote, stream, ciphers, conn, blades.PaysLife ? "out of life" : "out of mana");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
             // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
@@ -1248,6 +1251,7 @@ public static partial class Game
                 if (dead)
                 {
                     ClearPlayerDecay(conn);
+                    ClearCorruptedBlood(conn);
                     ClearEssenceAuraExposure(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
@@ -1310,6 +1314,12 @@ public static partial class Game
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, lifeCap, life, ref flaskCarry);
+                    if (conn.BladefallTrarthus is { PaysLife: true, Ended: false, OutOfLife: false } blades)
+                    {
+                        uint payment = Lifetap.PayOngoingLife(lifeAfter, blades.CostPerMinute * seconds / 60,
+                            ref blades.LifeCostCarry, out blades.OutOfLife);
+                        conn.PlayerLife = lifeAfter -= payment;
+                    }
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
                     {

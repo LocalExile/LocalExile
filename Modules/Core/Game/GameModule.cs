@@ -245,6 +245,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
         conn.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(conn);
+        Rules.ClearCorruptedBlood(conn);
         Rules.ClearEssenceAuraExposure(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();

@@ -271,7 +271,7 @@ public static partial class Game
             foreach (string instantStat in new[] { "base_skill_is_instant", "skill_is_instant" })
                 if (Stats.Key(instantStat) is uint instant) own[instant] = 0;
         foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "es_cost", "base_es_cost",
-            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
+            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_mana_cost_%_per_minute", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
         // Global added damage on support gems applies to this skill, not to the character or other link groups.
         foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })

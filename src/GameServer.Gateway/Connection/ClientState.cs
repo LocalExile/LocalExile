@@ -33,10 +33,26 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
+public sealed record CorruptedBloodOnHit(int Stacks, double Seconds, int PhysicalPerMinute, int AverageHitPercentPerMinute)
+{
+    public static CorruptedBloodOnHit? From(Func<string, int> stat)
+    {
+        int cleave = stat("corrupted_blood_cleave_stacks_to_add");
+        int stacks = cleave > 0 ? cleave : stat("corrupted_blood_on_hit_num_stacks");
+        if (stacks <= 0) return null;
+        int duration = stat("corrupted_blood_on_hit_duration");
+        // shortcut: cleave rows omit duration; use the other three-stack beam's five seconds until a retail cleave trace confirms it.
+        double seconds = duration > 0 ? duration / 1000d : cleave > 0 ? 5 : 0;
+        return new(stacks, seconds, cleave > 0 ? stat("base_physical_damage_to_deal_per_minute") : 0,
+            stat("corrupted_blood_on_hit_%_average_damage_to_deal_per_minute_per_stack"));
+    }
+}
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
+    public CorruptedBloodOnHit? CorruptedBlood { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
@@ -54,6 +70,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
+    public double CooldownSeconds { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
     /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
     public bool DualWielding { get; init; }
@@ -212,6 +230,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
+    /// <summary>When a non-kit monster's cooldown-gated attack (e.g. BatScreech, MotherOfFlamesMagmaOrb) is ready again.</summary>
+    public double CooldownReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
@@ -550,7 +570,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
 public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
 {
     public double NextVolley;
-    public int ManaPerMinute;
+    public int CostPerMinute;
+    public bool PaysLife, OutOfLife;
+    public double LifeCostCarry;
     public bool Ended;
     public readonly Queue<(uint Id, double Landed, double Gone)> Blades = new();
 }
@@ -1202,6 +1224,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public bool TutorialGettingUp;
     public TaskCompletionSource? TutorialDialogueSkipped;
     public string? NpcFinishFlag;
+    public int? NpcFinishLeagueFlag;
     // The dialogue row whose script acts when its talk ends (DoNPCChat, FinishNPCChat, SendOpenScreen, AreaTransitionTo:
     // Game.EndTalkScript), or null.
     public NpcCatalog.Talk? NpcTalkScript;

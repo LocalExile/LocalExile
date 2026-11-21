@@ -23,6 +23,9 @@ public sealed class QuestObjectsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
+            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/League/Delve/DelveMinerHub"
+            or "Metadata/NPC/League/Bestiary/EinharMenagerie");
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
         module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));
@@ -39,6 +42,11 @@ public sealed class QuestObjectsModule : IModule
             await SpawnOpeningTutorial(remote, stream, ciphers, conn);
             await SpawnGlyphQuest(remote, stream, ciphers, conn);
             await SpawnTrialObjects(remote, stream, ciphers, conn);
+            // Existing saves that spoke to HelenaTown before she was gated have HelenaIntroduced without a2q6-HelenaInTown,
+            // leaving Greust's reward unavailable after a2q9-PoisonedTree blocked Baleful Gem drops.
+            if (conn.Layout.Id == Act2Areas.ForestEncampment && ClientHasQuestFlag(conn, "HelenaIntroduced")
+                && !ClientHasQuestFlag(conn, "a2q6-HelenaInTown"))
+                await SetQuestFlags(remote, stream, ciphers, conn, ["a2q6-HelenaInTown"]);
             // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
             await StartQuestArea(remote, stream, ciphers, conn);
             await TickBeacon(conn);

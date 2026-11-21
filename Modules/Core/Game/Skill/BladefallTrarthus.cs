@@ -26,10 +26,12 @@ public static partial class Game
         BladefallTrarthusState state;
         lock (conn.Monsters)
         {
-            if (conn.BladefallTrarthus is not null || conn.PlayerLife == 0 || conn.PlayerMana == 0 || conn.Closed || conn.LeavingArea) return false;
+            bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, CharacterPlayerStats(conn));
+            if (conn.BladefallTrarthus is not null || conn.PlayerLife == 0 || (paysLife ? conn.PlayerLife <= 1 : conn.PlayerMana == 0) || conn.Closed || conn.LeavingArea) return false;
+            int rate = BladefallVolleys.ManaPerMinute(Own("base_mana_cost_%_per_minute"), paysLife ? conn.Pools.Life : conn.Pools.Mana);
             state = new(conn.NextBuff++, conn.NextBuff++, skillId)
             {
-                ManaPerMinute = BladefallVolleys.ManaPerMinute(Own("base_mana_cost_%_per_minute"), conn.Pools.Mana),
+                PaysLife = paysLife, CostPerMinute = rate,
                 NextVolley = conn.Clock.Elapsed.TotalSeconds + BladefallVolleySeconds(conn, Own),
             };
             conn.BladefallTrarthus = state;
@@ -37,10 +39,10 @@ public static partial class Game
         await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, state.CostBuff, costRow, PlayerId, skillId,
                 activeSkill: icon, list: [0]),
             $"0x01c1 player buff {state.CostBuff}: {BladefallVolleys.CostBuff} (BuffDefinitions row {costRow}) from skill 0x{skillId:x4}");
-        await SendBladefallManaSpent(remote, stream, ciphers, state.ManaPerMinute);
+        await SendBladefallCost(remote, stream, ciphers, state.PaysLife, state.CostPerMinute);
         await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, state.BladesBuff, bladesRow, PlayerId, skillId, activeSkill: icon),
             $"0x01c1 player buff {state.BladesBuff}: {BladefallVolleys.BladesBuff} (BuffDefinitions row {bladesRow}): " +
-            $"a volley every {BladefallVolleySeconds(conn, Own) * 1000:0} ms, {state.ManaPerMinute / 60.0:0.#} mana per second");
+            $"a volley every {BladefallVolleySeconds(conn, Own) * 1000:0} ms, {state.CostPerMinute / 60.0:0.#} {(state.PaysLife ? "life" : "mana")} per second");
         _ = RunBladefallTrarthus(remote, stream, ciphers, conn, state);
         return true;
     }
@@ -49,15 +51,15 @@ public static partial class Game
         Math.Max(.05, BladefallVolleys.FrequencyMs(own("bladefall_base_volley_frequency_ms"),
             own("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana) / 1000.0);
 
-    static Task SendBladefallManaSpent(string remote, NetworkStream stream, ConnectionCiphers ciphers, int perMinute) =>
-        Stats.Key("mana_spent_per_minute") is uint key
+    static Task SendBladefallCost(string remote, NetworkStream stream, ConnectionCiphers ciphers, bool life, int perMinute) =>
+        Stats.Key(life ? "life_spent_per_minute" : "mana_spent_per_minute") is uint key
             ? Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(key, perMinute)]),
-                $"0x01b3 player mana_spent_per_minute {perMinute}")
+                $"0x01b3 Bladefall {(life ? "life" : "mana")} cost per minute {perMinute}")
             : Task.CompletedTask;
 
     // The mana Bladefall of Trarthus spends over this recovery step (RunResourceRecovery takes it off with regeneration).
     public static double BladefallManaSpent(ClientState conn, double seconds) =>
-        conn.BladefallTrarthus is { Ended: false } state ? state.ManaPerMinute / 60.0 * seconds : 0;
+        conn.BladefallTrarthus is { Ended: false, PaysLife: false } state ? state.CostPerMinute / 60.0 * seconds : 0;
 
     public static async Task EndBladefallTrarthus(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
@@ -72,7 +74,7 @@ public static partial class Game
         await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, state.CostBuff),
             $"0x01c2 player buff {state.CostBuff}: Bladefall of Trarthus ends ({why})");
         await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, state.BladesBuff), null);
-        await SendBladefallManaSpent(remote, stream, ciphers, 0);
+        await SendBladefallCost(remote, stream, ciphers, state.PaysLife, 0);
     }
 
     // The volleys while it runs, then the blades' last moments after it ends; the connection's end (an area change)
