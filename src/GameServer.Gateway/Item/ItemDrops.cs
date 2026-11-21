@@ -116,9 +116,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     readonly Lazy<Dictionary<string, double>> _scarabWeights = new(() => PublishedWeights("scarab"));
 
     /// <summary>An obtainable active or support gem from the league's ordinary drop pool at this level.</summary>
-    public ItemCatalog.BaseType? GemBase(Random rng, int level)
+    public ItemCatalog.BaseType? GemBase(Random rng, int level) => GemBase(rng, level, null);
+
+    public ItemCatalog.BaseType? GemBase(Random rng, int level, Predicate<ItemCatalog.BaseType>? eligible)
     {
         var gems = Droppable(_pools.Value.Gems, level);
+        if (eligible is not null) gems = gems.FindAll(eligible);
         return gems.Count == 0 ? null : gems[rng.Next(gems.Count)];
     }
 

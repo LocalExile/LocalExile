@@ -189,6 +189,15 @@ public static class SideAreaVessels
             if (DropsFor(conn).GemBase(Random.Shared, level) is { } gem)
                 rewards.Add(new(ItemCatalog.Create(gem) with { ItemLevel = 1, Quality = 23, Corrupted = true }, gem));
 
+        int level21Gems = Count("map_vaal_vessel_drop_X_level_21_gems");
+        for (int n = 0; n < level21Gems; n++)
+            if (DropsFor(conn).GemBase(Random.Shared, level, t => catalog.Gem(t)!.MaxLevel >= 20) is { } type)
+            {
+                var gem = catalog.Gem(type)!;
+                int experience = gem.MaxLevel == 20 ? -1 : gem.ExperienceFor(21);
+                rewards.Add(new(ItemCatalog.Create(type) with { ItemLevel = 1, Corrupted = true, GemExperience = experience }, type));
+            }
+
         int orbs = Count("map_vaal_vessel_drop_X_vaal_orbs");
         if (orbs <= 0) return rewards;
         var orb = catalog.Find(CurrencyEffects.VaalOrb)!;
