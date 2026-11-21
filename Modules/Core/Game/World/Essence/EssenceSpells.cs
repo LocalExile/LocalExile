@@ -43,6 +43,7 @@ public static partial class MapEssences
         "RepeatedPulseDegen" => "chaos",
         "EssenceDaemonGrab" => "grab",
         "EssenceDaemonFireRuneTrapCluster" => "rune",
+        "EssenceFrostBomb" => "frostbomb",
         _ => "",
     };
 
@@ -145,6 +146,11 @@ public static partial class MapEssences
             if (spell.Kind == "rune")
             {
                 await CastRunes(conn, monster, target, spell);
+                return;
+            }
+            if (spell.Kind == "frostbomb")
+            {
+                await CastFrostBomb(conn, monster, target, spell);
                 return;
             }
             // The cast originates from the rare's live position, not the spot captured when the tick queued it: the rare

@@ -54,9 +54,9 @@ public static partial class MapEssences
                 // cooldown specials, and BossKits.Choose's fallback then re-casts the last special every tick, freezing the
                 // rare in place; the rare keeps its default attack and fights normally instead.
                 if (Get("cast_when_triggered_by_other_skill_%") != 0) continue;
-                // A trap / rune cluster is placed on the ground and triggered by stepping on it, not swung as a hit: the
-                // periodic caster lays it (EssenceRage), so it stays out of the hit kit.
-                if (Get("is_trap") != 0 || Get("base_skill_is_trapped") != 0) continue;
+                // A spell the periodic caster handles on its own timer (a pulse, the grab, a rune cluster, a frost bomb) is
+                // not a swung hit: it stays out of the hit kit so it is not cast twice.
+                if (EssenceSpellKind(catalog.EffectId(effect)).Length > 0) continue;
                 double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
                 ushort id = (ushort)(0x4000 + kit.Count);
                 var attack = BossKits.AttackFor(conn, variety, level, effect, id);
