@@ -149,8 +149,12 @@ public static partial class MapEssences
                 Console.WriteLine($"[map-content] essence grab by 0x{monster.ObjectId:x} at ({trapAt.X}, {trapAt.Y})");
                 return;
             }
+            // The cast originates from the rare's live position, not the spot captured when the tick queued it: the rare
+            // keeps fighting between the queue and the cast, and a stale origin reads as the cast coming from somewhere the
+            // monster no longer is (a client/server position desync).
+            lock (conn.Monsters) at = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             uint daemon = await ShowPulseDaemon(conn, spell, at, monster.ObjectId);
-            if (spell.Kind is "cold" or "fire" or "lightning") FireNova(conn, daemon, spell);
+            if (spell.Kind is "cold" or "fire" or "lightning") FireNova(conn, monster, spell);
             await Task.Delay(TimeSpan.FromSeconds(0.5));
             if (!conn.Closed && !conn.LeavingArea)
             {
@@ -257,26 +261,101 @@ public static partial class MapEssences
     static IEnumerable<ClientState> PlayersNear(ClientState conn, (int X, int Y) at, double radius) => Members(conn)
         .Where(c => c.PlayerSent && c.PlayerLife > 0 && Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) <= radius);
 
-    /// <summary>The resistance pulse's nova: a ring of the essence's projectiles (Creeping Frost / flame / molten) fired
-    /// through the monster projectile runtime (the Rampage nova pattern), so the client draws them and the server simulates
-    /// their hits on the player. A daemon action alone drew no projectiles — the runtime creates the flying objects.</summary>
-    static void FireNova(ClientState conn, uint daemonId, SpecialSpell spell)
+    /// <summary>The resistance pulse's nova: a ring of the essence's projectiles fired through the monster projectile
+    /// runtime (the Rampage nova pattern), so the client draws them and the server simulates their hits on the player. A
+    /// daemon action alone drew no projectiles — the runtime creates the flying objects. The shot is the rare's own (it
+    /// originates from the rare's live position, not the pulse daemon's): Hatred fires Creeping Frost (ArcticBreath) and
+    /// leaves a chilling trail, Anger fires the fire Creeping Frost (FlameBreath) with its fire damage, and Wrath
+    /// is a lobbed molten mortar (its MonsterProjectile row) the runtime lands in a ring around the rare.</summary>
+    static void FireNova(ClientState conn, SpawnedMonster monster, SpecialSpell spell)
     {
-        if (daemonId == 0) return;
-        SpawnedMonster? daemon;
-        lock (conn.Monsters) conn.Monsters.TryGetValue(daemonId, out daemon);
-        if (daemon is null || daemon.Dead || daemon.Variety is null) return;
+        if (monster.Dead || monster.Life <= 0 || monster.Variety is null) return;
         var catalog = SkillsFor(conn);
-        string projId = spell.Kind == "lightning" ? "Metadata/Projectiles/MortarMolten" : "Metadata/Projectiles/ArcticBreath";
-        if (catalog.Projectile(projId) is not { } meta) return;
-        int count = ScaledSpellCount(spell.Effect, spell.Tier, 16);
-        var projectile = new SkillCatalog.MonsterProjectileInfo(meta.Id, meta.Speed, false, 1)
-            { Count = count, SpreadRadians = Math.PI * 2 };
-        var attack = BossKits.AttackFor(conn, daemon.Variety, (byte)AreaLevel(conn), spell.Effect, 0x4000);
+        var stats = catalog.EffectStats(spell.Effect, 1).ToDictionary(s => s.Item1, s => s.Item2);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int count = ScaledSpellCount(spell.Effect, spell.Tier, Get("number_of_additional_projectiles") + 1);
+        SkillCatalog.MonsterProjectileInfo projectile;
+        if (catalog.MonsterProjectile(spell.Effect, includeWeaponAttacks: true) is { } mortar)
+            // Wrath: the skill's own lobbed mortar. A full-turn spread makes the runtime land each shell its landing
+            // distance out in its own direction — a ring of explosions around the rare.
+            projectile = mortar with { Count = count, SpreadRadians = Math.PI * 2 };
+        else
+        {
+            // Hatred's Creeping Frost (ArcticBreath), or Anger's fire Creeping Frost (FlameBreath — the fire arctic breath
+            // its EssenceTriggeredFlameBreath effect names).
+            string projId = spell.Kind == "fire" ? "Metadata/Projectiles/FlameBreath" : "Metadata/Projectiles/ArcticBreath";
+            if (catalog.Projectile(projId) is not { } meta) return;
+            projectile = new SkillCatalog.MonsterProjectileInfo(meta.Id, meta.Speed, false, 1)
+                { Count = count, SpreadRadians = Math.PI * 2 };
+        }
+        var attack = BossKits.AttackFor(conn, monster.Variety, (byte)AreaLevel(conn), spell.Effect, 0x4000);
         var session = ProjectilesFor(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
-        var use = MonsterProjectileUse(session, daemonId, daemon, attack, projectile, daemon.ActionGeneration);
-        session.Schedule(ProjectileRuntime.Time(ProjectileWorldTime(conn)), () => !daemon.Dead && !conn.Closed, () => use);
-        Console.WriteLine($"[map-content] essence {spell.Kind} nova: {count} {meta.Id} from daemon 0x{daemonId:x}");
+        var use = MonsterProjectileUse(session, monster.ObjectId, monster, attack, projectile, monster.ActionGeneration);
+        session.Schedule(ProjectileRuntime.Time(ProjectileWorldTime(conn)), () => !monster.Dead && monster.Life > 0 && !conn.Closed, () => use);
+        if (spell.Kind == "cold") FrostTrail(conn, monster, count);
+        Console.WriteLine($"[map-content] essence {spell.Kind} nova: {count} {projectile.Metadata}{(projectile.Lobbed ? " (lobbed)" : "")} from rare 0x{monster.ObjectId:x}");
+    }
+
+    /// <summary>Hatred's Creeping Frost trail: a line of small chilling-ground ice crystals along each nova projectile's
+    /// radial path (the flame-dash trail pattern), lasting the skill's chilling duration. A player walking over them is
+    /// chilled (the strongbox ice-nova ground pattern, <see cref="TickTrail"/>).</summary>
+    const string TrailArt = "Metadata/Effects/Spells/ground_effects/ice/ice.ao";
+    sealed record TrailZone((int X, int Y) At, int Radius, double Until, uint Art);
+
+    static void FrostTrail(ClientState conn, SpawnedMonster monster, int count)
+    {
+        if (!Areas.TryGetValue(conn.Instance, out var area)) return;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var at = monster.Walk.Position(now);
+        var aim = conn.Walk.Position(now);
+        double facing = Math.Atan2(aim.Y - at.Y, aim.X - at.X);
+        double until = Now + 7.5; // base_skill_effect_duration of EssenceArcticBreathNova
+        for (int i = 0; i < count; i++)
+        {
+            double angle = facing + Math.Tau * (i / (double)count - .5);
+            for (double d = 11; d <= 34; d += 11)
+            {
+                var spot = conn.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * d), at.Y + (int)Math.Round(Math.Sin(angle) * d)));
+                uint id = conn.TakeObjectId();
+                lock (conn.Monsters)
+                {
+                    conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        new EffectObject(spot.X, spot.Y, TrailArt) { Flags0 = EffectObject.FixedRotation, Scale = .6f }.Blob()),
+                        null, WorldId: id, CreatesObject: true));
+                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+                }
+                lock (area.Trail) area.Trail.Add(new(spot, 3, until, id));
+            }
+        }
+    }
+
+    /// <summary>Called from the essence tick: expires the trail's ice crystals (their art removed) and chills a player who
+    /// stands on one (the strongbox chilling-ground pattern). The chill refreshes while they remain on the ice.</summary>
+    static void TickTrail(ClientState conn)
+    {
+        if (!Areas.TryGetValue(conn.Instance, out var area)) return;
+        double now = Now;
+        TrailZone[] zones;
+        lock (area.Trail)
+        {
+            foreach (var gone in area.Trail.Where(z => z.Until <= now).ToArray())
+            {
+                area.Trail.Remove(gone);
+                lock (conn.Monsters)
+                    conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(gone.Art), null, WorldId: gone.Art, RemovesObject: true));
+            }
+            zones = [.. area.Trail];
+        }
+        if (zones.Length == 0 || conn.PlayerLife <= 0 || conn.Paused || conn.Immune || InGracePeriod(conn)) return;
+        double at = conn.Clock.Elapsed.TotalSeconds;
+        var here = conn.Walk.Position(at);
+        if (!zones.Any(z => Dist(here, z.At) <= z.Radius)) return;
+        const int chill = 20;
+        if (conn.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Chill, at) >= chill) return;
+        var stats = CharacterPlayerStats(conn);
+        lock (conn.Monsters)
+            ApplyPlayerAilmentsLocked(conn, at, a => a.Inflict(PlayerElementalAilments.Kind.Chill, chill, .3, at,
+                name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom));
     }
 
     /// <summary>The resistance pulse: -10% of its element on the players near the rare for the pulse's duration. The same

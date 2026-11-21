@@ -187,6 +187,7 @@ public static partial class MapEssences
         // special spells (pulses/grab) alongside their ordinary AI. Runs before the release/dirty work below.
         TickEffects(conn);
         TickBuffs(conn);
+        TickTrail(conn);
         await CastSpecialSpells(conn);
         // Crystal Resonance: apply pending inherited essences to the map boss once it exists (it may be held back far
         // from the player until approached); a cheap check, the Monsters scan runs only while something is pending.

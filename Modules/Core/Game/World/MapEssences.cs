@@ -41,6 +41,8 @@ public static partial class MapEssences
         /// <summary>Per released rare, its special essence spells (the pulses/grab the hit kit drops) and each spell's
         /// next-ready time. Runtime only; rebuilt from the monolith's essences after a restore.</summary>
         public readonly Dictionary<uint, CastState> Casting = [];
+        /// <summary>Hatred's Creeping Frost chilling trail (EssenceSpells.cs): the ice crystals left on the ground.</summary>
+        public readonly List<TrailZone> Trail = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
