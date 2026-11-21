@@ -61,7 +61,7 @@ public class StashTabReloadTests : IDisposable
     }
 
     [Fact]
-    public async Task A_repeated_unique_parent_request_keeps_its_categories_registered_until_switching_away()
+    public async Task Unique_collection_categories_remain_registered_after_another_tab_loads()
     {
         var catalog = new ItemCatalog("data");
         TestEnvironment.OpenOwnSaves("uniquereopen");
@@ -129,14 +129,19 @@ public class StashTabReloadTests : IDisposable
                 Assert.Equal(inventories[row.Index], row.Inventory);
             }
 
-            // Leaving the collection still unloads the whole old family, while retaining shop currency.
-            var leaving = conn.StashTabsSent.Where(t => !payments.ContainsKey(t)).ToArray();
+            // The native panel can receive a delayed request for its old tab while still displaying Unique.
             await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, 1, InstanceStash.Personal);
-            foreach (int tab in leaving) wire.Expect(InstanceInventories.RemoveInventory(stash.InventoryOf(tab)));
-            wire.Expect(InstanceInventories.AddInventory(stash.InventoryOf(1), stash.Inventory(1).Slot, 0, stash.Inventory(1).Items));
-            wire.Expect(InstanceStash.TabList(stash.Records(null, conn.StashTabsSent)));
-            ExpectLoaded(wire, stash, 1, register: false);
-            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab]));
+            ExpectLoaded(wire, stash, 1, register: true);
+            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab, parent, .. children]));
+            var afterOtherTab = stash.Records(null, conn.StashTabsSent);
+            Assert.All(children, child =>
+            {
+                var row = afterOtherTab[child];
+                Assert.True(row.Loaded);
+                Assert.Equal(inventories[child], row.Inventory);
+            });
+            await Game.SendStashTab("unique-reopen-test", wire.Stream, wire.Ciphers, conn, (ushort)children[0], InstanceStash.Personal);
+            ExpectLoaded(wire, stash, children[0], register: false);
             Assert.Equal(4, stash.CountOf(currency.Hash));
 
             // A payment can still change both retained inventories directly, without another C0/C8 registration.
@@ -152,7 +157,7 @@ public class StashTabReloadTests : IDisposable
                 wire.Expect(InstanceItems.InventoryChange(stash.InventoryOf(tab), 1, [payment.Id], []));
             }
             Assert.Equal(0, stash.CountOf(currency.Hash));
-            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab]));
+            Assert.True(conn.StashTabsSent.SetEquals([0, 1, currencyTab, parent, .. children]));
         }
         finally
         {

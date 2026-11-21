@@ -1,0 +1,9 @@
+{
+  "id": "Deepwater",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "Game"
+  ],
+  "assembly": "bin/deepwater.dll"
+}

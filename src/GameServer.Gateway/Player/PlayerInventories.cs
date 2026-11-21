@@ -163,6 +163,29 @@ public sealed partial class PlayerInventories
     public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
         PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
 
+    /// <summary>The single item that placing the held item at (<paramref name="x"/>, <paramref name="y"/>) in
+    /// <paramref name="row"/> would swap out onto the cursor, or null when nothing (or more than one item) is in the way,
+    /// or when the move would merge into a stack or split one off.</summary>
+    public InventoryItem? DisplacedByPlace(byte row, int x, int y, Func<Item, Shape?> shapeOf, bool one = false)
+    {
+        lock (_lock)
+        {
+            // PlaceCore's own checks, changing nothing: what it would swap out, before its stack rules.
+            if (PlaceCore(row, x, y, shapeOf, out _, expandedAllowed: true, preview: true) is not { Displaced: { } under, Held: var held }) return null;
+            if (one && held.Item.StackSize > 1) return null;
+            return under.Item.TypeHash == held.Item.TypeHash && shapeOf(held.Item) is { MaxStack: > 1 } shape
+                && under.Item.StackSize < shape.MaxStack ? null : under;
+        }
+    }
+
+    /// <summary>The single item that clicking the held item onto <paramref name="itemId"/> in <paramref name="row"/>
+    /// would swap out onto the cursor, or null when it would not swap a single item.</summary>
+    public InventoryItem? DisplacedByMerge(byte row, uint itemId, Func<Item, Shape?> shapeOf, bool one = false)
+    {
+        lock (_lock)
+            return ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is { } target ? DisplacedByPlace(row, target.X, target.Y, shapeOf, one) : null;
+    }
+
     Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
         InventoryItem? incoming = null, bool preview = false)
     {

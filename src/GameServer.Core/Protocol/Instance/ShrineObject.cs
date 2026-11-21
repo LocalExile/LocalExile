@@ -34,7 +34,7 @@ public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, floa
             {
                 case "Positioned":
                     w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
+                    if (Height is float z) w.I32((int)MathF.Round(-z / 7.8125f)).F32(z);
                     w.U8(0).U8(1);
                     break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;

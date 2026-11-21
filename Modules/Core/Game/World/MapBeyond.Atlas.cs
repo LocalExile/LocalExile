@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using static Game;
@@ -5,12 +6,15 @@ using static Program;
 
 /// <summary>
 /// Beyond drops (Tainted currency, faction notables, corrupted drops), experience scaling, Scarab of Haemophilia rare
-/// mod stealing (20 s), and Demonic Power's 60-second boss buffs (K'Tash, Ghorr, Beidat).
+/// mod stealing (20 s), and Demonic Power's map-instance boss buffs (K'Tash, Ghorr, Beidat).
 /// </summary>
 public static partial class MapBeyond
 {
     const double HaemophiliaSeconds = 20;
-    const double BossBuffSeconds = 60;
+    const string BossBuffsKey = "Beyond/boss-buffs";
+    // In 3.29 BuffTemplates row 634 (BeyondBossBuff2), damage_taken_+%_final_from_beyond_boss_buff carries +10 even
+    // though BuffDefinitions row 2423 (Ghorr's Magnificence) states "taking less Damage" (GGG fixed this sign typo in
+    // 3.30.0). The buff's stats carry it as -10, a final damage-taken stat handed over to IncomingResourceDefences.
     public const string BossLessDamageStat = "damage_taken_+%_final_from_beyond_boss_buff";
 
     // ---- Beyond monster kills: Haemophilia & Demonic Power ----
@@ -29,7 +33,9 @@ public static partial class MapBeyond
             conn.StolenMods.Steal(kill.Monster.Mods, ItemsFor(conn).Mods, conn.Clock.Elapsed.TotalSeconds, HaemophiliaSeconds);
         }
 
-        // Demonic Power (Atlas notable / Idol): slaying a Beyond boss grants its Magnificence buff for 60 s.
+        // Demonic Power (Atlas notable / Idol): in 3.24–3.29, slaying a Beyond boss grants its Magnificence buff for
+        // the rest of the map instance (BuffTemplates __col7 = 0 / __col8 = 1, BuffDefinitions CancelOnDeath = 0; the
+        // 60 s timer was only introduced in 3.30.0).
         if (BeyondCatalog.ByBossVariety(kill.VarietyId) is { BossBuffRow: > 0 } bossFaction
             && Stat(conn, "map_beyond_boss_grants_special_buff_on_death") > 0)
         {
@@ -37,44 +43,114 @@ public static partial class MapBeyond
         }
     }
 
-    // ---- Demonic Power 60-second boss buffs ----
+    // ---- Demonic Power map-instance boss buffs ----
+
+    sealed class InstanceBossBuffStore
+    {
+        public readonly Dictionary<string, List<int>> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
+    }
 
     sealed class BossBuffState
     {
-        public readonly List<(int FactionRow, double Left, ushort BuffInstance, bool Refresh)> Active = [];
+        public readonly List<(int FactionRow, ushort BuffInstance)> Active = [];
         public Dictionary<uint, int>? Stats;
+        public volatile bool Pending;
     }
 
+    static readonly RuleTable<InstanceState, InstanceBossBuffStore> InstanceBossBuffs = new();
     static readonly RuleTable<ClientState, BossBuffState> BossBuffs = new();
+
+    static InstanceBossBuffStore LoadInstanceBossBuffs(InstanceState instance)
+    {
+        return InstanceBossBuffs.GetValue(instance, static inst =>
+        {
+            var store = new InstanceBossBuffStore();
+            if (inst.ContentState.TryGetValue(BossBuffsKey, out string? saved)
+                && JsonSerializer.Deserialize<Dictionary<string, List<int>>>(saved) is { } parsed)
+            {
+                foreach (var (name, rows) in parsed)
+                    if (rows is { Count: > 0 })
+                        store.ByCharacter[name] = [.. rows.Distinct()];
+            }
+            return store;
+        });
+    }
 
     static void GrantBossBuff(ClientState conn, BeyondCatalog.Faction faction)
     {
+        string character = CharacterName(conn);
+        if (conn.Instance is { } instance)
+        {
+            var store = LoadInstanceBossBuffs(instance);
+            lock (store)
+            {
+                if (!store.ByCharacter.TryGetValue(character, out var rows))
+                    store.ByCharacter[character] = rows = [];
+                if (!rows.Contains(faction.Row))
+                {
+                    rows.Add(faction.Row);
+                    instance.ContentState[BossBuffsKey] = JsonSerializer.Serialize(store.ByCharacter);
+                }
+            }
+        }
+
+        var state = BossBuffs.GetValue(conn, _ => new());
+        bool added = false;
+        lock (state)
+        {
+            if (!state.Active.Any(b => b.FactionRow == faction.Row))
+            {
+                state.Active.Add((faction.Row, 0));
+                state.Pending = true;
+                RebuildBuffCacheLocked(state);
+                added = true;
+            }
+        }
+        if (added)
+            Console.WriteLine($"[beyond] {character} gains {faction.Id} boss buff ({faction.BossBuffRow}) for this map instance");
+    }
+
+    static async Task RestoreBossBuffs(ClientState conn)
+    {
+        if (conn.Instance is not { } instance) return;
+        if (!InstanceBossBuffs.TryGetValue(instance, out var store) && !instance.ContentState.ContainsKey(BossBuffsKey))
+            return;
+        store ??= LoadInstanceBossBuffs(instance);
+        int[]? savedRows = null;
+        string character = CharacterName(conn);
+        lock (store)
+            if (store.ByCharacter.TryGetValue(character, out var rows) && rows.Count > 0)
+                savedRows = [.. rows];
+        if (savedRows is null) return;
+
         var state = BossBuffs.GetValue(conn, _ => new());
         lock (state)
         {
-            int existing = state.Active.FindIndex(b => b.FactionRow == faction.Row);
-            if (existing >= 0)
+            bool changed = false;
+            foreach (int row in savedRows)
             {
-                var (_, _, inst, _) = state.Active[existing];
-                state.Active[existing] = (faction.Row, BossBuffSeconds, inst, true);
+                if (state.Active.Any(b => b.FactionRow == row)) continue;
+                state.Active.Add((row, 0));
+                changed = true;
             }
-            else
-                state.Active.Add((faction.Row, BossBuffSeconds, 0, true));
-            RebuildBuffCacheLocked(state);
+            if (changed)
+            {
+                state.Pending = true;
+                RebuildBuffCacheLocked(state);
+            }
         }
-        Console.WriteLine($"[beyond] {CharacterName(conn)} gains {faction.Id} boss buff ({faction.BossBuffRow}) for {BossBuffSeconds} s");
+        await SyncBossBuffs(conn, state);
     }
 
     static void RebuildBuffCacheLocked(BossBuffState state)
     {
         var stats = new Dictionary<uint, int>();
-        foreach (var (row, _, _, _) in state.Active)
+        foreach (var (row, _) in state.Active)
         {
             if (BeyondCatalog.ByRow(row) is not { } faction) continue;
             foreach (var (name, value) in faction.BossBuffStats)
             {
-                // BuffTemplates row 634 stores +10 for Ghorr's 10% less damage taken (3.30 fixes it to -10);
-                // normalize to a negative final-taken modifier so IncomingResourceDefences reduces damage.
+                // The template's +10 means 10% less damage taken (see BossLessDamageStat).
                 int effective = name == BossLessDamageStat ? -Math.Abs(value) : value;
                 if (Program.Stats.Key(name) is uint key)
                     stats[key] = stats.GetValueOrDefault(key) + effective;
@@ -83,53 +159,35 @@ public static partial class MapBeyond
         state.Stats = stats;
     }
 
-    static async Task TickBossBuffs(ClientState conn, double seconds)
+    static Task TickBossBuffs(ClientState conn) =>
+        BossBuffs.TryGetValue(conn, out var state) && state.Pending ? SyncBossBuffs(conn, state) : Task.CompletedTask;
+
+    static async Task SyncBossBuffs(ClientState conn, BossBuffState state)
     {
-        if (!BossBuffs.TryGetValue(conn, out var state)) return;
-        List<(ushort Instance, ushort Row, float Duration)>? add = null;
-        List<ushort>? remove = null;
-        bool changed = false;
+        if (conn.Closed || conn.LeavingArea || !conn.PlayerSent || conn.Wire.Stream is null) return;
+        List<(ushort Instance, ushort Row)>? add = null;
         lock (state)
         {
-            if (state.Active.Count == 0) return;
-            for (int i = state.Active.Count - 1; i >= 0; i--)
+            state.Pending = false;
+            for (int i = 0; i < state.Active.Count; i++)
             {
-                var (row, left, inst, refresh) = state.Active[i];
-                left -= seconds;
-                if (left <= 0 || conn.PlayerLife == 0)
+                var (row, inst) = state.Active[i];
+                if (inst != 0) continue;
+                if (BeyondCatalog.ByRow(row) is { BossBuffRow: > 0 } faction)
                 {
-                    if (inst != 0) (remove ??= []).Add(inst);
-                    state.Active.RemoveAt(i);
-                    changed = true;
-                    continue;
+                    inst = conn.NextBuff++;
+                    (add ??= []).Add((inst, faction.BossBuffRow));
+                    state.Active[i] = (row, inst);
                 }
-                if (refresh || inst == 0)
-                {
-                    if (inst != 0) (remove ??= []).Add(inst);
-                    if (BeyondCatalog.ByRow(row) is { BossBuffRow: > 0 } faction)
-                    {
-                        inst = conn.NextBuff++;
-                        (add ??= []).Add((inst, faction.BossBuffRow, (float)left));
-                    }
-                    state.Active[i] = (row, left, inst, false);
-                    changed = true;
-                }
-                else
-                    state.Active[i] = (row, left, inst, false);
             }
-            if (changed) RebuildBuffCacheLocked(state);
         }
-        if (!changed) return;
+        if (add is null) return;
         var w = conn.Wire;
-        if (remove is not null)
-            foreach (ushort buff in remove)
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
-                    InstanceEntities.RemoveBuff(PlayerId, buff), "beyond: boss buff ends");
-        if (add is not null)
-            foreach (var (inst, row, duration) in add)
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
-                    InstanceEntities.AddBuff(PlayerId, inst, row, PlayerId, u68: BitConverter.SingleToUInt32Bits(duration)),
-                    $"beyond: boss buff {row}");
+        foreach (var (inst, row) in add)
+            // Omit u68 so the client defaults duration to +infinity (map-instance buff with no countdown timer).
+            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
+                InstanceEntities.AddBuff(PlayerId, inst, row, PlayerId),
+                $"beyond: boss buff {row}");
         lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
         await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
@@ -182,6 +240,8 @@ public static partial class MapBeyond
         var items = ItemsFor(conn);
         if (isBoss)
         {
+            // shortcut: server estimate — poewiki confirms Beyond bosses guarantee multiple Tainted currency drops,
+            // but GGG does not publish exact drop-count bounds.
             double expected = rng.Next(2, 5) * taintedFactor;
             int rolls = (int)expected + (rng.NextDouble() < expected - (int)expected ? 1 : 0);
             if (taintedFactor > 0) rolls = Math.Max(1, rolls);
@@ -191,6 +251,7 @@ public static partial class MapBeyond
         }
         else
         {
+            // shortcut: server estimates for non-boss Tainted currency base drop chances (exact retail rates are server-side).
             double baseChance = drop.Monster.Rarity switch
             {
                 MonsterRarity.Rare => 12.0,
@@ -205,6 +266,8 @@ public static partial class MapBeyond
         }
 
         // Faction Atlas notable / Idol drop bonuses (Swarming Hive, Voracious Throng, Pale Clarion).
+        // shortcut: server estimates for each faction's base divination-card / unique / basic-currency roll chances
+        // (retail scales the underlying monster drop tables by the *_+%_final stat without published base rates).
         int faction = BeyondCatalog.FactionOfVariety(drop.Monster.VarietyId);
         if (faction == 0 && Stat(conn, "map_beyond_divination_card_quantity_+%_final_from_demon_faction") is int cardPct and > 0)
         {

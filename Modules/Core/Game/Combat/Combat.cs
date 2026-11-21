@@ -2005,6 +2005,70 @@ public static partial class Game
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 
+    // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
+    // action onto an object in the area. Applies in both lockstep and predictive modes; safely ignored when idle,
+    // blocked, or when the target object is absent or dead.
+    public static async Task RetargetAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint targetId, long readAt = 0)
+    {
+        if (conn.Closed || conn.LeavingArea) return;
+        (int X, int Y)? fallbackPos = null;
+        if (targetId != PlayerId)
+        {
+            lock (conn.Npcs)
+                if (conn.Npcs.TryGetValue(targetId, out var npc)) fallbackPos = (npc.X, npc.Y);
+            if (fallbackPos is null && conn.Instance?.Ground.Get(targetId) is { } ground)
+                fallbackPos = (ground.GridX, ground.GridY);
+        }
+
+        bool aimLockstepChannel = false;
+        using (ProjectileMutation(conn))
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            double at = Math.Max(conn.ClockAt(readAt), conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+            if (conn.Closed || conn.LeavingArea || PlayerActionBlocked(conn, at, now))
+                return;
+
+            (int X, int Y) aim;
+            bool isMonster = false;
+            if (conn.Monsters.TryGetValue(targetId, out var monster))
+            {
+                if (monster.Dead || monster.Life == 0) return;
+                aim = monster.Walk.Position(at);
+                isMonster = true;
+            }
+            else if (targetId == PlayerId)
+                aim = conn.Walk.Position(at);
+            else if (fallbackPos is { } pos)
+                aim = pos;
+            else
+                return;
+
+            bool lockstepActive = conn.LockstepHold.Active || conn.LockstepSkill.Active;
+            if (conn.LockstepClient || lockstepActive)
+            {
+                conn.LockstepHold.Update(aim);
+                if (conn.LockstepSkill.Held)
+                {
+                    conn.LockstepSkill.Retarget(isMonster ? targetId : null, aim);
+                    if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                    {
+                        ChannelAimedAt(conn, aim.X, aim.Y, at);
+                        conn.LastChannelUpdateAt = now;
+                    }
+                    aimLockstepChannel = conn.LockstepSkill.Channel is not null;
+                }
+            }
+            else if (conn.ChannelSkill != 0)
+            {
+                ChannelAimedAt(conn, aim.X, aim.Y, at);
+                conn.LastChannelUpdateAt = now;
+            }
+        }
+        if (aimLockstepChannel)
+            await AimLockstepChannel(remote, stream, ciphers, conn);
+    }
+
     // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
     // as part of the channel); the walk gets its usual speed back.
     public static void ChannelReleased(ClientState conn, double at)
@@ -3365,7 +3429,7 @@ public static partial class Game
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
+            if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared, chanceFactor: modded?.MapRelated ?? 1) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -3378,6 +3442,7 @@ public static partial class Game
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
         drops.AddRange(MadeDrops(conn, modded));
+        modded?.ApplyTransforms(drops);
         if (MapBeyond.CorruptsDrops(conn, m.Variety?.Id)) CorruptDrops(drops);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
