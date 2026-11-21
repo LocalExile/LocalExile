@@ -19,6 +19,14 @@ public static partial class Game
     // players' minions.
     const uint SharedMonsterIds = 0x08000000;
 
+    // A corpse stops being drawn a minute after this client was shown the death. This is presentation only: the corpse
+    // stays in InstanceWorld.Monsters/MonsterOrigins and conn.Monsters, so corpse skills keep exactly the rules they had
+    // before. The TTL is the client's visual hold, not a corpse's availability. A body a controller or a boss's next
+    // form may drive again is left drawn until its own code retires it.
+    public const double CorpsePresentationSeconds = 60;
+    static bool CorpsePresentationLeaves(SpawnedMonster m) =>
+        !m.Scripted && m.OwnerId is null && !m.WorldHidden && !m.StageRunning && m.LifePhases?.Active != true;
+
     // A connection outside any instance (a test's) runs its own monsters; in an instance, the world's runner does.
     public static bool IsMonsterRunner(ClientState conn) =>
         conn.Instance is not { } instance || instance.World.Runner is null || ReferenceEquals(instance.World.Runner, conn);
@@ -732,13 +740,23 @@ public static partial class Game
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
+                // A corpse whose visual minute is up goes from this client's view alone (0x2bd). The instance's corpse
+                // is untouched, so a later sync cannot recreate it (SyncInstanceMonsters shows no dead newcomer) and
+                // every corpse skill still sees it in the world and in this connection's monsters.
+                var staleCorpses = conn.MonsterViews.Where(p => p.Value.Life == 0 && !double.IsNaN(p.Value.DeadSince)
+                        && now - p.Value.DeadSince >= CorpsePresentationSeconds
+                        && world.Monsters.GetValueOrDefault(p.Key) is { } corpse && CorpsePresentationLeaves(corpse))
+                    .Select(p => p.Key).ToHashSet();
+                foreach (uint gone in conn.MonsterViews.Keys.Where(id => staleCorpses.Contains(id)
+                    || world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
                     || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {
                     conn.MonsterViews.Remove(gone);
                     conn.AsleepMonsters.Remove(gone);
                     bars.Hidden.Remove(gone);
-                    if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
+                    if (staleCorpses.Contains(gone)) packets.Remove(gone,
+                        $"0x02bd corpse 0x{gone:x} stops being drawn {CorpsePresentationSeconds:0} s after the kill");
+                    else if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
                 }
                 foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
                 {
@@ -783,7 +801,12 @@ public static partial class Game
                     if (life > 0 && bars.Hidden.Remove(id))
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life };
+                    // The corpse's visual clock starts where this client was shown the death, and resets if a boss
+                    // comes back to life between forms. It never removes the corpse from the instance.
+                    double deadSince = life == 0
+                        ? double.IsNaN(seen.DeadSince) ? now : seen.DeadSince
+                        : double.NaN;
+                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life, DeadSince = deadSince };
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
                 }

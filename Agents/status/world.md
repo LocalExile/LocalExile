@@ -151,14 +151,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   blocked by terrain or a body ends the walk, and a path cut short paths again from its end. On a lockstep client the
   pass replays whole frames instead, each walker in object order (the player first) against the cells as moved so far,
   as the client's world ticks ([07](../docs/protocol/07-latency-visibility-movement.md) §5). Nothing is pushed out of a
-  body. Death releases the occupied space and the corpse stays in the area.
+  body. Death releases the occupied space and the corpse stays available in the area (its drawing stops after a visual minute).
   Melee monsters chase with their attack aimed at the player, about every 200 ms, and the swing starts on S→C 0x1ac.
   Ranged monsters and minions take rings around the player (`MonsterSurround`); the AI decides every 50 ms.
   Automated regressions cover player-body clearance for new and reused slots.
   Further automated checks cover short attack reach, stationary-blocked slots and queued channel/Rage refreshes.
   A 50 ms pass steps the estimates as the client does (no packets): a step blocked by terrain or a body ends the walk, a
   path cut short paths again from its end, and an attack does not stop the walk; death releases the occupied space and
-  the corpse stays in the area.
+  the corpse stays available in the area (its drawing stops after a visual minute).
   Chasers spread around the player on rings (`MonsterSurround`); the AI decides every 100 ms.
   Automated regressions cover direct chases for negative footprints and player-body clearance for new and reused slots.
   Further automated checks cover short attack reach, stationary-blocked slots, bounded crowd escape and queued
