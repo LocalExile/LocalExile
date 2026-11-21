@@ -564,6 +564,14 @@ public static partial class Game
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             }
         }
+        // Apply item-granted stats only when this snapshot is built. The cache already tracks the
+        // socket contents and allocated nodes, so unchanged lookups do not inspect Forbidden modifiers.
+        if (ForbiddenJewelNotables.Granted(treeJewels, catalog, (byte)c.IntegerId, level ?? conn.Pools.Level) is ushort forbidden
+            && !allocated.Contains(forbidden)
+            && !grantedReplacements.Any(g => g.Granted == forbidden && !replacedByTimeless.Contains(g.Tattooed))
+            && tree.Find(forbidden) is { } jewelNotable)
+            foreach (var (key, value) in jewelNotable.Stats)
+                passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in TattooCountingStats(tattoos, allocated.Where(n => !suppressedNotables.Contains(n) && !suppressedSmalls.Contains(n)).ToHashSet(), effectPct))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in scalingStats)

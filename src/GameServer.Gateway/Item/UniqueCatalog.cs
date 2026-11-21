@@ -188,6 +188,14 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
             definition = definition with { Mods = [spectrumVariant] };
         string[] explicitMods = definition.Mods;
         mods.AddRange(Rolled(definition, explicitMods, ModSection.Explicit, random));
+        if (definition.Name is "Forbidden Flame" or "Forbidden Flesh")
+        {
+            string modId = definition.Name == "Forbidden Flame" ? ForbiddenJewelNotables.FlameMod : ForbiddenJewelNotables.FleshMod;
+            if (items.Mods.ById(modId) is not { } modifier || ForbiddenJewelNotables.Roll(random) is not ushort notable) return null;
+            int index = mods.FindIndex(mod => mod.Section == ModSection.Explicit && mod.Hash == modifier.Hash);
+            if (index < 0) return null;
+            mods[index] = new(ModSection.Explicit, modifier.Hash, [notable]);
+        }
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
         if (!RollEncounterModifiers(definition, random, mods)) return null;
