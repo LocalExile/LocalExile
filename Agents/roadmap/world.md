@@ -140,9 +140,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   side-area boss. The party shares Vaalsmithed Firestorm's 24 meteors and Flameblast's five shrinking explosions, including
   after the opener leaves. A Flameblast hit and its ignite use separate per-stage multipliers. The Caustic Arrow prefix
   fires six piercing arrows and leaves six-second patches of chaos ground along their paths. A Spark vessel releases
-  one shared two-projectile volley and keeps its flight and contacts through a runner change.
+  one shared two-projectile volley and keeps its flight and contacts through a runner change. The Thrown Weapon
+  prefix emits thirteen mirrored pairs from its axe daemon. The party shares their outgoing and return contacts.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
-- **Next.** Implement the Vaalsmithed Thrown Weapon and Volcanic Fissure prefix skills. Measure the Spark daemon's empty
+- **Next.** Implement the Vaalsmithed Volcanic Fissure prefix. Measure the axe daemon's release and spiral spacing, and the Spark daemon's empty
   action and repeat schedule. Blade Vortex comes from the separate *Of the Vaal* suffix. Check the Valdo completion reward.
   Check vessel hits on allied minions and animated weapons. Measure the caustic arrows' turns and trail spacing.
   Verify cast timing, targeting and visuals in

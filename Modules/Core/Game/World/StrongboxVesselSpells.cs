@@ -49,12 +49,20 @@ public static partial class MapStrongboxes
         // The Vaalsmithed prefixes share one native mod family. The suffix has its own family.
         foreach (var (_, daemon, effects) in Daemons(conn, type, box))
         {
+            if (effects.Contains(ThrownWeaponEffect))
+            {
+                var skill = area.ThrownWeaponSkill ??= ReadThrownWeapon(conn, daemon);
+                var (started, x, y, walls) = VesselProjectileStart(conn, box);
+                var cast = new VesselProjectileCast(started, daemon, x, y, walls);
+                box.ThrownWeapons.Add(cast);
+                return (cast, skill.Action);
+            }
             if (effects.Contains(VaalSparkEffect))
             {
                 var skill = area.SparkSkill ??= ReadSpark(conn);
                 var cast = PrepareSpark(conn, box, daemon, skill);
                 box.Sparks.Add(cast);
-                return (cast, skill.Spell);
+                return (cast, skill.Action);
             }
             if (effects.Contains(VaalCausticArrowEffect))
             {
@@ -105,10 +113,12 @@ public static partial class MapStrongboxes
         }
 
         foreach (var cast in box.Sparks)
-        {
-            var skill = area.SparkSkill ??= ReadSpark(player);
+            WatchProjectile(cast, area.SparkSkill ??= ReadSpark(player));
+        foreach (var cast in box.ThrownWeapons)
+            WatchProjectile(cast, area.ThrownWeaponSkill ??= ReadThrownWeapon(player, cast.Daemon));
+
+        void WatchProjectile(VesselProjectileCast cast, VesselProjectileSkill skill) =>
             Register(cast, Enumerable.Range(cast.Landed, skill.Frames - cast.Landed).Select(i => skill.SampleTime(cast, i)));
-        }
 
         void Watch(VesselCast cast, int count, long first, long interval) =>
             Register(cast, Enumerable.Range(cast.Landed, count - cast.Landed)

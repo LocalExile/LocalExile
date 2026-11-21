@@ -24,7 +24,8 @@ public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long
 public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal);
 public enum ProjectileHitResult { Miss, Blocked, Hit }
 public enum ProjectileHitScope { Emission, Projectile }
-public enum ProjectileRepeat { Once, Interval, Window }
+// ContactInterval can admit another hit while the target is still inside the flight, with one interval across its return.
+public enum ProjectileRepeat { Once, Interval, Window, ContactInterval }
 public sealed record ProjectileHitRule(ProjectileHitScope Scope = ProjectileHitScope.Emission,
     ProjectileRepeat Repeat = ProjectileRepeat.Once, long Period = 0);
 public enum ProjectileEndReason { Enemy, Terrain, Distance, Lifetime, Landing, Consumed, Teardown, Fork, Split, Returned }
@@ -145,6 +146,8 @@ public sealed record ProjectileProfile(string Id)
     public int? ContactCells { get; init; }
     public long Lifetime { get; init; } = 1200000;
     public long SequentialDelay { get; init; }
+    /// <summary>Number of shots released together at each interval of a sequential volley.</summary>
+    public int SequentialBatchSize { get; init; } = 1;
     public bool ShareSequentialHits { get; init; }
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
@@ -168,6 +171,8 @@ public sealed record ProjectileProfile(string Id)
     public int? OutboundHitLimit { get; init; }
     public bool ReturnOnDistance { get; init; } = true;
     public bool IgnoreTerrainOnReturn { get; init; }
+    /// <summary>Terrain consumes this flight before a leg can turn or a return can begin.</summary>
+    public bool StopsAtTerrain { get; init; }
     /// <summary>Return-phase grant; CannotPierce still overrides it.</summary>
     public bool PierceAllOnReturn { get; init; }
     public bool ExcludeTurnaroundTarget { get; init; }

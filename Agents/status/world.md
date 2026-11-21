@@ -181,6 +181,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   surviving sparks at their current positions. The server aims one volley at the opener and releases it after the grant's
   650 ms cast time. The empty action's role, repeat count, targeting and visible sequence still need a client observation.
 
+- The Vaalsmithed Thrown Weapon prefix grants `ChestVaalThrownWeapon` to an immobile daemon equipped with Atziri's
+  Disfavour. Its client object hides the held axe. The skill has eight projectiles per spiral and five additional
+  projectiles. The server releases thirteen mirrored pairs, using the Spectral Throw action to draw the weapon.
+  Flights pierce, return to the vessel and end on terrain. The attack keeps one 225 ms hit interval per player across
+  both arms and the return. The instance retains pending pairs and committed contacts when the opener leaves or
+  rules reload. The server uses the attack midpoint and extends the base half-turn at 250 ms and 22.5° per pair.
+  The daemon's actual release, pacing, return shape and graphical presentation still need a client observation.
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
