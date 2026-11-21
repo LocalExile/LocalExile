@@ -15,6 +15,7 @@ using static Program;
 public static partial class MapStrongboxes
 {
     public const string Content = "Ambush", CountStat = "map_num_extra_strongboxes";
+    public const string TempleVessel = "Metadata/Chests/StrongBoxes/VaalTempleChest";
     public const string ExquisiteVessel = "Metadata/Chests/StrongBoxes/VaalEmpoweredChest";
     public const string Reopen = "Ambush.HiddenCompartments", Discernment = "Ambush.Discernment", Containment = "Ambush.Containment",
         Potency = "Ambush.Potency";
@@ -347,7 +348,9 @@ public static partial class MapStrongboxes
         int level = AreaLevel(conn);
         var (count, roll) = Count(conn, level);
         var mods = AreaMods(conn);
-        int vessels = mods.Get("map_spawn_additional_empowered_vaal_chests");
+        int exquisite = mods.Get("map_spawn_additional_empowered_vaal_chests");
+        int temple = mods.Get("map_vaal_temple_spawn_additional_vaal_vessels");
+        int vessels = exquisite + temple;
         if (count + vessels <= 0)
         {
             Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}: Ambush roll {roll} → 0");
@@ -389,13 +392,20 @@ public static partial class MapStrongboxes
                 Place(type, rarity, corrupted, (x, y));
             }
         }
-        if (vessels > 0)
+        var reserved = positions.Skip(ordinary);
+        if (exquisite > 0)
         {
-            var vessel = StrongboxCatalog.All.Single(t => t.Id == ExquisiteVessel);
-            foreach (var at in positions.Skip(ordinary)) Place(vessel, 2, true, at);
+            var type = StrongboxCatalog.All.Single(t => t.Id == ExquisiteVessel);
+            foreach (var at in reserved.Take(exquisite)) Place(type, 2, true, at);
+        }
+        if (temple > 0)
+        {
+            var type = StrongboxCatalog.All.Single(t => t.Id == TempleVessel);
+            // VaalTempleChest.ot sets rare on creation. Its fixed Strongboxes row has no rolled affixes.
+            foreach (var at in reserved.Skip(exquisite)) Place(type, 2, corrupted, at);
         }
         Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}{(hardMode ? " (HardMode weights)" : "")}: " +
-            $"Ambush roll {roll} → {count}, Exquisite Vaal Vessels {vessels}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
+            $"Ambush roll {roll} → {count}, Exquisite Vaal Vessels {exquisite}, Vaal Vessels {temple}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
         return boxes;
     }
 
@@ -660,7 +670,7 @@ public static partial class MapStrongboxes
         int quantity = Both("strongbox_monsters_item_quantity_+%");
         var layout = conn.Layout;
         bool[]? floor = null;
-        if (box.Type == ExquisiteVessel)
+        if (box.Type is TempleVessel or ExquisiteVessel)
         {
             // Restored boxes rebuild the same connected component from the box itself.
             area.VesselFloor ??= AreaPopulation.Reachable(layout.GridW, layout.GridH, layout.Walkable!, (box.X, box.Y))

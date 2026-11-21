@@ -132,6 +132,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   tables leave empty. Source: `Modules/Core/Game/World/MapStrongboxes.cs` and the `Strongbox*.cs` beside it;
   [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
 
+- The Vaal Temple map implicit places ten guarded Vaal Vessels. `VaalTempleChest.ot` sets rare rarity and immediate
+  identification. The fixed chest carries its two implicits without rolling any affixes. Its three packs and Vaal side-area boss guard the contents until the last one dies. Its drop
+  implicit corrupts eligible items. The special corruption-themed reward pool and client presentation still need
+  verification. [GGG's Vaal Temple changes](https://www.pathofexile.com/forum/view-thread/3229187)
+
 - Exquisite Vaal Vessels are additional rare, corrupted strongboxes. The corruption implicit adds one and the Valdo
   affix adds ten alongside ordinary Ambush boxes. Gateway checks on a tier-17 Valdo Map at area level 84 matched the
   object creates for the opener, another player and re-entry. The chest implicit supplies three ordinary packs and its

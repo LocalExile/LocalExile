@@ -213,7 +213,7 @@ public static class StrongboxLoot
             for (int i = 0; i < result.Count; i++)
                 if (result[i].Type.MaxStack <= 1) result[i] = result[i] with { Item = result[i].Item with { Mirrored = true } };
         result.AddRange(copies.Select(c => mirrored && c.Type.MaxStack <= 1 ? c with { Item = c.Item with { Mirrored = true } } : c));
-        if (corrupted)
+        if (corrupted || boxStat("dropped_items_are_corrupted") != 0)
             for (int i = 0; i < result.Count; i++)
                 if (result[i].Type.MaxStack <= 1) result[i] = result[i] with { Item = result[i].Item with { Corrupted = true } };
         return result;

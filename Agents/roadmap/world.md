@@ -144,14 +144,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   prefix emits thirteen mirrored pairs from its axe daemon. The party shares their outgoing and return contacts.
   Volcanic Fissure sends six wall-bounded cracks and eleven landing-only mortars per eruption.
   The independent *Of the Vaal* suffix sends a chasing Blade Vortex for five seconds alongside a prefix.
+  The Vaal Temple map implicit places ten guarded Vaal Vessels with their own corruption drop modifier.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
 - **Next.** Measure Blade Vortex targeting, movement and presentation in the client. Measure the fissure daemon's release, turns,
   repeat cadence and mortar placement, the axe daemon's release and spiral spacing, and the Spark daemon's empty
   action and repeat schedule. Check the Valdo completion reward.
   Check vessel hits on allied minions and animated weapons. Measure the caustic arrows' turns and trail spacing.
   Verify cast timing, targeting and visuals in
-  the client, along with the level-70 Ice Nova and ordinary Firestorm box spells. Placement of the regular
-  `VaalTempleChest` and the `OrnateVaalBox*` side-area containers remains separate work.
+  the client, along with the level-70 Ice Nova and ordinary Firestorm box spells. Check the Vaal Temple corruption
+  reward pool. Trace the boss-room `SideAreaChest` and the separate `OrnateVaalBox*` Vaal Reliquaries.
 - **Done when:** Valdo's Exquisite Vaal Vessels spawn and their Vaalsmithed prefixes act.
 
 ### The Labyrinth

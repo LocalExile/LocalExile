@@ -148,6 +148,7 @@ public sealed class ScarabEncounterTests
             Assert.Equal(ids, Ids());
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
+            await CheckTempleVessels();
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
             var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
@@ -442,6 +443,35 @@ public sealed class ScarabEncounterTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseOwnSaves();
         }
+    }
+
+    static async Task CheckTempleVessels()
+    {
+        var map = Program.Items.Find("Metadata/Items/Maps/MapKeyVaalTemple")!;
+        var key = ItemCatalog.Create(map, random: new Random(41));
+        var slot = new MapDevice.Slot(map.Hash, map.Class, map.Name, map.Row, key.Mods, 0) { BaseId = map.Id };
+        var opening = Assert.IsType<MapDevice.Opening>(Game.MapDevices.Value.Check([slot], null, Program.Items.Mods, out _));
+        Assert.Equal(10, opening.Mods.Get("map_vaal_temple_spawn_additional_vaal_vessels"));
+        var instance = new InstanceState();
+        instance.OpenedWith(new("TempleOwner", opening.Area, opening.Mods));
+        var areaStats = instance.AreaStats(() => Game.ComposeMapAreaStats(opening.Mods, opening.Area.Tier,
+            new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        uint seed = ServerLevels.PlayableSeed(opening.Area.Id, 0x7017, opening.Area.Level, areaStats);
+        var layout = AreaLayouts.For(opening.Area.Hash16, seed);
+        await using var owner = await Wire.Open(instance, layout, seed);
+        await MapStrongboxes.Enter(owner.Conn);
+        var boxes = System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(instance.ContentState["Ambush/boxes"])!;
+        var vessels = boxes.Where(b => b.Type == MapStrongboxes.TempleVessel).ToArray();
+        Assert.Equal(10, vessels.Length);
+        Assert.All(vessels, b => { Assert.Equal(2, b.Rarity); Assert.Empty(b.Mods); });
+        Assert.DoesNotContain(boxes, b => b.Type == MapStrongboxes.ExquisiteVessel);
+        var type = StrongboxCatalog.Find(MapStrongboxes.TempleVessel)!;
+        var loot = StrongboxLoot.Roll(owner.Conn, type,
+            id => StrongboxMods.Stat(Program.Items.Mods, type, [], id) + StrongboxMods.RarityStat(Program.Items.Mods, vessels[0].Rarity, id),
+            opening.Area.Level, opening.Mods, new Random(41));
+        var eligible = loot.Where(d => d.Type.MaxStack <= 1).ToArray();
+        Assert.NotEmpty(eligible);
+        Assert.All(eligible, d => Assert.True(d.Item.Corrupted));
     }
 
     [Fact]
