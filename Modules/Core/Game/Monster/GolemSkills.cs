@@ -302,12 +302,12 @@ public static partial class Game
             radius *= (1 + Raw("active_skill_area_of_effect_radius_+%_final") / 100.0)
                 * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
-            var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
             var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
             if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
                 projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
+            var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false } || projectile is not null, Scripted = true };
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);

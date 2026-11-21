@@ -76,12 +76,14 @@ public static partial class Game
         m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
         var here = m.Walk.Position(now); var owner = conn.Walk.Position(now);
         bool follows = !conn.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
-        if (follows && Dist(here, owner) > 150)
+        double ownerDist = Dist(here, owner);
+        if (follows && ownerDist > 150)
         {
             var at = NextToPlayer(conn);
             m.Walk = conn.NewMonsterWalk(g.Id, at.X, at.Y, m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed)
-                * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), false);
+                * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), true, true);
             m.ActionGeneration++; m.LastTarget = null;
+            g.StuckSince = double.NaN; g.LastProgressPos = at;
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m, WorldId: g.Id));
             return;
         }
@@ -104,25 +106,37 @@ public static partial class Game
                 return;
             }
         }
+        bool hasLobbed = g.Abilities.Any(a => GolemUsable(g, a) && a.Projectile is { Lobbed: true });
         var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
                 && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil))
-            .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
+            .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now), Clear: hasLobbed || MinionHasClearShot(conn, here, p.Value.Walk.Position(now))))
             .Where(t => (IsPrey(conn, g, t.Key, t.M, now) || Dist(t.At, here) <= m.AggroRange) && (!follows || Dist(t.At, owner) <= 100))
-            .OrderByDescending(t => IsPrey(conn, g, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
+            .OrderByDescending(t => IsPrey(conn, g, t.Key, t.M, now))
+            .ThenByDescending(t => t.Clear)
+            .ThenBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(conn, g, owner, now); return; }
         g.Target = target.Key;
         double distance = Dist(target.At, here);
+        bool CanHitFromHere(GolemState.Ability a) => a.Projectile is { Lobbed: true }
+            || (!a.Attack.Ranged && a.Projectile is null) || target.Clear;
         var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0) && GolemUsable(g, a) && GolemReady(g, a, now)
-                && distance <= a.Attack.Range + LivingCollision.Size(target.M))
+                && distance <= a.Attack.Range + LivingCollision.Size(target.M) && CanHitFromHere(a))
             .OrderByDescending(a => a.Cooldown > 0).ThenByDescending(a => a.Effect == 10800).FirstOrDefault();
         if (ability is null)
         {
-            double range = g.Abilities.Where(a => GolemUsable(g, a)).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
-            double f = distance > 0 ? Math.Max(0, range - 2) / distance : 0;
-            GolemMoveLocked(conn, g, ((int)Math.Round(target.At.X + (here.X - target.At.X) * f),
-                (int)Math.Round(target.At.Y + (here.Y - target.At.Y) * f)), now);
+            var dest = target.At;
+            if (target.Clear)
+            {
+                double range = g.Abilities.Where(a => GolemUsable(g, a)).Select(a => a.Attack.Range).DefaultIfEmpty(8).Min();
+                double f = distance > 0 ? Math.Min(1.0, Math.Max(0, range - 2) / distance) : 0;
+                dest = ((int)Math.Round(target.At.X + (here.X - target.At.X) * f),
+                    (int)Math.Round(target.At.Y + (here.Y - target.At.Y) * f));
+            }
+            GolemMoveLocked(conn, g, dest, now, fallbackToOwner: follows ? owner : null);
+            CheckMinionStuckLocked(conn, g, here, ownerDist, pursuing: true, now);
             return;
         }
+        g.StuckSince = double.NaN; g.LastProgressPos = here;
         if (ability.Effect == 10802 && g.Combo >= 3)
             ability = ability with { Attack = ability.Attack with { Seconds = ability.Attack.Seconds / Math.Max(.1,
                 1 + GolemStat(ability.Stats, "bone_golem_attack_speed_+%_final_after_third_combo_index") / 100.0) } };
@@ -226,12 +240,55 @@ public static partial class Game
             GolemMoveLocked(conn, g, bestAt, now);
     }
 
+    static bool MinionHasClearShot(ClientState conn, (int X, int Y) from, (int X, int Y) to)
+    {
+        if (from == to) return true;
+        if (ProjectileGrid.Of(conn.Layout.Id, conn.Seed) is { } grid)
+            return ProjectileGeometry.TraceGrid(new(from.X, from.Y), new(to.X, to.Y), grid.Blocks) is null;
+        if (conn.Layout.Sight is { } sight)
+            return ProjectileGeometry.TraceGrid(new(from.X, from.Y), new(to.X, to.Y), (x, y) => sight(x, y) == 0) is null;
+        return true;
+    }
+
+    static void CheckMinionStuckLocked(ClientState conn, GolemState.Golem g, (int X, int Y) here, double ownerDist, bool pursuing, double now)
+    {
+        if (Dist(here, g.LastProgressPos) >= 2)
+        {
+            g.LastProgressPos = here;
+            g.StuckSince = double.NaN;
+            return;
+        }
+        bool stagnant = !g.Monster.Walk.Moving(now) || g.Monster.Walk.Destination == here;
+        if (stagnant && (ownerDist > 18 || (pursuing && ownerDist > 10)))
+        {
+            if (double.IsNaN(g.StuckSince)) g.StuckSince = now;
+            else if (now - g.StuckSince >= 0.75)
+            {
+                int size = Math.Max(0, LivingCollision.Size(g.Monster));
+                var at = NextToPlayer(conn);
+                g.Monster.Walk = conn.NewMonsterWalk(g.Id, at.X, at.Y, g.Monster.Walk.Speed, size, true, true);
+                g.Monster.ActionGeneration++; g.Monster.LastTarget = null;
+                g.LastProgressPos = at;
+                g.StuckSince = double.NaN;
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem unstuck teleport", g.Id, g.Monster, WorldId: g.Id));
+            }
+        }
+        else if (!stagnant) g.StuckSince = double.NaN;
+    }
+
     static void GolemFollowLocked(ClientState conn, GolemState.Golem g, (int X, int Y) owner, double now)
     {
-        double distance = Dist(g.Monster.Walk.Position(now), owner);
-        if (distance > 18) GolemMoveLocked(conn, g, NextToPlayer(conn), now);
+        var here = g.Monster.Walk.Position(now);
+        double distance = Dist(here, owner);
+        if (distance > 18)
+        {
+            GolemMoveLocked(conn, g, NextToPlayer(conn), now, fallbackToOwner: owner);
+            CheckMinionStuckLocked(conn, g, here, distance, pursuing: false, now);
+        }
         else
         {
+            g.StuckSince = double.NaN;
+            g.LastProgressPos = here;
             var wander = GolemWander.GetOrCreateValue(g);
             if (now >= wander.Next && now >= g.NextMove && now >= g.Monster.Walk.ArrivesAt)
             {
@@ -243,13 +300,27 @@ public static partial class Game
         }
     }
 
-    static void GolemMoveLocked(ClientState conn, GolemState.Golem g, (int X, int Y) to, double now)
+    static void GolemMoveLocked(ClientState conn, GolemState.Golem g, (int X, int Y) to, double now, (int X, int Y)? fallbackToOwner = null)
     {
         if (now < g.NextMove || g.Monster.LastTarget is { } old && Dist(old, to) < 5 && now < g.Monster.Walk.ArrivesAt) return;
-        if (!conn.Layout.WalkableFor(to.X, to.Y, Math.Max(0, LivingCollision.Size(g.Monster))) || conn.Barrier.Contains(to)) return;
+        int size = Math.Max(0, LivingCollision.Size(g.Monster));
+        bool CanStand((int X, int Y) cell) => !conn.Barrier.Contains(cell)
+            && (conn.Layout.WalkableFor(cell.X, cell.Y, size) || (size > 0 && conn.Layout.WalkableFor(cell.X, cell.Y, 0)));
+        if (!CanStand(to))
+        {
+            var nearTo = conn.Layout.Near(to);
+            if (CanStand(nearTo)) to = nearTo;
+            else if (fallbackToOwner is { } fb && CanStand(fb)) to = fb;
+            else return;
+        }
         var m = g.Monster; var from = m.Walk.Position(now);
         g.NextMove = now + .5;
         m.Walk.Order(to.X, to.Y, now);
+        if (m.Walk.Destination == from && to != from && fallbackToOwner is { } owner && owner != to && CanStand(owner))
+        {
+            m.Walk.Order(owner.X, owner.Y, now);
+            to = owner;
+        }
         if (m.Walk.Destination == from)
         {
             if (m.LastTarget is not null)
@@ -258,6 +329,8 @@ public static partial class Game
             m.LastTarget = null;
             return;
         }
+        g.StuckSince = double.NaN;
+        g.LastProgressPos = from;
         m.LastTarget = to; int generation = ++m.ActionGeneration;
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, to.X, to.Y,
             0x2909, conn.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation, WorldId: g.Id));
@@ -425,7 +498,11 @@ public static partial class Game
     }
 
     public static bool GolemHitLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g,
-        GolemState.Ability a, uint id, SpawnedMonster target, double now)
+        GolemState.Ability a, uint id, SpawnedMonster target, double now) =>
+        GolemHitScaledLocked(remote, stream, ciphers, conn, g, a, id, target, now, 1.0);
+
+    static bool GolemHitScaledLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g,
+        GolemState.Ability a, uint id, SpawnedMonster target, double now, double damageMultiplier)
     {
         if (!GolemCurrent(conn, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
             || conn.Monsters.GetValueOrDefault(id) != target) return false;
@@ -455,7 +532,7 @@ public static partial class Game
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
         }
         if (MonsterBlocks(target, Random.Shared, a.Attack.Spell)) return false;
-        double factor = DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, g, id, target, now);
+        double factor = damageMultiplier * DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, g, id, target, now);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -543,32 +620,80 @@ public static partial class Game
         double distance = Math.Max(1, (to - from).Length);
         var owner = session.ActorKey(g.Id, g.Monster);
         var mods = g.Monster.Mods.Effects;
+        int StatLookup(string name) => mods[name] != 0 ? mods[name] : GolemStat(a.Stats, name);
         int SpeedStat(string name) => GolemStat(a.Stats, name)
             + (name == "support_slower_projectiles_projectile_speed_+%_final" ? mods[name] : 0);
-        var profile = new ProjectileProfile(p.Metadata)
+        double speed = ProjectileSpeed.CellsPerSecond(p.Speed,
+            _ => StatLookup("projectile_speed_+%") + StatLookup("base_projectile_speed_+%"), SpeedStat);
+        int maxRangeCells = SystemSettings.Default.ProjectileMaximumRangeCells;
+        var profile = GatewayProjectileDefaults.Create(p.Metadata, StatLookup, speed) with
         {
-            Speed = ProjectileSpeed.CellsPerSecond(p.Speed,
-                _ => mods["projectile_speed_+%"] + mods["base_projectile_speed_+%"], SpeedStat), Radius = p.CollisionRadius,
-            Range = p.Lobbed ? distance : Math.Max(60, distance + 10), Lobbed = p.Lobbed,
-            Count = nova ? 14 : Math.Max(1, p.Count), SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
+            Radius = p.CollisionRadius,
+            ContactCells = Math.Max(1, (int)Math.Ceiling(p.CollisionRadius)),
+            Range = p.Lobbed ? distance : Math.Max(maxRangeCells, distance + 10),
+            Lobbed = p.Lobbed,
+            Count = nova ? 14 : Math.Max(1, p.Count),
+            SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
-            Pierce = a.Effect == 2378 || GolemStat(a.Stats, "always_pierce") != 0 ? -1 : 0,
+            Pierce = a.Effect == 2378 || StatLookup("always_pierce") != 0 ? -1 : 0,
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
         // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
-        profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
-            arrows: g.Weapon is { Bow: true }, skillPierce: mods["number_of_additional_projectiles_to_pierce"]);
+        profile = GatewayProjectileModifiers.Resolve(profile, StatLookup, attack: !a.Attack.Spell,
+            arrows: g.Weapon is { Bow: true }, skillPierce: StatLookup("number_of_additional_projectiles_to_pierce"));
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || conn.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;
             double at = Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond);
-            bool hit = GolemHitLocked(remote, stream, ciphers, conn, g, a, contact.Target.Id, victim, at);
+            double phaseMult = contact.Phase > 0 ? ProjectileReturn.DamageMore(StatLookup) : 1.0;
+            bool hit = GolemHitScaledLocked(remote, stream, ciphers, conn, g, a, contact.Target.Id, victim, at, phaseMult);
             if (hit) s.Enqueue(() => PublishMinionOutcomes(remote, stream, ciphers, conn));
             return hit ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(p.Metadata), distance / profile.Speed) };
-        session.Schedule(ProjectileRuntime.Time(now), () => CurrentGameWork && !conn.Closed && !conn.LeavingArea,
-            () => new(profile, owner, owner, 1, from, to) { Payload = offense });
+        if (p.SpiralAngle != 0 && profile.Count > 1 && !nova)
+        {
+            int total = Math.Clamp(profile.Count, 2, 36);
+            double spanRad = p.SpiralAngle * (Math.PI / 180.0);
+            double baseAngle = Math.Atan2(to.Y - from.Y, to.X - from.X);
+            double sweepSec = p.SpiralTimeMs > 0
+                ? Math.Clamp(p.SpiralTimeMs / 1000.0 * Math.Min(1.0, a.Attack.Seconds), 0.12, 0.7)
+                : 0.0;
+            double reach = Math.Max(profile.Range, maxRangeCells);
+            for (int i = 0; i < total; i++)
+            {
+                double frac = total <= 1 ? 0.5 : (double)i / (total - 1);
+                double offset = Math.Abs(p.SpiralAngle) >= 350
+                    ? p.SpiralStartAngle * (Math.PI / 180.0) + frac * spanRad
+                    : (frac - 0.5) * spanRad;
+                var dir = new ProjectileVector(Math.Cos(baseAngle + offset), Math.Sin(baseAngle + offset));
+                var boltTarget = from + dir * reach;
+                var singleProfile = profile with
+                {
+                    Count = 1,
+                    SpreadRadians = 0,
+                    HitRule = new(ProjectileHitScope.Projectile),
+                };
+                double boltAt = now + (sweepSec > 0 ? frac * sweepSec : 0);
+                session.Schedule(ProjectileRuntime.Time(boltAt), () => CurrentGameWork && !conn.Closed && !conn.LeavingArea && (g.Monster is null || !g.Monster.Dead),
+                    () => new(singleProfile, owner, owner, 1, from, boltTarget) { Payload = offense });
+            }
+            return;
+        }
+        List<ProjectileVector>? targets = null;
+        if (p.Lobbed && p.SpreadRadius > 0 && profile.Count > 1 && !nova)
+        {
+            targets = new List<ProjectileVector>(profile.Count) { to };
+            double spread = Math.Max(4, Math.Min(12, p.SpreadRadius));
+            for (int i = 1; i < profile.Count; i++)
+            {
+                double r = spread * Math.Sqrt(Random.Shared.NextDouble());
+                double theta = Random.Shared.NextDouble() * Math.Tau;
+                targets.Add(to + new ProjectileVector(Math.Cos(theta), Math.Sin(theta)) * r);
+            }
+        }
+        session.Schedule(ProjectileRuntime.Time(now), () => CurrentGameWork && !conn.Closed && !conn.LeavingArea && (g.Monster is null || !g.Monster.Dead),
+            () => new(profile, owner, owner, 1, from, to) { ProjectileTargets = targets, Payload = offense });
     }
 
     static void GolemMeteorLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)

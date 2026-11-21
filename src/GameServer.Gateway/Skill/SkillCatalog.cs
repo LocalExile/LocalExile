@@ -977,6 +977,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }
+        /// <summary>Spiral nova barrage metadata (base_number_of_projectiles_in_spiral_nova / angle / time).</summary>
+        public int SpiralTimeMs { get; init; }
+        public int SpiralAngle { get; init; }
+        public int SpiralStartAngle { get; init; }
     }
 
     /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
@@ -1105,12 +1109,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         // Constants of the skill's stat set, so level 1 reads them.
         var stats = EffectStats(effectRow, 1);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int spiralCount = Get("base_number_of_projectiles_in_spiral_nova");
+        int baseCount = Math.Max(1, Math.Max(Get("base_number_of_projectiles"), spiralCount));
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
-            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+            : baseCount + Get("number_of_additional_projectiles");
         return projectile with
         {
             MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
             Count = Math.Max(1, count),
+            SpiralTimeMs = spiralCount > 0 ? Get("projectile_spiral_nova_time_ms") : 0,
+            SpiralAngle = spiralCount > 0 ? Get("projectile_spiral_nova_angle") : 0,
+            SpiralStartAngle = spiralCount > 0 ? Get("projectile_spiral_nova_starting_angle_offset") : 0,
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
             // Straight spell projectiles (MonsterProjectileSpell) start with Lobbed false and stay straight.
@@ -1240,7 +1249,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
             .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
         var spellProjectileSkills = active.Select((r, i) => (r, i))
-            .Where(a => a.r.TextOrNull("Id") == "monster_projectile_spell")
+            .Where(a => a.r.TextOrNull("Id") is { } name
+                && name.StartsWith("monster_projectile_spell", StringComparison.Ordinal))
             .Select(a => a.i).ToHashSet();
         var rollingMagmaSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") == "rolling_magma")
