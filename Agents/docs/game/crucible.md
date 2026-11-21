@@ -24,7 +24,10 @@ notable removal made by GGG when Crucible left core in 3.22:
 Because clicking a weapon inside `SelectPage` sends nothing on 3.29.3c (and `CrucibleDevice.ot` sets
 `Targetable { targetable = false; no_highlight = true; }` on KB/M), the in-zone Crucible Forge uses native visuals,
 audio, and `CrucibleRules` `0x02c9` state together with server-driven weapon/branch selection and channeling (via the
-native `crucible_channel` skill `ActiveSkills` 1815 / action `0x5f29` masked to `0x1f29` and an interactable Forge trigger at the encounter).
+native `crucible_channel` skill `ActiveSkills` 1815 / action `0x5f29` masked to `0x1f29`, put on the skill bar inside the Forge's zone).
+Seen live on 3.29.3d: a held channel sends its start and, on release, C→S `0x0199`, with nothing in between while the
+cursor rests. Creating `Metadata/NPC/Info/Crucible_GlyphRegular` stops the client with "Unknown object type serialized
+by server"; `CrucibleDevice`, `Fissure` and `MoltenPool` are created fine.
 
 ## Wire Formats (3.29.3c Addresses)
 

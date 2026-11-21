@@ -261,13 +261,12 @@ public static class ItemModStats
         var local = Local(item, items.Mods);
         if (local.GetValueOrDefault("local_no_attribute_requirements") != 0
             || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0) return (0, 0, 0);
-        int Percent(string id)
-        {
-            var allMods = item.WeaponPassiveTree is { HasTree: true } tree
-                ? item.Mods.Select(m => (m.Hash, m.Values)).Concat(tree.AllocatedNodes().Select(n => (Hash: n.ModHash, n.Values)))
-                : item.Mods.Select(m => (m.Hash, m.Values));
-            return allMods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.First().Hash, group.First().Values, id));
-        }
+        // An item without an allocated tree pays nothing extra here.
+        int Percent(string id) =>
+            item.Mods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.Key, group.First().Values, id))
+            + (item.WeaponPassiveTree is { HasTree: true, Allocation: not 0 } tree
+                ? tree.AllocatedNodes().GroupBy(node => node.ModHash).Sum(group => ValueOf(group.Key, group.First().Values, id))
+                : 0);
         int ValueOf(ushort hash, IReadOnlyList<int> values, string id)
         {
             if (items.Mods.ByHash(hash) is not { } row) return 0;

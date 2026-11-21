@@ -14,20 +14,18 @@ namespace GameServer.Modules.Crucible;
 /// <c>CrucibleDevice</c> (<c>activated</c>, <c>channelling</c>, <c>in_zone</c>), <c>Fissure</c> (<c>crucible_fissure</c>,
 /// <c>channelling</c>), <c>MoltenPool</c> (<c>crucible_pool</c>), and <c>ActiveSkills 1815</c> (<c>crucible_channel</c>).
 /// Because 3.29.3c compiled out <c>CrucibleForgePopup</c> <c>SelectPage</c> C→S clicks (<c>0x1400f1180</c> <c>ret 0</c>)
-/// and <c>CrucibleDevice</c> sets <c>targetable = false</c> on KB/M, players can channel via the native
-/// <c>CrucibleChannel</c> skill or click the targetable Crucible Glyph beside the Forge to select/charge/release.
+/// and <c>CrucibleDevice</c> sets <c>targetable = false</c> on KB/M, players channel with the native
+/// <c>CrucibleChannel</c> skill; a gamepad can also click the Forge. No helper NPC stands beside it: creating
+/// <c>Metadata/NPC/Info/Crucible_GlyphRegular</c> stops the client ("Unknown object type serialized by server").
 /// </para>
 /// </summary>
 public static class CrucibleEncounter
 {
-    public const string GlyphType = "Metadata/NPC/Info/Crucible_GlyphRegular";
-    const string GlyphModel = "Metadata/Terrain/Doodads/Act11/KaruiShoresMemorialPlaque_01.ao";
     /// <summary>Masked granted skill id (&lt;= 0x3fff) matching SkillCatalog's ActionTypes.HASH16 &amp; 0x3fff convention.</summary>
     public const ushort CrucibleChannelSkillId = (ushort)(InstanceCrucible.CrucibleChannelSkillHash & 0x3fff);
     const double ZoneEnterRadius = 18.0;
     const double ZoneLeaveRadius = 22.0;
     const double FullChargeSeconds = 5.0;
-    const double ChannelReleaseGraceSeconds = 0.75;
 
     enum Phase { Idle, Channeling, Spawning, Active, Completed }
 
@@ -48,7 +46,6 @@ public static class CrucibleEncounter
         public Phase Phase = Phase.Idle;
         public int AreaLevel = 1;
         public WorldObj? Device;
-        public WorldObj? Glyph;
         public List<WorldObj> Fissures = [];
         public List<WorldObj> Pools = [];
         public List<WorldObj> AllObjects = [];
@@ -60,8 +57,9 @@ public static class CrucibleEncounter
         public ushort SelectedVisualHash;
         public int SelectedAnimSet;
         public float Charge;
-        public double LastChannelPingAt;
         public bool AutoChannel;
+        /// <summary>The player who started the channel: only their packets and tick drive it, and their item gets the experience.</summary>
+        public ClientState? Channeler;
         public bool ChannelActionActive;
         public ushort ChannelSequence;
         public int ThemeTagIndex = -1;
@@ -152,20 +150,6 @@ public static class CrucibleEncounter
         encounter.Device = device;
         encounter.AllObjects.Add(device);
 
-        // Place a targetable Crucible Glyph right beside the Forge so KB/M players can click directly.
-        var glyphPos = conn.Layout.Near((device.X + 5, device.Y + 4));
-        var glyph = new WorldObj
-        {
-            Id = conn.Instance.World.NewMonsterId(),
-            Type = GlyphType,
-            X = glyphPos.X,
-            Y = glyphPos.Y,
-            Rotation = 0f,
-            Blocked = false,
-        };
-        encounter.Glyph = glyph;
-        encounter.AllObjects.Add(glyph);
-
         // 4 radiating Fissures + 3 MoltenPools around the CrucibleDevice.
         (int dx, int dy, float rot)[] fissureOffsets = [(7, 0, 0f), (-7, 0, MathF.PI), (0, 7, MathF.PI / 2f), (0, -7, -MathF.PI / 2f)];
         foreach (var (dx, dy, rot) in fissureOffsets)
@@ -201,7 +185,7 @@ public static class CrucibleEncounter
             encounter.AllObjects.Add(p);
         }
 
-        Console.WriteLine($"[crucible] In-zone Crucible Forge placed in {conn.Layout.Id} (lvl {encounter.AreaLevel}) at ({device.X},{device.Y}), device=0x{device.Id:x}, glyph=0x{glyph.Id:x}");
+        Console.WriteLine($"[crucible] In-zone Crucible Forge placed in {conn.Layout.Id} (lvl {encounter.AreaLevel}) at ({device.X},{device.Y}), device=0x{device.Id:x}");
     }
 
     static (QuestObject Object, IReadOnlyList<string> Components, bool Blocking)? Describe(WorldObj obj)
@@ -220,12 +204,6 @@ public static class CrucibleEncounter
             return QuestObject.CanSerialize(info.Components, states is not null) ? (quest, info.Components, info.Blocking) : null;
         }
 
-        if (QuestObjectTypes.Find(obj.Type) is { } qInfo && QuestObject.CanSerialize(qInfo.Components, false))
-        {
-            string? model = obj.Type == GlyphType ? GlyphModel : qInfo.Model;
-            var quest = new QuestObject(obj.X, obj.Y, qInfo.Components, obj.Rotation, Model: model);
-            return (quest, qInfo.Components, qInfo.Blocking);
-        }
         return null;
     }
 
@@ -305,7 +283,7 @@ public static class CrucibleEncounter
     {
         if (!HasForge(conn, out var encounter) || encounter.Phase is Phase.Completed) return;
         if (Array.IndexOf(ids, CrucibleChannelSkillId) >= 0) return;
-        for (int i = ids.Length - 1; i >= 3; i--)
+        for (int i = 3; i < ids.Length; i++)
         {
             if (ids[i] == 0) { ids[i] = CrucibleChannelSkillId; return; }
         }
@@ -332,7 +310,6 @@ public static class CrucibleEncounter
             return true;
         }
 
-        double now = conn.Clock.Elapsed.TotalSeconds;
         bool startedAction = false;
         await encounter.Gate.WaitAsync();
         try
@@ -348,15 +325,11 @@ public static class CrucibleEncounter
                 encounter.AutoChannel = false;
                 encounter.ChannelActionActive = true;
                 encounter.ChannelSequence = sequence;
-                encounter.LastChannelPingAt = now;
                 startedAction = true;
                 await BeginChannelingLocked(conn, encounter);
             }
-            else if (encounter.Phase == Phase.Channeling)
-            {
+            else if (encounter.Phase == Phase.Channeling && ReferenceEquals(encounter.Channeler, conn))
                 encounter.AutoChannel = false;
-                encounter.LastChannelPingAt = now;
-            }
         }
         finally { encounter.Gate.Release(); }
 
@@ -367,35 +340,34 @@ public static class CrucibleEncounter
         return true;
     }
 
-    /// <summary>Handles C→S <c>0x0197</c>/<c>0x0198</c> channel keep-alives while holding <c>CrucibleChannel</c>.</summary>
+    /// <summary>Takes the channeler's C→S <c>0x0197</c>/<c>0x0198</c> aim updates while they hold <c>CrucibleChannel</c>.</summary>
     public static Task<bool> HandleChannelUpdate(ClientState conn)
     {
-        if (!HasForge(conn, out var encounter) || encounter.Phase != Phase.Channeling || encounter.AutoChannel)
+        if (!HasForge(conn, out var encounter) || encounter.Phase != Phase.Channeling || encounter.AutoChannel
+            || !ReferenceEquals(encounter.Channeler, conn))
             return Task.FromResult(false);
-        encounter.LastChannelPingAt = conn.Clock.Elapsed.TotalSeconds;
         return Task.FromResult(true);
     }
 
     /// <summary>Handles C→S <c>0x0199</c> channel end to immediately release the Forge wave.</summary>
     public static async Task<bool> HandleChannelEnd(ClientState conn, double xpMultiplier, double geodeDropRate)
     {
-        if (!HasForge(conn, out var encounter) || encounter.Phase != Phase.Channeling || encounter.AutoChannel)
+        if (!HasForge(conn, out var encounter) || encounter.Phase != Phase.Channeling || encounter.AutoChannel
+            || !ReferenceEquals(encounter.Channeler, conn))
             return false;
         await ReleaseEncounter(conn, encounter, xpMultiplier, geodeDropRate);
         return true;
     }
 
     /// <summary>
-    /// Handles clicks on the Crucible Glyph (KB/M) or <c>CrucibleDevice</c> (Gamepad).
+    /// Handles clicks on <c>CrucibleDevice</c> (gamepad; it is not targetable with a mouse).
     /// Idle → selects best weapon + next connected node and starts smooth channeling ramp.
     /// Channeling → immediately releases the Forge at the current charge tier!
     /// </summary>
     public static async Task<bool> UseObject(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt, double xpMultiplier, double geodeDropRate)
     {
         if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return false;
-        bool isDevice = use.TargetId == device.Id;
-        bool isGlyph = encounter.Glyph is not null && use.TargetId == encounter.Glyph.Id;
-        if (!isDevice && !isGlyph) return false;
+        if (use.TargetId != device.Id) return false;
 
         if (encounter.Phase == Phase.Completed)
         {
@@ -408,8 +380,7 @@ public static class CrucibleEncounter
             return true;
         }
 
-        var target = isGlyph ? encounter.Glyph! : device;
-        if (!await WorldOf(conn).WalkUpTo(target.X, target.Y, 14, requestedAt))
+        if (!await WorldOf(conn).WalkUpTo(device.X, device.Y, 14, requestedAt))
             return true;
 
         bool shouldRelease = false;
@@ -420,13 +391,12 @@ public static class CrucibleEncounter
             {
                 if (!SelectBestWeapon(conn, encounter))
                 {
-                    await PlayerOf(conn).Tell("Equip or carry an eligible weapon or shield (excluding quivers) to channel at the Crucible Forge.");
+                    await PlayerOf(conn).Tell("Equip or carry an eligible weapon or shield to channel at the Crucible Forge.");
                     return true;
                 }
                 encounter.AutoChannel = true;
-                encounter.LastChannelPingAt = conn.Clock.Elapsed.TotalSeconds;
                 await BeginChannelingLocked(conn, encounter);
-                await PlayerOf(conn).Tell($"Channeling {encounter.SelectedItemName}... Click the Forge Glyph again at any time to release at your desired difficulty (or wait for Lethal).");
+                await PlayerOf(conn).Tell($"Channeling {encounter.SelectedItemName}... Click the Forge again at any time to release at your desired difficulty (or wait for Lethal).");
             }
             else if (encounter.Phase == Phase.Channeling)
             {
@@ -466,17 +436,17 @@ public static class CrucibleEncounter
                 {
                     view.Greeted = true;
                     string target = encounter.SelectedItemName.Length > 0 ? $"Selected: {encounter.SelectedItemName}. " : "";
-                    await PlayerOf(conn).Tell($"Crucible Forge: {target}Click the Crucible Glyph or hold Crucible Channel to charge the Forge.");
+                    await PlayerOf(conn).Tell($"Crucible Forge: {target}Hold Crucible Channel to charge the Forge.");
                 }
             }
             else if (view.InZone && dist > ZoneLeaveRadius)
             {
                 view.InZone = false;
-                if (encounter.Phase == Phase.Channeling)
+                if (encounter.Phase == Phase.Channeling && ReferenceEquals(encounter.Channeler, conn))
                 {
                     await ReleaseEncounter(conn, encounter, xpMultiplier, geodeDropRate);
                 }
-                else
+                else if (encounter.Phase == Phase.Idle)
                 {
                     device.States["in_zone"] = 0;
                     await SendStates(conn, [device]);
@@ -487,9 +457,10 @@ public static class CrucibleEncounter
             }
         }
 
-        // 2. Channeling charge ramp & release check.
+        // 2. Channeling charge ramp & release check: on the channeler's tick and clock only.
         if (encounter.Phase == Phase.Channeling)
         {
+            if (!ReferenceEquals(encounter.Channeler, conn)) return;
             bool releaseNow = false;
             float newCharge = 0f;
             await encounter.Gate.WaitAsync();
@@ -497,11 +468,11 @@ public static class CrucibleEncounter
             {
                 if (encounter.Phase == Phase.Channeling)
                 {
-                    double now = conn.Clock.Elapsed.TotalSeconds;
                     encounter.Charge = Math.Clamp(encounter.Charge + (float)(Math.Max(0.05, dt) / FullChargeSeconds), 0.05f, 1.0f);
                     newCharge = encounter.Charge;
-                    if (encounter.Charge >= 1.0f || (!encounter.AutoChannel && now - encounter.LastChannelPingAt >= ChannelReleaseGraceSeconds))
-                        releaseNow = true;
+                    // A held channel sends nothing between its start and its end (0x0199, or the lockstep stop) while
+                    // the cursor rests, so only a full charge releases here.
+                    if (encounter.Charge >= 1.0f) releaseNow = true;
                 }
             }
             finally { encounter.Gate.Release(); }
@@ -564,12 +535,24 @@ public static class CrucibleEncounter
             kill.Later(() => CompleteEncounter(kill.Conn, encounter, xpMultiplier, geodeDropRate));
     }
 
-    public static void OnPlayerLeaving(ClientState conn) => Views.Remove(conn);
+    public static void OnPlayerLeaving(ClientState conn)
+    {
+        Views.Remove(conn);
+        // A channeler who leaves mid-channel frees the Forge for the players who stay.
+        if (conn.Instance is not null && Instances.TryGetValue(conn.Instance, out var encounter)
+            && ReferenceEquals(encounter.Channeler, conn) && encounter.Phase == Phase.Channeling)
+        {
+            encounter.Phase = Phase.Idle;
+            encounter.Channeler = null;
+            encounter.ChannelActionActive = false;
+        }
+    }
 
     // Must be called under encounter.Gate.
     static async Task BeginChannelingLocked(ClientState conn, EncounterState encounter)
     {
         encounter.Phase = Phase.Channeling;
+        encounter.Channeler = conn;
         encounter.Charge = 0.08f;
 
         if (encounter.Device is { } device)
@@ -617,6 +600,7 @@ public static class CrucibleEncounter
         }
         finally { encounter.Gate.Release(); }
 
+        conn = encounter.Channeler is { Closed: false, LeavingArea: false } channeler ? channeler : conn;
         var (remote, stream, ciphers) = conn.Wire;
         if (endChannelAction)
         {
@@ -718,7 +702,8 @@ public static class CrucibleEncounter
         await BroadcastRules(conn, InstanceCrucible.ForgeState(3), "0x02c9 CrucibleRules state=3 (complete)");
         await BroadcastRules(conn, InstanceCrucible.ForgeLeaveZone(), "0x02c9 CrucibleRules inZone=0");
 
-        // Award Weapon Passive Tree XP to the selected item.
+        // Award Weapon Passive Tree XP to the selected item, which is the channeler's.
+        if (encounter.Channeler is { Closed: false } owner && ReferenceEquals(owner.Instance, conn.Instance)) conn = owner;
         var items = ItemsOf(conn);
         var catalog = ItemsFor(conn);
         var found = items.Items(itemRow).FirstOrDefault(i => i.Id == itemId);

@@ -113,6 +113,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Crucible (league `Crucible`): Forges in areas charge with the Crucible Channel skill, spawn their wave and give the
+  weapon or shield its passive tree, which the item tooltip and tree window show and whose allocated nodes count.
+  The server picks the weapon and the nodes, since the client's Forge popup sends no choice.
+  Not seen in the client: lockstep, parties, Forge of the Titans, Magmatic Ore, geodes, the sell nodes.
+  Wave sizes, experience per Forge and combining odds are our own numbers.
+  Docs: [Crucible](../docs/game/crucible.md).
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).
 - Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
