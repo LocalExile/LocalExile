@@ -88,17 +88,19 @@ public static class AtlasProgress
 
     /// <summary>S→C 0x1a3: u8 → +0x71 (socketed count), u8 → +0x72, u8 → +0x70 (Voidstone T16 bits), u8 sections
     /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of u16 pairs, 0 here) and the
-    /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask is every on-Atlas row
-    /// (voidstone sockets, Ziggurat, Abomination, Eater / Exarch) so the client keeps the bottom of the panel;
-    /// the second is completed maps plus those same rows so their Connections open.</summary>
+    /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). Both masks carry only the saved completed maps:
+    /// the first clears fog and opens connected maps (+0x9ca), and the second marks bonus completion (+0x9cb/+0x9ce)
+    /// and drives the completed counter. Uncompleted maps stay fogged and uncounted.</summary>
     public static byte[] FullMessage(IReadOnlySet<string> completed, byte voidstones = 0, byte awakening = 0)
     {
         var revealed = new byte[MaskBytes];
         var done = new byte[MaskBytes];
-        foreach (int row in OnAtlasRows) SetBit(revealed, row);
         foreach (var node in Maps)
-            if (completed.Contains(node.Id)) SetBit(done, node.Row);
-        foreach (int row in OnAtlasRows) SetBit(done, row);
+            if (completed.Contains(node.Id))
+            {
+                SetBit(revealed, node.Row);
+                SetBit(done, node.Row);
+            }
         return [0x01, 0xa3, awakening, 0, voidstones, 0x03, 0, .. revealed, .. done];
     }
 
