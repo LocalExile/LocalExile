@@ -12,5 +12,11 @@ public sealed class EtherealKnivesCatalogTests
         Assert.NotNull(projectile);
         Assert.Equal("Metadata/Projectiles/EtherealKnivesProjectile", projectile!.Value.Id);
         Assert.Equal(2800, projectile.Value.Speed);
+        foreach (var (quality, expectedSpeed) in new[] { (0, 257.6), (20, 309.12) })
+        {
+            var stats = skills.EffectStats(ek, 1, quality).ToDictionary(s => s.Item1, s => s.Item2);
+            int Skill(string name) => stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+            Assert.Equal(expectedSpeed, ProjectileSpeed.CellsPerSecond(projectile.Value.Speed, _ => 0, Skill), 3);
+        }
     }
 }

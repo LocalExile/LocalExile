@@ -207,8 +207,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** the [framework](../docs/game/projectile-framework.md) owns production routing and the only simulator;
   [registered skills](../docs/game/projectile-skills.md) add special behaviour. Tornado Shot's secondary group now
   starts in the primary's final return phase. Ordinary and returning speed increases now add in that phase.
-  The two speed masteries now scale flight. Check their timing and Vengeant Cascade's return speed in both clients,
-  alongside the secondary arrows' radial flight.
+  The speed masteries and the skill's own final speed now scale flight. Check Ethereal Knives quality,
+  Vengeant Cascade returns and the secondary arrows' radial flight in both clients.
 - **Open:**
   - Nonzero intrinsic attack repeats; per-skill duration before the 150-cell cap and a
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).

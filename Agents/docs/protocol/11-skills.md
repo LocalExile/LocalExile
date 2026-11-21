@@ -2228,8 +2228,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   (`0x142714fe0` and `0x142715450`) apply the final speed factor to the ordinary increase, round the signed
   modifier to the nearest integer with ties away from zero, then clamp at −99%. The arrow view includes
   `base_arrow_speed_+%` before that calculation. Their shared final stat (`0x1427149b0`) multiplies the
-  Slower Projectiles factor and the separate more and less Projectile Mastery factors, then rounds to a
-  signed integer before either speed virtual uses it. Returning speed is added afterwards.
+  Slower Projectiles factor, the active skill's own `active_skill_projectile_speed_+%_final`, and the separate
+  more and less Projectile Mastery factors before rounding to a signed integer. Ethereal Knives quality supplies
+  that skill-local factor at 1% per quality. Returning speed is added afterwards.
   One resolved speed drives collision prediction, 0x1ba's
   duration and the server's flight delay. A finite positive `Game_PROJECTILE_SPEED` still overrides the result
   in cells/second. Invalid overrides fall back to the modified table speed. Finite positive overrides, including

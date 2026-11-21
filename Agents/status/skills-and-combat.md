@@ -119,8 +119,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [performance](../docs/dev/performance.md).
 - Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
 - Attack-speed admission and gem projectile speed. Ordinary bow, wand and skill projectiles add returning speed to
-  the rounded outbound modifier. The more and less Projectile Masteries stack multiplicatively with Slower Projectiles
-  Support before that modifier scales the flight. [Flight](../docs/protocol/11-skills.md).
+  the rounded outbound modifier. Ethereal Knives quality and other skill-local final speed modifiers multiply with
+  Slower Projectiles Support and the projectile speed masteries before rounding. [Flight](../docs/protocol/11-skills.md).
 - Skill area and duration scaling: the player's increased area counted once at every area site, type-scoped area,
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §12.

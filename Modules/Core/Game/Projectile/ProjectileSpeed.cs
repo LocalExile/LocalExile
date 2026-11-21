@@ -36,7 +36,8 @@ public static class ProjectileSpeed
             + (arrows ? skillRaw("base_arrow_speed_+%") : 0);
         // The combined final modifier rounds before either the arrow or projectile virtual uses it.
         float slower = Factor(skillRaw("support_slower_projectiles_projectile_speed_+%_final"));
-        int final = RoundPercent(100f * slower * Factor(moreMastery) * Factor(lessMastery) - 100f);
+        float active = Factor(skillRaw("active_skill_projectile_speed_+%_final"));
+        int final = RoundPercent(100f * slower * active * Factor(moreMastery) * Factor(lessMastery) - 100f);
         return Math.Max(-99, RoundPercent((100 + increased) * Factor(final) - 100f));
     }
 
