@@ -546,6 +546,25 @@ public sealed partial class AccountStash
         lock (_lock) return tab >= 0 && tab < _tabs.Count && _rules.Holds(_tabs[tab].Saved.Type, itemType);
     }
 
+    /// <summary>The tab /deposit sends an item to: a shown tab whose tab settings tag one of the item's affinities and that
+    /// holds it, else the first shown special tab that holds it; null for an item without an affinity (gear) or no such tab.</summary>
+    public int? AffinityTab(uint itemType)
+    {
+        lock (_lock)
+        {
+            if (!_rules.HasAffinity(itemType)) return null;
+            int? special = null;
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var saved = _tabs[i].Saved;
+                if (saved.UniqueCategory != 0 || !_rules.Holds(saved.Type, itemType)) continue;
+                if (_rules.Tagged(itemType, saved.Affinities)) return i;
+                if (special is null && !StashRules.IsGrid(saved.Type)) special = i;
+            }
+            return special;
+        }
+    }
+
     // Where an item goes in a tab: (x, y) itself in a grid tab, its own slot (slot, 0) in a slotted one (dropped anywhere
     // on the tab, it goes there); null when the tab doesn't hold it or has no slot for it.
     (int X, int Y)? CellIn(TabState t, Item item, int x, int y, out string why)

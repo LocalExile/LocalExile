@@ -92,7 +92,7 @@ Modules sit in three folders, and each module in exactly one.
 | `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/`, `PlayerBots`, `NessaDevelopmentTabs` |
 
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
-mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
+mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos`, `/passives`, `/played` and `/deposit`.
 
 - **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `Ruthless`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`, `Deepwater`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
 - **`Game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
