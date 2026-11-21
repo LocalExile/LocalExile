@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
@@ -10,22 +11,60 @@ namespace GameServer.Modules.Crucible;
 /// row 45, <c>crucible_encounter.arm</c>).
 /// <para>
 /// Drives native 3.29.3c client visuals, audio, and rulesets:
-/// <c>S→C 0x001f</c> <c>CrucibleRules</c> (<c>0x89</c>), <c>S→C 0x02c9</c> sub-messages <c>0x00</c>–<c>0x06</c>,
+/// <c>S→C 0x001f</c> <c>CrucibleRules</c> (<c>0x89</c>), <c>S→C 0x02c9</c> sub-messages <c>0x00</c>–<c>0x05</c>,
 /// <c>CrucibleDevice</c> (<c>activated</c>, <c>channelling</c>, <c>in_zone</c>), <c>Fissure</c> (<c>crucible_fissure</c>,
-/// <c>channelling</c>), <c>MoltenPool</c> (<c>crucible_pool</c>), and <c>ActiveSkills 1815</c> (<c>crucible_channel</c>).
-/// Because 3.29.3c compiled out <c>CrucibleForgePopup</c> <c>SelectPage</c> C→S clicks (<c>0x1400f1180</c> <c>ret 0</c>)
-/// and <c>CrucibleDevice</c> sets <c>targetable = false</c> on KB/M, players channel with the native
-/// <c>CrucibleChannel</c> skill; a gamepad can also click the Forge. No helper NPC stands beside it: creating
-/// <c>Metadata/NPC/Info/Crucible_GlyphRegular</c> stops the client ("Unknown object type serialized by server").
+/// <c>channelling</c>), <c>MoltenPool</c> (<c>crucible_pool</c>), the monsters' <c>crucible_frozen</c> buff and
+/// <c>broken_out</c> state, and <c>ActiveSkills 1815</c> (<c>crucible_channel</c>).
+/// The 3.29 client never tells the server which item or skill the player picked in the Forge popup (its page events
+/// reach empty handlers, <c>0x1400f1180</c>), so <see cref="SelectTarget"/> takes the pick from a ruleset action a
+/// changed client sends, and the server's default stands until one comes. No helper NPC stands beside the Forge:
+/// creating <c>Metadata/NPC/Info/Crucible_GlyphRegular</c> stops the client ("Unknown object type serialized by server").
 /// </para>
 /// </summary>
 public static class CrucibleEncounter
 {
     /// <summary>Masked granted skill id (&lt;= 0x3fff) matching SkillCatalog's ActionTypes.HASH16 &amp; 0x3fff convention.</summary>
     public const ushort CrucibleChannelSkillId = (ushort)(InstanceCrucible.CrucibleChannelSkillHash & 0x3fff);
+
+    // Our own numbers: GGG never published them, and no client table holds them.
     const double ZoneEnterRadius = 18.0;
     const double ZoneLeaveRadius = 22.0;
-    const double FullChargeSeconds = 5.0;
+    /// <summary>One player's channel from nothing to full charge; each further channeller adds as much.</summary>
+    const double FullChargeSeconds = 10.0;
+    /// <summary>The popup's click-and-hold repeats the skill use every frame and sends nothing on release: this long
+    /// without one is the release.</summary>
+    const int StreamEndMs = 750;
+    /// <summary>Steps of a full channel: each lengthens one fissure and forms a monster at a pool at its end.</summary>
+    const int ChargeSteps = 32;
+    /// <summary>The fissures: how many, where they start and how far a step takes the pools along one. Only the first
+    /// step of each is drawn, as two Fissure objects: the model is about 4.5 cells long, and none showed further out
+    /// (seen live).</summary>
+    const int FissureArms = 8, FissurePieces = 2;
+    const double FissureStart = 14.0, FissureStep = 7.0;
+    /// <summary>This many held monsters of one tier become one of the next.</summary>
+    const int MergeCount = 3;
+    /// <summary>The tier of a new monster at full charge (its first is tier 1); merging reaches the second boss, tier 10.</summary>
+    const int TopSpawnTier = 9;
+    const int BossTier = 9, MaxTier = 10;
+    /// <summary>Percent per tier that a monster below the bosses is magic, or rare.</summary>
+    const int MagicChancePerTier = 8, RareChancePerTier = 3;
+    /// <summary>More damage dealt and less damage taken by a monster formed at full charge, in percent.</summary>
+    const int FullChargeMoreDamage = 50, FullChargeLessDamageTaken = 30;
+    /// <summary>The sum of <c>MonsterVarieties.ExperienceMultiplier</c> over the monsters killed that pays the area
+    /// level's Bar1: a full channel's monsters sum to about 1830 for most themes (Chaos and Demon about 2200), a little
+    /// over it. Taking the area level's row of
+    /// <c>WeaponPassiveTreeBalancePerItemLevel</c> as the curve is ours too.</summary>
+    const double XpReferenceSum = 1650.0;
+    /// <summary>Tiers per step of a released monster's <c>crystal_size</c> (0..3).</summary>
+    const int TiersPerCrystalSize = 2;
+    /// <summary>The channel animation by what the target is.</summary>
+    const int OneHandAnimSet = 0, TwoHandAnimSet = 1, ShieldAnimSet = 2;
+
+    /// <summary><c>CrucibleDevice.ot</c> plays <c>breakout_wave</c> 1.0 s after <c>activated = 1</c>.</summary>
+    const int BreakoutDelayMs = 1000;
+
+    /// <summary>The module's settings.</summary>
+    public static double ExperienceMultiplier = 1, GeodeDropRate = 1;
 
     enum Phase { Idle, Channeling, Spawning, Active, Completed }
 
@@ -39,41 +78,54 @@ public static class CrucibleEncounter
         public Dictionary<string, int> States = [];
     }
 
+    /// <summary>A molten monster waiting at its pool for the release.</summary>
+    sealed record Held(uint Id, int Tier, WorldObj Pool, SpawnedMonster Body);
+
     sealed class EncounterState
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public bool Built;
-        public Phase Phase = Phase.Idle;
+        public volatile Phase Phase = Phase.Idle;
         public int AreaLevel = 1;
         public WorldObj? Device;
         public List<WorldObj> Fissures = [];
         public List<WorldObj> Pools = [];
         public List<WorldObj> AllObjects = [];
 
-        // Selected weapon/shield and channeling progress
-        public byte SelectedRow;
-        public uint SelectedItemId;
-        public string SelectedItemName = "";
-        public ushort SelectedVisualHash;
-        public int SelectedAnimSet;
+        /// <summary>Players inside the ring.</summary>
+        public int InZone;
         public float Charge;
-        public bool AutoChannel;
-        /// <summary>The player who started the channel: only their packets and tick drive it, and their item gets the experience.</summary>
-        public ClientState? Channeler;
-        public bool ChannelActionActive;
-        public ushort ChannelSequence;
-        public int ThemeTagIndex = -1;
+        public int Steps;
+        public CrucibleMonsters.ThemePool? Theme;
+        /// <summary>Everyone who channelled: each one's own target item gets the experience.</summary>
+        public HashSet<ClientState> Channellers = [];
+        public List<Held> Held = [];
+        public long BreakoutAtMs;
 
-        // Spawned encounter monsters
+        // The released monsters still alive, and the experience multipliers of those killed.
         public HashSet<uint> Monsters = [];
         public Dictionary<uint, SpawnedMonster> Bodies = [];
+        public int KilledExperience;
     }
 
     sealed class PlayerView
     {
         public HashSet<uint> Presented = [];
+        /// <summary>The held monsters this client shows frozen, with its buff instance for each.</summary>
+        public Dictionary<uint, ushort> Frozen = [];
         public bool InZone;
-        public bool Greeted;
+
+        // The item this player channels for.
+        public byte TargetRow;
+        public uint TargetItemId;
+        public ushort VisualHash;
+        public int AnimSet;
+        public int ThemeTag = -1;
+
+        // The player's channel: started by a skill use, repeated every frame by the popup's click-and-hold.
+        public bool Holding, Stream;
+        public ushort Sequence;
+        public long LastUseMs;
     }
 
     static readonly ConditionalWeakTable<InstanceState, EncounterState> Instances = new();
@@ -90,17 +142,13 @@ public static class CrucibleEncounter
             .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
             .Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, conn.Instance)).Distinct();
 
-    static double Distance(int x1, int y1, int x2, int y2) =>
-        Math.Sqrt((double)(x1 - x2) * (x1 - x2) + (double)(y1 - y2) * (y1 - y2));
-
     static bool HasForge(ClientState conn, out EncounterState encounter)
     {
         encounter = null!;
-        if (conn.Instance is null || CrucibleTables.IsForgeArea(conn.Layout.Id)) return false;
-        return Instances.TryGetValue(conn.Instance, out encounter!) && encounter.Device is not null;
+        return conn.Instance is not null && Instances.TryGetValue(conn.Instance, out encounter!) && encounter.Device is not null;
     }
 
-    /// <summary>Spawns <c>CrucibleDevice</c>, fissures, molten pools, and clickable glyph on <see cref="GameEvents.AreaGenerated"/>.</summary>
+    /// <summary>Spawns the <c>CrucibleDevice</c> on <see cref="GameEvents.AreaGenerated"/>.</summary>
     public static async Task Enter(ClientState conn)
     {
         if (conn.Instance is null || CrucibleTables.IsForgeArea(conn.Layout.Id) || conn.Layout.Level is not { } level)
@@ -116,6 +164,7 @@ public static class CrucibleEncounter
             $"0x001f ruleset CrucibleRules (row {ruleset})");
 
         var encounter = Instances.GetOrCreateValue(conn.Instance);
+        WorldObj[] objects;
         await encounter.Gate.WaitAsync();
         try
         {
@@ -124,11 +173,15 @@ public static class CrucibleEncounter
                 Build(conn, encounter, devicePlacement);
                 encounter.Built = true;
             }
+            objects = [.. encounter.AllObjects];
         }
         finally { encounter.Gate.Release(); }
 
-        foreach (var obj in encounter.AllObjects)
-            await Present(conn, obj);
+        await Task.WhenAll(objects.Select(obj => Present(conn, obj)));
+        // Who arrives after the release missed the state's one send.
+        if (encounter.Phase is Phase.Spawning or Phase.Active or Phase.Completed)
+            await Send(remote, stream, ciphers, InstanceCrucible.ForgeState((byte)(encounter.Phase == Phase.Completed ? 3 : 2)),
+                "0x02c9 CrucibleRules state for a late arrival");
     }
 
     static void Build(ClientState conn, EncounterState encounter, GameServer.Data.Terrain.Generation.PlacedTileObject deviceAt)
@@ -149,41 +202,6 @@ public static class CrucibleEncounter
         };
         encounter.Device = device;
         encounter.AllObjects.Add(device);
-
-        // 4 radiating Fissures + 3 MoltenPools around the CrucibleDevice.
-        (int dx, int dy, float rot)[] fissureOffsets = [(7, 0, 0f), (-7, 0, MathF.PI), (0, 7, MathF.PI / 2f), (0, -7, -MathF.PI / 2f)];
-        foreach (var (dx, dy, rot) in fissureOffsets)
-        {
-            var pos = conn.Layout.Near((device.X + dx, device.Y + dy));
-            var f = new WorldObj
-            {
-                Id = conn.Instance.World.NewMonsterId(),
-                Type = CrucibleTables.FissureType,
-                X = pos.X,
-                Y = pos.Y,
-                Rotation = rot,
-                States = new() { ["crucible_fissure"] = 0, ["channelling"] = 0 },
-            };
-            encounter.Fissures.Add(f);
-            encounter.AllObjects.Add(f);
-        }
-
-        (int dx, int dy)[] poolOffsets = [(11, 6), (-11, 5), (2, -11)];
-        foreach (var (dx, dy) in poolOffsets)
-        {
-            var pos = conn.Layout.Near((device.X + dx, device.Y + dy));
-            var p = new WorldObj
-            {
-                Id = conn.Instance.World.NewMonsterId(),
-                Type = CrucibleTables.MoltenPoolType,
-                X = pos.X,
-                Y = pos.Y,
-                Rotation = 0f,
-                States = new() { ["crucible_pool"] = 0 },
-            };
-            encounter.Pools.Add(p);
-            encounter.AllObjects.Add(p);
-        }
 
         Console.WriteLine($"[crucible] In-zone Crucible Forge placed in {conn.Layout.Id} (lvl {encounter.AreaLevel}) at ({device.X},{device.Y}), device=0x{device.Id:x}");
     }
@@ -210,7 +228,9 @@ public static class CrucibleEncounter
     static async Task Present(ClientState conn, WorldObj obj)
     {
         var view = Views.GetOrCreateValue(conn);
-        if (view.Presented.Contains(obj.Id) || Describe(obj) is not var (quest, _, blocking)) return;
+        lock (view.Presented)
+            if (!view.Presented.Add(obj.Id)) return;
+        if (Describe(obj) is not var (quest, _, blocking)) return;
         byte[] blob = InstanceEntities.CreateObject(obj.Id, InstanceEntities.ObjectTypeHash(obj.Type), quest.Blob());
         await SendWorldCreate(conn, obj.Id, () => blob, $"crucible {obj.Type.Split('/')[^1]} 0x{obj.Id:x} at ({obj.X},{obj.Y})",
             wake: true, awaitBirth: false);
@@ -226,48 +246,47 @@ public static class CrucibleEncounter
                 if (size >= 0) conn.SetBlocker(obj.Id, obj.X, obj.Y, size, hull);
             }
         }
-        view.Presented.Add(obj.Id);
     }
 
-    static async Task SendStates(ClientState conn, IEnumerable<WorldObj> objects)
+    /// <summary>The objects' states to every player who has them, as one batch: no send waits for the one before.</summary>
+    static Task SendStates(ClientState conn, IReadOnlyList<WorldObj> objects)
     {
-        var list = objects.ToList();
+        var sends = new List<Task>();
         foreach (var member in Members(conn))
         {
             if (!Views.TryGetValue(member, out var view)) continue;
             var (remote, stream, ciphers) = member.Wire;
-            foreach (var obj in list)
+            foreach (var obj in objects)
             {
-                if (!view.Presented.Contains(obj.Id) || Describe(obj) is not var (quest, components, _) || quest.StateMachine is null)
-                    continue;
+                lock (view.Presented)
+                    if (!view.Presented.Contains(obj.Id)) continue;
+                if (Describe(obj) is not var (quest, components, _) || quest.StateMachine is null) continue;
                 int smIndex = components.ToList().IndexOf("StateMachine");
                 if (smIndex < 0) continue;
-                await SendWorldRecord(remote, stream, ciphers, member, obj.Id,
-                    InstanceEntities.StateMachineUpdate(obj.Id, (byte)smIndex, quest.StateMachine), null);
+                sends.Add(SendWorldRecord(remote, stream, ciphers, member, obj.Id,
+                    InstanceEntities.StateMachineUpdate(obj.Id, (byte)smIndex, quest.StateMachine), null));
             }
         }
+        return Task.WhenAll(sends);
     }
 
-    static async Task BroadcastRules(ClientState conn, byte[] message, string? log = null)
-    {
-        foreach (var member in Members(conn))
+    static Task BroadcastRules(ClientState conn, byte[] message, string? log = null) =>
+        Task.WhenAll(Members(conn).Select(member =>
         {
             var (remote, stream, ciphers) = member.Wire;
-            await Send(remote, stream, ciphers, message, log);
-        }
-    }
+            return Send(remote, stream, ciphers, message, log);
+        }));
 
     /// <summary>Provides <c>in_crucible_zone</c> and channeling weapon visual/animation stats on <see cref="GameEvents.Stats"/>.</summary>
     public static void OnStats(StatSheet sheet)
     {
         var conn = sheet.Conn;
-        if (!HasForge(conn, out var encounter) || encounter.Phase is Phase.Completed) return;
-        if (!Views.TryGetValue(conn, out var view) || !view.InZone) return;
+        if (!HasForge(conn, out _) || !Views.TryGetValue(conn, out var view) || !view.InZone) return;
 
         sheet.Add(CrucibleTables.InZoneStat, 1);
-        if (encounter.SelectedVisualHash != 0)
-            sheet.Add(CrucibleTables.ChannelWeaponVisualStat, encounter.SelectedVisualHash);
-        sheet.Add(CrucibleTables.ChannelWeaponAnimStat, encounter.SelectedAnimSet);
+        if (view.VisualHash != 0)
+            sheet.Add(CrucibleTables.ChannelWeaponVisualStat, view.VisualHash);
+        sheet.Add(CrucibleTables.ChannelWeaponAnimStat, view.AnimSet);
     }
 
     /// <summary>Grants <c>ActiveSkills 1815</c> (<c>crucible_channel</c>) while in an area with an active Crucible Forge.</summary>
@@ -289,230 +308,580 @@ public static class CrucibleEncounter
         }
     }
 
-    /// <summary>Handles C→S skill casts of <c>crucible_channel</c> (<c>0x1f29</c>) to start/sustain channeling.</summary>
+    // ---- the player's target -------------------------------------------------------------------------------------------
+
+    /// <summary>The pick of a changed client's Forge popup, as the action of ruleset 0x89 (little-endian). The 3.21
+    /// client sent two: u8 0, u32 item id, u32 inventory id for the item (both 0 for Back: no item, so nothing changes),
+    /// and u8 1, u8 column, u8 row for a skill of the item sent last. Our own first form is read too: u8 1,
+    /// u32 inventory id, u32 item id, u8 column (0xff: no skill, unlock the tree), u8 row.</summary>
+    static (uint InventoryId, uint ItemId, int Column, int Row)? ReadSelection(ReadOnlySpan<byte> payload, PlayerView view) =>
+        payload.Length switch
+        {
+            9 when payload[0] == 0 =>
+                (BinaryPrimitives.ReadUInt32LittleEndian(payload[5..]), BinaryPrimitives.ReadUInt32LittleEndian(payload[1..]), -1, 0),
+            3 when payload[0] == 1 && view.TargetItemId != 0 =>
+                (PlayerInventories.InventoryId(view.TargetRow), view.TargetItemId, payload[1], payload[2]),
+            11 when payload[0] == 1 =>
+                (BinaryPrimitives.ReadUInt32LittleEndian(payload[1..]), BinaryPrimitives.ReadUInt32LittleEndian(payload[5..]),
+                    payload[9] == 0xff ? -1 : payload[9], payload[10]),
+            _ => null,
+        };
+
+    /// <summary>Handles C→S <c>0x02ca</c> for <c>CrucibleRules</c>.</summary>
+    public static async Task<bool> HandleRulesetAction(ClientState conn, byte[] bytes)
+    {
+        var (rules, payload) = InstanceRulesets.ReadAction(bytes);
+        if (rules != (CrucibleTables.Current.CrucibleRulesRow ?? InstanceCrucible.CrucibleRulesetRow)) return false;
+        if (Views.TryGetValue(conn, out var view) && ReadSelection(payload, view) is var (inventory, item, column, row)
+            && PlayerInventories.Row(inventory) is byte itemRow)
+            await SelectTarget(conn, itemRow, item, column, row);
+        return true;
+    }
+
+    static bool Eligible(ClientState conn, byte itemRow, uint itemId, out InventoryItem found, out ItemCatalog.BaseType type)
+    {
+        var catalog = ItemsFor(conn);
+        found = ItemsOf(conn).Items(itemRow).FirstOrDefault(i => i.Id == itemId)!;
+        type = found is null ? null! : catalog.ByHash(found.Item.TypeHash)!;
+        // The popup marks an item whose last bar is full "Max" (ClientStrings 6802).
+        return type is not null && CrucibleTreeEngine.CanChannelInForge(found!.Item, type, catalog.Mods)
+            && !(found.Item.WeaponPassiveTree is { HasTree: true } tree
+                && tree.Experience >= (uint)CrucibleTables.Current.BalanceFor((int)Math.Max(1, tree.BalanceItemLevel)).Bar5);
+    }
+
+    /// <summary>
+    /// Makes an equipped item (ClientStrings 6749: "Select an equipped item:"; both weapon sets) this player's target at
+    /// the Forge, and <c>(column, row)</c> the skill its experience goes towards. A negative column, or an item without
+    /// a revealed tree, means "unlock the tree".
+    /// </summary>
+    public static async Task<bool> SelectTarget(ClientState conn, byte itemRow, uint itemId, int column, int row)
+    {
+        if (!HasForge(conn, out var encounter) || encounter.Phase is not (Phase.Idle or Phase.Channeling)) return false;
+        if (!Views.TryGetValue(conn, out var view) || !view.InZone) return false;
+        // The helmet only passes CanChannelInForge as the unique that may have a tree (stat 18439).
+        if (itemRow is not (PlayerInventories.Weapon1 or PlayerInventories.Offhand1 or PlayerInventories.Weapon2
+            or PlayerInventories.Offhand2 or PlayerInventories.Helmet)
+            || !Eligible(conn, itemRow, itemId, out var found, out var type))
+            return false;
+
+        var catalog = ItemsFor(conn);
+        var item = found.Item;
+        if (column < 0 || item.WeaponPassiveTree is not { HasTree: true } tree)
+            column = -1;
+        else if (CrucibleTreeEngine.SelectOrAllocateNode(tree, column, row) is not { } chosen)
+        {
+            // A skill that cannot be chosen changes nothing on the target the player has.
+            if (view.TargetItemId == itemId && view.TargetRow == itemRow) return false;
+            column = -1;
+        }
+        // The same pick again (the popup repeats it) is no change to save.
+        else if (chosen.Equals(tree))
+        {
+            if (view.TargetItemId == itemId && view.TargetRow == itemRow) return true;
+        }
+        else if (ItemsOf(conn).Change(itemRow, itemId, i => i with { WeaponPassiveTree = chosen }) is { } updated)
+        {
+            item = updated.Item;
+            var (remote, stream, ciphers) = conn.Wire;
+            await Send(remote, stream, ciphers,
+                InstanceItems.InventoryChange(PlayerInventories.InventoryId(itemRow), ItemsOf(conn).NextRevision(itemRow), [itemId], [updated]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(itemRow)}: Crucible skill ({column},{row}) chosen on {type.Name}");
+        }
+
+        view.TargetRow = itemRow;
+        view.TargetItemId = itemId;
+        view.VisualHash = type.VisualIdentity;
+        view.AnimSet = CrucibleTreeEngine.CategoryOf(item, type, catalog.Mods) switch
+        {
+            CrucibleTreeEngine.WeaponCategory.TwoHand => TwoHandAnimSet,
+            CrucibleTreeEngine.WeaponCategory.Shield => ShieldAnimSet,
+            _ => OneHandAnimSet,
+        };
+        view.ThemeTag = ThemeTagOf(item, catalog);
+        await WorldOf(conn).RefreshStats("Crucible Forge target");
+        Console.WriteLine($"[crucible] {CharacterName(conn)} target row={itemRow} item={itemId} ({type.Name}) node=" +
+            (column < 0 ? "none (the tree's default)" : $"({column},{row})"));
+        return true;
+    }
+
+    /// <summary>The player's target if it still stands, else the server's default: the first eligible of the main
+    /// hand, the off hand and the second set's two (our own order), with no skill chosen.</summary>
+    static async Task<bool> EnsureTarget(ClientState conn, PlayerView view)
+    {
+        if (view.TargetItemId != 0 && Eligible(conn, view.TargetRow, view.TargetItemId, out _, out _)) return true;
+        view.TargetItemId = 0;
+        view.VisualHash = 0;
+        foreach (byte itemRow in (ReadOnlySpan<byte>)[PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2])
+            foreach (var item in ItemsOf(conn).Items(itemRow))
+                if (Eligible(conn, itemRow, item.Id, out _, out _))
+                    return await SelectTarget(conn, itemRow, item.Id, -1, 0);
+        return false;
+    }
+
+    /// <summary>The <c>CrucibleTags</c> row most of the tree's skills carry ("light correlation" with the item, GGG
+    /// Q&amp;A), -1 without a tree.</summary>
+    static int ThemeTagOf(Item item, ItemCatalog catalog)
+    {
+        if (item.WeaponPassiveTree is not { HasTree: true } tree) return -1;
+        Span<int> counts = stackalloc int[CrucibleMonsters.Pools.Count];
+        int best = -1;
+        foreach (var node in tree.Nodes)
+            if (catalog.Mods.ByHash(node.ModHash) is { } mod && CrucibleTables.Current.SkillByModRow.TryGetValue(mod.Row, out var skill))
+                foreach (int tag in skill.CrucibleTagRows)
+                    if ((uint)tag < (uint)counts.Length && ++counts[tag] > (best < 0 ? 0 : counts[best])) best = tag;
+        return best;
+    }
+
+    // ---- channelling ---------------------------------------------------------------------------------------------------
+
+    /// <summary>Handles C→S skill uses of <c>crucible_channel</c> (<c>0x1f29</c>): the start of a channel, or one more
+    /// frame of the popup's click-and-hold.</summary>
     public static async Task<bool> HandleChannelSkill(ClientState conn, ushort skillId, ushort sequence, ushort flags)
     {
         if (skillId != CrucibleChannelSkillId && skillId != InstanceCrucible.CrucibleChannelSkillHash) return false;
         if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return true;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (encounter.Phase is Phase.Spawning or Phase.Active or Phase.Completed)
-        {
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
-            return true;
-        }
-
-        var pos = PlayerOf(conn).Position;
-        double dist = Distance(pos.X, pos.Y, device.X, device.Y);
-        if (dist > ZoneLeaveRadius)
-        {
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
-            await PlayerOf(conn).Tell("Move closer to the Crucible Forge to channel.");
-            return true;
-        }
-
-        bool startedAction = false;
-        await encounter.Gate.WaitAsync();
-        try
-        {
-            if (encounter.Phase == Phase.Idle)
-            {
-                if (!SelectBestWeapon(conn, encounter))
-                {
-                    await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
-                    return true;
-                }
-                encounter.AutoChannel = false;
-                encounter.ChannelActionActive = true;
-                encounter.ChannelSequence = sequence;
-                startedAction = true;
-                await BeginChannelingLocked(conn, encounter);
-            }
-            else if (encounter.Phase == Phase.Channeling && ReferenceEquals(encounter.Channeler, conn))
-                encounter.AutoChannel = false;
-        }
-        finally { encounter.Gate.Release(); }
-
-        if (startedAction)
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                InstanceProtocol.ActionStarted(PlayerId, pos.X, pos.Y, device.X, device.Y, skillId, sequence, flags),
-                "0x01ab CrucibleChannel start");
-        return true;
-    }
-
-    /// <summary>Takes the channeler's C→S <c>0x0197</c>/<c>0x0198</c> aim updates while they hold <c>CrucibleChannel</c>.</summary>
-    public static Task<bool> HandleChannelUpdate(ClientState conn)
-    {
-        if (!HasForge(conn, out var encounter) || encounter.Phase != Phase.Channeling || encounter.AutoChannel
-            || !ReferenceEquals(encounter.Channeler, conn))
-            return Task.FromResult(false);
-        return Task.FromResult(true);
-    }
-
-    /// <summary>Handles C→S <c>0x0199</c> channel end to immediately release the Forge wave.</summary>
-    public static async Task<bool> HandleChannelEnd(ClientState conn, double xpMultiplier, double geodeDropRate)
-    {
-        if (!HasForge(conn, out var encounter) || encounter.Phase != Phase.Channeling || encounter.AutoChannel
-            || !ReferenceEquals(encounter.Channeler, conn))
-            return false;
-        await ReleaseEncounter(conn, encounter, xpMultiplier, geodeDropRate);
-        return true;
-    }
-
-    /// <summary>
-    /// Handles clicks on <c>CrucibleDevice</c> (gamepad; it is not targetable with a mouse).
-    /// Idle → selects best weapon + next connected node and starts smooth channeling ramp.
-    /// Channeling → immediately releases the Forge at the current charge tier!
-    /// </summary>
-    public static async Task<bool> UseObject(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt, double xpMultiplier, double geodeDropRate)
-    {
-        if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return false;
-        if (use.TargetId != device.Id) return false;
-
-        if (encounter.Phase == Phase.Completed)
-        {
-            await PlayerOf(conn).Tell("This Crucible Forge has already been completed.");
-            return true;
-        }
-        if (encounter.Phase is Phase.Spawning or Phase.Active)
-        {
-            await PlayerOf(conn).Tell("Defeat the molten Crucible monsters to complete the Forge.");
-            return true;
-        }
-
-        if (!await WorldOf(conn).WalkUpTo(device.X, device.Y, 14, requestedAt))
-            return true;
-
-        bool shouldRelease = false;
-        await encounter.Gate.WaitAsync();
-        try
-        {
-            if (encounter.Phase == Phase.Idle)
-            {
-                if (!SelectBestWeapon(conn, encounter)) return true;
-                encounter.AutoChannel = true;
-                await BeginChannelingLocked(conn, encounter);
-                await PlayerOf(conn).Tell($"Channeling {encounter.SelectedItemName}... Click the Forge again at any time to release at your desired difficulty (or wait for Lethal).");
-            }
-            else if (encounter.Phase == Phase.Channeling)
-            {
-                shouldRelease = true;
-            }
-        }
-        finally { encounter.Gate.Release(); }
-
-        if (shouldRelease)
-            await ReleaseEncounter(conn, encounter, xpMultiplier, geodeDropRate);
-        return true;
-    }
-
-    /// <summary>Periodic proximity, channeling progress, and wave-completion checks (<see cref="GameEvents.Tick"/>).</summary>
-    public static async Task Tick(ClientState conn, double dt, double xpMultiplier, double geodeDropRate)
-    {
-        if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return;
-        if (conn.Paused || conn.Closed || conn.LeavingArea) return;
-
         var view = Views.GetOrCreateValue(conn);
-        var pos = PlayerOf(conn).Position;
-        double dist = Distance(pos.X, pos.Y, device.X, device.Y);
-
-        // 1. Proximity enter/leave transitions for CrucibleDevice & CrucibleRules (0x02c9).
-        if (encounter.Phase is Phase.Idle or Phase.Channeling)
+        if (view.Holding)
         {
-            if (!view.InZone && dist <= ZoneEnterRadius)
-            {
-                view.InZone = true;
-                device.States["in_zone"] = 1;
-                await SendStates(conn, [device]);
-                var (remote, stream, ciphers) = conn.Wire;
-                await Send(remote, stream, ciphers, InstanceCrucible.ForgeEnterZone(), "0x02c9 CrucibleRules inZone=1");
-                if (encounter.SelectedItemId == 0) SelectBestWeapon(conn, encounter);
-                await WorldOf(conn).RefreshStats("entered Crucible Forge zone");
-                if (!view.Greeted && encounter.Phase == Phase.Idle)
-                {
-                    view.Greeted = true;
-                    string target = encounter.SelectedItemName.Length > 0 ? $"Selected: {encounter.SelectedItemName}. " : "";
-                    await PlayerOf(conn).Tell($"Crucible Forge: {target}Hold Crucible Channel to charge the Forge.");
-                }
-            }
-            else if (view.InZone && dist > ZoneLeaveRadius)
-            {
-                view.InZone = false;
-                if (encounter.Phase == Phase.Channeling && ReferenceEquals(encounter.Channeler, conn))
-                {
-                    await ReleaseEncounter(conn, encounter, xpMultiplier, geodeDropRate);
-                }
-                else if (encounter.Phase == Phase.Idle)
-                {
-                    device.States["in_zone"] = 0;
-                    await SendStates(conn, [device]);
-                    var (remote, stream, ciphers) = conn.Wire;
-                    await Send(remote, stream, ciphers, InstanceCrucible.ForgeLeaveZone(), "0x02c9 CrucibleRules inZone=0");
-                }
-                await WorldOf(conn).RefreshStats("left Crucible Forge zone");
-            }
+            view.Stream = true;
+            view.LastUseMs = Environment.TickCount64;
+            return true;
         }
 
-        // 2. Channeling charge ramp & release check: on the channeler's tick and clock only.
-        if (encounter.Phase == Phase.Channeling)
+        var (remote, stream, ciphers) = conn.Wire;
+        bool began = false, started = false;
+        // Once the Forge is released a use does nothing more: a click-and-hold's last frame can come after its release.
+        if (encounter.Phase is Phase.Idle or Phase.Channeling && view.InZone && await EnsureTarget(conn, view))
         {
-            if (!ReferenceEquals(encounter.Channeler, conn)) return;
-            bool releaseNow = false;
-            float newCharge = 0f;
             await encounter.Gate.WaitAsync();
             try
             {
+                if (encounter.Phase == Phase.Idle)
+                {
+                    encounter.Phase = Phase.Channeling;
+                    encounter.Theme = CrucibleMonsters.ThemeFor(view.ThemeTag, Random.Shared);
+                    device.States["channelling"] = 1;
+                    began = true;
+                }
                 if (encounter.Phase == Phase.Channeling)
                 {
-                    encounter.Charge = Math.Clamp(encounter.Charge + (float)(Math.Max(0.05, dt) / FullChargeSeconds), 0.05f, 1.0f);
-                    newCharge = encounter.Charge;
-                    // A held channel sends nothing between its start and its end (0x0199, or the lockstep stop) while
-                    // the cursor rests, so only a full charge releases here.
-                    if (encounter.Charge >= 1.0f) releaseNow = true;
+                    lock (encounter.Channellers) encounter.Channellers.Add(conn);
+                    (view.Holding, view.Stream, view.Sequence, view.LastUseMs) = (true, false, sequence, Environment.TickCount64);
+                    started = true;
                 }
             }
             finally { encounter.Gate.Release(); }
-
-            if (newCharge > 0f)
-                await BroadcastRules(conn, InstanceCrucible.ForgeCharge(newCharge));
-
-            if (releaseNow)
-                await ReleaseEncounter(conn, encounter, xpMultiplier, geodeDropRate);
-            return;
+        }
+        if (!started)
+        {
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+            return true;
         }
 
-        // 3. Active combat wave completion check (also catches corpse-consumed kills).
-        if (encounter.Phase == Phase.Active)
+        var pos = PlayerOf(conn).Position;
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            InstanceProtocol.ActionStarted(PlayerId, pos.X, pos.Y, device.X, device.Y, skillId, sequence, flags),
+            "0x01ab CrucibleChannel start");
+        await Send(remote, stream, ciphers, InstanceCrucible.ForgeLockWeapon(), "0x02c9 CrucibleRules lockWeapon");
+        if (began)
         {
-            bool allDead = false;
+            await SendStates(conn, [device]);
+            await BroadcastRules(conn, InstanceCrucible.ForgeChannelling(true), "0x02c9 CrucibleRules channelling=1");
+            await BroadcastRules(conn, InstanceCrucible.ForgeState(1), "0x02c9 CrucibleRules state=1");
+            await BroadcastRules(conn, InstanceCrucible.ForgeCharge(0));
+        }
+        return true;
+    }
+
+    /// <summary>Takes a channeller's C→S <c>0x0197</c>/<c>0x0198</c> aim updates while they hold <c>CrucibleChannel</c>.</summary>
+    public static Task<bool> HandleChannelUpdate(ClientState conn) => Task.FromResult(IsHolding(conn));
+
+    public static bool IsHolding(ClientState conn) =>
+        HasForge(conn, out _) && Views.TryGetValue(conn, out var view) && view.Holding;
+
+    /// <summary>Handles C→S <c>0x0199</c> (the skill bar key was let go).</summary>
+    public static async Task<bool> HandleChannelEnd(ClientState conn)
+    {
+        if (!HasForge(conn, out var encounter) || !Views.TryGetValue(conn, out var view) || !view.Holding) return false;
+        await Stop(conn, view, encounter);
+        return true;
+    }
+
+    /// <summary>A channeller lets go: the others channel on, and the last one's release starts the wave. Ours: GGG only
+    /// says that a channeller leaving the ring starts it and that a second of channelling is enough to take part.</summary>
+    static async Task Stop(ClientState conn, PlayerView view, EncounterState encounter)
+    {
+        if (!Members(conn).Any(m => !ReferenceEquals(m, conn) && Views.TryGetValue(m, out var other) && other.Holding))
+        {
+            await Release(conn, encounter);
+            return;
+        }
+        view.Holding = false;
+        await EndChannel(conn, view);
+    }
+
+    static async Task EndChannel(ClientState conn, PlayerView view)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        if (conn.LockstepClient && view.Sequence != 0)
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                InstanceProtocol.ChannelFinished(PlayerId, view.Sequence), $"0x01ae CrucibleChannel end (seq 0x{view.Sequence:x4})");
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), "0x01ac CrucibleChannel end");
+    }
+
+    /// <summary>Waits for sends to several players: one player's dead connection does not stop the others'.</summary>
+    static async Task Settle(Task sends)
+    {
+        try { await sends; }
+        catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+    }
+
+    /// <summary>Proximity, the channel's charge, the breakout and the wave's end (<see cref="GameEvents.Tick"/>). It runs
+    /// for every player of the league: without a Forge, or far from an idle one, it only compares.</summary>
+    public static Task Tick(ClientState conn, double dt)
+    {
+        if (conn.Instance is null || !Instances.TryGetValue(conn.Instance, out var encounter)
+            || encounter.Device is not { } device || encounter.Phase == Phase.Completed)
+            return Task.CompletedTask;
+        (int X, int Y) pos;
+        lock (conn.Monsters) pos = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        long dx = pos.X - device.X, dy = pos.Y - device.Y;
+        double distanceSquared = dx * dx + dy * dy;
+        if (encounter.Phase == Phase.Idle && encounter.InZone == 0 && distanceSquared > ZoneEnterRadius * ZoneEnterRadius)
+            return Task.CompletedTask;
+        return TickNear(conn, encounter, device, distanceSquared, dt);
+    }
+
+    static async Task TickNear(ClientState conn, EncounterState encounter, WorldObj device, double distanceSquared, double dt)
+    {
+        var view = Views.GetOrCreateValue(conn);
+        var (remote, stream, ciphers) = conn.Wire;
+
+        if (encounter.Phase is Phase.Idle or Phase.Channeling)
+        {
+            if (!view.InZone && distanceSquared <= ZoneEnterRadius * ZoneEnterRadius)
+            {
+                view.InZone = true;
+                if (Interlocked.Increment(ref encounter.InZone) == 1 && encounter.Phase == Phase.Idle)
+                {
+                    device.States["in_zone"] = 1;
+                    await SendStates(conn, [device]);
+                }
+                await Send(remote, stream, ciphers, InstanceCrucible.ForgeEnterZone(), "0x02c9 CrucibleRules inZone=1");
+                // Who walks into a channel missed its start.
+                if (encounter.Phase == Phase.Channeling)
+                {
+                    await Send(remote, stream, ciphers, InstanceCrucible.ForgeChannelling(true), "0x02c9 CrucibleRules channelling=1");
+                    await Send(remote, stream, ciphers, InstanceCrucible.ForgeState(1), "0x02c9 CrucibleRules state=1");
+                    await Send(remote, stream, ciphers, InstanceCrucible.ForgeCharge(encounter.Charge), null);
+                }
+                await EnsureTarget(conn, view);
+                await WorldOf(conn).RefreshStats("entered Crucible Forge zone");
+            }
+            else if (view.InZone && distanceSquared > ZoneLeaveRadius * ZoneLeaveRadius)
+            {
+                // Any channeller leaving the ring starts the wave (GGG Q&A).
+                if (view.Holding) await Release(conn, encounter);
+                else
+                {
+                    view.InZone = false;
+                    if (Interlocked.Decrement(ref encounter.InZone) == 0 && encounter.Phase == Phase.Idle)
+                    {
+                        device.States["in_zone"] = 0;
+                        await SendStates(conn, [device]);
+                    }
+                    await Send(remote, stream, ciphers, InstanceCrucible.ForgeLeaveZone(), "0x02c9 CrucibleRules inZone=0");
+                    await WorldOf(conn).RefreshStats("left Crucible Forge zone");
+                }
+            }
+        }
+
+        if (encounter.Phase == Phase.Channeling)
+        {
+            bool release = false, stop = false;
+            float charge = -1;
+            var sends = new List<Task>();
+            // Who only watches does not queue behind a channeller's step: the next tick shows the new monsters frozen.
+            if (view.Holding) await encounter.Gate.WaitAsync();
+            else if (!encounter.Gate.Wait(0)) return;
+            try
+            {
+                if (encounter.Phase != Phase.Channeling) return;
+                if (view.Holding)
+                {
+                    // The end of a click-and-hold, or a channeller who died.
+                    if (view.Stream && Environment.TickCount64 - view.LastUseMs >= StreamEndMs) stop = true;
+                    else if (conn.PlayerLife == 0) release = true;
+                    else
+                    {
+                        charge = encounter.Charge = Math.Min(1f, encounter.Charge + (float)(dt / FullChargeSeconds));
+                        while (encounter.Steps < ChargeSteps && encounter.Steps <= (int)(charge * ChargeSteps))
+                            await Grow(conn, encounter, device, sends);
+                        // The client's action ends itself at 1.0 (0x141341390).
+                        release = charge >= 1f;
+                    }
+                }
+                ShowFrozen(conn, view, encounter, sends);
+            }
+            finally { encounter.Gate.Release(); }
+
+            // Sent after the gate: a player's stalled connection must not hold it.
+            await Settle(Task.WhenAll(sends));
+            if (charge >= 0) await Settle(BroadcastRules(conn, InstanceCrucible.ForgeCharge(charge)));
+            if (stop) await Stop(conn, view, encounter);
+            else if (release) await Release(conn, encounter);
+        }
+        else if (encounter.Phase == Phase.Spawning)
+        {
+            if (Environment.TickCount64 >= encounter.BreakoutAtMs) await Breakout(conn, encounter);
+        }
+        else if (encounter.Phase == Phase.Active)
+        {
+            // A kill OnKill did not see (a corpse consumed, a monster gone with its runner).
+            bool allDead;
             lock (conn.Monsters)
             {
                 foreach (uint id in encounter.Monsters.ToArray())
                 {
-                    if (conn.Monsters.TryGetValue(id, out var live))
-                    {
-                        encounter.Bodies.TryAdd(id, live);
-                        if (live.Dead || live.Life == 0) { encounter.Monsters.Remove(id); encounter.Bodies.Remove(id); }
-                    }
-                    else if (encounter.Bodies.TryGetValue(id, out var body) && (body.Dead || body.Life == 0))
-                    {
-                        encounter.Monsters.Remove(id);
-                        encounter.Bodies.Remove(id);
-                    }
-                    else
-                    {
-                        encounter.Monsters.Remove(id);
-                    }
+                    var body = conn.Monsters.GetValueOrDefault(id) ?? encounter.Bodies.GetValueOrDefault(id);
+                    if (body is { Dead: false, Life: > 0 } && conn.Monsters.ContainsKey(id)) continue;
+                    if (body is not null && (body.Dead || body.Life == 0)) encounter.KilledExperience += body.Variety?.ExperienceMultiplier ?? 0;
+                    encounter.Monsters.Remove(id);
+                    encounter.Bodies.Remove(id);
                 }
                 allDead = encounter.Monsters.Count == 0;
             }
-
-            if (allDead)
-                await CompleteEncounter(conn, encounter, xpMultiplier, geodeDropRate);
+            if (allDead) await Complete(conn, encounter);
         }
     }
 
+    /// <summary>One more step of the channel: a fissure grows outward from the Forge, a pool opens at its end and a
+    /// molten monster forms there, held until the release (GGG's reveal video, 1:04). Under the gate: what goes to
+    /// the players is collected in <paramref name="sends"/> for the caller to wait for after it.</summary>
+    static async Task Grow(ClientState conn, EncounterState encounter, WorldObj device, List<Task> sends)
+    {
+        int step = encounter.Steps++;
+        // The arms take turns (3 and the arm count share no factor).
+        int arm = step * 3 % FissureArms, ring = step / FissureArms;
+        double angle = arm * (2 * Math.PI / FissureArms);
+        (int X, int Y) At(double radius) =>
+            (device.X + (int)Math.Round(Math.Cos(angle) * radius), device.Y + (int)Math.Round(Math.Sin(angle) * radius));
+        double start = FissureStart + ring * FissureStep;
+
+        // fissure.ot: 1 plays "start" at three times its speed, 2 the channelling loop, 3 "end".
+        var grown = encounter.Fissures.Where(f => f.States["crucible_fissure"] == 1).ToList();
+        foreach (var f in grown) f.States["crucible_fissure"] = 2;
+        var created = new List<WorldObj>(FissurePieces + 1);
+        for (int piece = 0; piece < FissurePieces && ring == 0; piece++)
+        {
+            var at = At(start + piece * FissureStep / FissurePieces);
+            created.Add(new WorldObj
+            {
+                Id = conn.Instance.World.NewMonsterId(),
+                Type = CrucibleTables.FissureType,
+                X = at.X,
+                Y = at.Y,
+                // The model lies across its facing (seen live).
+                Rotation = (float)(angle + Math.PI / 2),
+                States = new() { ["crucible_fissure"] = 1, ["channelling"] = 1 },
+            });
+        }
+        encounter.Fissures.AddRange(created);
+        var end = conn.Layout.Near(At(start + FissureStep));
+        var pool = new WorldObj
+        {
+            Id = conn.Instance.World.NewMonsterId(),
+            Type = CrucibleTables.MoltenPoolType,
+            X = end.X,
+            Y = end.Y,
+            States = new() { ["crucible_pool"] = 1 },
+        };
+        encounter.Pools.Add(pool);
+        created.Add(pool);
+        encounter.AllObjects.AddRange(created);
+        sends.AddRange(Members(conn).SelectMany(member => created.Select(obj => Present(member, obj))));
+        sends.Add(SendStates(conn, grown));
+
+        int tier = 1 + step * TopSpawnTier / ChargeSteps;
+        await Hold(conn, encounter, pool, tier, sends);
+        // "As you spawn additional monsters, they combine together to create larger and more fearsome foes."
+        for (; tier < MaxTier; tier++)
+        {
+            var same = encounter.Held.Where(h => h.Tier == tier).Take(MergeCount).ToList();
+            if (same.Count < MergeCount) break;
+            foreach (var merged in same)
+            {
+                encounter.Held.Remove(merged);
+                Remove(conn, merged.Id, sends);
+                if (!ReferenceEquals(merged.Pool, same[^1].Pool)) merged.Pool.States["crucible_pool"] = 2;
+            }
+            sends.Add(SendStates(conn, [.. same.Take(MergeCount - 1).Select(h => h.Pool)]));
+            await Hold(conn, encounter, same[^1].Pool, tier + 1, sends);
+        }
+    }
+
+    /// <summary>Creates a monster of the theme's tier at a pool and holds it: out of the AI and taking no hits.</summary>
+    static async Task Hold(ClientState conn, EncounterState encounter, WorldObj pool, int tier, List<Task> sends)
+    {
+        if (encounter.Theme is not { } theme || CrucibleMonsters.VarietyForTier(theme, tier) is not { } variety) return;
+        // Higher tiers are more often magic or rare ("internal tiering system", GGG Q&A); the two bosses are unique.
+        int roll = Random.Shared.Next(100);
+        var rarity = tier >= BossTier ? MonsterRarity.Unique
+            : roll < tier * RareChancePerTier ? MonsterRarity.Rare
+            : roll < tier * (RareChancePerTier + MagicChancePerTier) ? MonsterRarity.Magic : MonsterRarity.Normal;
+        // Its damage is fixed when it is created, so it has the charge it formed at.
+        int percent = (int)(encounter.Charge * 100);
+        var scaling = CrucibleMonsters.ScalingMods(encounter.AreaLevel,
+            percent * FullChargeMoreDamage / 100, -percent * FullChargeLessDamageTaken / 100);
+        var (remote, stream, ciphers) = conn.Wire;
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)encounter.AreaLevel, rarity,
+            pool.X, pool.Y, unrisen: false, alone: false, extraMods: scaling);
+        if (id == 0) return;
+        lock (conn.Monsters)
+        {
+            if (!conn.Monsters.TryGetValue(id, out var body)) return;
+            (body.BusyUntil, body.Aggro, body.EntranceGrace) = (double.PositiveInfinity, false, true);
+            encounter.Held.Add(new(id, tier, pool, body));
+        }
+        foreach (var member in Members(conn))
+            if (Views.TryGetValue(member, out var view)) ShowFrozen(member, view, encounter, sends);
+    }
+
+    /// <summary>The <c>crucible_frozen</c> buff, with its molten art by rarity, on every held monster this client has
+    /// and does not show frozen yet. Under the gate.</summary>
+    static void ShowFrozen(ClientState conn, PlayerView view, EncounterState encounter, List<Task> sends)
+    {
+        if (CrucibleTables.Current.FrozenBuff is not ushort frozen) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        foreach (var held in encounter.Held)
+        {
+            if (view.Frozen.ContainsKey(held.Id)) continue;
+            ushort buff;
+            lock (conn.Monsters)
+            {
+                if (!conn.MonsterViews.ContainsKey(held.Id)) continue;
+                buff = conn.NextBuff++;
+            }
+            view.Frozen[held.Id] = buff;
+            sends.Add(SendWorldRecord(remote, stream, ciphers, conn, held.Id,
+                InstanceEntities.AddBuff(held.Id, buff, frozen, visual: CrucibleTables.Current.StasisVisuals[(int)held.Body.Rarity]),
+                $"0x01c1 monster 0x{held.Id:x} crucible_frozen (tier {held.Tier})"));
+        }
+    }
+
+    /// <summary>Takes a held monster out of the area without a death: it merged into a bigger one.</summary>
+    static void Remove(ClientState conn, uint id, List<Task> sends)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.Monsters.Remove(id, out var body)) { body.Dead = true; body.Life = 0; ++body.ActionGeneration; }
+            conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
+        }
+        foreach (var member in Members(conn))
+        {
+            bool shown;
+            lock (member.Monsters) { shown = member.MonsterViews.Remove(id); member.AsleepMonsters.Remove(id); }
+            if (Views.TryGetValue(member, out var view)) view.Frozen.Remove(id);
+            var (remote, stream, ciphers) = member.Wire;
+            if (shown) sends.Add(SendWorldRemoval(remote, stream, ciphers, member, id, $"[crucible] held monster 0x{id:x} merged"));
+        }
+    }
+
+    /// <summary>A release, a channeller leaving the ring, or full charge: the channel ends for everyone and the
+    /// monsters break out after <see cref="BreakoutDelayMs"/>.</summary>
+    static async Task Release(ClientState conn, EncounterState encounter)
+    {
+        if (encounter.Device is not { } device) return;
+        var sends = new List<Task>();
+        var ended = new List<(ClientState Member, PlayerView View, bool Held, bool InZone)>();
+        await encounter.Gate.WaitAsync();
+        try
+        {
+            if (encounter.Phase != Phase.Channeling) return;
+            // The shortest channel still forms its first monster.
+            if (encounter.Steps == 0) await Grow(conn, encounter, device, sends);
+            encounter.Phase = Phase.Spawning;
+            encounter.BreakoutAtMs = Environment.TickCount64 + BreakoutDelayMs;
+            encounter.InZone = 0;
+            device.States["channelling"] = 0;
+            device.States["activated"] = 1;
+            foreach (var f in encounter.Fissures) { f.States["channelling"] = 0; f.States["crucible_fissure"] = 3; }
+            // Everyone's state first: a send that fails must leave nobody holding.
+            foreach (var member in Members(conn))
+                if (Views.TryGetValue(member, out var view) && (view.Holding || view.InZone))
+                {
+                    ended.Add((member, view, view.Holding, view.InZone));
+                    (view.Holding, view.InZone) = (false, false);
+                }
+        }
+        finally { encounter.Gate.Release(); }
+
+        sends.AddRange(ended.Select(async end =>
+        {
+            if (end.Held) await EndChannel(end.Member, end.View);
+            if (!end.InZone) return;
+            // The popup goes as the fight starts, and with in_crucible_zone the channel skill.
+            var (remote, stream, ciphers) = end.Member.Wire;
+            await Send(remote, stream, ciphers, InstanceCrucible.ForgeLeaveZone(), "0x02c9 CrucibleRules inZone=0");
+            await WorldOf(end.Member).RefreshStats("Crucible Forge released");
+        }));
+        await Settle(Task.WhenAll(sends));
+        await Settle(SendStates(conn, [device, .. encounter.Fissures]));
+        await Settle(BroadcastRules(conn, InstanceCrucible.ForgeChannelling(false), "0x02c9 CrucibleRules channelling=0"));
+        await Settle(BroadcastRules(conn, InstanceCrucible.ForgeState(2), "0x02c9 CrucibleRules state=2 (combat)"));
+
+        Console.WriteLine($"[crucible] {CharacterName(conn)} released Forge at charge {encounter.Charge:0.00} (theme={encounter.Theme?.Tag}): " +
+            $"{encounter.Held.Count} monsters, tiers {string.Join(",", encounter.Held.Select(h => h.Tier).Order())}");
+    }
+
+    /// <summary>The held monsters break out: the buff goes, <c>broken_out = 1</c> puts the crystals of their
+    /// <c>crystal_size</c> on them (<c>CrucibleMonsterBase.ot</c>), and they fight.</summary>
+    static async Task Breakout(ClientState conn, EncounterState encounter)
+    {
+        var sends = new List<Task>();
+        await encounter.Gate.WaitAsync();
+        try
+        {
+            if (encounter.Phase != Phase.Spawning) return;
+            lock (conn.Monsters)
+            {
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                foreach (var held in encounter.Held)
+                {
+                    // crystals_0..3 are the small to large crystal packs of the theme's base type: ours by tier.
+                    held.Body.States = held.Body.States?.Set("crystal_size", Math.Min(3, (held.Tier - 1) / TiersPerCrystalSize)).Set("broken_out", 1);
+                    (held.Body.BusyUntil, held.Body.Aggro, held.Body.EntranceGrace) = (now, true, false);
+                    encounter.Monsters.Add(held.Id);
+                    encounter.Bodies[held.Id] = held.Body;
+                }
+            }
+            foreach (var member in Members(conn))
+            {
+                if (!Views.TryGetValue(member, out var view)) continue;
+                var (remote, stream, ciphers) = member.Wire;
+                foreach (var held in encounter.Held)
+                {
+                    lock (member.Monsters)
+                        if (!member.MonsterViews.ContainsKey(held.Id)) continue;
+                    var records = new List<byte[]>(2);
+                    if (view.Frozen.Remove(held.Id, out ushort buff)) records.Add(InstanceEntities.RemoveBuff(held.Id, buff));
+                    int machine = held.Body.Variety?.ComponentsOrBase.ToList().IndexOf("StateMachine") ?? -1;
+                    if (machine >= 0 && held.Body.States is { } states)
+                        records.Add(InstanceEntities.StateMachineUpdate(held.Id, (byte)machine, states));
+                    sends.Add(SendWorldRecords(remote, stream, ciphers, member, held.Id, () => [.. records]));
+                }
+            }
+            encounter.Held.Clear();
+            foreach (var pool in encounter.Pools) pool.States["crucible_pool"] = 2;
+            encounter.Phase = Phase.Active;
+        }
+        finally { encounter.Gate.Release(); }
+        await Task.WhenAll(sends);
+        await SendStates(conn, encounter.Pools);
+    }
+
     /// <summary>Tracks encounter monster kills synchronously inside <see cref="GameEvents.Kill"/>.</summary>
-    public static void OnKill(KillContext kill, double xpMultiplier, double geodeDropRate)
+    public static void OnKill(KillContext kill)
     {
         if (!HasForge(kill.Conn, out var encounter) || encounter.Phase != Phase.Active) return;
         bool finished;
@@ -524,215 +893,85 @@ public static class CrucibleEncounter
             if (id == 0) return;
             encounter.Monsters.Remove(id);
             encounter.Bodies.Remove(id);
+            // "Larger and more fearsome foes that grant even more experience" (GGG's reveal video, 1:13).
+            encounter.KilledExperience += kill.Monster.Variety?.ExperienceMultiplier ?? 0;
             finished = encounter.Monsters.Count == 0;
         }
         if (finished)
-            kill.Later(() => CompleteEncounter(kill.Conn, encounter, xpMultiplier, geodeDropRate));
+            kill.Later(() => Complete(kill.Conn, encounter));
     }
 
-    public static void OnPlayerLeaving(ClientState conn)
+    /// <summary>A channeller who leaves the area gets no experience; one who was channelling ends the channel for those
+    /// who stay.</summary>
+    public static async Task OnPlayerLeaving(ClientState conn)
     {
+        if (!Views.TryGetValue(conn, out var view)) return;
         Views.Remove(conn);
-        // A channeler who leaves mid-channel frees the Forge for the players who stay.
-        if (conn.Instance is not null && Instances.TryGetValue(conn.Instance, out var encounter)
-            && ReferenceEquals(encounter.Channeler, conn) && encounter.Phase == Phase.Channeling)
-        {
-            encounter.Phase = Phase.Idle;
-            encounter.Channeler = null;
-            encounter.ChannelActionActive = false;
-        }
+        if (conn.Instance is null || !Instances.TryGetValue(conn.Instance, out var encounter)) return;
+        lock (encounter.Channellers) encounter.Channellers.Remove(conn);
+        if (encounter.Phase is not (Phase.Idle or Phase.Channeling)) return;
+        if (view.InZone) Interlocked.Decrement(ref encounter.InZone);
+        // Released by one who stays: the one leaving can no longer form the channel's first monster.
+        if (view.Holding && Members(conn).FirstOrDefault(m => !ReferenceEquals(m, conn)) is { } other) await Release(other, encounter);
     }
 
-    // Must be called under encounter.Gate.
-    static async Task BeginChannelingLocked(ClientState conn, EncounterState encounter)
+    /// <summary>Every monster is dead: each channeller's target item gets the experience ("only on completion", GGG
+    /// Q&amp;A), and the tree engine reveals the tree and allocates what the new total reaches.</summary>
+    static async Task Complete(ClientState conn, EncounterState encounter)
     {
-        encounter.Phase = Phase.Channeling;
-        encounter.Channeler = conn;
-        encounter.Charge = 0.08f;
-
-        if (encounter.Device is { } device)
-        {
-            device.States["in_zone"] = 1;
-            device.States["channelling"] = 1;
-        }
-        foreach (var f in encounter.Fissures) { f.States["crucible_fissure"] = 2; f.States["channelling"] = 1; }
-        foreach (var p in encounter.Pools) p.States["crucible_pool"] = 1;
-
-        await SendStates(conn, encounter.AllObjects);
-        await BroadcastRules(conn, InstanceCrucible.ForgeLockWeapon(), "0x02c9 CrucibleRules lockWeapon");
-        await BroadcastRules(conn, InstanceCrucible.ForgeChannelling(true), "0x02c9 CrucibleRules channelling=1");
-        await BroadcastRules(conn, InstanceCrucible.ForgeState(1), "0x02c9 CrucibleRules state=1");
-        await BroadcastRules(conn, InstanceCrucible.ForgeCharge(encounter.Charge));
-    }
-
-    static async Task ReleaseEncounter(ClientState conn, EncounterState encounter, double xpMultiplier, double geodeDropRate)
-    {
-        int chargePct;
-        int areaLevel;
-        int themeTag;
-        bool endChannelAction;
-        ushort channelSequence;
-        List<WorldObj> spawnPoints;
-        await encounter.Gate.WaitAsync();
-        try
-        {
-            if (encounter.Phase != Phase.Channeling) return;
-            encounter.Phase = Phase.Spawning;
-            endChannelAction = encounter.ChannelActionActive;
-            channelSequence = encounter.ChannelSequence;
-            encounter.ChannelActionActive = false;
-            encounter.ChannelSequence = 0;
-            chargePct = Math.Clamp((int)Math.Round(encounter.Charge * 100f), 10, 100);
-            areaLevel = encounter.AreaLevel;
-            themeTag = encounter.ThemeTagIndex;
-            spawnPoints = [.. encounter.Pools];
-            if (encounter.Device is { } device)
-            {
-                device.States["channelling"] = 0;
-                device.States["activated"] = 1;
-            }
-            foreach (var f in encounter.Fissures) { f.States["channelling"] = 0; f.States["crucible_fissure"] = 3; }
-        }
-        finally { encounter.Gate.Release(); }
-
-        conn = encounter.Channeler is { Closed: false, LeavingArea: false } channeler ? channeler : conn;
-        var (remote, stream, ciphers) = conn.Wire;
-        if (endChannelAction)
-        {
-            if (conn.LockstepClient && channelSequence != 0)
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
-                    InstanceProtocol.ChannelFinished(PlayerId, channelSequence), $"0x01ae CrucibleChannel end (seq 0x{channelSequence:x4})");
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), "0x01ac CrucibleChannel end");
-        }
-
-        await SendStates(conn, encounter.AllObjects);
-        await BroadcastRules(conn, InstanceCrucible.ForgeChannelling(false), "0x02c9 CrucibleRules channelling=0");
-        await BroadcastRules(conn, InstanceCrucible.ForgeState(2), "0x02c9 CrucibleRules state=2 (combat)");
-
-        var rng = Random.Shared;
-        var theme = CrucibleMonsters.ThemeFor(themeTag, rng);
-        var plan = CrucibleMonsters.PlanForgeWave(chargePct, areaLevel);
-        var scaling = CrucibleMonsters.ScalingMods(areaLevel, plan.ExtraMoreLife, plan.ExtraMoreDamage);
-        byte monsterLevel = (byte)Math.Clamp(areaLevel, 1, 100);
-
-        int difficultyIdx = CrucibleTables.Current.DifficultyFor(chargePct);
-        string diffName = difficultyIdx < CrucibleTables.Current.Difficulties.Count
-            ? CrucibleTables.Current.Difficulties[difficultyIdx].Name : $"Tier {difficultyIdx + 1}";
-
-        var spawnList = new List<(string VarietyId, MonsterRarity Rarity)>();
-        for (int i = 0; i < plan.NormalCount && theme.Normal.Count > 0; i++)
-            spawnList.Add((theme.Normal[rng.Next(theme.Normal.Count)], MonsterRarity.Normal));
-        for (int i = 0; i < plan.MagicCount && theme.Normal.Count > 0; i++)
-            spawnList.Add((theme.Normal[rng.Next(theme.Normal.Count)], MonsterRarity.Magic));
-        for (int i = 0; i < plan.RareCount && theme.Normal.Count > 0; i++)
-            spawnList.Add((theme.Normal[rng.Next(theme.Normal.Count)], MonsterRarity.Rare));
-        for (int i = 0; i < plan.UniqueCount && theme.Bosses.Count > 0; i++)
-            spawnList.Add((theme.Bosses[rng.Next(theme.Bosses.Count)], MonsterRarity.Unique));
-
-        int spawned = 0;
-        for (int i = 0; i < spawnList.Count; i++)
-        {
-            if (conn.Closed || conn.LeavingArea) break;
-            var (varietyId, rarity) = spawnList[i];
-            var variety = CrucibleMonsters.ResolveVariety(varietyId, theme);
-            if (variety is null) continue;
-            var anchor = spawnPoints.Count > 0 ? spawnPoints[i % spawnPoints.Count] : encounter.Device!;
-            var cell = conn.Layout.Near((anchor.X + (i % 3 - 1) * 3, anchor.Y + ((i / 3) % 3 - 1) * 3));
-            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, monsterLevel, rarity,
-                cell.X, cell.Y, unrisen: false, alone: false, extraMods: scaling);
-            if (id != 0)
-            {
-                lock (conn.Monsters)
-                {
-                    encounter.Monsters.Add(id);
-                    if (conn.Monsters.TryGetValue(id, out var m)) encounter.Bodies[id] = m;
-                }
-                spawned++;
-            }
-        }
-
-        bool alreadyCleared;
-        await encounter.Gate.WaitAsync();
-        try
-        {
-            encounter.Phase = Phase.Active;
-            lock (conn.Monsters) alreadyCleared = encounter.Monsters.Count == 0;
-        }
-        finally { encounter.Gate.Release(); }
-
-        Console.WriteLine($"[crucible] {CharacterName(conn)} released Forge at {chargePct}% ({diffName}, theme={theme.Tag}): spawned {spawned} monsters");
-        await PlayerOf(conn).Tell($"Crucible Forge unleashed ({diffName}, {chargePct}%): defeat {spawned} molten {theme.Tag} monsters!");
-
-        if (spawned == 0 || alreadyCleared)
-            await CompleteEncounter(conn, encounter, xpMultiplier, geodeDropRate);
-    }
-
-    static async Task CompleteEncounter(ClientState conn, EncounterState encounter, double xpMultiplier, double geodeDropRate)
-    {
-        int chargePct;
-        int areaLevel;
-        byte itemRow;
-        uint itemId;
+        ClientState[] channellers;
+        uint experience;
         await encounter.Gate.WaitAsync();
         try
         {
             if (encounter.Phase != Phase.Active) return;
             encounter.Phase = Phase.Completed;
-            chargePct = Math.Clamp((int)Math.Round(encounter.Charge * 100f), 10, 100);
-            areaLevel = encounter.AreaLevel;
-            itemRow = encounter.SelectedRow;
-            itemId = encounter.SelectedItemId;
-
+            experience = (uint)Math.Round(CrucibleTables.Current.BalanceFor(encounter.AreaLevel).Bar1
+                * (encounter.KilledExperience / XpReferenceSum) * ExperienceMultiplier);
+            lock (encounter.Channellers)
+            {
+                channellers = [.. encounter.Channellers];
+                encounter.Channellers.Clear();
+            }
             if (encounter.Device is { } device)
             {
                 device.States["activated"] = 2;
                 device.States["channelling"] = 0;
                 device.States["in_zone"] = 0;
             }
-            foreach (var p in encounter.Pools) p.States["crucible_pool"] = 2;
         }
         finally { encounter.Gate.Release(); }
 
-        await SendStates(conn, encounter.AllObjects);
-        await BroadcastRules(conn, InstanceCrucible.ForgeState(3), "0x02c9 CrucibleRules state=3 (complete)");
-        await BroadcastRules(conn, InstanceCrucible.ForgeLeaveZone(), "0x02c9 CrucibleRules inZone=0");
+        if (encounter.Device is { } forge) await Settle(SendStates(conn, [forge]));
+        await Settle(BroadcastRules(conn, InstanceCrucible.ForgeState(3), "0x02c9 CrucibleRules state=3 (complete)"));
 
-        // Award Weapon Passive Tree XP to the selected item, which is the channeler's.
-        if (encounter.Channeler is { Closed: false } owner && ReferenceEquals(owner.Instance, conn.Instance)) conn = owner;
-        var items = ItemsOf(conn);
-        var catalog = ItemsFor(conn);
-        var found = items.Items(itemRow).FirstOrDefault(i => i.Id == itemId);
-        if (found is not null && catalog.ByHash(found.Item.TypeHash) is { } type)
+        foreach (var channeller in channellers)
         {
-            int ilvl = Math.Clamp(found.Item.ItemLevel == 0 ? areaLevel : found.Item.ItemLevel, 1, 100);
-            var balance = CrucibleTables.Current.BalanceFor(ilvl);
-            uint xpGrant = ComputeEncounterXp(balance, chargePct, xpMultiplier);
+            if (channeller.Closed || channeller.LeavingArea || !ReferenceEquals(channeller.Instance, conn.Instance)
+                || !Views.TryGetValue(channeller, out var view)) continue;
+            var items = ItemsOf(channeller);
+            var catalog = ItemsFor(channeller);
+            byte itemRow = view.TargetRow;
+            uint itemId = view.TargetItemId;
+            if (experience == 0 || items.Items(itemRow).FirstOrDefault(i => i.Id == itemId) is not { } found
+                || catalog.ByHash(found.Item.TypeHash) is not { } type) continue;
 
-            Item awarded = CrucibleTreeEngine.AwardExperience(found.Item, type, catalog.Mods, xpGrant, Random.Shared,
-                out bool revealedNow, out int newlyAllocated);
-
-            if (items.Change(itemRow, itemId, _ => awarded) is { } updated)
-            {
-                var (remote, stream, ciphers) = conn.Wire;
-                await Send(remote, stream, ciphers,
-                    InstanceItems.InventoryChange(PlayerInventories.InventoryId(itemRow), items.NextRevision(itemRow), [itemId], [updated]),
-                    $"0x00bf inventory {PlayerInventories.InventoryId(itemRow)}: Crucible Forge +{xpGrant} XP on {type.Name}");
-
-                if (CrucibleItemActions.IsEquipmentRow(itemRow))
-                    await WorldOf(conn).RefreshStats("Crucible Forge XP");
-
-                string summary = revealedNow
-                    ? $"Crucible Forge complete! Revealed a Crucible Passive Skill Tree on {type.Name} (+{xpGrant:N0} XP)."
-                    : newlyAllocated > 0
-                        ? $"Crucible Forge complete! +{xpGrant:N0} XP on {type.Name} ({newlyAllocated} passive node(s) allocated)."
-                        : $"Crucible Forge complete! +{xpGrant:N0} XP on {type.Name}.";
-                await PlayerOf(conn).Tell(summary);
-                Console.WriteLine($"[crucible] {CharacterName(conn)} completed Forge: +{xpGrant} XP on {type.Name} (revealed={revealedNow}, allocated={newlyAllocated})");
-            }
+            // On the item as it is now: this does not run on the channeller's own loop.
+            bool revealedNow = false;
+            int newlyAllocated = 0;
+            if (items.Change(itemRow, itemId, current => CrucibleTreeEngine.AwardExperience(current, type, catalog.Mods,
+                    experience, Random.Shared, out revealedNow, out newlyAllocated)) is not { } updated) continue;
+            var (remote, stream, ciphers) = channeller.Wire;
+            await Settle(Send(remote, stream, ciphers,
+                InstanceItems.InventoryChange(PlayerInventories.InventoryId(itemRow), items.NextRevision(itemRow), [itemId], [updated]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(itemRow)}: Crucible Forge +{experience} XP on {type.Name}"));
+            Console.WriteLine($"[crucible] {CharacterName(channeller)} completed Forge: +{experience} XP on {type.Name} " +
+                $"(killed {encounter.KilledExperience}, revealed={revealedNow}, allocated={newlyAllocated})");
         }
 
-        // Roll Igneous / Crystalline Geode drop in maps (areaLevel >= 68).
-        if (CrucibleRemnants.RollGeodeDrop(catalog, areaLevel, geodeDropRate, Random.Shared) is { } geode && encounter.Device is { } dev)
+        var allItems = ItemsFor(conn);
+        if (CrucibleRemnants.RollGeodeDrop(allItems, encounter.AreaLevel, encounter.Charge >= 1f, GeodeDropRate, Random.Shared) is { } geode
+            && encounter.Device is { } dev)
         {
             var dropCell = conn.Layout.Near((dev.X + 3, dev.Y + 3));
             var worldItem = new WorldItemObject(dropCell.X, dropCell.Y, geode);
@@ -741,95 +980,8 @@ public static class CrucibleEncounter
             await SendGroundItem(wire.Remote, wire.Stream, wire.Ciphers, conn, dropId, worldItem, null, justDropped: true);
         }
 
-        await WorldOf(conn).RefreshStats("Crucible Forge complete");
-    }
-
-    /// <summary>
-    /// Computes Crucible XP awarded for a completed Forge encounter:
-    /// Easy (~45% Bar1), Moderate (~115% Bar1, reveals a fresh weapon), Hard (~200% Bar1), Brutal (~340% Bar1), Lethal (~550% Bar1).
-    /// </summary>
-    static uint ComputeEncounterXp(CrucibleTables.LevelBalance balance, int chargePct, double multiplier)
-    {
-        double ratio = chargePct switch
-        {
-            <= 30 => 0.45 * (chargePct / 30.0),
-            <= 55 => 0.45 + 0.70 * ((chargePct - 30) / 25.0),
-            <= 75 => 1.15 + 0.85 * ((chargePct - 55) / 20.0),
-            <= 90 => 2.00 + 1.40 * ((chargePct - 75) / 15.0),
-            _ => 3.40 + 2.10 * ((chargePct - 90) / 10.0),
-        };
-        double raw = balance.Bar1 * Math.Max(0.25, ratio) * Math.Max(0.1, multiplier);
-        return (uint)Math.Clamp(Math.Round(raw), 1, balance.Bar5);
-    }
-
-    /// <summary>Selects the best eligible weapon/shield for the Forge. Equipped only, both weapon sets
-    /// (ClientStrings 6749: "Select an equipped item:").</summary>
-    static bool SelectBestWeapon(ClientState conn, EncounterState encounter)
-    {
-        var items = ItemsOf(conn);
-        var catalog = ItemsFor(conn);
-        var tables = CrucibleTables.Current;
-
-        byte[] searchRows = [PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2];
-        (byte Row, InventoryItem Item, ItemCatalog.BaseType Type)? best = null;
-
-        foreach (byte row in searchRows)
-        {
-            foreach (var invItem in items.Items(row))
-            {
-                if (catalog.ByHash(invItem.Item.TypeHash) is not { } type) continue;
-                if (!CrucibleTreeEngine.CanChannelInForge(invItem.Item, type, catalog.Mods)) continue;
-
-                // Prefer an item that still needs XP / tree reveal over a fully maxed tree.
-                int ilvl = Math.Clamp(invItem.Item.ItemLevel == 0 ? 1 : invItem.Item.ItemLevel, 1, 100);
-                var bal = tables.BalanceFor(ilvl);
-                bool maxed = invItem.Item.WeaponPassiveTree is { HasTree: true } t && t.Experience >= (uint)bal.Bar5;
-                if (!maxed)
-                {
-                    best = (row, invItem, type);
-                    break;
-                }
-                best ??= (row, invItem, type);
-            }
-            if (best is not null && best.Value.Item.Item.WeaponPassiveTree is not { HasTree: true })
-                break;
-            if (best is not null)
-            {
-                int ilvl = Math.Clamp(best.Value.Item.Item.ItemLevel == 0 ? 1 : best.Value.Item.Item.ItemLevel, 1, 100);
-                if (best.Value.Item.Item.WeaponPassiveTree!.Experience < (uint)tables.BalanceFor(ilvl).Bar5)
-                    break;
-            }
-        }
-
-        if (best is not var (chosenRow, chosenItem, chosenType)) return false;
-
-        encounter.SelectedRow = chosenRow;
-        encounter.SelectedItemId = chosenItem.Id;
-        encounter.SelectedItemName = chosenType.Name;
-        encounter.SelectedVisualHash = chosenType.VisualIdentity;
-        encounter.SelectedAnimSet = CrucibleTreeEngine.CategoryOf(chosenItem.Item, chosenType, catalog.Mods) switch
-        {
-            CrucibleTreeEngine.WeaponCategory.TwoHand => 1,
-            CrucibleTreeEngine.WeaponCategory.Shield => 2,
-            _ => 0,
-        };
-
-        // Pick monster theme from the weapon's tree CrucibleTags when revealed.
-        encounter.ThemeTagIndex = -1;
-        if (chosenItem.Item.WeaponPassiveTree is { HasTree: true } tree)
-        {
-            foreach (var node in tree.Nodes)
-            {
-                if (catalog.Mods.ByHash(node.ModHash) is { } mod
-                    && tables.SkillByModRow.TryGetValue(mod.Row, out var skill)
-                    && skill.CrucibleTagRows.Length > 0)
-                {
-                    encounter.ThemeTagIndex = skill.CrucibleTagRows[0];
-                    break;
-                }
-            }
-        }
-
-        return true;
+        // The channel skill goes with the completed Forge, and the items' new skills count.
+        foreach (var member in Members(conn))
+            await Settle(WorldOf(member).RefreshStats("Crucible Forge complete"));
     }
 }

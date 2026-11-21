@@ -158,14 +158,16 @@ public static class CrucibleRemnants
         request.ReturnToSource = true;
     }
 
-    /// <summary>Creates a geode drop for maps (Igneous in T1–T16, Crystalline chance in red/T14+ maps).</summary>
-    public static Item? RollGeodeDrop(ItemCatalog catalog, int areaLevel, double dropRate, Random random)
+    // Our own numbers: GGG never published the geodes' drop rate or levels.
+    const double GeodeChance = 0.18;
+    const int GeodeAreaLevel = 68, CrystallineAreaLevel = 81;
+
+    /// <summary>The geode of a completed Forge in a map, one roll per encounter: Crystalline only from a full channel.</summary>
+    public static Item? RollGeodeDrop(ItemCatalog catalog, int areaLevel, bool fullCharge, double dropRate, Random random)
     {
-        if (areaLevel < 68 || dropRate <= 0) return null;
-        // Base ~18% chance per map Crucible encounter completion (scales with dropRate setting).
-        double chance = Math.Clamp(0.18 * dropRate, 0, 1);
-        if (random.NextDouble() >= chance) return null;
-        bool uber = areaLevel >= 81 && random.NextDouble() < 0.25;
+        if (areaLevel < GeodeAreaLevel || dropRate <= 0) return null;
+        if (random.NextDouble() >= Math.Clamp(GeodeChance * dropRate, 0, 1)) return null;
+        bool uber = fullCharge && areaLevel >= CrystallineAreaLevel;
         string id = uber ? CrucibleTables.CrystallineGeodeId : CrucibleTables.IgneousGeodeId;
         return catalog.Find(id) is { Supported: true } type ? ItemCatalog.Create(type) : null;
     }

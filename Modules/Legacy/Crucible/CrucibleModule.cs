@@ -24,9 +24,11 @@ public sealed class CrucibleModule : IModule
             CrucibleForgeOfTheTitans.Clear();
             CrucibleEncounter.Clear();
         }));
+        (CrucibleEncounter.ExperienceMultiplier, CrucibleEncounter.GeodeDropRate) = (choices.ExperienceMultiplier, choices.GeodeDropRate);
 
-        // 1. Register CrucibleLifeScalingPerLevel monster life scaling stat.
-        module.Lifetime.Own(MonsterModEffects.HandOverMore([CrucibleTables.LevelMoreLifeStat], []));
+        // 1. Register CrucibleLifeScalingPerLevel monster life scaling and the Forge's damage stats.
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([CrucibleTables.LevelMoreLifeStat],
+            [CrucibleTables.MonsterMoreDamageStat], [CrucibleTables.MonsterDamageTakenStat]));
 
         // 2. Inject map_crucible_league (1-based stat 17912) so ExtraTerrainFeatures rolls "Crucible" rooms.
         InstanceEvents.AreaStats.Add(id, _ =>
@@ -71,7 +73,7 @@ public sealed class CrucibleModule : IModule
         GameEvents.Packet(InstanceProtocol.ChannelUpdateAltId).Add(id, (conn, _) =>
             CrucibleEncounter.HandleChannelUpdate(conn));
         GameEvents.Packet(InstanceProtocol.ChannelEndId).Add(id, (conn, _) =>
-            CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate));
+            CrucibleEncounter.HandleChannelEnd(conn));
         // Lockstep equivalents (0x018e/0x018f start, 0x0192 update, 0x0195/0x0196 release) for local/auto-lockstep clients.
         GameEvents.Packet(InstanceProtocol.LockstepMoveStartId).Add(id, (conn, bytes) =>
         {
@@ -79,7 +81,8 @@ public sealed class CrucibleModule : IModule
             if (click.SkillId != CrucibleEncounter.CrucibleChannelSkillId && click.SkillId != InstanceCrucible.CrucibleChannelSkillHash)
                 return Task.FromResult(false);
             conn.NoteLockstepClient(conn.Wire.Remote);
-            conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
+            // A held popup click repeats the start every frame: only a new channel takes a sequence.
+            if (!CrucibleEncounter.IsHolding(conn)) conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
             return CrucibleEncounter.HandleChannelSkill(conn, click.SkillId, (ushort)(conn.LockstepSequence | 0x8000), click.Flags);
         });
         GameEvents.Packet(InstanceProtocol.LockstepUseOnObjectId).Add(id, (conn, bytes) =>
@@ -88,20 +91,24 @@ public sealed class CrucibleModule : IModule
             if (use.SkillId != CrucibleEncounter.CrucibleChannelSkillId && use.SkillId != InstanceCrucible.CrucibleChannelSkillHash)
                 return Task.FromResult(false);
             conn.NoteLockstepClient(conn.Wire.Remote);
-            conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
+            // A held popup click repeats the start every frame: only a new channel takes a sequence.
+            if (!CrucibleEncounter.IsHolding(conn)) conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
             return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, (ushort)(conn.LockstepSequence | 0x8000), use.Flags);
         });
         GameEvents.Packet(InstanceProtocol.LockstepMoveUpdateId).Add(id, (conn, _) =>
             CrucibleEncounter.HandleChannelUpdate(conn));
         GameEvents.Packet(InstanceProtocol.LockstepMoveStopId).Add(id, (conn, _) =>
-            CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate));
+            CrucibleEncounter.HandleChannelEnd(conn));
         GameEvents.Packet(InstanceProtocol.LockstepSkillStopId).Add(id, (conn, bytes) =>
         {
             ushort skill = InstanceProtocol.ReadLockstepSkillStop(bytes);
             return skill == CrucibleEncounter.CrucibleChannelSkillId || skill == InstanceCrucible.CrucibleChannelSkillHash
-                ? CrucibleEncounter.HandleChannelEnd(conn, choices.ExperienceMultiplier, choices.GeodeDropRate)
+                ? CrucibleEncounter.HandleChannelEnd(conn)
                 : Task.FromResult(false);
         });
+
+        // The pick in the Forge popup, from a client changed to send it (C→S 0x02ca for CrucibleRules).
+        GameEvents.Packet(InstanceRulesets.ActionId).Add(id, CrucibleEncounter.HandleRulesetAction);
 
         // 10. Area generation, world object interaction, ticks, kills, leaving, and drops.
         GameEvents.AreaGenerated.Add(id, async conn =>
@@ -110,21 +117,10 @@ public sealed class CrucibleModule : IModule
             await CrucibleEncounter.Enter(conn);
         });
 
-        GameEvents.ObjectUse.Add(id, async (conn, use, requestedAt) =>
-            await CrucibleForgeOfTheTitans.UseObject(conn, use, requestedAt)
-            || await CrucibleEncounter.UseObject(conn, use, requestedAt, choices.ExperienceMultiplier, choices.GeodeDropRate));
-
-        GameEvents.Tick.Add(id, (conn, dt) =>
-            CrucibleEncounter.Tick(conn, dt, choices.ExperienceMultiplier, choices.GeodeDropRate));
-
-        GameEvents.Kill.Add(id, kill =>
-            CrucibleEncounter.OnKill(kill, choices.ExperienceMultiplier, choices.GeodeDropRate));
-
-        GameEvents.PlayerLeaving.Add(id, (conn, _) =>
-        {
-            CrucibleEncounter.OnPlayerLeaving(conn);
-            return Task.CompletedTask;
-        });
+        GameEvents.ObjectUse.Add(id, CrucibleForgeOfTheTitans.UseObject);
+        GameEvents.Tick.Add(id, CrucibleEncounter.Tick);
+        GameEvents.Kill.Add(id, CrucibleEncounter.OnKill);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => CrucibleEncounter.OnPlayerLeaving(conn));
 
         GameEvents.Drops.Add(id, CrucibleForgeOfTheTitans.OnDrops);
     }

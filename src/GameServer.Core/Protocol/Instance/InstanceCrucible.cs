@@ -39,10 +39,6 @@ public static class InstanceCrucible
     public static byte[] ForgeState(byte state) =>
         InstanceProtocol.RulesetMessage(CrucibleRulesetRow, [0x05, state]);
 
-    /// <summary>Sub-message 0x06 + u32 LE forgeEntityId: opens the gamepad Forge popup bound to the forge entity.</summary>
-    public static byte[] ForgeOpenGamepadPopup(uint forgeEntityId) =>
-        InstanceProtocol.RulesetMessage(CrucibleRulesetRow, new BlobWriter().U8(0x06).U32(forgeEntityId).ToArray());
-
     /// <summary>S→C 0x7b kind 0x4b argument 1 modes (CrucibleAddWeaponTreeToItemCraftingWindow, 0x1403d6fd0).</summary>
     public const uint AntiqueForgeMode = 0;
     public const uint AntiqueForgeCorruptedMode = 1;

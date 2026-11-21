@@ -6,7 +6,7 @@ namespace GameServer.Modules.Crucible;
 /// <summary>
 /// Crucible's <c>client.db</c> tables, loaded once per process: <c>WeaponPassiveSkills</c>,
 /// <c>WeaponPassiveSkillTypes</c>, <c>WeaponPassiveTreeBalancePerItemLevel</c>,
-/// <c>WeaponPassiveTreeUniqueBaseTypes</c>, <c>CrucibleDifficulty</c>, <c>CrucibleEndgameMonsterPacks</c>,
+/// <c>WeaponPassiveTreeUniqueBaseTypes</c>, <c>CrucibleEndgameMonsterPacks</c>,
 /// <c>CrucibleLifeScalingPerLevel</c>, <c>Rulesets</c>, and Crucible world object types.
 /// </summary>
 public sealed class CrucibleTables
@@ -17,7 +17,11 @@ public sealed class CrucibleTables
     public const string InZoneStat = "in_crucible_zone";
     public const string ChannelWeaponAnimStat = "crucible_channel_selected_weapon_animation_set";
     public const string ChannelWeaponVisualStat = "crucible_channel_selected_weapon_visual_identity_hash";
+    /// <summary>The more life of <c>CrucibleLifeScalingPerLevel</c> (<c>set_additional_life_scaling_index = 14</c> in
+    /// <c>CrucibleMonsterBase.ot</c>). The name is ours: the client has no stat for it.</summary>
     public const string LevelMoreLifeStat = "crucible_level_scaling_life_+%_final";
+    public const string MonsterMoreDamageStat = "map_crucible_monster_damage_+%_final";
+    public const string MonsterDamageTakenStat = "map_crucible_monster_damage_taken_+%_final";
 
     public const string MagmaticOreId = "Metadata/Items/Currency/CurrencyAddCrucibleExperience";
     public const string IgneousGeodeId = "Metadata/Items/Currency/CrucibleGeode";
@@ -67,9 +71,6 @@ public sealed class CrucibleTables
         };
     }
 
-    /// <summary>One row of <c>CrucibleDifficulty.dat</c> (Easy..Lethal charge percentage thresholds).</summary>
-    public sealed record DifficultyRow(int Index, string Name, int Threshold);
-
     /// <summary>One row of <c>CrucibleEndgameMonsterPacks.dat</c>.</summary>
     public sealed record EndgamePackRow(int Row, string Tier, int[] Weights, int MinPack, int Weight, bool IsBossTier);
 
@@ -82,11 +83,14 @@ public sealed class CrucibleTables
     /// <summary><c>WeaponPassiveTreeUniqueBaseTypes</c>: the <c>BaseItemTypes</c> row for each value (<c>__col1</c>) of the
     /// "sells for an additional Unique {0}" stat.</summary>
     public IReadOnlyDictionary<int, int> SellUniqueBaseRows { get; }
-    public IReadOnlyList<DifficultyRow> Difficulties { get; }
     public IReadOnlyList<EndgamePackRow> EndgamePacks { get; }
     public byte? CrucibleRulesRow { get; }
     public byte? CrucibleMapRulesRow { get; }
     public IReadOnlyDictionary<string, ObjectTypeInfo> Objects { get; }
+    /// <summary><c>BuffDefinitions</c> <c>crucible_frozen</c>: a molten monster held at the Forge (cannot be damaged, takes
+    /// no actions), and its art by rarity, <c>BuffVisuals</c> <c>crucible_stasis</c>, <c>_magic</c>, <c>_rare</c>, <c>_unique</c>.</summary>
+    public ushort? FrozenBuff { get; }
+    public ushort?[] StasisVisuals { get; }
 
     readonly LevelBalance?[] _balance;
     readonly int[] _moreLife;
@@ -124,11 +128,6 @@ public sealed class CrucibleTables
         SellUniqueBaseRows = ClientTables.TableOrEmpty("WeaponPassiveTreeUniqueBaseTypes")
             .ToDictionary(r => r.Int("__col1"), r => r.Int("UniqueBase"));
 
-        Difficulties = [.. ClientTables.TableOrEmpty("CrucibleDifficulty").Select(r => new DifficultyRow(
-            r.Index,
-            r.Text("Name") ?? "",
-            r.Int("__col2")))];
-
         EndgamePacks = [.. ClientTables.TableOrEmpty("CrucibleEndgameMonsterPacks").Select(r => new EndgamePackRow(
             r.Index,
             r.Text("Tier") ?? "",
@@ -148,6 +147,13 @@ public sealed class CrucibleTables
         var rulesets = ClientTables.TableOrEmpty("Rulesets");
         CrucibleRulesRow = rulesets.FirstOrDefault(r => r.Text("Id") == "CrucibleRules") is { Table: not null } cr ? (byte)cr.Index : null;
         CrucibleMapRulesRow = rulesets.FirstOrDefault(r => r.Text("Id") == "CrucibleMapRules") is { Table: not null } cmr ? (byte)cmr.Index : null;
+
+        FrozenBuff = ClientTables.TableOrEmpty("BuffDefinitions").FirstOrDefault(r => r.Text("Id") == "crucible_frozen")
+            is { Table: not null } frozen ? (ushort)frozen.Index : null;
+        var visuals = ClientTables.TableOrEmpty("BuffVisuals").Where(r => r.Text("Id")?.StartsWith("crucible_stasis", StringComparison.Ordinal) == true)
+            .ToDictionary(r => r.Text("Id")!, r => (ushort)r.Index);
+        StasisVisuals = [.. new[] { "", "_magic", "_rare", "_unique" }
+            .Select(suffix => visuals.TryGetValue("crucible_stasis" + suffix, out ushort row) ? row : (ushort?)null)];
 
         var shared = ObjectTypes.SharedStates();
         var objects = new Dictionary<string, ObjectTypeInfo>(StringComparer.Ordinal);
@@ -191,15 +197,6 @@ public sealed class CrucibleTables
     /// <summary>CrucibleLifeScalingPerLevel MoreLife percentage for an area level.</summary>
     public int MoreLife(int areaLevel) =>
         _moreLife.Length == 0 ? 0 : _moreLife[Math.Clamp(areaLevel, 0, _moreLife.Length - 1)];
-
-    /// <summary>Difficulty tier index (0..4: Easy..Lethal) for a 0..100 charge percent.</summary>
-    public int DifficultyFor(int chargePercent)
-    {
-        int clamped = Math.Clamp(chargePercent, 0, 100);
-        for (int i = 0; i < Difficulties.Count; i++)
-            if (clamped <= Difficulties[i].Threshold) return i;
-        return Math.Max(0, Difficulties.Count - 1);
-    }
 
     /// <summary>Whether this area id is Forge of the Titans (normal or uber).</summary>
     public static bool IsForgeArea(string areaId) =>

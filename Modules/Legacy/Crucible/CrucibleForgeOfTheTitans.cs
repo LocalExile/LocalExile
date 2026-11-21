@@ -194,7 +194,7 @@ public static class CrucibleForgeOfTheTitans
         var tables = CrucibleTables.Current;
         int moreUnique = area.RemnantMods.Get("map_crucible_unique_monsters_+%");
         int extraDamage = area.RemnantMods.Get("map_crucible_monster_damage_+%_final");
-        var scaling = CrucibleMonsters.ScalingMods(area.Level, extraMoreLife: area.Uber ? 40 : 0, extraMoreDamage: extraDamage);
+        var scaling = CrucibleMonsters.ScalingMods(area.Level, extraDamage);
         byte monsterLevel = (byte)Math.Clamp(area.Level, 1, 100);
 
         var (remote, stream, ciphers) = conn.Wire;

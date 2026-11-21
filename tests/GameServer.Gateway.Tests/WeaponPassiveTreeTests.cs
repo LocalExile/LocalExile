@@ -76,7 +76,6 @@ public class WeaponPassiveTreeTests : IDisposable
         Assert.Equal("02C98905030000003F", Convert.ToHexString(InstanceCrucible.ForgeCharge(0.5f)));
         Assert.Equal("02C989020401", Convert.ToHexString(InstanceCrucible.ForgeChannelling(true)));
         Assert.Equal("02C989020502", Convert.ToHexString(InstanceCrucible.ForgeState(2)));
-        Assert.Equal("02C989050678563412", Convert.ToHexString(InstanceCrucible.ForgeOpenGamepadPopup(0x12345678)));
         byte[] longRuleset = InstanceProtocol.RulesetMessage(InstanceCrucible.CrucibleMapRulesetRow, new byte[128]);
         Assert.Equal("02C98C8080", Convert.ToHexString(longRuleset, 0, 5));
         Assert.Throws<ArgumentOutOfRangeException>(() => InstanceProtocol.RulesetMessage(0x89, new byte[65536]));

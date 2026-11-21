@@ -4,14 +4,15 @@ using GameServer.Core.Protocol.Instance;
 namespace GameServer.Modules.Crucible;
 
 /// <summary>
-/// Crucible monster themes (<c>CrucibleTags</c> -> <c>Metadata/Monsters/LeagueCrucible/*</c>), difficulty wave
-/// composition for in-zone Crucible Forges, and 8-tier pack pools for Forge of the Titans.
+/// Crucible monster themes (<c>CrucibleTags</c> -> <c>Metadata/Monsters/LeagueCrucible/*</c>), their tiers, and the
+/// pack pools for Forge of the Titans.
 /// </summary>
 public static class CrucibleMonsters
 {
     public sealed record ThemePool(string Tag, IReadOnlyList<string> Normal, IReadOnlyList<string> Bosses);
 
-    // Maps CrucibleTags (0..5: Fire, Cold, Physical, Lightning, Chaos, Demon) to MonsterVarieties folders.
+    // CrucibleTags (0..5: Fire, Cold, Physical, Lightning, Chaos, Demon) to MonsterVarieties folders. A guess by name:
+    // no table links the two; only CriticalSpeed's monsters carry a matching tag (demon).
     static readonly (string Tag, string Folder)[] ThemeFolders =
     [
         ("Fire", "Metadata/Monsters/LeagueCrucible/Fire/"),
@@ -57,36 +58,25 @@ public static class CrucibleMonsters
         return nonEmpty.Count > 0 ? nonEmpty[random.Next(nonEmpty.Count)] : Pools[0];
     }
 
-    /// <summary>Extra monster stats from <c>CrucibleLifeScalingPerLevel</c> plus optional forge difficulty/map scaling.</summary>
-    public static MonsterModSet ScalingMods(int areaLevel, int extraMoreLife = 0, int extraMoreDamage = 0)
+    /// <summary>The theme's monster of a tier: the folder's table order is the tier order, tiers 9 and 10 are its
+    /// two bosses.</summary>
+    public static MonsterCatalog.Variety? VarietyForTier(ThemePool theme, int tier)
     {
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
-        int levelLife = CrucibleTables.Current.MoreLife(areaLevel) + extraMoreLife;
-        if (levelLife != 0) stats[CrucibleTables.LevelMoreLifeStat] = levelLife;
-        if (extraMoreDamage != 0) stats["damage_+%"] = extraMoreDamage;
-        return new MonsterModSet([], [], new MonsterModEffects(stats));
+        string? id = tier > theme.Normal.Count
+            ? theme.Bosses.Count == 0 ? null : theme.Bosses[Math.Min(tier - theme.Normal.Count, theme.Bosses.Count) - 1]
+            : theme.Normal.Count == 0 ? null : theme.Normal[Math.Max(1, tier) - 1];
+        return id is not null && Monsters.Find(id) is { Supported: true } found ? found : null;
     }
 
-    /// <summary>Wave specification for an in-zone Crucible Forge based on charge percent (1..100).</summary>
-    public sealed record WavePlan(int NormalCount, int MagicCount, int RareCount, int UniqueCount, int ExtraMoreLife, int ExtraMoreDamage);
-
-    /// <summary>
-    /// Computes wave composition from channel charge (1..100) matching <c>CrucibleDifficulty.dat</c> tiers:
-    /// Easy (0..30), Moderate (31..55), Hard (56..75), Brutal (76..90), Lethal (91..100).
-    /// </summary>
-    public static WavePlan PlanForgeWave(int chargePercent, int areaLevel)
+    /// <summary>A Crucible monster's own stats: the more life of <c>CrucibleLifeScalingPerLevel</c>, and the Forge's more
+    /// damage and less damage taken ("more damage and damage reduction", GGG Q&amp;A).</summary>
+    public static MonsterModSet ScalingMods(int areaLevel, int moreDamage = 0, int damageTaken = 0)
     {
-        int c = Math.Clamp(chargePercent, 1, 100);
-        int difficulty = CrucibleTables.Current.DifficultyFor(c);
-        bool maps = areaLevel >= 68;
-        return difficulty switch
-        {
-            0 => new(NormalCount: 5 + c / 10, MagicCount: 2, RareCount: 0, UniqueCount: 0, ExtraMoreLife: 0, ExtraMoreDamage: 0),
-            1 => new(NormalCount: 7, MagicCount: 3, RareCount: 1, UniqueCount: 0, ExtraMoreLife: 25, ExtraMoreDamage: 10),
-            2 => new(NormalCount: 8, MagicCount: 4, RareCount: 2, UniqueCount: 0, ExtraMoreLife: 60, ExtraMoreDamage: 20),
-            3 => new(NormalCount: 9, MagicCount: 5, RareCount: 3, UniqueCount: maps ? 1 : 0, ExtraMoreLife: 110, ExtraMoreDamage: 35),
-            _ => new(NormalCount: 10, MagicCount: 6, RareCount: 4, UniqueCount: 1, ExtraMoreLife: 180, ExtraMoreDamage: 50),
-        };
+        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (CrucibleTables.Current.MoreLife(areaLevel) is int life and not 0) stats[CrucibleTables.LevelMoreLifeStat] = life;
+        if (moreDamage != 0) stats[CrucibleTables.MonsterMoreDamageStat] = moreDamage;
+        if (damageTaken != 0) stats[CrucibleTables.MonsterDamageTakenStat] = damageTaken;
+        return new MonsterModSet([], [], new MonsterModEffects(stats));
     }
 
     /// <summary>
