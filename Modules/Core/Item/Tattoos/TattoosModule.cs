@@ -20,6 +20,12 @@ public sealed class TattoosModule : IModule
             await UseTattooOnPassive(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOnPassive(bytes), Convert.ToHexString(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceItems.UseItemTypeOnPassiveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await UseTattooTypeOnPassive(remote, stream, ciphers, conn, InstanceItems.ReadUseItemTypeOnPassive(bytes), Convert.ToHexString(bytes));
+            return true;
+        });
         GameEvents.Command(module.Manifest.Id, "tattoo", "/tattoo <name> | list (dev: a tattoo currency item into the inventory)", async (conn, args) =>
         {
             var (remote, stream, ciphers) = conn.Wire;

@@ -789,6 +789,20 @@ public static partial class Game
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
                 await TakeFromStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, all: move.Bulk != 0);
             }
+            else if (id == InstanceStash.TakeBlightOilId)
+            {
+                var move = InstanceStash.ReadTakeBlightOil(bytes);
+                if (move.Kind == InstanceStash.Guild && conn.Ssf) continue;
+                Console.WriteLine($"[gateway] {remote} <= 0x00f5 take blight oil {move.ItemId} from stash kind {move.Kind} tab {move.Tab} (bulk {move.Bulk})");
+                if (move.Tab <= int.MaxValue)
+                    await TakeFromStash(remote, stream, ciphers, conn, (int)move.Tab, move.ItemId, all: move.Bulk != 0, kind: move.Kind);
+            }
+            else if (id == InstanceHarvest.MoveItemId)
+            {
+                var move = InstanceHarvest.ReadMoveItem(bytes);
+                Console.WriteLine($"[gateway] {remote} <= 0x00f9 storage take-out item {move.ItemId} from tab {move.Tab} (flags 0x{move.Flags:x2}, into {move.IntoStation})");
+                await TakeFromStash(remote, stream, ciphers, conn, move.Tab, move.ItemId, all: false, kind: InstanceStash.Personal);
+            }
             else if (id == InstanceStash.MoveTabId && bytes.Length >= InstanceStash.MoveTabLength)
             {
                 // A tab into a folder, out of one, or (its own index as the folder) into a new one; the list goes out again.

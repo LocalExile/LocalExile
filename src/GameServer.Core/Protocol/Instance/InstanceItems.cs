@@ -665,6 +665,40 @@ public static class InstanceItems
         return new(r.U32(), r.U32(), r.U32());
     }
 
+    public const ushort UseItemTypeOnPassiveId = 0x78;
+    public const int UseItemTypeOnPassiveLength = 17;
+
+    /// <summary>
+    /// C→S 0x78 (17 bytes, writer 0x141f9b0b0, senders 0x1409c9040 / 0x142168f60): Shift-click / repeat use of a
+    /// passive-tree currency (Tattoo or Orb of Scouring) named by type rather than item id.
+    /// u32 BE BaseItemTypes HASH32 (+2), u32 (+6), u16 (+10), u16 (+12), u8 flags (+14), u16 BE PassiveSkillGraphId (+15).
+    /// </summary>
+    public sealed record UseItemTypeOnPassive(uint TypeHash, byte Flags, ushort Node);
+
+    public static UseItemTypeOnPassive ReadUseItemTypeOnPassive(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        uint typeHash = r.U32();
+        r.U32(); r.U16(); r.U16();
+        return new(typeHash, r.U8(), r.U16());
+    }
+
+    public const ushort UseItemTypeOnObjectId = 0x79;
+    public const int UseItemTypeOnObjectLength = 18;
+
+    /// <summary>
+    /// C→S 0x79 (18 bytes, writer 0x141f9b330, sender 0x14011cd4e): Shift-click / repeat use of currency on a world
+    /// object (strongbox, essence monolith) named by BaseItemTypes HASH32.
+    /// u32 BE BaseItemTypes HASH32 (+2), u32 BE target object id (+6), u32 (+10), u16 (+14), u16 (+16).
+    /// </summary>
+    public sealed record UseItemTypeOnObject(uint TypeHash, uint TargetObjectId);
+
+    public static UseItemTypeOnObject ReadUseItemTypeOnObject(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32());
+    }
+
     public const ushort UseItemOnPassiveId = 0x77;
     public const int UseItemOnPassiveLength = 12;
 

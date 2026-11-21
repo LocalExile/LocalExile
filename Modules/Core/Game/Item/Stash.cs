@@ -319,11 +319,19 @@ public static partial class Game
         if (moved is not null) await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: false);
     }
 
-    // An item out of a stash tab into the main inventory (C→S 0xe3), a stack onto the inventory's stacks first
+    // An item out of a stash tab into the main inventory (C→S 0xe3 / 0xf5 / 0xf9), a stack onto the inventory's stacks first
     // (ItemMoves.StashToInventory), one transaction.
-    public static async Task TakeFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, bool all)
+    public static async Task TakeFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, bool all,
+        byte? kind = null)
     {
-        var stash = StashOf(conn);
+        var stash = kind switch
+        {
+            InstanceStash.Guild when !conn.Ssf => GuildStashOf(conn),
+            InstanceStash.Guild => null,
+            InstanceStash.Personal => PersonalStashOf(conn),
+            _ => StashOf(conn),
+        };
+        if (stash is null) return;
         var items = ItemsOf(conn);
         if (ItemMoves.StashToInventory(stash, items, tab, itemId, ShapeOf, all) is not { } moved)
         {

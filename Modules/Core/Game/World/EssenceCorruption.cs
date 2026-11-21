@@ -32,10 +32,33 @@ public static partial class MapEssences
     }
 
     /// <summary>The verified, shared item-on-world-object packet; a box handler declines these targets.</summary>
-    public static async Task<bool> UseItemOn(ClientState conn, byte[] message)
+    public static Task<bool> UseItemOn(ClientState conn, byte[] message) =>
+        message.Length != InstanceItems.UseItemOnObjectLength
+            ? Task.FromResult(false)
+            : UseItemOnCore(conn, InstanceItems.ReadUseItemOnObject(message));
+
+    /// <summary>GameEvents.Packet(0x79): Shift-click / repeat Vaal Orb use by type hash on an essence monolith.</summary>
+    public static Task<bool> UseItemTypeOn(ClientState conn, byte[] message)
     {
-        if (message.Length != InstanceItems.UseItemOnObjectLength) return false;
-        var use = InstanceItems.ReadUseItemOnObject(message);
+        if (message.Length < InstanceItems.UseItemTypeOnObjectLength) return Task.FromResult(false);
+        var req = InstanceItems.ReadUseItemTypeOnObject(message);
+        if (!Areas.TryGetValue(conn.Instance, out var area)
+            || area.Monoliths?.FirstOrDefault(m => m.Id == req.TargetObjectId) is null)
+            return Task.FromResult(false);
+        var items = ItemsOf(conn);
+        byte[] rows = [PlayerInventories.MainInventory,
+            .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length)
+                .Select(r => (byte)r)
+                .Where(r => r != PlayerInventories.MainInventory && r != PlayerInventories.Cursor)];
+        foreach (byte row in rows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stack)
+                return UseItemOnCore(conn, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId));
+        Console.WriteLine($"[map-content] essence 0x{req.TargetObjectId:x}: 0x0079 type 0x{req.TypeHash:x8} not found in inventory");
+        return Task.FromResult(true);
+    }
+
+    static async Task<bool> UseItemOnCore(ClientState conn, InstanceItems.UseItemOnObject use)
+    {
         if (!Areas.TryGetValue(conn.Instance, out var area)
             || area.Monoliths?.FirstOrDefault(m => m.Id == use.TargetObjectId) is not { } target) return false;
         string Log(string text) => $"[map-content] essence 0x{use.TargetObjectId:x}: {text}";

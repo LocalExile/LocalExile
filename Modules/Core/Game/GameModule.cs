@@ -64,6 +64,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemTypeOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
@@ -71,6 +72,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapEssences.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemOn);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemTypeOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemTypeOn);
         GameEvents.Tick.Add(module.Manifest.Id, MapEssences.Tick);
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });

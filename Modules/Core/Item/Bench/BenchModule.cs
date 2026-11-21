@@ -17,9 +17,10 @@ public sealed class BenchModule : IModule
         {
             return BenchFeature.SpawnBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
-            return BenchFeature.SpawnTownBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+            await BenchFeature.SpawnTownBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+            await BenchFeature.UnlockAreaRecipes(conn);
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
         {
@@ -147,6 +148,33 @@ static class BenchFeature
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.CraftingBench),
             items.NextRevision(PlayerInventories.CraftingBench), [result.Changed.Id], [result.Changed]), $"bench recipe {request.Recipe}: crafted item {result.Changed.Id}");
         await RefreshBenchBalance(remote, stream, ciphers, conn);
+    }
+
+    /// <summary>Records and broadcasts matching RecipeUnlockDisplay league quest flags when entering a recipe's
+    /// unlock area. Setting a RecipeUnlockDisplay.RecipeId bit from 0→1 triggers the client's native recipe unlock
+    /// notification (0x140d6d030 → 0x1402a7210).</summary>
+    internal static Task<IReadOnlyList<int>> UnlockAreaRecipes(ClientState conn)
+    {
+        if (!LeagueFor(conn).Rules.CraftingBench) return Task.FromResult<IReadOnlyList<int>>([]);
+        var recipeIds = Bench.UnlocksForArea(conn.Layout.Id);
+        return recipeIds.Count == 0 ? Task.FromResult<IReadOnlyList<int>>([]) : UnlockRecipes(conn, recipeIds);
+    }
+
+    internal static async Task<IReadOnlyList<int>> UnlockRecipes(ClientState conn, IEnumerable<int> recipeIds)
+    {
+        var stash = PersonalStashOf(conn);
+        var saved = stash.LeagueQuestFlags.ToHashSet();
+        var fresh = recipeIds.Where(id => id > 0 && !saved.Contains(id)).Distinct().ToList();
+        if (fresh.Count == 0) return [];
+        bool anyUnsetInConn;
+        lock (conn.Monsters) anyUnsetInConn = fresh.Any(id => !conn.LeagueQuestFlags.Contains(id));
+        if (anyUnsetInConn)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await global::Game.SetLeagueQuestFlags(remote, stream, ciphers, conn, fresh);
+        }
+        else stash.ChangeLeagueQuestFlags(fresh, on: true);
+        return fresh;
     }
 
 }

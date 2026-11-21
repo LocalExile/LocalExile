@@ -134,6 +134,28 @@ static class TattoosFeature
             Console.WriteLine($"[gateway] {remote} <= 0x0077 tattoo {entry.Name} on {use.Node} refused: {error}: {hex}");
     }
 
+    /// <summary>C→S 0x78: repeat / Shift-click use of a Tattoo or Orb of Scouring named by BaseItemTypes HASH32.
+    /// Locates the first matching stack in player inventories (main inventory first) and delegates to 0x77.</summary>
+    internal static async Task UseTattooTypeOnPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, InstanceItems.UseItemTypeOnPassive use, string hex)
+    {
+        var items = ItemsOf(conn);
+        byte[] rows = [PlayerInventories.MainInventory,
+            .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length)
+                .Select(r => (byte)r)
+                .Where(r => r != PlayerInventories.MainInventory && r != PlayerInventories.Cursor)];
+        foreach (byte row in rows)
+        {
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == use.TypeHash) is { } stack)
+            {
+                await UseTattooOnPassive(remote, stream, ciphers, conn,
+                    new(PlayerInventories.InventoryId(row), stack.Id, use.Node), hex);
+                return;
+            }
+        }
+        Console.WriteLine($"[gateway] {remote} <= 0x0078 passive item type 0x{use.TypeHash:x8} on node {use.Node}: none left in inventory");
+    }
+
     /// <summary>Removes the tattoo from a passive and restores the passive's own stats.</summary>
     internal static async Task<string?> RemoveTattoo(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort node, byte? consumeRow = null, uint consumeItemId = 0)

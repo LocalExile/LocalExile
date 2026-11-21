@@ -227,6 +227,19 @@ public static class InstanceStash
 
     public const int TakeFromTabLength = 12;
 
+    /// <summary>C→S 0xf5 (12 bytes, writer 0x141f9a550, sender 0x1403136e1): take an oil/item out of a special stash tab
+    /// (Blight tab oil row). u32 BE item id (+2), u8 kind (+6), u32 BE tab (+7), u8 bulk/flag (+11).</summary>
+    public const ushort TakeBlightOilId = 0xf5;
+    public const int TakeBlightOilLength = 12;
+
+    public readonly record struct TakeBlightOil(uint ItemId, byte Kind, uint Tab, byte Bulk);
+
+    public static TakeBlightOil ReadTakeBlightOil(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U8(), r.U32(), r.U8());
+    }
+
     public const ushort MoveToAffinityTabId = 0xe1, SetAffinitiesId = 0xd3;
 
     /// <summary>C→S 0xe1: Ctrl + click on an inventory item with an affinity tab while the stash is open. Tabs: the tabs

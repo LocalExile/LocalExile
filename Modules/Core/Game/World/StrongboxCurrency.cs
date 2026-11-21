@@ -16,14 +16,37 @@ public static partial class MapStrongboxes
 
     /// <summary>GameEvents.Packet(0x74): true when the target is one of this instance's boxes (handled, or refused with
     /// the reason logged); false for any other object.</summary>
-    public static async Task<bool> UseItemOn(ClientState conn, byte[] message)
+    public static Task<bool> UseItemOn(ClientState conn, byte[] message) =>
+        message.Length < InstanceItems.UseItemOnObjectLength
+            ? Task.FromResult(false)
+            : UseItemOnCore(conn, InstanceItems.ReadUseItemOnObject(message), "0x0074");
+
+    /// <summary>GameEvents.Packet(0x79): Shift-click / repeat currency use by type hash on a strongbox.</summary>
+    public static Task<bool> UseItemTypeOn(ClientState conn, byte[] message)
     {
-        if (message.Length < InstanceItems.UseItemOnObjectLength) return false;
-        var use = InstanceItems.ReadUseItemOnObject(message);
+        if (message.Length < InstanceItems.UseItemTypeOnObjectLength) return Task.FromResult(false);
+        var req = InstanceItems.ReadUseItemTypeOnObject(message);
+        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area)
+            || area.Boxes?.FirstOrDefault(b => b.Id == req.TargetObjectId) is null)
+            return Task.FromResult(false);
+        var items = ItemsOf(conn);
+        byte[] rows = [PlayerInventories.MainInventory,
+            .. Enumerable.Range(0, InstanceInventories.PlayerDefaults.Length)
+                .Select(r => (byte)r)
+                .Where(r => r != PlayerInventories.MainInventory && r != PlayerInventories.Cursor)];
+        foreach (byte row in rows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stack)
+                return UseItemOnCore(conn, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
+        Console.WriteLine($"[map-content] {conn.Wire.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory");
+        return Task.FromResult(true);
+    }
+
+    static async Task<bool> UseItemOnCore(ClientState conn, InstanceItems.UseItemOnObject use, string opcode)
+    {
         if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area)
             || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetObjectId) is not { } target) return false;
         var (remote, stream, ciphers) = conn.Wire;
-        string Log(string text) => $"[map-content] {remote} <= 0x0074 item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
+        string Log(string text) => $"[map-content] {remote} <= {opcode} item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
         var items = ItemsOf(conn);
         if (items.RowOf(use.ItemId) is not byte row || PlayerInventories.InventoryId(row) != use.InventoryId
             || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } used)
