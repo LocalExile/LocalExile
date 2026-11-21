@@ -219,12 +219,19 @@ public static partial class Game
                     const ushort Move = 0x2909;
                     var destination = peer.Destination ?? (peer.X, peer.Y);
                     var heading = previous!.Destination ?? (previous.X, previous.Y);
-                    // A player on a connection of its own walks here by the orders its client is sent (SharedMonsters.cs
-                    // MirrorPlayerAction), and its copy stops where those end. Only a player without one (a
-                    // server-driven one) is walked from its published pose.
-                    bool ordered = peer.Owner is { } owner && Program.InGame.ContainsKey(owner);
+                    // Human moves are mirrored from their own client orders. Controlled players use a connection
+                    // for combat, but their follower AI walks the server actor directly.
+                    bool controlled = peer.Owner is { Controlled: true };
+                    bool ordered = peer.Owner is { Controlled: false } owner && Program.InGame.ContainsKey(owner);
                     if (!ordered && destination != heading && destination != (peer.X, peer.Y))
-                        packets.World(peer.Id, InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
+                    {
+                        var move = InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y,
+                            Move, controlled ? conn.NextActionSequence() : (ushort)0xffff,
+                            controlled ? conn.MonsterOrderFlags : (ushort)0x0408);
+                        if (controlled && conn.LockstepClient)
+                            lock (conn.Monsters) move = PeerRecordAtGate(conn, peer.Id, move, peer.Owner!.Walk.Speed);
+                        packets.World(peer.Id, move);
+                    }
                     else if (destination == (peer.X, peer.Y) && (previous.X, previous.Y) != (peer.X, peer.Y)
                         && Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20 && heading == (previous.X, previous.Y))
                     {
@@ -237,6 +244,10 @@ public static partial class Game
                         // Stopped short of where it was going (a body in the way): the observers' walk stops there too.
                         packets.World(peer.Id, InstanceProtocol.ActionEnded(peer.Id));
                         packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                        if (controlled)
+                            lock (conn.Monsters)
+                                if (conn.PeerWalks.TryGetValue(peer.Id, out var stopped))
+                                    stopped.Teleport(peer.X, peer.Y, conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds);
                     }
                     if (previous.Life != peer.Life)
                         packets.World(peer.Id, InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
@@ -263,7 +274,9 @@ public static partial class Game
                     if (scale != before)
                         packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
                 }
-                conn.SeenPlayers[peer.Id] = peer;
+                // A newly created observer sees the actor standing until it receives its first move order.
+                conn.SeenPlayers[peer.Id] = (!exists || previous!.Life == 0 && peer.Life > 0)
+                    && peer.Owner is { Controlled: true } ? peer with { Destination = null } : peer;
                 return packets.Build();
             }, transport: (remote, stream, ciphers));
         }

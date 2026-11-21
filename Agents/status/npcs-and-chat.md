@@ -132,6 +132,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Followers stay within 60 cells with rare idle adjustments, retry rejected steps, and enter ahead on clear cells.
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
+  Nearby clients see party followers walk and receive their position when a large gap requires a catch-up relocation.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
   Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
   Human friends and town-invited bots share one six-member roster, including kicks, leader handover and area changes.
