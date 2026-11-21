@@ -160,6 +160,47 @@ public sealed class TriggeredSummonTests
                 .. InstanceProtocol.LifeUpdate(guarded, 0),
             ];
             Assert.Contains(packets, p => p.SequenceEqual(guardedExpected));
+
+            // A lockstep party member first sees these actors after the caster has already created the corpses.
+            var peer = new ClientState(f.Conn.Layout, 1, 2)
+            {
+                Instance = f.Conn.Instance, PlayerLife = 100, PlayerSent = true,
+                LockstepClient = true, Wire = ("peer", f.Stream, wire),
+            };
+            await Program.BeginWorldFrames(peer, .033);
+            packets.Clear();
+            var sync = Game.SyncInstanceMonsters("peer", f.Stream, wire, peer, reveal: false);
+            await Program.EndWorldFrame(peer, (.033, .066));
+            await sync;
+            foreach (uint id in f.Conn.Summons.Corpses)
+            {
+                var origin = peer.Instance.World.MonsterOrigins[id];
+                var create = InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob(), headerU32: uint.MaxValue);
+                Assert.Contains(packets, p => p.SequenceEqual(create));
+                Assert.DoesNotContain(packets, p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0)));
+            }
+            Assert.DoesNotContain(guarded, peer.MonsterViews.Keys);
+            packets.Clear();
+            await Program.EndWorldFrame(peer, (.066, .099));
+            foreach (uint id in f.Conn.Summons.Corpses)
+            {
+                int wake = packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.EnterWakeZone(id)));
+                Assert.True(wake >= 0 && packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0))) > wake);
+            }
+            packets.Clear();
+            uint consumed = f.Conn.Summons.Corpses.Peek();
+            uint expired = f.Conn.Summons.Corpses.Skip(1).First();
+            peer.Monsters[consumed].CorpseConsumed = true;
+            peer.Monsters.Remove(expired);
+            peer.Instance.World.MonsterOrigins.TryRemove(expired, out _);
+            await Game.SyncInstanceMonsters("peer", f.Stream, wire, peer, reveal: false);
+            await Program.EndWorldFrame(peer, (.099, .132));
+            foreach (uint removed in new[] { consumed, expired })
+            {
+                Assert.DoesNotContain(removed, peer.MonsterViews.Keys);
+                Assert.Single(packets, p => p.Length == 12 && p[0] == 2 && p[1] == 0xbd
+                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)) == removed);
+            }
         }
         finally
         {

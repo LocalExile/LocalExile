@@ -446,6 +446,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
     // removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
+    // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
+    public bool CreatedAsCorpse;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
     // Kept on this exact monster instance until the kill publication consumes it.
     public UnhingedHitKillReceipt? UnhingedHitKill;

@@ -507,7 +507,7 @@ public static partial class Game
         if (totem.GrantedId != 0)
             bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, at.X, at.Y,
                 totem.GrantedId, ++totem.Sequence, 0x0408));
-        bytes.Remove(corpseId);
+        if (!corpse.CreatedAsCorpse) bytes.Remove(corpseId);
         bytes.Presentation(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
         bytes.Presentation(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
         devour.NextUse = now + (TotemCastSeconds(conn, totem.SkillId) ?? 1);

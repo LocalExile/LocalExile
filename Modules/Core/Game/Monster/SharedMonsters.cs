@@ -735,10 +735,10 @@ public static partial class Game
                 foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
                     || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {
-                    conn.MonsterViews.Remove(gone);
+                    conn.MonsterViews.Remove(gone, out var previous);
                     conn.AsleepMonsters.Remove(gone);
                     bars.Hidden.Remove(gone);
-                    if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
+                    if (!runner || previous?.CreatedAsCorpse == true || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
                 }
                 foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
                 {
@@ -750,22 +750,33 @@ public static partial class Game
                     var to = dormant ? at : m.Walk.Destination;
                     if (!conn.MonsterViews.TryGetValue(id, out var seen))
                     {
-                        if (life == 0) continue; // died before this client came: nothing to show
+                        bool corpse = life == 0 && m.CreatedAsCorpse && !m.CorpseConsumed;
+                        if (life == 0 && !corpse) continue;
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
-                        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
-                        if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
+                        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = corpse ? 1u : life };
+                        if (!corpse && !dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
                             && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
                             shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
                         packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
                         packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                        if (corpse) packets.Presentation(id, InstanceProtocol.LifeUpdate(id, 0));
                         if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Presentation(id, InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
                         SettleBleeding(m, now);
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance };
+                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance, CreatedAsCorpse = corpse };
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
+                        continue;
+                    }
+                    if (m.CreatedAsCorpse)
+                    {
+                        if (m.CorpseConsumed)
+                        {
+                            packets.Remove(id);
+                            conn.MonsterViews.Remove(id);
+                        }
                         continue;
                     }
                     if (dormant || conn.AsleepMonsters.Contains(id)

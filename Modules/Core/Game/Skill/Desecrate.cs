@@ -35,12 +35,12 @@ public static partial class Game
                 ownedCurrent: () => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && conn.PlayerLife > 0,
                 owned: (id, corpse) =>
                 {
-                    corpse.Dead = true; corpse.Life = 0; corpse.NoRewards = true;
+                    corpse.CreatedAsCorpse = corpse.Dead = true; corpse.Life = 0; corpse.NoRewards = true;
                     conn.Summons.Corpses.Enqueue(id);
                     while (conn.Summons.Corpses.Count > maximum)
                     {
                         uint expired = conn.Summons.Corpses.Dequeue();
-                        if (conn.Monsters.Remove(expired)) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(expired), "old Desecrate corpse removed", WorldId: expired, RemovesObject: true));
+                        conn.Monsters.Remove(expired);
                         conn.Instance.World.MonsterOrigins.TryRemove(expired, out _);
                     }
                 });

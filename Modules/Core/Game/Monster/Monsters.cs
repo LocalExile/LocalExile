@@ -572,7 +572,8 @@ public static partial class Game
             {
                 conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
                 // Created on this client where it was spawned (SyncInstanceMonsters creates it on the others).
-                conn.MonsterViews[id] = new((x, y), (x, y), initialDeath ? 0 : initialLife) { ActorStance = monster.ActorStance };
+                conn.MonsterViews[id] = new((x, y), (x, y), initialDeath ? 0 : initialLife) { ActorStance = monster.ActorStance,
+                    CreatedAsCorpse = initialDeath && conn.Monsters.GetValueOrDefault(id)?.CreatedAsCorpse == true };
             }
         }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
