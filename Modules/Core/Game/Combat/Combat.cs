@@ -569,6 +569,7 @@ public static partial class Game
                     weapon.Melee, player, ownPenetration));
                 stun = OwnerStun(conn, m, damage, mitigated, weapon.Melee, spell: false, critical, player, ownPenetration)
                     with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
+                uint lifeBefore = m.Life;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, weapon.Melee, player);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
                     rampageSource, player);
@@ -598,6 +599,9 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
+                if (weapon.ItemClass is not null) conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                if (life == 0) RecordTinctureKill(m, TinctureKillBonusFor(conn, player, hand));
+                if (conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
             }
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -1322,8 +1326,8 @@ public static partial class Game
                 if (!Current()) return false;
                 if (SupportedChannelSeconds(conn, skillId) is not double interval)
                 { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return false; }
-                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + interval;
-                _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action);
+                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + (IsSnipe(gem.Effect) ? interval / 2 : interval);
+                _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action, to);
             }
         }
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
@@ -1366,6 +1370,12 @@ public static partial class Game
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
+        if (gem.Name is not null && IsBrandSkill(conn, gem.Effect))
+            return await CastBrand(remote, stream, ciphers, conn, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll);
+        if (gem.Name is not null && IsBrandRecall(conn, gem.Effect))
+            return await CastBrandRecall(remote, stream, ciphers, conn, skillId, gem, Current);
+        if (gem.Name is not null && IsBrandsurge(conn, gem.Effect))
+            return await CastBrandsurge(remote, stream, ciphers, conn, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll);
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(conn, gem.Effect))
@@ -1415,6 +1425,8 @@ public static partial class Game
                 conn.RecentEvents.Record(StatConditions.UsedFireSkill, acceptedAt);
             if (SkillsFor(conn).HasType(effect, "Cold"))
                 conn.RecentEvents.Record(StatConditions.UsedColdSkill, acceptedAt);
+            if (SkillsFor(conn).IsBrand(effect))
+                RecordBrandSkillUsedLocked(conn, acceptedAt);
         }
     }
 
@@ -1776,6 +1788,8 @@ public static partial class Game
         if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
         // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
+        // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
+        if (IsSnipe(gem.Effect)) return Task.CompletedTask;
         bool cryExerted;
         lock (conn.Monsters) cryExerted = ConsumeIntimidatingCryExertLocked(conn,
             channelGeneration is null && IntimidatingCryCanExert(conn, skillId, gem.Effect));
@@ -1916,7 +1930,8 @@ public static partial class Game
     public const double ChannelSilenceSeconds = 1.0;
 
     public static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action,
+        (int X, int Y) initialAim = default)
     {
         int generation = conn.ChannelGeneration;
         double channelStarted = conn.Clock.Elapsed.TotalSeconds;
@@ -1924,18 +1939,31 @@ public static partial class Game
         // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
         // while this channel's cast ticks only build the orb's stages.
         uint orbEffect = 0;
+        bool snipe = IsSnipe(gem.Effect);
+        bool firstSnipeStage = snipe;
         try
         {
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(remote, stream, ciphers, conn, skillId, gem, action);
+            else if (snipe)
+                await SnipeStart(remote, stream, ciphers, conn, skillId, gem, action, initialAim);
             // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
             const string overheatStat = "support_overheat_ailment_damage_+%_final_per_3_fortification_consumed";
             int overheatPerThree = Stats.Key(overheatStat) is uint overheatKey
                 ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(overheatKey) : 0;
             while (true)
             {
+                if (!Running()) return;
                 double wait = conn.NextChannelHitAt - conn.Clock.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
+                if (wait > 0)
+                {
+                    if (snipe)
+                    {
+                        try { await Task.Delay(TimeSpan.FromSeconds(wait), SnipeWaitToken(conn, generation, action)); }
+                        catch (OperationCanceledException) { }
+                    }
+                    else await Task.Delay(TimeSpan.FromSeconds(wait));
+                }
                 await WhilePaused(conn);
                 if (!Running()) return;
                 double now = conn.Clock.Elapsed.TotalSeconds;
@@ -1956,7 +1984,13 @@ public static partial class Game
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return; }
                     conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + interval;
                     // Payment and admission share the channel's generation check.
-                    if (!PayMana(conn, skillId, out cost, out lifeCost))
+                    if (firstSnipeStage)
+                    {
+                        // The cast already paid for the first stage.
+                        cost = lifeCost = 0;
+                        firstSnipeStage = false;
+                    }
+                    else if (!PayMana(conn, skillId, out cost, out lifeCost))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
                     else
                     {
@@ -1979,6 +2013,12 @@ public static partial class Game
                     await WinterOrbPresentStages(remote, stream, ciphers, conn);
                     continue;
                 }
+                if (snipe)
+                {
+                    SnipeStageStep(conn, generation, action);
+                    await SnipePresentStages(remote, stream, ciphers, conn);
+                    continue;
+                }
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at,
                     immediate: true, sequence: conn.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
@@ -1993,6 +2033,7 @@ public static partial class Game
             // duration they leave runs out, and death or an area change retires it with the connection. It has no object
             // of its own to remove: the client draws the orb from the stage buff.
             if (orbEffect != 0) WinterOrbRelease(conn, generation, action);
+            if (snipe) await SnipeRelease(remote, stream, ciphers, conn, generation, action);
         }
     }
 
@@ -2009,6 +2050,7 @@ public static partial class Game
     public static void ChannelAimedAt(ClientState conn, int x, int y, double at)
     {
         AimChannelTriggers(conn, (x, y));
+        SnipeAimedAt(conn, (x, y));
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 
@@ -2090,6 +2132,7 @@ public static partial class Game
             conn.ChannelSkill = 0;
             conn.ChannelGeneration++;
         }
+        SnipeWakeChannel(conn);
     }
 
     public static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)
@@ -2101,6 +2144,7 @@ public static partial class Game
                 // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
                 // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
                 && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                    || IsSnipeChannelling(conn, skill)
                     || conn.PaidChannel is { } paid && paid.Skill == skill
                         && SkillsFor(conn).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                     || conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds);
@@ -2178,11 +2222,11 @@ public static partial class Game
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
-        ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null) =>
+        ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null, SpawnedMonster? brandedTarget = null) =>
         AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, brandedTarget);
 
     private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2191,7 +2235,7 @@ public static partial class Game
         uint targetId, int repeat, int? radiusOverride, ISet<uint>? once, double repeatDelay,
         double radiusMore, SacrificeUse? sacrifice, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
-        uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer)
+        uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer, SpawnedMonster? brandedTarget = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -2454,6 +2498,8 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        bool weaponAttack = false;
+        TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
@@ -2508,6 +2554,9 @@ public static partial class Game
                         var sourceWeapon = shield ?? HandWeapon(conn, hand);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
                         weaponLocal = local;
+                        weaponAttack = !spell && shield is null && sourceWeapon.ItemClass is not null && SkillsFor(conn).IsAttack(gem.Effect);
+                        if (weaponAttack)
+                            tinctureKill = TinctureKillBonusFor(conn, player, hand);
                         if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: IsSmite(gem.Effect) ? singleStrikeTarget is null : null)
                             is not { } capturedInputs) break;
                         var offInputs = shield is null && hand == AttackHand.Both && OffhandWeaponFor(conn) is { } bothOff
@@ -2624,6 +2673,8 @@ public static partial class Game
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     double more = damageMore * bloodMore;
+                    if (ReferenceEquals(brandedTarget, m))
+                        more *= Math.Max(0, 1 + GolemStat(skillStats, "trigger_brand_support_hit_damage_+%_final_vs_branded_enemy") / 100.0);
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                     LeechOnHitLocked(conn, m, taken, damage, leech!);
@@ -2657,6 +2708,9 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
+                        if (weaponAttack) conn.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                        if (applied.Value.Life == 0) RecordTinctureKill(m, tinctureKill);
+                        if (!spell && conn.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(conn, player, m, lifeBefore, at, Random.Shared);
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
@@ -2954,7 +3008,9 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now),
+        bool ignorePhys = attack && mods.IgnorePhysicalReductionChance > 0
+            && GameServer.Core.World.RandomRolls.Chance(mods.IgnorePhysicalReductionChance, 100, Random.Shared);
+        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, ignorePhys),
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
@@ -2963,14 +3019,20 @@ public static partial class Game
     {
         var a = HitResistances.Mods.From(player, Stats.Key);
         var b = skill is null ? default : HitResistances.Mods.From(skill, Stats.Key);
+        int ignorePhys = Has("tincture_applied")
+            ? Math.Clamp(Value("hits_ignore_enemy_monster_physical_damage_reduction_%_chance_with_tinctured_weapons"), 0, 100)
+            : 0;
         return new(a.CriticalIgnoreElemental | b.CriticalIgnoreElemental,
             a.AttackCriticalIgnoreElemental | b.AttackCriticalIgnoreElemental,
             a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore,
             IgnoreFire: Has("virtual_hits_ignore_enemy_fire_resistance"),
-            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"));
+            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"),
+            IgnorePhysicalReductionChance: ignorePhys);
 
         bool Has(string name) => Stats.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (skill?.GetValueOrDefault(key) ?? 0) != 0);
+        int Value(string name) => Stats.Key(name) is uint key
+            ? player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0) : 0;
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where
@@ -3371,10 +3433,12 @@ public static partial class Game
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill, bool byHit = true)
     {
+        TinctureKillBonus? tinctureKill;
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;
         lock (conn.Monsters)
         {
+            tinctureKill = playerKill && byHit ? TakeTinctureKill(conn, m) : null;
             destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
             QueueEssenceDeathSpawnLocked(conn, id, m);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, m);
@@ -3404,7 +3468,7 @@ public static partial class Game
             await GameEvents.RunMonsterKilled(new(conn, monster));
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
-            RecoverOnKill(conn, m);
+            RecoverOnKill(conn, m, tinctureKill);
             GainPhasingOnKill(conn);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
             bool corpseConsumed, devoured;
@@ -3447,7 +3511,7 @@ public static partial class Game
             lock (conn.Monsters) have = conn.Experience;
             if (have < needed) await GainExperience(remote, stream, ciphers, conn, needed - have, $"quest: {m.Label} killed, level {level}");
         }
-        await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
+        await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed", tinctureKill?.FlaskChargesPct ?? 0);
         if (!m.NoRewards) await DropLoot(remote, stream, ciphers, conn, m, at);
         await PublishUnhingedCorpseDestruction(remote, stream, ciphers, conn, id, m, destroyCorpse);
     }
