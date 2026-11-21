@@ -54,10 +54,12 @@ This is a local seed derivation; the official server population RNG and placemen
 
 ## 2. Spawning
 
-For `MonsterVarieties` with main-hand class `Bow`, `Weapon1_ItemVisualIdentityKeys` contains the arrow visual;
-`Weapon2_ItemVisualIdentityKeys` contains the held bow, despite the column names. Brittle Archer uses
-`SkeletonArrow1` / `Bow4`, Kraityn's Scout `DefaultArrow` / `Bow3`. The held bow uses the main-hand inventory slot
-and class; a null off-hand class must not discard it. The arrow visual is not a bow equipment replacement.
+For `MonsterVarieties` with main-hand class `Bow`, the model uses the same three-slot bow layout as a player
+([13](13-items.md) "Bow model records", `BowSetup`): slot 0 (right hand) takes `Weapon1_ItemVisualIdentityKeys`
+(the arrow visual: `SkeletonArrow1` for Brittle Archer, `DefaultArrow` for Kraityn's Scout) with the `Bow` class and
+stance; slot 1 (left hand) takes `Weapon2_ItemVisualIdentityKeys` (the held bow: `Bow4` / `Bow3`) with type `0x68` and
+stance `0xff`; and slot 7 (the back) takes `Back_ItemVisualIdentityKey` (`SkeletonQuiver1` / `Quiver6`) with type
+`0x68` and stance `0xff`. A null off-hand class must not discard slot 1 or slot 7.
 
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its

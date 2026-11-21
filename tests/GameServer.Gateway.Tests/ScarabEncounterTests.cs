@@ -26,7 +26,7 @@ public sealed class ScarabEncounterTests
         var mods = catalog.Of([slot], Program.Items.Mods);
         Assert.Equal(3, mods.Get("map_leaguestone_additional_shrines"));
         Dictionary<uint, int> Compose(MapMods input, Dictionary<uint, int>? atlas = null) =>
-            Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1, false);
+            Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1);
         var stats = Compose(mods);
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         int Base(IReadOnlyDictionary<uint, int> input) => ExtraTerrainFeatures.LeagueStruct(area with
@@ -159,7 +159,7 @@ public sealed class ScarabEncounterTests
             Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
             var boxInstance = new InstanceState();
             boxInstance.OpenedWith(new("StrongboxOwner", opening.Area, ambushMods));
-            var boxStats = boxInstance.AreaStats(() => Game.ComposeMapAreaStats(ambushMods, opening.Area.Tier, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
+            var boxStats = boxInstance.AreaStats(() => Game.ComposeMapAreaStats(ambushMods, opening.Area.Tier, new Dictionary<uint, int>(), new HashSet<string>(), -1));
             uint boxSeed = ServerLevels.PlayableSeed(opening.Area.Id, 0x56a105, opening.Area.Level, boxStats);
             var boxLayout = AreaLayouts.For(opening.Area.Hash16, boxSeed);
             await using var boxOwner = await Wire.Open(boxInstance, boxLayout, boxSeed);
@@ -462,7 +462,7 @@ public sealed class ScarabEncounterTests
     internal sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
     {
         public ClientState Conn => conn;
-        public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
+        public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed, string? character = null)
         {
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
@@ -472,7 +472,7 @@ public sealed class ScarabEncounterTests
             var reader = await accepting;
             var conn = new ClientState(layout, 1, seed)
             {
-                Character = "ScarabMap" + Guid.NewGuid().ToString("N"), Instance = instance,
+                Character = character ?? "ScarabMap" + Guid.NewGuid().ToString("N"), Instance = instance,
                 PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true, Pools = new(70, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("scarab-test", "Standard", false, false),
                     new HashSet<string>(["Game", "scarab-regression"])),

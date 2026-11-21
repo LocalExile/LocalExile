@@ -80,10 +80,10 @@ public sealed class MapInstanceTests
             var atlas = new Dictionary<uint, int> { [effect] = 50 };
             var unique = new MapMods(explicitStats) { MapRarity = GameServer.Core.Protocol.Instance.ItemRarity.Unique,
                 ExplicitMods = [explicitStats] };
-            Assert.Equal(40, Game.ComposeMapAreaStats(unique, 3, atlas, new HashSet<string>(), 0, false)[life]);
+            Assert.Equal(40, Game.ComposeMapAreaStats(unique, 3, atlas, new HashSet<string>(), 0)[life]);
             var rare = new MapMods(explicitStats) { ExplicitMods = [explicitStats] };
-            Assert.Equal(60, Game.ComposeMapAreaStats(rare, 3, atlas, new HashSet<string>(), 0, false)[life]);
-            Assert.Equal(40, Game.ComposeMapAreaStats(first, 3, atlas, new HashSet<string>(), 0, false)[life]);
+            Assert.Equal(60, Game.ComposeMapAreaStats(rare, 3, atlas, new HashSet<string>(), 0)[life]);
+            Assert.Equal(40, Game.ComposeMapAreaStats(first, 3, atlas, new HashSet<string>(), 0)[life]);
         }
         finally { MapDevice.Close(owner); }
     }

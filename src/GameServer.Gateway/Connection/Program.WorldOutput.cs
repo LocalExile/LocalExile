@@ -67,8 +67,8 @@ public partial class Program
     // out at once instead of being lost, which keeps every frame start on the conn.Clock timeline the walks use (a free
     // 33 ms timer drifted 28 to 47 ms apart, with gaps to 390 ms). GGG's spacing is 30 to 36 ms. The Clock stops in the
     // Escape menu's pause, and so do the frames.
-    // Differs from GGG: it never sends 0x2b8 (14 236 frames) and relies on the client's default, which is not traced; ours
-    // says the length it paces by. Every connection runs these frames: the client alone picks its Network Mode, and a
+    // Differs from GGG: it never sends 0x2b8 (14 236 frames); its 0x21 carries the length (byte +0x7e, 33 in every recorded
+    // enter). Ours sends both. Every connection runs these frames: the client alone picks its Network Mode, and a
     // predictive one ignores 0x2b7 (07 §6).
     // The frames last as long as the connection. What the game does at a frame end is asked of the rules loaded then, so
     // after a game module reload the new rules take over at the next frame and nothing here keeps the old ones: the loop

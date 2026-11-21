@@ -125,7 +125,7 @@ public sealed class HarbingerTests
 
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 75);
         var instance = new InstanceState();
-        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 8, new Dictionary<uint, int>(), new HashSet<string>(), -1, false));
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 8, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x4841, 75, stats);
         Assert.IsType<ServerLevels.Level>(ServerLevels.For(area.Id, seed, 75));
         var layout = AreaLayouts.For(area.Hash16, seed);

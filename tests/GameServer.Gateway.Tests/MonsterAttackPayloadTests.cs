@@ -19,9 +19,20 @@ public class MonsterAttackPayloadTests
         foreach (string path in new[] { "Skeletons/SkeletonBowSplitArrow", "Bandits/BanditBowKraitynSpecific", "Bandits/BanditBowBurningArrow" })
         {
             var variety = Game.Monsters.Find("Metadata/Monsters/" + path)!;
-            var bow = Assert.Single(variety.Weapons);
-            Assert.Equal(0, bow.Slot);
-            Assert.Equal((ushort)(path.StartsWith("Skeletons/", StringComparison.Ordinal) ? 26894 : 42952), bow.VisualIdentity);
+            bool skeleton = path.StartsWith("Skeletons/", StringComparison.Ordinal);
+            Assert.Equal(3, variety.Weapons.Count);
+            var arrow = Assert.Single(variety.Weapons, w => w.Slot == 0);
+            var bow = Assert.Single(variety.Weapons, w => w.Slot == 1);
+            var quiver = Assert.Single(variety.Weapons, w => w.Slot == 7);
+            Assert.Equal((ushort)(skeleton ? 1118 : 45814), arrow.VisualIdentity);
+            Assert.Equal((byte)14, arrow.Type);
+            Assert.Equal((byte)5, arrow.Stance);
+            Assert.Equal((ushort)(skeleton ? 26894 : 42952), bow.VisualIdentity);
+            Assert.Equal(BowSetup.NoWeaponType, bow.Type);
+            Assert.Equal(BowSetup.NoStance, bow.Stance);
+            Assert.Equal((ushort)(skeleton ? 3763 : 28915), quiver.VisualIdentity);
+            Assert.Equal(BowSetup.NoWeaponType, quiver.Type);
+            Assert.Equal(BowSetup.NoStance, quiver.Stance);
             uint id = await Game.SpawnMonster("test", f.Stream, f.Ciphers, f.Conn, variety, 20,
                 GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 100, 100, unrisen: false);
             var origin = f.Conn.Instance.World.MonsterOrigins[id];
@@ -52,5 +63,13 @@ public class MonsterAttackPayloadTests
             var skill = Assert.Single(f.Conn.Instance.World.MonsterOrigins[id].Object.Skills!);
             Assert.Equal((grantRow, statRow), (skill.EffectsPerLevelRow, skill.StatSetsPerLevelRow));
         }
+
+        // Bow monsters with an integral bow mesh only carry Weapon1 (arrow); slot 0 must still carry the Bow stance.
+        var integral = Game.Monsters.Find("Metadata/Monsters/DemonBosses/DemonBoss3/DemonBoss3")!;
+        var integralArrow = Assert.Single(integral.Weapons);
+        Assert.Equal(0, integralArrow.Slot);
+        Assert.Equal((ushort)45814, integralArrow.VisualIdentity);
+        Assert.Equal((byte)14, integralArrow.Type);
+        Assert.Equal((byte)5, integralArrow.Stance);
     }
 }

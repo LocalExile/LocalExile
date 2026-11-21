@@ -62,8 +62,9 @@ public static partial class Game
     /// <summary>InstanceEvents.AreaStats: the stats of the instance <paramref name="request"/> opens.</summary>
     public static IReadOnlyDictionary<uint, int>? MapAreaStats(AreaStatsRequest request)
     {
-        bool deepwater = request.League?.Contains("Deepwater", StringComparison.OrdinalIgnoreCase) == true;
-        if (request.Map is not { } map) return ComposeMapAreaStats(null, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
+        if (request.Map is not { } map) return ComposeMapAreaStats(null, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1);
+        // Not an Atlas map: the mods' own stats, without the atlas, the tier block, its hidden life or the preset.
+        if (!map.Atlas) return ComposeMapAreaStats(map.Mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1);
         // The atlas: the active preset's nodes (HardMode vectors in a HardMode league), composed by the tree's rules.
         var presets = CharacterSaves.Load(map.Owner)?.AtlasPassivePresets ?? [];
         int preset = AtlasActivePreset(map.Owner, presets);
@@ -72,11 +73,11 @@ public static partial class Game
         var nodes = preset >= 0 ? presets[preset].Distinct().Select(id => catalog.Find(id)).OfType<AtlasPassives.Node>().ToList() : [];
         var families = nodes.Select(AtlasStats.Family).Where(f => f.Length > 0).ToHashSet(StringComparer.Ordinal);
         var atlas = AtlasStats.Compose(nodes);
-        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater);
+        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset);
     }
 
     public static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,
-        IReadOnlySet<string> families, int preset, bool deepwater)
+        IReadOnlySet<string> families, int preset)
     {
         var stats = new Dictionary<uint, int>();
         void Add(string name, int value)
@@ -87,8 +88,6 @@ public static partial class Game
         {
             if (Stats.Key(name) is uint key) stats[key] = value;
         }
-        // Every load of a character in a Deepwater league carries the league's flag.
-        if (deepwater) Add("map_deepwater_league", 1);
         if (mods is null) return stats;
         foreach (var (key, value) in atlas) stats[key] = stats.GetValueOrDefault(key) + value;
         if (preset >= 0) Add("map_active_atlas_passive_tree_index", preset + 1);

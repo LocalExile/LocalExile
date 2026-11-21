@@ -823,7 +823,8 @@ static partial class SurvivorsSkills
             life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
             conn.PlayerLife = life;
         }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), "survivors death zone drain",
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            PlayerLifeUpdate(conn, life == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal), "survivors death zone drain",
             still: () => StateOf(conn).Survivors is not null);
     }
 

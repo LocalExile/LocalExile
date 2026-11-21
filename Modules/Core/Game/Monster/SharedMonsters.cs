@@ -481,7 +481,11 @@ public static partial class Game
             {
                 case 0x1ac: length = 12; break;
                 case InstanceProtocol.ActorAnimationId: length = 18; break;
-                case InstanceProtocol.AnimationUpdateId: length = 21; break;
+                case InstanceProtocol.AnimationUpdateId:
+                    if (bytes.Length - at < 13) return false;
+                    length = InstanceProtocol.AnimationUpdateLength(bytes[at + 12]);
+                    if (length < 0) return false;
+                    break;
                 case InstanceEntities.RemoveBuffId:
                     length = 14;
                     if (at + 14 > bytes.Length) return false;
@@ -612,7 +616,8 @@ public static partial class Game
     {
         ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
         if (message != InstanceProtocol.ActionStartedId)
-            return message switch { 0x1ac => 12, InstanceProtocol.ActorAnimationId => 18, InstanceProtocol.AnimationUpdateId => 21,
+            return message switch { 0x1ac => 12, InstanceProtocol.ActorAnimationId => 18,
+                InstanceProtocol.AnimationUpdateId => bytes.Length >= 13 ? InstanceProtocol.AnimationUpdateLength(bytes[12]) : -1,
                 InstanceEntities.RemoveBuffId => 14, InstanceEntities.AddBuffId => 27, _ => -1 };
         int end = 14 + ((bytes[13] & 0x80) != 0 ? 4 : 0);
         for (int i = 0; i < 4 && end < bytes.Length; i++) end += bytes[end] switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
@@ -635,7 +640,7 @@ public static partial class Game
                 InstanceProtocol.EnterWakeZoneId or InstanceProtocol.RemoveObjectId => 12,
                 InstanceProtocol.TeleportId => 28,
                 InstanceProtocol.MoveToId => 29,
-                InstanceProtocol.AnimationUpdateId => 21,
+                InstanceProtocol.AnimationUpdateId when bytes.Length - at >= 13 => InstanceProtocol.AnimationUpdateLength(bytes[at + 12]),
                 InstanceEntities.CreateObjectId when bytes.Length - at >= 18 => 18 + (bytes[at + 16] << 8 | bytes[at + 17]),
                 _ => -1,
             };

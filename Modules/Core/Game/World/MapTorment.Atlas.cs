@@ -160,6 +160,30 @@ public static partial class MapTorment
         return null;
     }
 
+    /// <summary>Possesses a player from outside a torment area (content that grants a Possession, such as a league
+    /// encounter's reward): <paramref name="spiritRow"/>'s spirit, or a random one of the area level's weighted spirits
+    /// (not the unusual ones) when null, for <paramref name="seconds"/> (<see cref="double.PositiveInfinity"/>: until death
+    /// or leaving the area). The Possessed buff (2113) follows on the player's next tick, the Grip's stats come with it,
+    /// and both end at life 0 or on leaving. Monsters are touched only in a torment area (the possession needs its spirit
+    /// bookkeeping). Returns the spirit's row, or null when none fits or the player already has that spirit.</summary>
+    public static int? PossessPlayer(ClientState conn, int? spiritRow, double seconds)
+    {
+        if (seconds <= 0) return null;
+        TormentCatalog.Spirit? spirit = spiritRow is int row ? TormentCatalog.ByRow(row)
+            : TormentCatalog.Pick(TormentCatalog.Pool(AreaLevel(conn), unusual: false), Random.Shared)
+              ?? TormentCatalog.Pick([.. TormentCatalog.All.Where(s => s.Weight > 0)], Random.Shared);
+        if (spirit is null) return null;
+        var possession = Possessed.GetValue(conn, _ => new());
+        lock (possession)
+        {
+            if (possession.Spirits.Any(p => p.Row == spirit.Row)) return null;
+            possession.Spirits.Add((spirit.Row, seconds, PlayerTouchLimit, 0));
+            possession.Stats = null;
+        }
+        Console.WriteLine($"[torment] {CharacterName(conn)} possessed by {spirit.Variety} for {(double.IsPositiveInfinity(seconds) ? "the area" : $"{seconds} s")}");
+        return spirit.Row;
+    }
+
     /// <summary>The runner, under the Monsters lock: a possessed player touches the normal and magic monsters they reach.</summary>
     static void PlayerTouches(ClientState conn, Area area, double now, ref bool changed)
     {
@@ -190,8 +214,9 @@ public static partial class MapTorment
     static async Task TickPossession(ClientState conn, double seconds)
     {
         if (!Possessed.TryGetValue(conn, out var possession)) return;
-        var add = new List<int>();
+        var add = new List<ushort>();
         var remove = new List<ushort>();
+        int needBuffs = 0;
         lock (possession)
         {
             for (int i = possession.Spirits.Count - 1; i >= 0; i--)
@@ -205,10 +230,28 @@ public static partial class MapTorment
                     possession.Stats = null;
                     continue;
                 }
-                if (buff == 0) { buff = conn.NextBuff++; add.Add(buff); }
+                if (buff == 0) needBuffs++;
                 possession.Spirits[i] = (row, left, touches, buff);
             }
             // An empty possession stays in the table until the area is left: a spirit may be going into it right now.
+        }
+        if (needBuffs > 0)
+        {
+            var allocated = new ushort[needBuffs];
+            lock (conn.Monsters)
+                for (int i = 0; i < needBuffs; i++) allocated[i] = NextBuffId(conn);
+            int next = 0;
+            lock (possession)
+            {
+                for (int i = 0; i < possession.Spirits.Count && next < allocated.Length; i++)
+                {
+                    var (row, left, touches, buff) = possession.Spirits[i];
+                    if (buff != 0) continue;
+                    buff = allocated[next++];
+                    possession.Spirits[i] = (row, left, touches, buff);
+                    add.Add(buff);
+                }
+            }
         }
         if (add.Count == 0 && remove.Count == 0) return;
         var w = conn.Wire;
@@ -221,19 +264,50 @@ public static partial class MapTorment
         await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
     }
 
+    /// <summary>Right-click cancellation (C→S 0x004b): ends the possessing spirit whose buff instance is
+    /// <paramref name="buffInstance"/>, removing its icon and Grip stats.</summary>
+    public static async Task<bool> CancelBuff(ClientState conn, ushort buffInstance)
+    {
+        if (buffInstance == 0 || !Possessed.TryGetValue(conn, out var possession)) return false;
+        int spiritRow;
+        lock (possession)
+        {
+            int index = possession.Spirits.FindIndex(p => p.Buff == buffInstance);
+            if (index < 0) return false;
+            spiritRow = possession.Spirits[index].Row;
+            possession.Spirits.RemoveAt(index);
+            possession.Stats = null;
+        }
+        var w = conn.Wire;
+        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, PlayerId,
+            InstanceEntities.RemoveBuff(PlayerId, buffInstance), "torment: possession cancelled");
+        using var fresh = new PlayerStatScope(conn, fresh: true);
+        lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
+        await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
+        Console.WriteLine($"[torment] {CharacterName(conn)} cancelled possession ({TormentCatalog.ByRow(spiritRow)?.Variety ?? $"#{spiritRow}"})");
+        return true;
+    }
+
     /// <summary>The player stat source (GameEvents.PlayerStatSources): each possessing spirit's Possessed buff (35% more
     /// damage, attack, cast and movement speed: TormentPossessed) and its Grip's stats that a player has; the Grip's
     /// monster-only stats (drops, the monster flags) are left out. Nothing when no spirit possesses the player.</summary>
     public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> stats)
     {
-        if (!Possessed.TryGetValue(conn, out var possession) || possession.Spirits.Count == 0) return stats;
+        if (!Possessed.TryGetValue(conn, out var possession)) return stats;
         Dictionary<uint, int> own;
         lock (possession)
         {
+            if (possession.Spirits.Count == 0) return stats;
             own = possession.Stats ??= GripStats(possession.Spirits.Select(p => p.Row));
         }
         foreach (var (key, value) in own) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
+    }
+
+    static ushort NextBuffId(ClientState conn)
+    {
+        ushort id = conn.NextBuff++;
+        return id == 0 ? conn.NextBuff++ : id;
     }
 
     static Dictionary<uint, int> GripStats(IEnumerable<int> rows)

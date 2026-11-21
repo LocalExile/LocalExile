@@ -188,10 +188,45 @@ public static partial class MapTorment
 
     static void Keep(ClientState conn, Area area) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(area.Spirits);
 
+    /// <summary>Spawns Tormented Spirits at explicit coordinates (e.g., released from a cage or encounter),
+    /// initializing the instance's Torment state even when <c>Packs.For(Layout.Id)</c> has no scattered packs.</summary>
+    public static async Task<int> SpawnSpiritsAt(ClientState conn, IReadOnlyList<(int X, int Y)> cells, byte level)
+    {
+        if (conn.Instance is null || TormentCatalog.All.Count == 0 || cells.Count == 0) return 0;
+        var area = Areas.GetValue(conn.Instance, instance => new(instance.World.TormentRewards));
+        var spawned = new List<Spirit>(cells.Count);
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Spirits is null)
+            {
+                if (conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) Load(area, saved, conn.Instance);
+                area.Spirits ??= [];
+            }
+            var pool = TormentCatalog.Pool(level, Stat(conn, "map_tormented_spirits_rare_varieties") > 0);
+            if (pool.Count == 0) pool = [.. TormentCatalog.All.Where(s => s.Weight > 0)];
+            if (pool.Count == 0) return 0;
+            bool flatten = Stat(conn, "map_rare_spirits_more_common") > 0;
+            foreach (var (x, y) in cells)
+            {
+                if (TormentCatalog.Pick(pool, Random.Shared, flatten) is not { } pick) continue;
+                var s = new Spirit { Index = area.Spirits.Count, Row = pick.Row, X = x, Y = y };
+                area.Spirits.Add(s);
+                spawned.Add(s);
+            }
+            foreach (var s in spawned) await Spawn(conn, area, s, level);
+            if (spawned.Count > 0) Keep(conn, area);
+        }
+        finally { area.Gate.Release(); }
+        return spawned.Count;
+    }
+
     public static async Task Enter(ClientState conn)
     {
-        if (TormentCatalog.All.Count == 0 || conn.Layout.Walkable is null
-            || Packs.For(conn.Layout.Id)?.Scattered.Count is not > 0) return;
+        if (TormentCatalog.All.Count == 0 || conn.Layout.Walkable is null) return;
+        bool hasPacks = Packs.For(conn.Layout.Id)?.Scattered.Count > 0;
+        if (!hasPacks && Stat(conn, "map_rare_monsters_possessed_chance_%") <= 0 && !conn.Instance.ContentState.ContainsKey(SaveKey))
+            return;
         var area = Areas.GetValue(conn.Instance, instance => new(instance.World.TormentRewards));
         await area.Gate.WaitAsync();
         try
@@ -242,10 +277,10 @@ public static partial class MapTorment
         Keep(conn, area);
     }
 
-    static async Task Spawn(ClientState conn, Area area, Spirit s)
+    static async Task Spawn(ClientState conn, Area area, Spirit s, byte? levelOverride = null)
     {
         if (TormentCatalog.ByRow(s.Row) is not { } spirit || Monsters.Find(spirit.Variety) is not { Supported: true } variety) return;
-        byte level = AreaLevel(conn);
+        byte level = levelOverride ?? AreaLevel(conn);
         var basis = MonsterModsFor(conn, variety, level, MonsterRarity.Unique, null, true);
         var own = TormentCatalog.Roll(spirit.Own, Random.Shared);
         var mods = MonsterModRolls.Value.Create([.. basis.Mods, .. own.Mods], basis.NameWords, MonsterRarity.Unique, level);
@@ -315,7 +350,7 @@ public static partial class MapTorment
                     var records = new List<byte[]> { mark.Magic, InstanceEntities.StatsUpdate(id, ClientStats(monster)) };
                     if (mark.Skills is { } skills) records.Add(skills);
                     if (!shown.Versions.ContainsKey(id) || mark.Grip)
-                        records.Add(InstanceEntities.AddBuff(id, conn.NextBuff++,
+                        records.Add(InstanceEntities.AddBuff(id, NextBuffId(conn),
                             mark.Grip ? TormentCatalog.PossessedBuff : TormentCatalog.TouchedBuff));
                     shown.Versions[id] = mark.Version;
                     return records.ToArray();
