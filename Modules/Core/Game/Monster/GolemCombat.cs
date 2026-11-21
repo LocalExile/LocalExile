@@ -506,10 +506,14 @@ public static partial class Game
         var mods = g.Monster.Mods.Effects;
         int SpeedStat(string name) => GolemStat(a.Stats, name)
             + (name == "support_slower_projectiles_projectile_speed_+%_final" ? mods[name] : 0);
+        bool arrows = !a.Attack.Spell && g.Weapon is { Bow: true };
+        string speedStat = ProjectileSpeed.ModifierStat(arrows);
+        int increased = mods["projectile_speed_+%"] + mods["base_projectile_speed_+%"] + (arrows ? mods["base_arrow_speed_+%"] : 0);
+        int speedPercent = ProjectileSpeed.EffectivePercent(increased, SpeedStat, arrows);
+        int ProjectileStat(string name) => name == speedStat ? speedPercent : mods[name];
         var profile = new ProjectileProfile(p.Metadata)
         {
-            Speed = ProjectileSpeed.CellsPerSecond(p.Speed,
-                _ => mods["projectile_speed_+%"] + mods["base_projectile_speed_+%"], SpeedStat), Radius = p.CollisionRadius,
+            Speed = ProjectileSpeed.CellsPerSecond(p.Speed, speedPercent), Radius = p.CollisionRadius,
             Range = p.Lobbed ? distance : Math.Max(60, distance + 10), Lobbed = p.Lobbed,
             Count = nova ? 14 : Math.Max(1, p.Count), SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
@@ -518,7 +522,7 @@ public static partial class Game
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
         // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
-        profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
+        profile = GatewayProjectileModifiers.Resolve(profile, ProjectileStat, attack: !a.Attack.Spell,
             arrows: g.Weapon is { Bow: true }, skillPierce: mods["number_of_additional_projectiles_to_pierce"]);
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {

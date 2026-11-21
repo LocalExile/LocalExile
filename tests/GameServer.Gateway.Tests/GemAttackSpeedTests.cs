@@ -92,5 +92,24 @@ public sealed class GemAttackSpeedTests
             name => name == "projectile_speed_+%" ? 20 : 0, _ => 0), 4);
         Assert.Equal(baseline * 1.1, ProjectileSpeed.CellsPerSecond(2173, _ => 0,
             name => name == "base_projectile_speed_+%" ? 10 : 0), 4);
+
+        // The supplied speed is the outbound speed. The returning stat joins its effective percentage.
+        foreach (var (attack, bow) in new[] { (true, true), (true, false), (false, true), (false, false) })
+        foreach (var (ordinary, returned, expected) in new[] { (50, 150, 300), (-50, 50, 100), (0, -120, 1), (50, -180, 1) })
+        {
+            int Get(string name) => name switch
+            {
+                "returned_projectile_speed_+%" => returned,
+                "projectile_speed_+%" => attack && bow ? 17 : ordinary,
+                "arrow_speed_+%" => attack && bow ? ordinary : 17,
+                _ => 0
+            };
+            var profile = GatewayProjectileDefaults.Resolve("flight", Get, 100 + ordinary, attack, arrows: bow);
+            Assert.Equal(expected, profile.Speed * profile.ReturnSpeedMultiplier, 4);
+        }
+        // The signed -33.5% rounds to -34%. The descriptor and percentage multiply as floats.
+        Assert.Equal(131.94455f, ProjectileSpeed.CellsPerSecond(2173,
+            name => name == "projectile_speed_+%" ? -5 : 0,
+            name => name == "support_slower_projectiles_projectile_speed_+%_final" ? -30 : 0));
     }
 }

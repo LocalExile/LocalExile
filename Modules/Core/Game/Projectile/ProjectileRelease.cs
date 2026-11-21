@@ -444,10 +444,12 @@ public static partial class Game
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(conn).Projectile(metadata)?.Speed ?? 1000;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        bool bowProjectiles = ArrowsFor(conn, gem.Effect);
+        int speedPercent = ProjectileSpeed.EffectivePercent(ProjectileSpeed.CharacterIncrease(player, bowProjectiles), Own, bowProjectiles);
+        merged[Stats.Key(ProjectileSpeed.ModifierStat(bowProjectiles))!.Value] = speedPercent;
+        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, speedPercent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
-        bool bowProjectiles = ArrowsFor(conn, gem.Effect);
         bool barrageGem = IsBarrageGem(SkillsFor(conn).EffectId(gem.Effect));
         var profile = definition.Parameters.Resolve(Get, speed, bowProjectiles);
         var at = totem?.At ?? from ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);

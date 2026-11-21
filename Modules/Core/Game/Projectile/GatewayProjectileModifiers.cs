@@ -88,6 +88,9 @@ public static class GatewayProjectileModifiers
         int forkAngle = get("forking_angle_+%");
         // The 3.29.3c pierce decision tests this same arrow stat after either an executed fork or chain.
         bool pierceAfterForkOrChain = arrows && get("arrows_always_pierce_after_forking") != 0;
+        int returnedSpeed = get("returned_projectile_speed_+%");
+        double returnSpeedMultiplier = returnedSpeed == 0 ? 1
+            : ProjectileSpeed.ReturnMultiplier(get(ProjectileSpeed.ModifierStat(attack && arrows)), returnedSpeed);
         ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
             ForkAnglePercent = target.ForkAnglePercent + forkAngle,
@@ -95,7 +98,7 @@ public static class GatewayProjectileModifiers
             PierceAllAfterForkOrChain = target.PierceAllAfterForkOrChain || pierceAfterForkOrChain,
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get("projectile_return_%_chance"), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get("returning_projectiles_always_pierce") != 0,
-            ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get("returned_projectile_speed_+%") / 100d)
+            ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * returnSpeedMultiplier
         };
         p = ContinuationControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers, finalCount));
         // Children receive already resolved continuation grants, never another count expansion.

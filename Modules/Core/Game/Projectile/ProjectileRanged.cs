@@ -122,7 +122,7 @@ public static partial class Game
         // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
         double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
         origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
-        var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get);
+        var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, character);
         int VolleyStat(string name) => Stats.Key(name) is uint key
             ? character.GetValueOrDefault(key) + shot.SkillStats.GetValueOrDefault(key) : 0;
         profile = clientDrawn ? ClientDrawnProfile(conn, profile, VolleyStat, sequence, target - origin) : NativeVolley(profile, VolleyStat);
@@ -132,12 +132,14 @@ public static partial class Game
     }
 
     // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.
-    static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, Func<string, int> get)
+    static ProjectileProfile OrdinaryRangedProfile(ClientState conn, string projectileId, bool bow, IReadOnlyDictionary<uint, int> character)
     {
         var ranged = SkillsFor(conn).Projectile(projectileId);
-        double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, get, _ => 0,
-            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
-        return GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, get, speed, attack: true, arrows: bow);
+        int percent = ProjectileSpeed.EffectivePercent(ProjectileSpeed.CharacterIncrease(character, bow), _ => 0);
+        string speedStat = ProjectileSpeed.ModifierStat(bow);
+        int Get(string name) => name == speedStat ? percent : Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        double speed = ProjectileSpeed.CellsPerSecond(ranged?.Speed ?? 3260, percent, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        return GatewayProjectileDefaults.Resolve(ranged?.Id ?? projectileId, Get, speed, attack: true, arrows: bow);
     }
 
     /// <summary>
@@ -152,8 +154,7 @@ public static partial class Game
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
         if (!conn.LockstepClient || OrdinaryRangedAttack.ProjectileId(weapon) is not { } projectileId) return [];
-        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-        int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get).Count;
+        int n = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, character).Count;
         return weapon.Bow
             ? [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
                 (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n)]

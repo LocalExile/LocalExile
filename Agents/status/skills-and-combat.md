@@ -118,7 +118,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).
 - Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
-- Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) §10.
+- Attack-speed admission and gem projectile speed. Ordinary bow, wand and skill projectiles add returning speed to
+  the rounded outbound modifier, including with Faster or Slower Projectiles Support. [Flight](../docs/protocol/11-skills.md).
 - Skill area and duration scaling: the player's increased area counted once at every area site, type-scoped area,
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) §12.

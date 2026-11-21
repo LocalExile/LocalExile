@@ -2172,7 +2172,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
 - **Returning projectiles.** A projectile whose stats allow it (`projectiles_return`, `attack_projectiles_return`,
   `projectile_return_%_chance`; `skill_projectiles_cannot_return` forbids) returns
   from a target/terrain collision or from maximum distance (Freezing Pulse only from a collision), flies back to the
-  caster and 15 m (150 cells) past them, and is then removed (`returned_projectile_speed_+%`). Only one return per projectile; Spark and the other self-moving/rain/tornado
+  caster and 15 m (150 cells) past them, and is then removed. In 3.29.3c the speed getter (`0x141bb6080`)
+  adds `returned_projectile_speed_+%` to the selected integer arrow or projectile speed on the return leg.
+  The final modifier has a lower bound of −99%. Only one return per projectile; Spark and the other self-moving/rain/tornado
   secondary projectiles cannot return; Fireball explodes after the return. The return leg damages every monster along
   it except the one it returned from, with Returning Projectiles Support's less Damage
   (`support_return_returning_projectiles_damage_+%_final`), and `returning_projectiles_always_pierce` lets it hit all
@@ -2222,15 +2224,18 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   quality: +40% at quality 20 adds to a player's +30%, giving 1.7 times table speed.
   The additive formula follows PoB's [ProjectileSpeed calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcOffence.lua#L1152)
   and [modifier formula](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b82d57f1c0de6eb40f37143c32d4da36a02/src/Modules/CalcTools.lua#L16),
-  restricted here to additive increases/reductions. One resolved speed drives collision prediction, 0x1ba's
+  for additive increases and reductions. The 3.29.3c selected projectile and arrow callbacks
+  (`0x142714fe0` and `0x142715450`) apply the final speed factor to the ordinary increase, round the signed
+  modifier to the nearest integer with ties away from zero, then clamp at −99%. The arrow view includes
+  `base_arrow_speed_+%` before that calculation. Slower Projectiles Support enters here, before the return addition.
+  One resolved speed drives collision prediction, 0x1ba's
   duration and the server's flight delay. A finite positive `Game_PROJECTILE_SPEED` still overrides the result
   in cells/second. Invalid overrides fall back to the modified table speed. Finite positive overrides, including
   0.001 cells/second, are preserved when their flight duration is representable. Only a nonpositive speed or a
   flight exceeding [.NET's maximum Task.Delay duration](https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.delay?view=net-10.0)
   (4,294,967,294 ms) gets a distance-dependent lower speed bound, before collision prediction. The bound includes
   endpoint rounding and is a numeric guard, not a measured official minimum speed.
-  More/less modifiers, conditional and per-charge speed, support-gem application and special projectile speed
-  rules remain unimplemented.
+  Other final factors, conditional and per-charge sources, and action-specific variation still need their own verification.
   Live validation used a copied OfflineWitch database and three Fireball casts over the same 116-cell path.
   At 0/+100/-50% raw player speed, the logs reported 95.7/191.4/47.8 cells per second; the actual 0x1ba payloads
   carried durations 1.212375/0.606187/2.424749 seconds. Before the patch, both 0 and +100% used 95.7 cells per second.
@@ -2545,9 +2550,8 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   `ZigZagSecondaryWandProjectile` with shared hit history (`HidePredictedVisual = true` when the client predicts it);
   the remaining Pierce/Chain/Return resume afterwards.
 - **Attack and projectile speed.** Gem attacks use the supported attack speed (gem and support stats plus the GEPL
-  inherent multiplier) for both admission and the swing interval, not `SkillAttackSeconds`. Projectile speed adds the
-  player's `projectile_speed_+%` to the skill's `base_projectile_speed_+%`; the final speed is rounded to an integer
-  before the flight duration.
+  inherent multiplier) for both admission and the swing interval, not `SkillAttackSeconds`. Projectile flight uses the
+  selected speed modifier above. Descriptor speed and the final conversion to cells per second use single precision.
 - **Still wrong.** Without a surface-height model the projectile uses the captured terrain height; on a platform or
   doodad (which the terrain grid does not include) it spawns below the player (issue #182). The direction floats of
   Positioned's f1 0x04 block are not used; sending (dx, dy, 0, 0) put the fireball under the ground, so the Gateway no
