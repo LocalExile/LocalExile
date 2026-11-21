@@ -106,6 +106,8 @@ public sealed partial class AccountStash
     bool _stale;  // dropped after a failed save: the database has the stash as it is
     bool _itemsInHeader;  // loaded from a stash saved before tabs had rows: the next save writes every tab
     StashRules _rules = new();  // what each tab type holds (the catalog's)
+    const string PublicTabsModuleKey = "stash.public-tabs.v1";
+    const string ItemNotesModuleKey = "stash.item-notes.v1";
 
     AccountStash(string account) => _account = account;
 
@@ -134,6 +136,11 @@ public sealed partial class AccountStash
         {
             var stash = new AccountStash(name) { _mods = catalog.Mods, _rules = catalog.Stash, _firstInventoryId = firstInventoryId, _firstItemId = firstItemId };
             var save = Load(name);
+            stash._moduleData = save?.ModuleData is { } saved ? new(saved) : [];
+            var publicTabs = stash._moduleData.TryGetValue(PublicTabsModuleKey, out var pubJson)
+                ? JsonSerializer.Deserialize<HashSet<int>>(pubJson) ?? [] : new HashSet<int>();
+            var itemNotes = stash._moduleData.TryGetValue(ItemNotesModuleKey, out var notesJson)
+                ? JsonSerializer.Deserialize<Dictionary<uint, string>>(notesJson) ?? [] : new Dictionary<uint, string>();
             var headers = save?.Tabs ?? [.. starter];
             // A stash saved before a starter tab existed gets it at the end: a special tab type it has none of (Delve,
             // Blight, Unique …: 2026-10-22), or a normal tab "3" / "4" (the real game starts with four).
@@ -142,13 +149,19 @@ public sealed partial class AccountStash
             if (added.Count > 0) headers = [.. headers, .. added];
             for (int i = 0; i < headers.Count; i++)
             {
-                var tab = new TabState(headers[i] with { Items = [] });
+                var header = headers[i] with { Items = [], Public = headers[i].Public || publicTabs.Contains(i) };
+                var tab = new TabState(header);
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
                 var items = Saves.LoadStashTab(name, i);
                 if (items is null && headers[i].Items.Count > 0) stash._itemsInHeader = true;
                 foreach (var p in items ?? headers[i].Items)
-                    tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, CharacterSaves.FromSaved(p.Item, catalog)));
+                {
+                    var loadedItem = CharacterSaves.FromSaved(p.Item, catalog);
+                    if (loadedItem.Note is null && itemNotes.TryGetValue(p.Id, out var note))
+                        loadedItem = loadedItem with { Note = note };
+                    tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, loadedItem));
+                }
                 stash._tabs.Add(tab);
             }
             stash._lastTab = Math.Clamp(save?.LastTab ?? 0, 0, Math.Max(0, stash._tabs.Count - 1));
@@ -156,7 +169,6 @@ public sealed partial class AccountStash
             uint used = stash._tabs.SelectMany(t => t.Items).Select(i => i.Id).Where(stash.OwnId).DefaultIfEmpty(firstItemId - 1).Max();
             stash._nextItemId = Math.Max(save?.NextItemId is uint next && stash.OwnId(next) ? next : firstItemId, used + 1);
             stash._gold = save?.Gold ?? 0;
-            stash._moduleData = save?.ModuleData is { } saved ? new(saved) : [];
             stash._leagueQuestFlags = [.. save?.LeagueQuestFlags ?? []];
             // A save from before Delve was a module: its equipment becomes that module's text.
             if (save?.Delve is { } legacy) stash._moduleData.TryAdd("delve", legacy.GetRawText());
@@ -191,6 +203,15 @@ public sealed partial class AccountStash
         List<(int Tab, List<CharacterSaves.SavedPlacement> Items)> tabs;
         lock (_lock)
         {
+            var publicTabs = Enumerable.Range(0, _tabs.Count).Where(i => _tabs[i].Saved.Public).ToList();
+            if (publicTabs.Count > 0) _moduleData[PublicTabsModuleKey] = JsonSerializer.Serialize(publicTabs);
+            else _moduleData.Remove(PublicTabsModuleKey);
+            var itemNotes = new Dictionary<uint, string>();
+            foreach (var tab in _tabs)
+                foreach (var it in tab.Items)
+                    if (it.Item.Note is { Length: > 0 } note) itemNotes[it.Id] = note;
+            if (itemNotes.Count > 0) _moduleData[ItemNotesModuleKey] = JsonSerializer.Serialize(itemNotes);
+            else _moduleData.Remove(ItemNotesModuleKey);
             header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
                 [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
