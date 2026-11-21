@@ -968,6 +968,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public List<ushort> Passives = [];
     /// <summary>The three Atlas passive presets (PassiveSkillGraphId) and the points the character has; kept in its save.</summary>
     public List<ushort>[] AtlasPassives = [[], [], []];
+    /// <summary>Optional return area WorldAreas HASH16 emitted in S→C 0x1d (flags byte 0 bit 0x08), set by a module during AreaHeader.</summary>
+    public ushort? ReturnAreaHash;
     public ushort AtlasPassivePoints;
     /// <summary>The cluster jewel nodes allocated in the tree's expansion cells: the client's own small ids, sent with
     /// the expansion flag (C->S 0x34/0x36) and carried in 0x33's second list. Empty until a cluster jewel is socketed.

@@ -12,7 +12,7 @@ public static class InstanceDelve
     public const ushort MineArea = 64840;
     public const ushort UpgradesRequestId = 0x23e, UpgradeId = 0x229, PurchaseId = 0x22a;
     public const byte UpgradesUi = 0x1d;
-    public const ushort RouteId = 0x241;
+    public const ushort RouteId = 0x241, ReturnToWorldId = 0x186;
 
     /// <summary>S→C 0x226: previous and current sulphite, both u16 BE. Unlike the full state packet,
     /// this event refreshes the native gauge's fill fraction, including an unchanged-value refresh.</summary>

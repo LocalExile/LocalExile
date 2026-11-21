@@ -173,7 +173,9 @@ public partial class Program
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: terrainData,
-                    AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory);
+                    AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
+                    HideoutPermissions: HideoutCatalog.ByArea(areaHash) is not null,
+                    ReturnAreaHash: conn.ReturnAreaHash);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
                     string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));
