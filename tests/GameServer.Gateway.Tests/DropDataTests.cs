@@ -46,9 +46,12 @@ public sealed class DropDataTests
         };
         var drops = Game.DropsFor(conn);
         var rng = new Random(1);
-        ItemDrops.Drop? map = null;
-        for (int i = 0; i < 100 && map is null; i++)
-            map = drops.Map(72, MonsterRarity.Unique, mapTier: 5, rng);
+        // Force a successful chance roll to isolate base eligibility and the selected tier.
+        Assert.Null(drops.Map(1, MonsterRarity.Normal, 0, rng, chanceFactor: 1000));
+        var first = drops.Map(58, MonsterRarity.Normal, 0, rng, chanceFactor: 1000);
+        Assert.NotNull(first);
+        Assert.Equal(1, Game.HardModeAtlas.Value.TierOf(first.Item.TypeHash));
+        var map = drops.Map(72, MonsterRarity.Unique, 5, rng, chanceFactor: 1000);
         Assert.NotNull(map);
         Assert.True(map.Type.Supported);
         Assert.Equal(5, Game.HardModeAtlas.Value.TierOf(map.Item.TypeHash));
