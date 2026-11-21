@@ -67,16 +67,17 @@ public sealed class CrucibleModule : IModule
             var use = InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan());
             return CrucibleEncounter.HandleChannelSkill(conn, use.SkillId, use.Sequence, use.Flags);
         });
-        // A channeller's aim updates (C→S 0x0197 / 0x0198, lockstep 0x0192) are taken while they hold.
+        // A channeller's aim updates (C→S 0x0197 / 0x0198) are taken while they hold.
         Task<bool> Holding(ClientState conn, byte[] _) => Task.FromResult(CrucibleEncounter.IsHolding(conn));
         GameEvents.Packet(InstanceProtocol.ChannelUpdateId).Add(id, Holding);
         GameEvents.Packet(InstanceProtocol.ChannelUpdateAltId).Add(id, Holding);
         GameEvents.Packet(InstanceProtocol.ChannelEndId).Add(id, (conn, _) =>
             CrucibleEncounter.HandleChannelEnd(conn));
-        // Lockstep equivalents (0x018e/0x018f start, 0x0192 update, 0x0195/0x0196 release) for local/auto-lockstep clients.
+        // Lockstep equivalents (0x018e/0x018f start, 0x0195/0x0196 release) for local/auto-lockstep clients.
         Task<bool> LockstepChannel(ClientState conn, ushort skillId, ushort flags)
         {
-            if (skillId != InstanceCrucible.CrucibleChannelSkillHash) return Task.FromResult(false);
+            // Another skill goes on to the game; the encounter only ends a hold on it.
+            if (skillId != InstanceCrucible.CrucibleChannelSkillHash) return CrucibleEncounter.HandleChannelSkill(conn, skillId, 0, flags);
             conn.NoteLockstepClient(conn.Wire.Remote);
             // A held popup click repeats the start every frame: only a new channel takes a sequence.
             if (!CrucibleEncounter.IsHolding(conn)) conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
@@ -92,15 +93,18 @@ public sealed class CrucibleModule : IModule
             var use = InstanceProtocol.ReadLockstepUseOnObject(bytes);
             return LockstepChannel(conn, use.SkillId, use.Flags);
         });
-        GameEvents.Packet(InstanceProtocol.LockstepMoveUpdateId).Add(id, Holding);
-        GameEvents.Packet(InstanceProtocol.LockstepMoveStopId).Add(id, (conn, _) =>
-            CrucibleEncounter.HandleChannelEnd(conn));
-        GameEvents.Packet(InstanceProtocol.LockstepSkillStopId).Add(id, (conn, bytes) =>
+        // The releases are only watched: 0x0192 and 0x0195 are also those of a Move held since before the channel, so
+        // the game still gets them.
+        GameEvents.Packet(InstanceProtocol.LockstepMoveStopId).Add(id, async (conn, _) =>
         {
-            ushort skill = InstanceProtocol.ReadLockstepSkillStop(bytes);
-            return skill == InstanceCrucible.CrucibleChannelSkillHash
-                ? CrucibleEncounter.HandleChannelEnd(conn)
-                : Task.FromResult(false);
+            await CrucibleEncounter.HandleChannelEnd(conn);
+            return false;
+        });
+        GameEvents.Packet(InstanceProtocol.LockstepSkillStopId).Add(id, async (conn, bytes) =>
+        {
+            if (InstanceProtocol.ReadLockstepSkillStop(bytes) == InstanceCrucible.CrucibleChannelSkillHash)
+                await CrucibleEncounter.HandleChannelEnd(conn);
+            return false;
         });
 
         // The pick in the Forge popup, from a client changed to send it (C→S 0x02ca for CrucibleRules).

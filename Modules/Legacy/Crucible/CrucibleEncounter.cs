@@ -272,7 +272,8 @@ public static class CrucibleEncounter
         Task.WhenAll(Members(conn).Select(member =>
         {
             var (remote, stream, ciphers) = member.Wire;
-            return Send(remote, stream, ciphers, message, log);
+            // A copy each: the wire encrypts a packet in place, so the second player would get noise.
+            return Send(remote, stream, ciphers, [.. message], log);
         }));
 
     /// <summary>Provides <c>in_crucible_zone</c> and channeling weapon visual/animation stats on <see cref="GameEvents.Stats"/>.</summary>
@@ -433,7 +434,12 @@ public static class CrucibleEncounter
     /// frame of the popup's click-and-hold.</summary>
     public static async Task<bool> HandleChannelSkill(ClientState conn, ushort skillId, ushort sequence, ushort flags)
     {
-        if (skillId != CrucibleChannelSkillId) return false;
+        if (skillId != CrucibleChannelSkillId)
+        {
+            // Another action ends the client's channel, so it is a release here too; the game then gets the action.
+            await HandleChannelEnd(conn);
+            return false;
+        }
         if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return true;
         var view = Views.GetOrCreateValue(conn);
         if (view.Holding)
@@ -473,7 +479,20 @@ public static class CrucibleEncounter
             return true;
         }
 
-        var pos = PlayerOf(conn).Position;
+        // The client stands to channel. The walk the server still runs for it ends here, as for any skill used in
+        // place, and nothing held in lockstep (a Move, an attack, an object click) starts again: else the server's
+        // player walks on alone, out of the ring, or attacks under the channel.
+        (int X, int Y) pos;
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            pos = conn.Walk.Position(now);
+            conn.Walk.Order(pos.X, pos.Y, now);
+            Interlocked.Increment(ref conn.ActionCount);
+            conn.LockstepHold.Clear();
+            conn.LockstepSkill.Clear(finishChannel: true);
+            conn.LockstepUse = null;
+        }
         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
             InstanceProtocol.ActionStarted(PlayerId, pos.X, pos.Y, device.X, device.Y, skillId, sequence, flags),
             "0x01ab CrucibleChannel start");
@@ -503,13 +522,18 @@ public static class CrucibleEncounter
     /// says that a channeller leaving the ring starts it and that a second of channelling is enough to take part.</summary>
     static async Task Stop(ClientState conn, PlayerView view, EncounterState encounter)
     {
-        if (!Members(conn).Any(m => !ReferenceEquals(m, conn) && Views.TryGetValue(m, out var other) && other.Holding))
+        // Under the gate: two who let go at once must not each take the other for still holding.
+        bool last;
+        await encounter.Gate.WaitAsync();
+        try
         {
-            await Release(conn, encounter);
-            return;
+            if (!view.Holding) return;
+            last = !Members(conn).Any(m => !ReferenceEquals(m, conn) && Views.TryGetValue(m, out var other) && other.Holding);
+            if (!last) view.Holding = false;
         }
-        view.Holding = false;
-        await EndChannel(conn, view);
+        finally { encounter.Gate.Release(); }
+        if (last) await Release(conn, encounter);
+        else await EndChannel(conn, view);
     }
 
     static async Task EndChannel(ClientState conn, PlayerView view)
@@ -732,15 +756,16 @@ public static class CrucibleEncounter
         var scaling = CrucibleMonsters.ScalingMods(encounter.AreaLevel,
             percent * FullChargeMoreDamage / 100, -percent * FullChargeLessDamageTaken / 100);
         var (remote, stream, ciphers) = conn.Wire;
+        SpawnedMonster? body = null;
+        // Held from birth, under the lock that adds it: the AI never has it free (one held a moment later swung, live).
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)encounter.AreaLevel, rarity,
-            pool.X, pool.Y, unrisen: false, alone: false, extraMods: scaling);
-        if (id == 0) return;
-        lock (conn.Monsters)
-        {
-            if (!conn.Monsters.TryGetValue(id, out var body)) return;
-            (body.BusyUntil, body.Aggro, body.EntranceGrace) = (double.PositiveInfinity, false, true);
-            encounter.Held.Add(new(id, tier, pool, body));
-        }
+            pool.X, pool.Y, unrisen: false, alone: false, extraMods: scaling, owned: (_, born) =>
+            {
+                (born.BusyUntil, born.Aggro, born.EntranceGrace) = (double.PositiveInfinity, false, true);
+                body = born;
+            });
+        if (id == 0 || body is null) return;
+        lock (conn.Monsters) encounter.Held.Add(new(id, tier, pool, body));
         foreach (var member in Members(conn))
             if (Views.TryGetValue(member, out var view)) ShowFrozen(member, view, encounter, sends);
     }

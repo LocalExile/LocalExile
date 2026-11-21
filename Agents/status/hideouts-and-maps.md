@@ -115,7 +115,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Crucible (league `Crucible`): a Forge in an area is channelled and pays experience into a weapon's or shield's
   tree, and Forge of the Titans (geode, Remnant, map device, combining bench) combines two trees. Partly: the server
-  picks the item and the skills; the furnaces and the Remnant mods for drops are not built.
+  picks the item and the skills; the furnaces and the Remnant mods for drops are not built. Seen in both network
+  modes, and with two players in one area in predictive only.
   Docs: [Crucible](../docs/game/crucible.md).
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
   Essence: Vaal corruption/transfers, Toughness, enrage, Decay and Envy aura; other skills/scaling stay partial (#505).

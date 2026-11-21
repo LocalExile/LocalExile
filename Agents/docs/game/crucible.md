@@ -35,8 +35,11 @@ the ruleset `CrucibleRules` (row `0x89`) had these messages; 3.29 renumbered wha
   free skill bar slot.
 - The shown difficulty is `100 x charge^0.65` (seen live: "29% Easy" at charge 0.16, "48% Moderate" at 0.31);
   `CrucibleDifficulty` names the steps 30 / 55 / 75 / 90 / 100.
-- A held channel sends its start and, on release, C→S `0x0199`. The popup's click-and-hold repeats the skill use
+- A held channel sends its start and, on release, C→S `0x0199`; a predictive client also sends `0x0199` by itself
+  when another action (a click to move) starts under the held key. The popup's click-and-hold repeats the skill use
   every frame and sends nothing on release.
+- In lockstep the start is `0x018f` on the player and the release `0x0195`, or `0x0196` with the skill while a mouse
+  button is down. Another action under the held key sends only its own `0x018e`, so the server ends the hold on it.
 
 ## 2. The tree on an item
 
