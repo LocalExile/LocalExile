@@ -233,6 +233,14 @@ public static partial class Game
             // only clamps to the maximum pool. Publish 0 while the buff stops non-flask recovery at Low Life.
             if (inputs.PetrifiedBloodRecoveryCapped && Stats.Key("life_recovery_per_minute") is uint lifeRecovery)
                 stats[lifeRecovery] = 0;
+            // Requirement checks read virtual_*_for_requirements (0x3d1b-0x3d1d, 0x1421f3a40); keep them aligned with
+            // the resolved attributes (including /set_stat attribute overrides) unless explicitly overridden.
+            if (Stats.Key("virtual_strength_for_requirements") is uint reqStr && !devSet.Contains(reqStr))
+                stats[reqStr] = Get("strength");
+            if (Stats.Key("virtual_dexterity_for_requirements") is uint reqDex && !devSet.Contains(reqDex))
+                stats[reqDex] = Get("dexterity");
+            if (Stats.Key("virtual_intelligence_for_requirements") is uint reqInt && !devSet.Contains(reqInt))
+                stats[reqInt] = Get("intelligence");
             // Derive once from the resolved final rating, after pools and explicit stat replacements. Only this
             // temporary dictionary changes; repeated builds and removal cannot feed the bonus back into raw sources.
             if ((Get(ArmourAttackDamage.Per450Armour) != 0 || Get(ArmourAttackDamage.Per450Evasion) != 0)
@@ -244,11 +252,16 @@ public static partial class Game
         }
         if (stage == StatSnapshotStage.Offence)
         {
-            // Release calculations and the panel use the same active-hand types, including after weapon swaps.
-            if (Stats.Key("main_hand_weapon_type") is uint mainType)
-                stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
-            if (Stats.Key("off_hand_weapon_type") is uint offType)
-                stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
+            // Release calculations, item-requirement checks (quivers require main_hand_weapon_type == 9 / Bow,
+            // 0x1421f3925) and initial player creation all share the active hands' native weapon types and dual-wield
+            // flag, including after weapon swaps.
+            int mainType = WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class);
+            int offType = WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class);
+            if (Stats.Key("main_hand_weapon_type") is uint mainTypeKey) stats.TryAdd(mainTypeKey, mainType);
+            if (Stats.Key("off_hand_weapon_type") is uint offTypeKey) stats.TryAdd(offTypeKey, offType);
+            if (Stats.Key("is_dual_wielding") is uint dualKey)
+                stats.TryAdd(dualKey, WeaponTypeStats.IsDualWielding(mainType, offType,
+                    Get("unarmed_counts_as_dual_wielding") != 0) ? 1 : 0);
             foreach (var (name, local) in new[] { (WeaponIdentity.MainAllOneHandMelee, mainLocal),
                 (WeaponIdentity.OffAllOneHandMelee, offLocal) })
                 if (Stats.Key(name) is uint identity && !devSet.Contains(identity))
