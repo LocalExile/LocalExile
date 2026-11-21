@@ -74,7 +74,7 @@ public sealed class VolleySupportTests
             c.Monsters.Clear();
             if (!barrage)
             {
-                foreach (int y in new[] { 93, 107 })
+                foreach (int y in new[] { 85, 93, 107, 115 })
                     foreach (int x in new[] { 125, 157 })
                         c.Monsters[(uint)(x * 1000 + y)] = new("target", new(x, y, 0), 0, 0, 1000000) { Hostile = true };
             }
@@ -92,7 +92,7 @@ public sealed class VolleySupportTests
             // from the owner's cell to the first positive point. Barrage sweeps nine, then four points.
             int[] slots = barrage ? [-4,-3,-2,-1,0,1,2,3,4,-2,-1,1,2]
                 : wall ? [0,-1,2,-2,3,-3,4,-4] : [0,1,-1,2,-2,3,-3,4,-4];
-            var arrows = shots.Values.ToArray();
+            var arrows = shots.Values.Where(p => p.Shot.ParentId == 0).ToArray();
             Assert.Equal(slots.Length, arrows.Length);
             Assert.Equal(barrage ? slots.Length : 1, arrows.Select(p => p.Shot.CreatedAt).Distinct().Count());
             Assert.Equal(barrage ? slots.Length : 1, arrows.Select(p => p.Shot.EmissionId).Distinct().Count());
@@ -108,6 +108,8 @@ public sealed class VolleySupportTests
                 bool returns = unique && !barrage && Math.Abs(slots[i]) == 3;
                 Assert.Equal(returns, shot.Profile.Returns);
                 Assert.Equal(returns ? 1 : 0, shot.Phase);
+                int forkChildren = unique && !barrage && Math.Abs(slots[i]) == 2 ? 2 : 0;
+                Assert.Equal(forkChildren, shots.Values.Count(p => p.Shot.ParentId == shot.Id));
                 if (!barrage && Math.Abs(slots[i]) == 1)
                 {
                     // A third-point return can also damage these targets. Follow the first-point arrow itself.

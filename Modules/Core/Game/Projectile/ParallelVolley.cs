@@ -2,7 +2,8 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    sealed record ParallelFiringPoints(int PerSide, int XDistance, int YDistance, bool FirstPointPierces, bool ThirdPointReturns)
+    sealed record ParallelFiringPoints(int PerSide, int XDistance, int YDistance, bool FirstPointPierces,
+        int SecondPointForks, bool ThirdPointReturns)
     {
         public static ParallelFiringPoints? From(Func<string, int> get)
         {
@@ -12,6 +13,7 @@ public static partial class Game
             bool arrows = get("skill_can_fire_arrows") != 0 && get("main_hand_weapon_type") == WeaponTypeStats.Bow;
             return new(points, get("virtual_additional_projectiles_fire_parallel_x_dist"),
                 get("additional_projectiles_fire_parallel_y_dist"), arrows && get("arrows_from_first_firing_point_always_pierce") != 0,
+                arrows && points >= 2 ? get("arrows_from_second_firing_point_fork") : 0,
                 arrows && points >= 3 && get("arrows_from_third_firing_point_return") != 0);
         }
 
@@ -46,13 +48,14 @@ public static partial class Game
                 // The shared emitter copies the absolute layout slot to every admitted member (3.29.3c).
                 int point = Math.Abs(slot);
                 bool pierces = point == 1 && FirstPointPierces;
+                int forks = point == 2 ? SecondPointForks : 0;
                 bool returns = point == 3 && ThirdPointReturns;
                 // Each side visit advances the fourth seed word by 529, even for an empty group.
                 var rng = random ? new AnimationVariantSelector.NativeRandom([use.Sequence, 0, use.RepeatsLeft,
                     (uint)(529 * visit), use.Emitter.Id, 0, unchecked((uint)slot)]) : default;
                 for (int i = 0; i < size; i++)
                     launches[next++] = new(offset, random ? rng.Range(0, 6.2831855f) : fan.Angle(i, size, aim.Length),
-                        CheckSourcePath: slot != 0) { PiercesAllTargets = pierces, GrantsReturn = returns };
+                        CheckSourcePath: slot != 0) { PiercesAllTargets = pierces, AdditionalForks = forks, GrantsReturn = returns };
             }
         }
 

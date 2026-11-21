@@ -98,11 +98,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                     Profile = projectileUse.Profile with { Speed = projectileSpeeds[contact] } };
             bool last = i == roots - 1;
             bool piercesAll = launch.PiercesAllTargets;
+            int additionalForks = launch.AdditionalForks;
             void Emit()
             {
                 if (sharedSeries && last) pendingEmissions.Remove(emission);
                 if (clear && use.CanEmit?.Invoke() != false)
-                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index, piercesAll: piercesAll);
+                    Spawn(projectileUse, useId, group, 0, origin, direction, index: index,
+                        piercesAll: piercesAll, additionalForks: additionalForks);
             }
             if (use.Profile.SequentialDelay > 0 && contact > 0) Schedule(Now + contact * use.Profile.SequentialDelay, Emit);
             else Emit();
@@ -134,7 +136,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileEntity Spawn(ProjectileUse use, long useId, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
-        int index = 0, bool piercesAll = false)
+        int index = 0, bool piercesAll = false, int additionalForks = 0)
     {
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
             { VolleyIndex = index, PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll };
@@ -151,6 +153,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Pierce = previous.Pierce; p.Fork = previous.Fork; p.Chain = previous.Chain; p.Split = 0;
             p.Contacts.UnionWith(previous.Contacts); p.Interactions.UnionWith(previous.Interactions);
         }
+        else if (!p.Profile.CannotFork)
+            p.Fork += additionalForks;
         if (split && p.Profile.SplitForm is { } splitForm)
         {
             p.Form = 1; p.Speed *= splitForm.SpeedMultiplier; p.Pierce = splitForm.Pierce;
