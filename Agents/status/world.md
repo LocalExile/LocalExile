@@ -134,9 +134,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - In newly populated Vaal side areas, the room's `SideAreaChest` appears at its placed position. Its natural boss
   guards it, including both copies in a twinned area. The party shares one opening and one base reward, a corrupted
-  Vaal gem or a level-eligible Sacrifice fragment. The category and fragment weights use Chris Wilson's
+  Vaal gem or a level-eligible Sacrifice fragment. With the *of Experimentation* area modifier, the vessel also
+  drops the rolled number of Vaal Orbs. The category and fragment weights use Chris Wilson's
   [2014 account](https://www.reddit.com/r/pathofexile/comments/26vxhn/comment/chv7xio/). Current server weights,
-  bonus loot, the exit portal and original client presentation are unverified.
+  natural entrance modifier rolls, other bonus loot, the exit portal and original client presentation are unverified.
 
 - The Vaal Temple map implicit places ten guarded Vaal Vessels. `VaalTempleChest.ot` sets rare rarity and immediate
   identification. The fixed chest carries its two implicits without rolling any affixes. Its three packs and Vaal side-area boss guard the contents until the last one dies. Its drop

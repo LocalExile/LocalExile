@@ -150,7 +150,8 @@ public sealed class ScarabEncounterTests
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
             await CheckTempleVessels();
-            await CheckSideAreaVessel();
+            await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
+            await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, withOrbSuffix: true);
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var key = Program.Items.Find("Metadata/Items/Maps/MapKeyReliquary")!;
             var vesselMod = Program.Items.Mods.ById("MapSupporterVaalEmpoweredChests")!.Roll(ModSection.Explicit, new Random(5));
@@ -447,15 +448,23 @@ public sealed class ScarabEncounterTests
         }
     }
 
-    static async Task CheckSideAreaVessel()
+    static async Task CheckSideAreaVessel(string areaId, int level, uint seed, bool withOrbSuffix = false)
     {
-        const string areaId = "1_SideArea5_3_2";
         const string chest = "Metadata/Chests/SideArea/SideAreaChest";
-        var area = AreaInfo.Load(GamePack.Default.TryRead, areaId, 44);
-        uint seed = ServerLevels.PlayableSeed(areaId, 31451, 44);
+        var area = AreaInfo.Load(GamePack.Default.TryRead, areaId, level);
+        seed = ServerLevels.PlayableSeed(areaId, seed, level);
         var layout = AreaLayouts.For(area.Hash16, seed);
         var at = Assert.Single(new QuestObjectTypes.AreaPlacements(areaId, seed, []).Of(chest));
         var instance = new InstanceState();
+        int orbs = 0;
+        if (withOrbSuffix)
+        {
+            var mod = Program.Items.Mods.ById("MapCorruptedSideAreaVesselVaalOrbDrop_")!;
+            orbs = Assert.Single(mod.Roll(ModSection.Explicit, new Random(7)).Values);
+            Assert.InRange(orbs, 1, 3);
+            uint stat = Program.Stats.Key("map_vaal_vessel_drop_X_vaal_orbs")!.Value;
+            instance.AreaStats(() => new Dictionary<uint, int> { [stat] = orbs });
+        }
         await using var owner = await Wire.Open(instance, layout, seed);
         await using var peer = await Wire.Open(instance, layout, seed);
         var wire = owner.Conn.Wire;
@@ -487,7 +496,10 @@ public sealed class ScarabEncounterTests
             Assert.True(await SideAreaVessels.Use(peer.Conn, new(id, 0, 1, 0), 0));
             Assert.True(instance.ChestOpened(at.X, at.Y));
             Assert.True(await SideAreaVessels.Use(owner.Conn, new(id, 0, 2, 0), 0));
-            var drop = Assert.Single(instance.Ground.All()).Item.Item;
+            var drops = instance.Ground.All().Select(entry => entry.Item.Item).ToArray();
+            uint vaalOrb = Program.Items.Find(CurrencyEffects.VaalOrb)!.Hash;
+            Assert.Equal(orbs, drops.Where(item => item.TypeHash == vaalOrb).Sum(item => (int)item.StackSize));
+            var drop = Assert.Single(drops, item => item.TypeHash != vaalOrb);
             Assert.True(drop.Corrupted || Program.Items.ByHash(drop.TypeHash)!.Id.Contains("/CurrencyVaalFragment1_"));
         }
         finally { Program.Outgoing = oldOutput; }

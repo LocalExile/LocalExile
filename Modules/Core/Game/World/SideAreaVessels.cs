@@ -151,27 +151,42 @@ public static class SideAreaVessels
     {
         var at = vessel.At;
         if (conn.Instance.ChestOpened(at.X, at.Y)) return;
-        ItemDrops.Drop? reward = null;
-        if (Environment.GetEnvironmentVariable("Game_DROPS") != "0" && GameEvents.AllowsLoot(conn))
-        {
-            int level = MapRunOf(conn) is { Area.Level: > 0 } run ? run.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id);
-            reward = Reward(ItemsFor(conn), level, Random.Shared);
-        }
+        var rewards = Contents(conn);
         if (!conn.Instance.OpenChest(at.X, at.Y)) return;
-        // Commit the reward to the shared ground before any player's output can disconnect.
-        var sends = new List<Task>();
-        if (reward is { } drop)
+        // Commit every item to shared ground before sending to the opener or its peers.
+        var ground = new List<(uint Id, WorldItemObject Item, string Name)>();
+        foreach (var drop in rewards)
         {
             var cell = conn.Layout.Near((at.X, at.Y + 3));
             var item = new WorldItemObject(cell.X, cell.Y, drop.Item);
             uint id = conn.Instance.Ground.Add(item, conn);
-            sends.Add(SendGroundItem(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, item,
-                $"Vaal side-area vessel drops {drop.Type.Name}", justDropped: true));
+            ground.Add((id, item, drop.Type.Name));
         }
+        var (remote, stream, ciphers) = conn.Wire;
+        var sends = ground.Select(drop => SendGroundItem(remote, stream, ciphers, conn, drop.Id, drop.Item,
+            $"Vaal side-area vessel drops {drop.Name}", justDropped: true)).ToList();
         foreach (var member in Members(conn))
             if (member.StationaryInteractionSize(vessel.Id) > 0)
                 sends.Add(Present(member, vessel, replace: true));
         await Task.WhenAll(sends);
+    }
+
+    static IReadOnlyList<ItemDrops.Drop> Contents(ClientState conn)
+    {
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return [];
+        var run = MapRunOf(conn);
+        int level = run is { Area.Level: > 0 } ? run.Area.Level : ServerLevels.AreaLevel(conn.Layout.Id);
+        var catalog = ItemsFor(conn);
+        var reward = Reward(catalog, level, Random.Shared);
+
+        const string orbStat = "map_vaal_vessel_drop_X_vaal_orbs";
+        int count = conn.Instance.KeptAreaStats is { } stats
+            ? stats.GetValueOrDefault(Program.Stats.Key(orbStat)!.Value)
+            : run?.Mods.Get(orbStat) ?? 0;
+        if (count <= 0) return [reward];
+        var orb = catalog.Find(CurrencyEffects.VaalOrb)!;
+        var drop = new ItemDrops.Drop(ItemCatalog.Create(orb), orb);
+        return ItemDrops.Stacked(Enumerable.Repeat(drop, count).Prepend(reward));
     }
 
     // The guaranteed reward uses Chris Wilson's published 2014 category and fragment ratios.
