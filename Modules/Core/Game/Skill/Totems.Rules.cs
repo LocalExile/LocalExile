@@ -523,8 +523,9 @@ public static partial class Game
         var resistance = HitResistMods(caster, skill.Stats);
         foreach (var (id, m) in conn.Monsters.ToArray())
         {
+            var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || conn.AsleepMonsters.Contains(id)
-                || Dist(m.Walk.Position(now), totem.At) > strike.Radius || MonsterBlocks(m, Random.Shared, spell: true)) continue;
+                || Dist(targetAt, totem.At) > strike.Radius || MonsterBlocks(m, Random.Shared, spell: true)) continue;
             var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(conn, caster, m, hit.Roll(Random.Shared)), now);
             int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),
@@ -536,9 +537,10 @@ public static partial class Game
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: totem.At) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
-                kind: 3, code: HitCode(hit)));
+                kind: 3, code: HitCode(mitigated), angle: HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared, blind: blind);
+                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
+                    blind: blind, hitOrigin: totem.At);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "totem", playerKill: false);
         }
     }

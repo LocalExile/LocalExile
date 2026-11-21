@@ -28,7 +28,7 @@ public static partial class Game
         var mainTargets = new HashSet<uint>();
         uint current = first, previous = 0;
 
-        void Land(uint id, int remaining)
+        void Land(uint id, int remaining, (int X, int Y) from)
         {
             var m = conn.Monsters[id];
             if (m.Invulnerable || MonsterBlocks(m, Random.Shared, spell: true)) return;
@@ -42,20 +42,22 @@ public static partial class Game
                 GamblerFor(caster).InvertsResistance(Random.Shared));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
             if (ApplyMonsterHitLocked(conn, m, damage) is not { } accepted) return;
+            var targetAt = m.Walk.Position(now);
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
-                kind: 3, code: HitCode(hit)));
+                kind: 3, code: HitCode(mitigated), angle: HitAngle(targetAt.X - from.X, targetAt.Y - from.Y)));
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
-                    blind: blind);
+                    blind: blind, hitOrigin: from);
             OwnedKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "Arc totem", playerKill: false);
         }
 
+        var origin = totem.At;
         for (int remaining = chains; ; remaining--)
         {
             var at = conn.Monsters[current].Walk.Position(now);
             mainTargets.Add(current);
-            Land(current, remaining);
+            Land(current, remaining, origin);
             if (remaining == 0) break;
             var nearby = conn.Monsters.Where(p => p.Key != current && p.Key != previous && Eligible(p.Key, p.Value))
                 .Select(p => (Id: p.Key, Distance: Dist(p.Value.Walk.Position(now), at)))
@@ -63,7 +65,8 @@ public static partial class Game
             if (nearby.Count == 0) break;
             uint next = nearby[0].Id;
             if (nearby.Skip(1).FirstOrDefault(p => !mainTargets.Contains(p.Id)) is { Id: > 0 } secondary)
-                Land(secondary.Id, remaining - 1);
+                Land(secondary.Id, remaining - 1, at);
+            origin = at;
             previous = current;
             current = next;
         }
