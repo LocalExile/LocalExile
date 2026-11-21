@@ -69,6 +69,15 @@ public sealed class ScarabEncounterTests
         }
         Assert.Equal(Enumerable.Range(8, 5), rolledCounts.Order());
         Assert.Empty(MapScarabPacks.Requests(MapMods.None));
+        var vaal = Program.Items.Mods.ById("MapCorruptedSideAreaImplicit")!.Roll(ModSection.Implicit, new Random(7));
+        var side = new MapDevice.Slot(0, "Map", "Vaal side area", -1, [vaal], 0);
+        var both = MapScarabPacks.Requests(catalog.Of([side, cloister], Program.Items.Mods));
+        Assert.Equal(8, Assert.Single(both, p => p.Source == MapScarabPacks.CountStat).Count);
+        var vaalRequest = Assert.Single(both, p => p.Source == MapScarabPacks.VaalPackStat);
+        Assert.Equal(Assert.Single(vaal.Values), vaalRequest.Count);
+        var vaalPack = Assert.Single(vaalRequest.Packs);
+        Assert.Equal("sextant-vaal-pack1", vaalPack.Id);
+        Assert.DoesNotContain(vaalPack, MapScarabPacks.Packs);
         string member = Game.Monsters.Find(MapScarabPacks.Packs[0].Entries[0].Variety.ToString())!.Id;
         Assert.True(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(0)));
         Assert.False(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(1)));

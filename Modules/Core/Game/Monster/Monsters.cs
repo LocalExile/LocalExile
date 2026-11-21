@@ -584,7 +584,9 @@ public static partial class Game
         if (Packs.For(layout.Id) is not { } area) return;
         var directPoints = layout.Level is { } levelWithRooms && area.DirectPacks.Count > 0
             ? AreaPopulation.DirectPackPoints(levelWithRooms.Records, area) : [];
-        if (area.Scattered.Count == 0 && area.Bosses.Count == 0 && directPoints.Count == 0) return;
+        var mapMods = MapModsOf(conn);
+        var additionalPacks = MapScarabPacks.Requests(mapMods);
+        if (area.Scattered.Count == 0 && area.Bosses.Count == 0 && directPoints.Count == 0 && additionalPacks.Count == 0) return;
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the
         // separate maze layout the fight does not build yet.
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
@@ -685,7 +687,6 @@ public static partial class Game
             if (MapBossFights.Current.PhaseOf(layout.Id) is { } phase && !conn.LaterFormPoints.ContainsKey(phase.Last))
                 conn.LaterFormPoints[phase.Last] = (layout.SpawnX + 8, layout.SpawnY);
         }
-        var mapMods = MapModsOf(conn);
         var scale = mapMods?.Packs ?? default;
         Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
             : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
@@ -700,7 +701,7 @@ public static partial class Game
             localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
                     && t.Transition.TeleportTo.HasValue)
                 .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
-            additionalPacks: MapScarabPacks.Requests(mapMods),
+            additionalPacks: additionalPacks,
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
