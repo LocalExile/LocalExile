@@ -89,10 +89,13 @@ public static partial class MapHarbinger
         public readonly ConcurrentQueue<PendingKill> Kills = new();
         public readonly List<PendingEffect> Effects = [];
         public readonly Dictionary<uint, Dictionary<int, double>> ActorCooldowns = [];
+        // One action at a time: the encounter time (Drive's seconds, summed) until which an actor is still casting.
+        public readonly Dictionary<uint, double> ActorBusyUntil = [];
+        public double Time;
+        public bool Busy(uint actor) => ActorBusyUntil.TryGetValue(actor, out double until) && Time < until;
         public readonly Dictionary<(uint SourceId, string AuraKey), ActiveTimedBuff> ActiveTimedAuras = [];
         public readonly Dictionary<(uint MonsterId, string AuraKey), AppliedAllyAura> AppliedAllyAuras = [];
         public readonly List<GroundHazard> Hazards = [];
-        public readonly Dictionary<ClientState, double[]> GroundCarry = [];
         public volatile bool HasTracked;
         public volatile bool HasLive;
         public volatile bool HasEffects;
@@ -398,6 +401,7 @@ public static partial class MapHarbinger
         for (int i = 0; i < liveMembers.Length; i++)
             players[i] = liveMembers[i].Walk.Position(liveMembers[i].Clock.Elapsed.TotalSeconds);
 
+        area.Time += seconds;
         byte level = AreaLevel(conn);
         double cdScale = Math.Max(0.1, 1.0 + Stat(conn, "map_harbinger_cooldown_speed_+%") / 100.0);
         bool empowerObelisks = Stat(conn, "map_harbinger_scarab_empower") > 0;
@@ -483,26 +487,26 @@ public static partial class MapHarbinger
                 if (h.WaveRepeatDelay <= 0)
                 {
                     int pulsesLeft = h.PendingWaveRepeats;
-                    int pulseCount = h.PendingWaveRemaining > 0
-                        ? Math.Max(1, (h.PendingWaveRemaining + pulsesLeft - 1) / pulsesLeft)
-                        : Math.Max(1, (profile.BaseCount + profile.RepeatCount) / (1 + profile.RepeatCount));
+                    int pulseCount = (h.PendingWaveRemaining + pulsesLeft - 1) / pulsesLeft;
                     h.PendingWaveRepeats--;
-                    h.PendingWaveRemaining = Math.Max(0, h.PendingWaveRemaining - pulseCount);
-                    if (h.Minions.Count < profile.AliveCap)
+                    h.PendingWaveRemaining -= pulseCount;
+                    if (pulseCount > 0 && h.Minions.Count < profile.AliveCap)
                     {
                         await SummonWave(conn, area, h, profile, level, players, pulseCount);
                         changed = true;
                     }
+                    area.ActorBusyUntil[h.Monster] = area.Time + WaveRepeatInterval / cdScale;
                     if (h.PendingWaveRepeats > 0) h.WaveRepeatDelay = WaveRepeatInterval / cdScale;
                     else h.WaveCooldown = profile.CooldownSeconds / cdScale;
                 }
             }
-            else if (h.WaveCooldown <= 0 && h.Minions.Count < profile.AliveCap)
+            else if (h.WaveCooldown <= 0 && h.Minions.Count < profile.AliveCap && !area.Busy(h.Monster))
             {
                 int totalWant = RollWaveCount(conn, profile);
                 int pulses = 1 + Math.Max(0, profile.RepeatCount);
                 int firstPulse = (totalWant + pulses - 1) / pulses;
                 await SummonWave(conn, area, h, profile, level, players, firstPulse);
+                area.ActorBusyUntil[h.Monster] = area.Time + WaveRepeatInterval / cdScale;
                 if (profile.RepeatCount > 0)
                 {
                     h.PendingWaveRepeats = profile.RepeatCount;
@@ -718,6 +722,7 @@ public static partial class MapHarbinger
                     area.Encounters[kill.HarbingerIndex].Obelisks.Remove(kill.MonsterId);
                 await ClearAurasFromSource(killer, area, kill.MonsterId);
                 area.ActorCooldowns.Remove(kill.MonsterId);
+                area.ActorBusyUntil.Remove(kill.MonsterId);
                 int tenths = Random.Shared.Next(ObeliskMinTenths, ObeliskMaxTenths + 1);
                 var drops = HarbingerCatalog.RollShards(ItemsFor(killer), Math.Clamp(kill.Level, 1, 100), tenths, 0, MapModsOf(killer), Random.Shared);
                 await DropAll(killer, drops, kill.At, "empowered obelisk");
@@ -796,16 +801,19 @@ public static partial class MapHarbinger
         }
         await ClearAurasFromSource(conn, area, h.Monster);
         area.ActorCooldowns.Remove(h.Monster);
+        area.ActorBusyUntil.Remove(h.Monster);
         foreach (uint helper in helpers)
         {
             await ClearAurasFromSource(conn, area, helper);
             area.ActorCooldowns.Remove(helper);
+            area.ActorBusyUntil.Remove(helper);
             await Remove(conn, helper, "harbinger boss defeated");
         }
         foreach (uint obelisk in obelisks)
         {
             await ClearAurasFromSource(conn, area, obelisk);
             area.ActorCooldowns.Remove(obelisk);
+            area.ActorBusyUntil.Remove(obelisk);
             await Remove(conn, obelisk, "parent harbinger defeated");
         }
         if (!area.HasLive)
@@ -836,9 +844,8 @@ public static partial class MapHarbinger
         uint hash = InstanceEntities.ObjectTypeHash(EffectObject.TypePath);
         foreach (var viewer in Members(conn))
         {
-            var vw = viewer.Wire;
-            await SendWorldCreate(vw.Remote, vw.Stream, vw.Ciphers, viewer, id,
-                InstanceEntities.CreateObject(id, hash, blob), null);
+            byte[] create = InstanceEntities.CreateObject(id, hash, blob);
+            await SendWorldCreate(viewer, id, () => create, awaitBirth: false);
         }
         area.Effects.Add(new(id, durationSeconds));
         area.HasEffects = true;

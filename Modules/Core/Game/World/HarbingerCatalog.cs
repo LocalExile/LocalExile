@@ -22,7 +22,6 @@ public static class HarbingerCatalog
         FireMortar,
         BeamCannon,
         BallLightning,
-        LightningOrb,
         RighteousFire,
         SkyBeam,
         ChargedBlast,
@@ -315,7 +314,6 @@ public static class HarbingerCatalog
         "AvatarFireMortar" or "AvatarFireMortarAtlas" => SkillRole.FireMortar,
         "HarbingerSpecialBeamCannon" or "HarbingerSpecialBeamCannonAtlas" => SkillRole.BeamCannon,
         "HarbingerBallLightning" or "HarbingerBallLightningAtlas" or "HarbingerBallLightningTotem" => SkillRole.BallLightning,
-        "HarbingerLightningOrbTriggered" => SkillRole.LightningOrb,
         "RighteousFireSacrifice" => SkillRole.RighteousFire,
         "AttachedAvatarSkyBeam" => SkillRole.SkyBeam,
         "AttachedVaalChargedBlast2" => SkillRole.ChargedBlast,
@@ -336,7 +334,6 @@ public static class HarbingerCatalog
         SkillRole.BeamCannon => effectId.EndsWith("Atlas", StringComparison.Ordinal) ? 3.5 : 8.0,
         SkillRole.BallLightning => effectId.EndsWith("Totem", StringComparison.Ordinal) ? 4.0
             : effectId.EndsWith("Atlas", StringComparison.Ordinal) ? 3.0 : 5.0,
-        SkillRole.LightningOrb => 4.0,
         SkillRole.RighteousFire => 10.0,
         SkillRole.SkyBeam => 5.5,
         SkillRole.ChargedBlast => 6.0,

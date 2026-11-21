@@ -510,6 +510,14 @@ public sealed class HarbingerTests
             var playerCurseStats = MapHarbinger.PlayerStats(conn, []);
             Assert.True(playerCurseStats.Count > 0, "Expected Minion5 Enfeeble/TemporalChains curse aura stats on nearby player");
 
+            // An immune player is not cursed, and is cursed again once the immunity ends.
+            conn.Immune = true;
+            await MapHarbinger.Tick(conn, 0.01);
+            Assert.Empty(MapHarbinger.PlayerStats(conn, []));
+            conn.Immune = false;
+            await MapHarbinger.Tick(conn, 0.01);
+            Assert.NotEmpty(MapHarbinger.PlayerStats(conn, []));
+
             // 3. Advance ticks so King Harbinger, Avatar6, helpers (FireMortar, BeamCannon, ActionSpeedAura) and
             //    Empowered Obelisks (Scarab2 BallLightning, Scarab4 WarpFlame) cast their real skills.
             uint lifeBefore = conn.PlayerLife;

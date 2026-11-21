@@ -61,6 +61,8 @@ public static partial class MapHarbinger
         public readonly Dictionary<string, ushort> Buffs = new(StringComparer.Ordinal);
     }
 
+    static readonly RuleTable<ClientState, ArenaHazards.Exposure> GroundExposure = new();
+
     // O(1) zero-alloc lookup when no player stands inside a Harbinger curse aura.
     static readonly RuleTable<ClientState, PlayerCurseState> ActivePlayerCurses = new();
 
@@ -256,8 +258,9 @@ public static partial class MapHarbinger
             if (rem > 0 || ready is not null) continue;
             if (CanCastSkill(conn, h, skill, pos, nearest)) ready = skill;
         }
-        if (ready is null) return;
+        if (ready is null || area.Busy(actorId)) return;
 
+        area.ActorBusyUntil[actorId] = area.Time + ready.CastSeconds;
         cds[ready.EffectRow] = Math.Max(0.5, ready.CooldownSeconds) / cdScale;
         await ExecuteActorSkill(conn, area, h, actorId, ready, level, pos, nearest, canWarp);
     }
@@ -502,7 +505,7 @@ public static partial class MapHarbinger
                 break;
             }
 
-            case SkillRole.Upheaval or SkillRole.LightningOrb:
+            case SkillRole.Upheaval:
             {
                 var attack = BuildSkillAttack(conn, skill, level);
                 await SendActorSkillAction(conn, actorId, skill.SkillId, target, PlayerId);
@@ -545,32 +548,41 @@ public static partial class MapHarbinger
         }
     }
 
+    // As SendMonsterAction sends a scripted action: built at the send gate, ended before it starts (an actor whose last
+    // action never ended plays no new one), and mirrored to the other players with their own target. One attempt, no
+    // retry loop: this runs inside the player's tick, and a cast that misses its gate is cast again on its cooldown.
     static async Task<(int Action, ushort Sequence, SpawnedMonster? Monster)> SendActorSkillAction(
         ClientState conn, uint actorId, ushort skillId, (int X, int Y) target, uint targetObjectId = 0)
     {
         SpawnedMonster? monster;
-        (int X, int Y) from;
         int action;
-        ushort seq;
         lock (conn.Monsters)
         {
             if (!conn.Monsters.TryGetValue(actorId, out monster) || monster.Dead)
                 return (0, 0, null);
-            from = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             action = ++monster.ActionGeneration;
-            seq = conn.NextActionSequence();
         }
-        byte[] packet = InstanceProtocol.ActionStarted(actorId, from.X, from.Y, target.X, target.Y,
-            skillId, seq, conn.MonsterOrderFlags, targetObjectId: targetObjectId == 0 ? null : targetObjectId);
-        foreach (var viewer in Members(conn))
-        {
-            bool visible;
-            lock (viewer.Monsters) visible = viewer.MonsterViews.ContainsKey(actorId);
-            if (!visible) continue;
-            var vw = viewer.Wire;
-            await SendWorldRecord(vw.Remote, vw.Stream, vw.Ciphers, viewer, actorId, [.. packet], null);
-        }
-        return (action, seq, monster);
+        ushort seq = 0;
+        bool sent = false;
+        var w = conn.Wire;
+        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, actorId, [],
+            $"0x01ab harbinger actor 0x{actorId:x} ({monster.Variety?.Id}) uses skill 0x{skillId:x} at ({target.X}, {target.Y})",
+            atGate: () =>
+            {
+                using (ProjectileMutation(conn, phase: "send"))
+                {
+                    if (!MonsterActionCurrent(conn, actorId, monster, action) || conn.Paused) return null;
+                    var from = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    seq = conn.NextActionSequence();
+                    byte[] bytes = [.. InstanceProtocol.ActionEnded(actorId),
+                        .. InstanceProtocol.ActionStarted(actorId, from.X, from.Y, target.X, target.Y, skillId, seq,
+                            conn.MonsterOrderFlags, targetObjectId: targetObjectId == 0 ? null : targetObjectId)];
+                    BroadcastMonsterMessage(conn, actorId, bytes);
+                    sent = true;
+                    return bytes;
+                }
+            });
+        return sent ? (action, seq, monster) : (0, 0, null);
     }
 
     static async Task TeleportActor(ClientState conn, uint actorId, (int X, int Y) dest)
@@ -596,6 +608,24 @@ public static partial class MapHarbinger
         if (area.Hazards.Count == 0) { area.HasHazards = false; return; }
         var members = Members(conn).Where(c => c.PlayerSent && c.PlayerLife > 0).ToArray();
 
+        // Burning ground: the shared ground damage (the player's and their minions' defences, the degeneration death).
+        GroundHazard[] burning = [.. area.Hazards.Where(h => h.Dps > 0 && h.Remaining > 0)];
+        if (burning.Length > 0)
+            foreach (var p in members)
+            {
+                var exposure = GroundExposure.GetValue(p, _ => new());
+                double now = p.Clock.Elapsed.TotalSeconds;
+                // Ground damages the time since its last call: a player who was last burnt long ago starts anew.
+                if (now - exposure.Last > 1) exposure.Last = double.NaN;
+                await ArenaHazards.Ground(p, exposure, now, (at, _) =>
+                {
+                    var raw = DamagePacket.Empty;
+                    foreach (var h in burning)
+                        if (Distance(at, h.At) <= h.Radius) raw = raw.Add(h.Type, new(h.Dps, h.Dps));
+                    return raw;
+                }, () => !conn.Closed && !conn.LeavingArea);
+            }
+
         for (int i = area.Hazards.Count - 1; i >= 0; i--)
         {
             var hazard = area.Hazards[i];
@@ -618,74 +648,12 @@ public static partial class MapHarbinger
                 }
             }
 
-            if (hazard.Dps > 0 && dt > 0)
-            {
-                double step = Math.Min(dt, Math.Max(0, hazard.Remaining));
-                if (step > 0)
-                    await ApplyHazardGroundDps(area, members, hazard, step);
-            }
-
             hazard.Remaining -= dt;
             if (hazard.Remaining <= 0)
                 area.Hazards.RemoveAt(i);
         }
 
         area.HasHazards = area.Hazards.Count > 0;
-    }
-
-    static async Task ApplyHazardGroundDps(Area area, ClientState[] members, GroundHazard hazard, double dt)
-    {
-        foreach (var p in members)
-        {
-            if (p.Closed || p.LeavingArea || p.Paused || p.PlayerLife == 0 || p.Immune || InGracePeriod(p)) continue;
-            var pos = p.Walk.Position(p.Clock.Elapsed.TotalSeconds);
-            if (Distance(pos, hazard.At) > hazard.Radius) continue;
-
-            if (!area.GroundCarry.TryGetValue(p, out var carry))
-                area.GroundCarry[p] = carry = new double[5];
-
-            var w = p.Wire;
-            bool shieldChanged = false, died = false;
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, [], null, atGate: () =>
-            {
-                lock (p.Monsters)
-                {
-                    if (!CurrentGameWork || p.Closed || p.LeavingArea || p.Paused || p.PlayerLife == 0 || p.Immune || InGracePeriod(p))
-                        return null;
-                    var stats = CharacterPlayerStats(p);
-                    int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
-                    if (Get("base_cannot_be_damaged") != 0) return null;
-                    var immune = PlayerImmunities(p);
-                    if (immune.Contains(hazard.Type)) return null;
-
-                    double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
-                    double res = hazard.Type == DamageType.Physical
-                        ? PlayerDamageReduction(p, stats).Physical
-                        : Math.Min(Resistance(p, hazard.Type), MaxResistance(p, hazard.Type));
-                    double factor = p.ElementalAilments.DamageTakenFactor(now, Get("base_damage_taken_+%")
-                        + Get(hazard.Type.ToString().ToLowerInvariant() + "_damage_taken_+%"))
-                        * Math.Max(0, 1 + Get(IncomingResourceDefences.TakenStat) / 100d)
-                        * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(p.Pools, Get) / 100d);
-
-                    int slot = (int)hazard.Type;
-                    double amount = hazard.Dps * Math.Max(0, 1 - res / 100d) * dt * factor + carry[slot];
-                    int dmg = (int)Math.Min(int.MaxValue, Math.Floor(amount));
-                    carry[slot] = amount - dmg;
-                    if (dmg <= 0) return null;
-
-                    uint before = p.PlayerLife;
-                    double shield = p.EnergyShield.Current;
-                    int loss = IncomingResourceDefences.DamageOverTime(p.EnergyShield, dmg,
-                        Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
-                    p.PlayerLife = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - loss), now);
-                    shieldChanged = shield != p.EnergyShield.Current;
-                    if (died = before > 0 && p.PlayerLife == 0) { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
-                    return before == p.PlayerLife ? null : InstanceProtocol.LifeUpdate(PlayerId, p.PlayerLife, p.PlayerReservedLife);
-                }
-            });
-            if (shieldChanged) await SendPlayerEnergyShield(w.Remote, w.Stream, w.Ciphers, p);
-            if (died) await PlayerDied(w.Remote, w.Stream, w.Ciphers, p, "harbinger burning ground");
-        }
     }
 
     sealed record AllyAuraSource(uint SourceId, string Key, ushort BuffRow, (int X, int Y) Pos, double Radius,
@@ -916,6 +884,7 @@ public static partial class MapHarbinger
                 }
             }
 
+            if (active is not null && CurseImmune(player)) active = null;
             if (active is null)
             {
                 if (ActivePlayerCurses.TryGetValue(player, out var existing) && (existing.Stats.Count > 0 || existing.Buffs.Count > 0))
@@ -960,6 +929,14 @@ public static partial class MapHarbinger
                     () => PlayerStatsUpdateAtGate(player, PlayerStatsWithCleared(player)), null);
             }
         }
+    }
+
+    static bool CurseImmune(ClientState player)
+    {
+        if (player.Immune || InGracePeriod(player)) return true;
+        var stats = CharacterPlayerStats(player);
+        int Has(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        return Has("immune_to_curses") != 0 || Has("virtual_immune_to_curses") != 0 || Has("hexproof") != 0;
     }
 
     static void CollectCurseEmittersLocked(ClientState conn, byte level, double now, uint actorId,
