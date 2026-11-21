@@ -431,7 +431,8 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         int tier = Math.Clamp((mapTier > 0 ? mapTier : 1) + (stones > 0 ? 1 : 0), 1, 16);
         // Socketed Voidstones convert found maps below tier 16 to gold (maps.md).
         if (stones > 0 && tier < 16) return Gold(monsterLevel, monster, rng);
-        if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
+        if (maps.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type
+            || (mapTier <= 0 && monsterLevel < type.DropLevel)) return null;
         var item = ItemCatalog.Create(type) with { ItemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(monster), 1, 100) };
         if (rolls is not null && rng.NextDouble() < 0.10) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = true };
         return new(item, type);
@@ -481,6 +482,18 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             }
             else if (rolledUnique || rng.NextDouble() < chances.Rare) item = rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };
             else if (rng.NextDouble() < chances.Magic) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = false };
+        }
+        else if (rolls is not null && type.Class == "Tincture")
+        {
+            // Tinctures are magic-only (plus unique): never roll rare on drop.
+            bool rolledUnique = rng.NextDouble() < chances.Unique;
+            if (rolledUnique && Unique(type, itemLevel, rng) is { } unique)
+            {
+                item = unique with { Identified = false };
+                type = catalog.ByHash(item.TypeHash) ?? type;
+            }
+            else
+                item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = false };
         }
         return new Drop(item, type);
     }
@@ -583,7 +596,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
                 if (!equipment.TryGetValue(t.Class, out var list)) equipment[t.Class] = list = [];
                 list.Add(t);
             }
-            else if (t.Class is "LifeFlask" or "ManaFlask") flasks.Add(t);
+            else if (t.Class is "LifeFlask" or "ManaFlask" || t.Class == "Tincture" && catalog.IsNativeTincture(t)) flasks.Add(t);
         }
         // Obtainable gems only (GemSources): the data's Graft, legacy and placeholder rows are not normal drops.
         var pool = GemSources.DropPool(catalog, folder);

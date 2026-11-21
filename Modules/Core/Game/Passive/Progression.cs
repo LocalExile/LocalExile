@@ -169,6 +169,7 @@ public static partial class Game
         sources = WithAvatarOfFire(conn, sources);
         sources = WithHerEmbrace(conn, sources);
         sources = WithElusive(conn, sources);
+        sources = WithTinctures(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);
@@ -1386,7 +1387,8 @@ public static partial class Game
             + (weapons.Dagger ? Get("dagger_critical_strike_multiplier_+") + Get("critical_strike_multiplier_with_dagger_+") : 0)
             + (weapons.Wand ? Get("wand_critical_strike_multiplier_+") : 0)
             + (weapons.Bow ? Get("bow_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_bow") : 0)
-            + (weapons.Staff ? Get("staff_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_staff") : 0);
+            + (weapons.Staff ? Get("staff_critical_strike_multiplier_+") + Get("global_critical_strike_multiplier_+_while_holding_staff") : 0)
+            + (Get("tincture_applied") != 0 ? Get("critical_strike_multiplier_+_with_tinctured_weapons") : 0);
         int spellCriticalMultiplier = Get("base_critical_strike_multiplier_+")
             + Get("base_spell_critical_strike_multiplier_+") + Get("spell_critical_strike_multiplier_+");
         // Overwhelm's per-nearby-enemy multiplier joins the generic one (client 0x14276e1f0), for attacks and spells.
@@ -1827,25 +1829,37 @@ public static partial class Game
     public static async Task ChangeClusterPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort node, bool allocate)
     {
-        bool socketed = false;
         bool changed = false;
+        string? refusal = null;
         lock (conn.Monsters)
         {
-            socketed = ClusterJewelSocketed(conn);
-            if (socketed && node <= MaxClusterNodeId)
+            if (!ClusterJewelSocketed(conn)) refusal = "no cluster jewel socketed";
+            else if (node > MaxClusterNodeId) refusal = "not a cluster node id";
+            else
             {
                 bool willChange = allocate ? !conn.ClusterPassives.Contains(node) : conn.ClusterPassives.Contains(node);
-                IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
-                    ? CaptureGemSourceRowsLocked(conn) : [];
-                changed = allocate ? conn.ClusterPassives.Add(node) : conn.ClusterPassives.Remove(node);
-                if (changed) CharacterSaves.SetClusterPassives(CharacterName(conn), conn.ClusterPassives);
-                if (changed) CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                if (allocate && willChange)
+                {
+                    var (points, _, nodes, _) = PassiveState(conn);
+                    int unspent = points + PassivesFor(conn).PointsGranted(nodes) + AscendancyOrdinaryPoints(conn)
+                        - nodes.Count - conn.ClusterPassives.Count;
+                    if (unspent <= 0) refusal = "no passive skill points remaining";
+                    else if (!ClusterNodeExists(conn, node)) refusal = "node absent from socketed cluster jewels";
+                    else if (conn.ClusterPassives.Count >= ClusterNodeBudget(conn)) refusal = "cluster jewel passive budget reached";
+                }
+                if (refusal is null)
+                {
+                    IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
+                        ? CaptureGemSourceRowsLocked(conn) : [];
+                    changed = allocate ? conn.ClusterPassives.Add(node) : conn.ClusterPassives.Remove(node);
+                    if (changed) CharacterSaves.SetClusterPassives(CharacterName(conn), conn.ClusterPassives);
+                    if (changed) CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                }
             }
         }
-        if (!socketed || node > MaxClusterNodeId)
+        if (refusal is not null)
         {
-            Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: " +
-                $"{(socketed ? "not a cluster node id" : "no large cluster jewel socketed")}");
+            Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: {refusal}");
             await SendPassives(remote, stream, ciphers, conn);
             return;
         }
@@ -1856,6 +1870,19 @@ public static partial class Game
         // A cluster's passives give their stats only when the whole cluster is allocated (ClusterJewelStats), so the
         // node that completes it must refresh the character's stats as well as the tree.
         await SendPassiveJewelStats(remote, stream, ciphers, conn);
+    }
+
+    public static bool ClusterNodeExists(ClientState conn, ushort node)
+    {
+        foreach (var jewel in ItemsOf(conn).Items(PlayerInventories.PassiveJewels))
+        {
+            if (ClusterSize(jewel.Item) is null) continue;
+            if (Passives.JewelNodeForSlot(jewel.X) is null && !ClusterSlotOpen(conn, jewel.X)) continue;
+            // An unmeasured layout still uses the existing point and jewel budget checks.
+            if (ClusterJewelLayout.For(jewel.X, jewel.Item) is not { } layout
+                || layout.ByOffset.ContainsKey(node - layout.Base)) return true;
+        }
+        return false;
     }
 
     /// <summary>The largest cluster jewel node id the client sends with the expansion flag: its own layout index, well

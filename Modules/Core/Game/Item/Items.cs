@@ -23,6 +23,7 @@ public static partial class Game
         bool visible = PlayerInventories.ShowsOnModel(row);
         bool promotesOffhand = row is PlayerInventories.Weapon1 or PlayerInventories.Weapon2;
         string? passiveRefusal = null;
+        bool spentClusterRemoval = false;
         if (visible || promotesOffhand)
         {
             // The pickup, offhand promotion and (for a visible row) source reconciliation are complete before either
@@ -77,7 +78,7 @@ public static partial class Game
                     picked = items.PickUp(row, pick.ItemId);
                     if (picked is not null)
                     {
-                        if (ClusterSize(picked.Item) is not null) SpendClusterRemoval(conn);
+                        if (ClusterSize(picked.Item) is not null) { SpendClusterRemoval(conn); spentClusterRemoval = true; }
                         CompletePassiveJewelMutationLocked(conn, sourcesBefore);
                     }
                 }
@@ -103,8 +104,16 @@ public static partial class Game
         }
         foreach (var (packet, label) in equipmentOutputs) await Send(remote, stream, ciphers, packet, label);
         if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
-        if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
+        if (row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+            await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        }
+        if (row == PlayerInventories.PassiveJewels)
+        {
+            await SendPassiveJewelStats(remote, stream, ciphers, conn);
+            if (spentClusterRemoval) await SendPassives(remote, stream, ciphers, conn);
+        }
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
@@ -538,9 +547,18 @@ public static partial class Game
                 if (!conn.Passives.Contains(Passives.JewelNodeForSlot(x)!.Value)) return "the passive jewel socket is not allocated";
         }
         if (item is null) return "no held item";
+        if (!item.Identified) return "identify the jewel before socketing it";
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return "unknown item type";
         if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
-        if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
+        if (!IsNormalJewel(item))
+        {
+            if (ClusterSize(item) is not int clusterSize) return "that cluster jewel size is not supported yet";
+            if (ClusterNodeBudget(item) <= 0) return "this cluster jewel has no passive skills to expand";
+            if (expansion && Passives.ClusterParent(x) is int parentCell
+                && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).FirstOrDefault(i => i.X == parentCell) is { } parentHolder
+                && ClusterSize(parentHolder.Item) is int parentSize && clusterSize >= parentSize)
+                return $"{type.Name} does not fit inside this cluster socket";
+        }
         var jewelMods = ItemsFor(conn).Mods;
         bool spectrum = GrandSpectrum.IsSpectrum(item, jewelMods);
         if (spectrum)
@@ -648,7 +666,8 @@ public static partial class Game
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
 
-    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
+    /// <summary>Whether the pane cell's cluster jewel socket exists: it is an expansion cell whose parent cell holds a
+    /// cluster jewel one size larger (a large one opens its medium cells, a medium one its small cell) and the cell is
     /// one of the sockets that jewel has. The tree socket must be allocated for the jewel to be there at all, which the
     /// socketing path already checks.</summary>
     public static bool ClusterSlotOpen(ClientState conn, int cell)
@@ -657,12 +676,11 @@ public static partial class Game
         if (Passives.ClusterParent(cell) is not int parent) return false;
         var items = ItemsOf(conn);
         var holder = items.Items(PlayerInventories.PassiveJewels).FirstOrDefault(i => i.X == parent);
-        if (holder is null || ClusterSize(holder.Item) is not int size) return false;
-        if (size != Passives.ClusterCellSize(cell) + 1) return false;
-        // Any of the parent's expansion cells is accepted: the client decides which of them its socket layout opens (its
-        // numbering did not follow the socket count ? for a two-socket large it offers cell 53 as well), and only a
-        // cell the client shows can be reached by a player's move.
-        return Passives.ClusterSlots(parent).Contains(cell);
+        if (holder is null || ClusterSize(holder.Item) is not int size || size <= 0) return false;
+        if (ClusterSocketCount(holder.Item) <= 0 || !Passives.ClusterSlots(parent).Contains(cell)) return false;
+        if (ClusterJewelLayout.For(parent, holder.Item) is { } layout)
+            return layout.ChildSockets.ContainsKey(cell);
+        return size > Passives.ClusterCellSize(cell);
     }
 
     /// <summary>Whether a cluster jewel is socketed: in a tree socket (any size the socket takes, so a medium cluster
@@ -747,13 +765,16 @@ public static partial class Game
         var items = ItemsOf(conn);
         HashSet<ushort> allocated;
         lock (conn.Monsters) allocated = [.. conn.Passives, .. conn.DescendancyNodes];
-        foreach (var item in items.Items(PlayerInventories.PassiveJewels).ToArray())
+        static int SocketDepth(int cell) =>
+            Passives.JewelNodeForSlot(cell) is not null || Passives.CharmNodeForSlot(cell) is not null ? 0
+            : Passives.ClusterParent(cell) is int p && Passives.JewelNodeForSlot(p) is not null ? 1 : 2;
+        foreach (var item in items.Items(PlayerInventories.PassiveJewels).OrderBy(i => SocketDepth(i.X)).ToArray())
         {
-            bool valid = Passives.CharmNodeForSlot(item.X) is { } charmNode
+            bool valid = item.Item.Identified && (Passives.CharmNodeForSlot(item.X) is { } charmNode
                 ? IsCharm(item.Item) && allocated.Contains(charmNode)
                 : Passives.ClusterNodeForSlot(item.X) is not null
                     ? ClusterSlotOpen(conn, item.X) && JewelFitsCell(item.X, item.Item)
-                    : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
+                    : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item));
             if (valid) continue;
             var removed = items.Remove(PlayerInventories.PassiveJewels, item.Id);
             if (removed is null) continue;
@@ -791,6 +812,11 @@ public static partial class Game
         if (!CurrentGameWork) return;
         var items = ItemsOf(conn);
         var flask = items.Items(PlayerInventories.Flask).FirstOrDefault(i => i.X == slot);
+        if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } tinctureType && ItemsFor(conn).TinctureOf(tinctureType) is { } tincture)
+        {
+            await UseTincture(remote, stream, ciphers, conn, slot, flask, tinctureType, tincture);
+            return;
+        }
         if (flask is not null && ItemsFor(conn).ByHash(flask.Item.TypeHash) is { } utilityType && ItemsFor(conn).UtilityFlaskOf(utilityType) is { } utility)
         {
             await UseUtilityFlask(remote, stream, ciphers, conn, slot, flask, utilityType, utility);
@@ -820,11 +846,14 @@ public static partial class Game
         bool canRecover, copyLife;
         FlaskRecovery.Use r;
         ResourceEffectsState recoveryOwner;
+        int adjacentEffect = AdjacentTinctureFlaskEffect(conn, (byte)slot, Get, AreaTime(conn));
+        Func<string, int> flaskCharacter = adjacentEffect == 0 ? Get
+            : name => name == "flask_effect_+%" ? Get(name) + adjacentEffect : Get(name);
         lock (conn.Monsters)
         {
             recoveryOwner = ResourceEffectsOf(conn);
             r = FlaskRecovery.For(use, flask.Item, local,
-                name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
+                name => flaskCharacter(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
             canRecover = Flasks.CanRecover(use, conn.PlayerLife, LifeCap(conn), conn.PlayerMana, (uint)UnreservedMana(conn))
                 || copyLife && conn.PlayerLife < LifeCap(conn)
@@ -857,7 +886,7 @@ public static partial class Game
         if (!CurrentRecovery()) return;
         // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
         var during = UtilityFlasks.DuringEffectSources(local,
-            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
+            FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
             spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local, during));
     }
@@ -1432,7 +1461,7 @@ public static partial class Game
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
             Console.WriteLine($"[gateway] {remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
-                (isEssence || CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") || type?.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+                (type is not null && CurrencyEffects.Recognizes(ItemsFor(conn), type, isEssence)
                     ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
         }
@@ -1481,6 +1510,8 @@ public static partial class Game
                 if (PlayerInventories.ShowsOnModel(targetRow)) await SendEquipment(remote, stream, ciphers, conn, items);
             }
         }
+        if (targetTab is null && targetRow == PlayerInventories.Flask)
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} <= 0x0071 {type!.Name} ({used.Id}) on item {target.Id}: " + (type.Id == CurrencyEffects.SacredOrb ? $"defence base roll {target.Item.DefenceBaseRoll} -> {identified.Item.DefenceBaseRoll}"
             : isEssence || type.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
             ? string.Join("; ", identified.Item.Mods.Select(ItemsFor(conn).Mods.Describe))
@@ -1528,6 +1559,7 @@ public static partial class Game
         Item? held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
         string why = "unknown inventory";
         PlayerInventories.Placement? done = null;
+        bool spentClusterRemoval = false;
         if (PlayerInventories.Row(a.InventoryId) is not byte row) why = "unknown inventory";
         else if (row == PlayerInventories.PassiveJewels)
         {
@@ -1548,7 +1580,10 @@ public static partial class Game
                     if (done is not null)
                     {
                         if (done.Displaced is { } displaced && ClusterSize(displaced.Item) is not null)
+                        {
                             SpendClusterRemoval(conn);
+                            spentClusterRemoval = true;
+                        }
                         CompletePassiveJewelMutationLocked(conn, sourcesBefore);
                     }
                 }
@@ -1575,9 +1610,16 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        if (done.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+            await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        }
         if (done.Row == PlayerInventories.PassiveJewels)
+        {
             await SendPassiveJewelStats(remote, stream, ciphers, conn);
+            if (spentClusterRemoval) await SendPassives(remote, stream, ciphers, conn);
+        }
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
@@ -1606,6 +1648,7 @@ public static partial class Game
         PlayerInventories.Placement? done = null;
         string why = "unknown inventory";
         Item? placement;
+        bool spentClusterRemoval = false;
         if (PlayerInventories.Row(place.InventoryId) is not byte row) why = "unknown inventory";
         else if (PlayerInventories.ShowsOnModel(row))
         {
@@ -1652,7 +1695,10 @@ public static partial class Game
                     if (done is not null)
                     {
                         if (done.Displaced is { } displaced && ClusterSize(displaced.Item) is not null)
+                        {
                             SpendClusterRemoval(conn);
+                            spentClusterRemoval = true;
+                        }
                         CompletePassiveJewelMutationLocked(conn, sourcesBefore);
                     }
                 }
@@ -1682,8 +1728,16 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
-        if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
-        if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
+        if (done.Row == PlayerInventories.Flask)
+        {
+            await ReconcileTincturesAfterFlaskBarChange(remote, stream, ciphers, conn);
+            await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
+        }
+        if (done.Row == PlayerInventories.PassiveJewels)
+        {
+            await SendPassiveJewelStats(remote, stream, ciphers, conn);
+            if (spentClusterRemoval) await SendPassives(remote, stream, ciphers, conn);
+        }
     }
 
     static void CompletePassiveJewelMutationLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)

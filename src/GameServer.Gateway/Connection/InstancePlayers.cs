@@ -131,6 +131,7 @@ public sealed record AreaStatsRequest(string Character, string? League, ushort A
 public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life)
 {
     public byte ActorStance { get; init; }
+    public bool CreatedAsCorpse { get; init; }
 }
 public sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
 public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,

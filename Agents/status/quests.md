@@ -53,7 +53,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/quest_flag`.
   Kills, sightings, room objects come near, exits, cleared areas, quest chests, room NPCs, NPCs that turn into
   monsters, second forms and mirrored blockers are rules; quest items (their `.it` Quest flags: held, picked up,
-  handed in, removed, used), dialogue flags and scripts, session flags and the rewards come from the client's data.
+  handed in, removed, used), dialogue flags and scripts (including `NPCTalk` league quest flags for `hideout1`,
+  `delve2`, and `bestiary2`), session flags and the rewards come from the client's data.
   Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
@@ -71,19 +72,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   claimed; using the Book of Regrets gives two refund points, the Book of Skill a passive point (`extra_skill_points` 1).
   Docs: [12](../docs/protocol/12-quests.md) §8.
 - a1q2 "The Caged Brute": Brutus spawns in the Warden's
-  section (`mapboss2`); Piety's room sets `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered;
-  Tarkleigh's reward is claimed.
+  section (`mapboss2`) with intro and chain-hook dialogue; Piety spawns in her room (`PietyPrison`) and plays her
+  monologue on `SeenPietyPrison`; his death creates the exit to Prisoner's Gate, entered; Tarkleigh's reward is claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - a1q6 "The Marooned Mariner": Fairgraves stands on his
   ship; "Marooned" gives the quest; the slave girl's chest in The Ship Graveyard Cave drops the Allflame; "Thank You"
-  hands it in and turns him into the boss, who fights; his death, Bestel's book and its passive point follow.
+  hands it in, plays his combat line (`FairgravesAttacks`) and turns him into the boss, who fights; his death,
+  Bestel's book and its passive point follow.
   Docs: [12](../docs/protocol/12-quests.md) §10.
-- a1q3 "The Siren's Cadence" and Act 2: Merveil, the Siren
-  spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and creates the
-  exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
+- a1q3 "The Siren's Cadence" and Act 2: Merveil plays her Cavern of Wrath/Anger entry and fight-start dialogue, Merveil,
+  the Siren spawns in her arena, her death brings Merveil, the Twisted, whose death sets `a1q3-KilledSeaWitch` and
+  creates the exit; the character entered The Southern Forest. Nessa's help and reward are claimed.
   Docs: [12](../docs/protocol/12-quests.md) §9.
-- a1q9 "The Way Forward", Act 1: Piety's blockage at Prisoner's
-  Gate sets `a1q9-SeenBlockage` and `a1q9-RoadBlocked`; the road to The Western Forest stays closed (Act 2 opens it).
+- a1q9 "The Way Forward", Act 1: Piety (`PietyBlockage`) and the visual spike walls (`SpikeBlockage`/`SpikeBlockage2`)
+  spawn at Prisoner's Gate, seal the pass with her class dialogue on `a1q9-SeenBlockage`/`a1q9-RoadBlocked`, and reopen
+  when Act 2 sets `a1q9-RoadOpened`.
   After all of Act 1 the save had every `Act1Complete` flag.
   Docs: [12](../docs/protocol/12-quests.md) §9.
 - Acts 2 and 3 (live 2026-10-30, seed 1, on the engine before the modules: the campaign runner on a character started
@@ -102,9 +105,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Library's candle opens the hidden door for the instance only.
   The two exits the layout disables and a quest gates (The Upper Sceptre of God → The Aqueduct, The Library → The
   Archives) are created (`scripts/re/exits --quests`: `gated` at seed 1 and three other seeds).
-  Every quest object, chest and NPC the rules name is placed at seed 1. Helena's rescue uses her visible state 2
-  on the kill and on re-entry; her asset's last state hides her. Sin's first appearance after Innocence advances
-  the paused entrance to state 2, while a return starts in the completed pose.
+  Every quest object, chest and NPC the rules name is placed at seed 1.
+  Helena's rescue uses her visible state 2 on the kill and on re-entry; Act 2 town Helena is gated on
+  `a2q6-HelenaInTown` (with town-entry recovery for older saves) so Greust offers his reward.
+  Sin's first appearance after Innocence advances the paused entrance to state 2, restores at `ArenaMiddle` in fresh
+  instances until `a5q6-QuestReceived`, and `SinOssuary` spawns transitioned/visible.
   Driver step files: `scripts/dev/campaign/quests/a2q*.py`, `a3q*.py`.
   Code: `Acts/Act2.cs`, `Acts/Act3.cs` (QuestObjects module).
   Docs: [12](../docs/protocol/12-quests.md) §11–12; [act 2](../docs/game/campaign/act2.md),
@@ -201,6 +206,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   rivals' amulets for the reward, then offers the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
+- Merveil's Caverns Trick Chests (`AmarissaTrickChest` in `1_1_11_1`, `AmbrosiaTrickChest` in `1_1_11_2`) spawn in
+  their chambers, open with loot and ambush with risen targetable Amarissa/Ambrosia plus Slimy Bloodsuckers
+  (not checked live). Code: `Rules.TrickChests.cs`, `Act1.cs`.
+- Player character voice lines (`CharacterAudioEvents`): area entry (`Visited-*` via post-`0x2bb` `0x2bc` diff,
+  Act 4 mines, first Atlas map), campaign and pinnacle boss kills and first NPC meetings trigger natively via
+  `PlayerQuestFlagsUpdate` `0x2bc` (not checked live). Docs: [12](../docs/protocol/12-quests.md).
 
 ## Not working yet
 

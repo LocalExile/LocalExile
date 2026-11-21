@@ -97,9 +97,15 @@ public static partial class Game
         int local = spell ? 0 : MainHandLocalSources(conn)?.GetValueOrDefault("local_stun_threshold_reduction_+%") ?? 0;
         // Sample before the caller applies this hit: a damaging hit can leave its previously full-life target injured.
         bool fullLife = m.Life > 0 && m.Life == m.MaxLife;
-        int duration = Get("base_stun_duration_+%") + (fullLife ? Get("stun_duration_+%_vs_enemies_that_are_on_full_life") : 0);
-        bool guaranteed = stunning > 0 && fullLife && Get("always_stun_enemies_that_are_on_full_life") > 0;
-        return new(stunning, Get("base_stun_threshold_reduction_+%") + local, duration, melee, conn, Guaranteed: guaranteed,
+        bool tinctureWeapon = !spell && Get("tincture_applied") != 0;
+        int duration = Get("base_stun_duration_+%")
+            + (tinctureWeapon ? Get("stun_duration_+%_with_tinctured_weapons") : 0)
+            + (fullLife ? Get("stun_duration_+%_vs_enemies_that_are_on_full_life") : 0);
+        int thresholdReduction = Get("base_stun_threshold_reduction_+%") + local
+            + (tinctureWeapon ? Get("stun_threshold_reduction_+%_with_tinctured_weapons") : 0);
+        bool guaranteed = stunning > 0 && fullLife && (Get("always_stun_enemies_that_are_on_full_life") > 0
+            || tinctureWeapon && Get("always_stun_enemies_that_are_on_full_life_with_tinctured_weapons") > 0);
+        return new(stunning, thresholdReduction, duration, melee, conn, Guaranteed: guaranteed,
             Skill: own);
     }
 }

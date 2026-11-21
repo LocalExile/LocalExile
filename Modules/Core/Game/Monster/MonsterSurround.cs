@@ -34,8 +34,10 @@ public static class MonsterSurround
     /// <param name="askers">The monsters to place, any order (the nearest are placed first).</param>
     /// <param name="occupied">Bodies that are not asking (they stand, swing or are not chasing): no slot overlaps them.</param>
     /// <param name="walkable">Whether a body of the given size may stand on a cell.</param>
+    /// <param name="centreSize">The Positioned size of the body at the centre: the player's, or a Decoy Totem's.</param>
     public static Dictionary<uint, (int X, int Y)> Assign(IEnumerable<Asker> askers, (int X, int Y) player,
-        IEnumerable<(int X, int Y, int Size)> occupied, Func<int, int, int, bool> walkable)
+        IEnumerable<(int X, int Y, int Size)> occupied, Func<int, int, int, bool> walkable,
+        int centreSize = LivingCollision.PlayerSize)
     {
         // Inflate reservations by one: threshold size+1 then preserves the existing size+size+2 separation.
         var taken = new BlockerSet(occupied.Select(p => new ClientPathfinder.Blocker(p.X, p.Y, p.Size + 1)));
@@ -54,15 +56,15 @@ public static class MonsterSurround
         {
             // Keep the last slot while it is still free and still on the innermost ring around the player; a waiting slot
             // farther out is chosen again every time, so it moves in when a gap opens.
-            (int X, int Y)? slot = a.Last is { } last && OnRing(last, player, a)
-                && Free(last, player, a.Size, taken, walkable, refused) ? last : null;
+            (int X, int Y)? slot = a.Last is { } last && OnRing(last, player, a, centreSize)
+                && Free(last, player, a.Size, centreSize, taken, walkable, refused) ? last : null;
             if (slot is null)
             {
                 // A last slot still on its ring but taken: look beside it. Once the player has moved, from the monster.
-                double bearing = a.Last is { } l && (l.X, l.Y) != player && OnRing(l, player, a)
+                double bearing = a.Last is { } l && (l.X, l.Y) != player && OnRing(l, player, a, centreSize)
                     ? Math.Atan2(l.Y - player.Y, l.X - player.X)
                     : Math.Atan2(a.Y - player.Y, a.X - player.X);
-                slot = Find(player, a, bearing, taken, walkable, refused);
+                slot = Find(player, a, centreSize, bearing, taken, walkable, refused);
             }
             if (slot is not { } s) continue;
             result[a.Id] = s;
@@ -71,40 +73,42 @@ public static class MonsterSurround
         return result;
     }
 
-    static bool Free((int X, int Y) cell, (int X, int Y) player, int size, BlockerSet taken,
+    static bool Free((int X, int Y) cell, (int X, int Y) player, int size, int centreSize, BlockerSet taken,
         Func<int, int, int, bool> walkable, HashSet<(int X, int Y, int Size)> refused)
     {
         if (refused.Contains((cell.X, cell.Y, size))) return false;
-        bool free = Math.Max(Math.Abs(cell.X - player.X), Math.Abs(cell.Y - player.Y)) >= size + LivingCollision.PlayerSize + 1
+        bool free = Math.Max(Math.Abs(cell.X - player.X), Math.Abs(cell.Y - player.Y)) >= size + centreSize + 1
             && !taken.OverlapsFootprint(cell.X, cell.Y, size + 1) && walkable(cell.X, cell.Y, size);
         if (!free) refused.Add((cell.X, cell.Y, size));
         return free;
     }
 
-    static double InnerRadius(Asker a) => Math.Max(a.Size + LivingCollision.PlayerSize + 1,
-        Math.Min(ContactRadius(a.Size), a.Reach));
+    static double InnerRadius(Asker a, int centreSize) => Math.Max(a.Size + centreSize + 1,
+        Math.Min(ContactRadius(a.Size, centreSize), a.Reach));
 
     /// <summary>A ranged chaser whose reach lies beyond the contact ring stands off: its first ring is just inside its
     /// reach (the farthest cell its attack covers: the Sand Spitter's 30), and a full ring sends it inward rather than
     /// out of range. Melee chasers (and a ranged one whose reach is the contact ring anyway) ring outward as before.</summary>
-    static bool StandsOff(Asker a) => a.Ranged && !double.IsInfinity(a.Reach) && a.Reach - 1 > InnerRadius(a);
+    static bool StandsOff(Asker a, int centreSize) =>
+        a.Ranged && !double.IsInfinity(a.Reach) && a.Reach - 1 > InnerRadius(a, centreSize);
 
-    static double RingRadius(Asker a, int ring)
+    static double RingRadius(Asker a, int ring, int centreSize)
     {
         int spacing = 2 * a.Size + 2;
-        return StandsOff(a) ? Math.Max(InnerRadius(a), a.Reach - 1 - ring * spacing) : InnerRadius(a) + ring * spacing;
+        return StandsOff(a, centreSize) ? Math.Max(InnerRadius(a, centreSize), a.Reach - 1 - ring * spacing)
+            : InnerRadius(a, centreSize) + ring * spacing;
     }
 
-    static (int X, int Y)? Find((int X, int Y) player, Asker a, double bearing, BlockerSet taken,
+    static (int X, int Y)? Find((int X, int Y) player, Asker a, int centreSize, double bearing, BlockerSet taken,
         Func<int, int, int, bool> walkable, HashSet<(int X, int Y, int Size)> refused)
     {
         int spacing = 2 * a.Size + 2;
         var (bearingSin, bearingCos) = Math.SinCos(bearing);
         for (int ring = 0; ring < Rings; ring++)
         {
-            double radius = RingRadius(a, ring);
+            double radius = RingRadius(a, ring, centreSize);
             // A stand-off's inward rings end at the contact ring; the same ring again finds nothing new.
-            if (ring > 0 && radius == RingRadius(a, ring - 1)) break;
+            if (ring > 0 && radius == RingRadius(a, ring - 1, centreSize)) break;
             // One cell along the ring per step, both sides of the bearing alternately, nearest first: the first free cell
             // packs the bodies as tightly as they may stand.
             var samples = RingSamples.GetOrAdd(radius, static r =>
@@ -125,19 +129,19 @@ public static class MonsterSurround
                     var cell = ((int)Math.Round(player.X + radius * (bearingCos * cos - bearingSin * sin)),
                         (int)Math.Round(player.Y + radius * (bearingSin * cos + bearingCos * sin)));
                     if (ring == 0 && Distance2(cell.Item1 - player.X, cell.Item2 - player.Y) > a.Reach * a.Reach) continue;
-                    if (Free(cell, player, a.Size, taken, walkable, refused)) return cell;
+                    if (Free(cell, player, a.Size, centreSize, taken, walkable, refused)) return cell;
                 }
         }
         return null;
     }
 
-    static bool OnRing((int X, int Y) cell, (int X, int Y) player, Asker a)
+    static bool OnRing((int X, int Y) cell, (int X, int Y) player, Asker a, int centreSize)
     {
-        double d = Math.Sqrt(Distance2(cell.X - player.X, cell.Y - player.Y)), r0 = RingRadius(a, 0);
+        double d = Math.Sqrt(Distance2(cell.X - player.X, cell.Y - player.Y)), r0 = RingRadius(a, 0, centreSize);
         if (d > a.Reach) return false;
         int spacing = 2 * a.Size + 2;
         // Rings count outward from the contact ring, inward from a stand-off's first ring.
-        double offset = StandsOff(a) ? r0 - d : d - r0;
+        double offset = StandsOff(a, centreSize) ? r0 - d : d - r0;
         if (offset < -1) return false;
         double ring = offset / spacing;
         return Math.Round(ring) <= 0 && Math.Abs(ring - Math.Round(ring)) * spacing <= 1.5;
