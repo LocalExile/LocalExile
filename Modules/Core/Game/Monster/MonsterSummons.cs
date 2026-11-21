@@ -39,16 +39,16 @@ public static partial class Game
         return ended;
     }
 
-    static void EndMonsterSummonLocked(ClientState conn, uint id, SpawnedMonster child, double now)
+    static void EndMonsterSummonLocked(ClientState? conn, uint id, SpawnedMonster child, double now)
     {
         child.Life = 0;
         child.Dead = true;
         child.ActionGeneration++;
         var at = child.Walk.Position(now);
         child.Walk.Teleport(at.X, at.Y, now);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+        conn?.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
             "summon's parent ended", id, child, WorldId: id));
-        conn.Minions.OutputQueue.Add(new([], "summon dies with its parent", id, child, PlayerMinions.OutputKind.Life));
+        conn?.Minions.OutputQueue.Add(new([], "summon dies with its parent", id, child, PlayerMinions.OutputKind.Life));
         MonsterSummonParents.Remove(child);
     }
 
@@ -57,12 +57,20 @@ public static partial class Game
     {
         public void Dispose()
         {
-            foreach (var conn in InGame.Keys)
-                lock (conn.Monsters)
-                    foreach (var (id, child) in conn.Monsters)
+            foreach (var instance in Program.Instances.Snapshot())
+            {
+                var world = instance.World;
+                lock (world.Monsters)
+                {
+                    var viewer = world.Runner;
+                    if (viewer is null || viewer.Closed || viewer.LeavingArea || !ReferenceEquals(viewer.Instance, instance))
+                        viewer = null;
+                    foreach (var (id, child) in world.Monsters.Concat(world.DormantMonsters))
                         if (!child.Dead && (MonsterSummonParents.TryGetValue(child, out _)
                             || child.Variety?.Id == EssenceExplosiveInsect && child.SummonerId is not null))
-                            EndMonsterSummonLocked(conn, id, child, conn.Clock.Elapsed.TotalSeconds);
+                            EndMonsterSummonLocked(viewer, id, child, world.Clock.Elapsed.TotalSeconds);
+                }
+            }
         }
     }
 }

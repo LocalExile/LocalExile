@@ -131,6 +131,22 @@ public sealed class EssenceSummonTests : IDisposable
                 Assert.Equal(0, Game.TickMonsterSummonParentsLocked(conn, 3));
             }
         }
+        var retained = Program.Instances.Enter(1208, 505);
+        var visitor = Connection(retained);
+        var carrier = Monster();
+        var orphan = Monster();
+        visitor.Monsters[42] = carrier;
+        visitor.Monsters[43] = orphan;
+        var insect = new SpawnedMonster("insect", new(300, 300, 30), 105, 6, 100)
+            { Variety = Game.Monsters.Find(Game.EssenceExplosiveInsect), SummonerId = 42 };
+        visitor.Monsters[44] = insect;
+        Game.RegisterMonsterSummonLocked(orphan, 42, carrier, Summon("EssenceDaemonSummonMovingKaruiSpirit"));
+        Program.Instances.Leave(retained);
+        Game.CleanupMonsterSummons().Dispose();
+        Assert.True(orphan.Dead);
+        Assert.True(insect.Dead);
+        Assert.False(carrier.Dead);
+
         var ordinary = new SkillCatalog.MonsterSummonInfo(5022, 1, 0, false, 1, 6);
         var c = Connection();
         var p = Monster();
