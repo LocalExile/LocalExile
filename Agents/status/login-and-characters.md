@@ -54,6 +54,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Account password changes (`C→S 0x0a` → `S→C 0x0b`) and character renames (`C→S 0x3d` → `0x15` + `0x3e`) are
+  implemented with atomic save renaming and remembered-login invalidation (automated coverage; live check pending).
+  The login screen's New Account button launches a browser URL and sends no login packet.
+  See [01](../docs/protocol/01-login.md).
 
 - One connection per character: a newer login ends the older connection and loads the character after it saved; an
   area change is not a second login (not checked with two clients in the real game).

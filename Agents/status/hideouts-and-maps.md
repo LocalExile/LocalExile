@@ -88,6 +88,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   its remaining portals and says so in chat, instead of spending a portal on a transfer that cannot arrive (2026-11-18);
   guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
+  `C→S 0x17a` resolves named online targets for party members, friends and `0x179` invitees (live check pending).
   The instance keeps the map's level and mods for its whole life (after its last portal or another
   activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
   the level and applies the mods with them, the tier's more monster life and damage included;
