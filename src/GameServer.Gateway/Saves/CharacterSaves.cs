@@ -21,6 +21,25 @@ public static class CharacterSaves
     /// in and its stat values.</summary>
     public sealed record SavedMod(string Id, ModSection Section, List<int> Values);
 
+    /// <summary>One node mod of a saved weapon passive tree, stored by Mods.dat Id and rolled stat values.</summary>
+    public sealed record SavedWeaponPassiveTreeNode(string Id, List<int> Values);
+
+    /// <summary>A saved weapon passive tree (Mods flag bit 7).</summary>
+    public sealed record SavedWeaponPassiveTree(
+        uint BalanceItemLevel,
+        uint Experience,
+        bool HasTree,
+        ushort Layout = 0,
+        ushort Allocation = 0,
+        ushort LeftParentConnections = 0,
+        ushort RightParentConnections = 0,
+        sbyte PendingCol0 = -1,
+        sbyte PendingCol1 = -1,
+        sbyte PendingCol2 = -1,
+        sbyte PendingCol3 = -1,
+        sbyte PendingCol4 = -1,
+        List<SavedWeaponPassiveTreeNode>? Nodes = null);
+
     /// <summary>Mods: null in saves from before mods (the item gets its type's implicits again), else every mod.
     /// A missing defence roll keeps the old minimum (zero); raw 32 preserves the native special state. Saves from before
     /// influences, split and synthesised read as none of them.</summary>
@@ -41,6 +60,8 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public byte Intangibility { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RequiredLevel { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SavedWeaponPassiveTree? WeaponPassiveTree { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public uint StoredExperience { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
     }
 
@@ -614,7 +635,9 @@ public static class CharacterSaves
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
-            RelicStyle = i.RelicStyle, Chart = i.Chart };
+            RelicStyle = i.RelicStyle, Chart = i.Chart,
+            WeaponPassiveTree = i.WeaponPassiveTree is null ? null : ToSaved(i.WeaponPassiveTree, mods),
+            StoredExperience = i.StoredExperience };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -640,6 +663,8 @@ public static class CharacterSaves
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
             RelicStyle = s.RelicStyle,
+            WeaponPassiveTree = s.WeaponPassiveTree is null ? null : FromSaved(s.WeaponPassiveTree, catalog.Mods),
+            StoredExperience = s.StoredExperience,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.
@@ -673,6 +698,28 @@ public static class CharacterSaves
         var mod = m.Id.StartsWith("0x") && ushort.TryParse(m.Id[2..], System.Globalization.NumberStyles.HexNumber, null, out ushort h)
             ? mods.ByHash(h) : mods.ById(m.Id);
         return mod?.With(m.Section, m.Values, Random.Shared) ?? throw new UnknownSavedItemException($"mod {m.Id}");
+    }
+
+    static SavedWeaponPassiveTree ToSaved(WeaponPassiveTreeState t, ModCatalog? mods) => new(
+        t.BalanceItemLevel, t.Experience, t.HasTree,
+        t.Layout, t.Allocation, t.LeftParentConnections, t.RightParentConnections,
+        t.PendingCol0, t.PendingCol1, t.PendingCol2, t.PendingCol3, t.PendingCol4,
+        t.Nodes.Count == 0 ? null : [.. t.Nodes.Select(n => new SavedWeaponPassiveTreeNode(
+            mods?.ByHash(n.ModHash)?.Id ?? $"0x{n.ModHash:x4}", [.. n.Values]))]);
+
+    static WeaponPassiveTreeState FromSaved(SavedWeaponPassiveTree s, ModCatalog mods) => new(
+        s.BalanceItemLevel, s.Experience, s.HasTree,
+        s.Layout, s.Allocation, s.LeftParentConnections, s.RightParentConnections,
+        s.PendingCol0, s.PendingCol1, s.PendingCol2, s.PendingCol3, s.PendingCol4,
+        s.Nodes is null ? null : [.. s.Nodes.Select(n => FromSaved(n, mods))]);
+
+    static WeaponPassiveTreeNode FromSaved(SavedWeaponPassiveTreeNode n, ModCatalog mods)
+    {
+        var mod = n.Id.StartsWith("0x") && ushort.TryParse(n.Id[2..], System.Globalization.NumberStyles.HexNumber, null, out ushort h)
+            ? mods.ByHash(h) : mods.ById(n.Id);
+        if (mod is null) throw new UnknownSavedItemException($"mod {n.Id}");
+        var resolved = mod.With(ModSection.Hidden, n.Values, Random.Shared);
+        return new(resolved.Hash, resolved.Values);
     }
 }
 

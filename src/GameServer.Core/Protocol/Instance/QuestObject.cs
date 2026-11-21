@@ -126,7 +126,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                     w.I32(Math.Max(0, display?.OpenAttempts ?? 0));
                     break;
                 case "Buffs": w.U16(0); break;
-                // BaseEvents, Functions, ControlZone: no data.
+                // BaseEvents, Functions, ControlZone (slot 17 at 0x1400f1180: ret 0): no data.
             }
         }
         if (Tasks.Count > byte.MaxValue) throw new ArgumentException("too many tasks");

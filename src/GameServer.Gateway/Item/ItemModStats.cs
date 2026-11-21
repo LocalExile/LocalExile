@@ -121,6 +121,24 @@ public static class ItemModStats
                         else foreach (string target in targets) yield return (target, value);
                     }
             }
+        if (item.WeaponPassiveTree is { HasTree: true } tree)
+            foreach (var node in tree.AllocatedNodes())
+                if (mods.ByHash(node.ModHash) is { } row)
+                {
+                    if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
+                    for (int s = 0; s < row.Stats.Count && s < node.Values.Count; s++)
+                        if (row.Stats[s].Local == local
+                            || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Id))
+                        {
+                            string id = row.Stats[s].Id;
+                            var state = StatConditions.Of(id, subject);
+                            if (row.Stats[s].Local && !local && state is StatConditions.State.NotModelled) continue;
+                            if (!StatConditions.Counts(state)) continue;
+                            int value = StatConditions.Counted(id, node.Values[s], state, subject, statExists, out var targets);
+                            if (targets is null) yield return (id, value);
+                            else foreach (string target in targets) yield return (target, value);
+                        }
+                }
     }
 
     /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and
@@ -243,12 +261,17 @@ public static class ItemModStats
         var local = Local(item, items.Mods);
         if (local.GetValueOrDefault("local_no_attribute_requirements") != 0
             || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0) return (0, 0, 0);
-        int Percent(string id) => item.Mods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.First(), id));
-        int ValueOf(ItemMod mod, string id)
+        // An item without an allocated tree pays nothing extra here.
+        int Percent(string id) =>
+            item.Mods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.Key, group.First().Values, id))
+            + (item.WeaponPassiveTree is { HasTree: true, Allocation: not 0 } tree
+                ? tree.AllocatedNodes().GroupBy(node => node.ModHash).Sum(group => ValueOf(group.Key, group.First().Values, id))
+                : 0);
+        int ValueOf(ushort hash, IReadOnlyList<int> values, string id)
         {
-            if (items.Mods.ByHash(mod.Hash) is not { } row) return 0;
-            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                if (row.Stats[s].Id == id) return mod.Values[s];
+            if (items.Mods.ByHash(hash) is not { } row) return 0;
+            for (int s = 0; s < row.Stats.Count && s < values.Count; s++)
+                if (row.Stats[s].Id == id) return values[s];
             return 0;
         }
         int all = Percent("local_attribute_requirements_+%");
@@ -370,6 +393,22 @@ public static class ItemModStats
         if (local.GetValueOrDefault("local_level_requirement_override") is int over and not 0) return Math.Max(0, over);
         int required = Math.Max(dropLevel, item.Mods.Select(m => (mods.ByHash(m.Hash)?.Level ?? 0) * 4 / 5).DefaultIfEmpty(0).Max());
         return Math.Max(0, required + local.GetValueOrDefault("local_level_requirement_+"));
+    }
+
+    /// <summary>PassiveSkillGraphIds granted by active items via <c>local_weapon_passive_tree_granted_passive_hash</c>
+    /// (stored as signed 16-bit ints on allocated weapon passive tree nodes, cast to unsigned graph ids).
+    /// Reads per-node occurrences without summing, and skips items without an allocated weapon passive tree.</summary>
+    public static IEnumerable<ushort> GrantedPassives(IEnumerable<Item> items, ModCatalog mods)
+    {
+        foreach (var item in items)
+        {
+            if (item.WeaponPassiveTree is not { HasTree: true, Allocation: not 0 } tree) continue;
+            foreach (var node in tree.AllocatedNodes())
+                if (mods.ByHash(node.ModHash) is { } row)
+                    for (int s = 0; s < row.Stats.Count && s < node.Values.Count; s++)
+                        if (row.Stats[s].Id == "local_weapon_passive_tree_granted_passive_hash" && node.Values[s] != 0)
+                            yield return unchecked((ushort)node.Values[s]);
+        }
     }
 
     /// <summary>Two stat dictionaries added together (passives + items).</summary>

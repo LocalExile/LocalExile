@@ -241,6 +241,12 @@ public static class GameEvents
     /// its offers.</summary>
     public static readonly GameEvent<Action<GambleWindow>> Gambles = new();
 
+    /// <summary>A vendor sell-window quote, after ordinary vendor recipes are evaluated: add or adjust rewards and recipe labels.</summary>
+    public static readonly GameEvent<Action<VendorSaleQuote>> VendorQuote = new();
+
+    /// <summary>A currency item applied to another item (C→S 0x71 / 0x72), when no built-in currency handled it. First non-null result wins.</summary>
+    public static readonly GameEvent<Func<ClientState, Item, ItemCatalog.BaseType, Item?, Random, Item?>> CurrencyApply = new();
+
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
 
@@ -373,6 +379,24 @@ public static class GameEvents
     {
         foreach (var (owner, run) in Gambles.Subscribers(window.Conn))
             GameEventOwners.Guard(owner, nameof(Gambles), () => run(window));
+    }
+
+    public static void RunVendorQuote(VendorSaleQuote quote)
+    {
+        foreach (var (owner, run) in VendorQuote.Subscribers(quote.Conn))
+            GameEventOwners.Guard(owner, nameof(VendorQuote), () => run(quote));
+    }
+
+    public static Item? RunCurrencyApply(ClientState conn, Item target, ItemCatalog.BaseType currency, Item? currencyItem, Random random)
+    {
+        foreach (var (owner, run) in CurrencyApply.Subscribers(conn))
+        {
+            Item? result = null;
+            if (GameEventOwners.Guard(owner, nameof(CurrencyApply), () => result = run(conn, target, currency, currencyItem, random))
+                && result is not null)
+                return result;
+        }
+        return null;
     }
 
     /// <summary>The subscribers' changes to a kill's drops; null when none of this league's changes drops.</summary>

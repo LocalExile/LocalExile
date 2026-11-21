@@ -164,8 +164,19 @@ static class VendorsFeature
         var offered = items.Offered().OrderBy(i => i.Id).ToList();
         sale.QuoteError = null;
         VendorRecipes.Quote quote;
-        try { quote = VendorSales.Value.Evaluate(offered,
-            basicSaleMultiplier: LeagueFor(conn).Rules.VendorRewardMultiplier); }
+        try
+        {
+            bool basicSale = LeagueFor(conn).Rules.VendorRewardMultiplier is not null;
+            quote = VendorSales.Value.Evaluate(offered,
+                basicSaleMultiplier: LeagueFor(conn).Rules.VendorRewardMultiplier);
+            if (GameEvents.VendorQuote.Any)
+            {
+                var extraRewards = quote.Rewards.ToList();
+                var extraRecipes = quote.Recipes.ToList();
+                GameEvents.RunVendorQuote(new VendorSaleQuote(conn, offered, extraRewards, extraRecipes, basicSale));
+                quote = new(extraRewards, extraRecipes);
+            }
+        }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {
             sale.QuoteError = ex.Message;

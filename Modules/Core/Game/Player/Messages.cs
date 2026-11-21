@@ -907,7 +907,7 @@ public static partial class Game
                     ? items.Items(targetRow).FirstOrDefault(i => i.Id == req.TargetId) : null;
                 Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
                     ? CurrencyResult(conn, target.Item, currency.Item.TypeHash,
-                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
+                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash), currency.Item)
                     : null;
                 Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
                 conn.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId,

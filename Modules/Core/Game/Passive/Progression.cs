@@ -680,17 +680,42 @@ public static partial class Game
                 ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes);
         }
 
+        HashSet<ushort>? ItemGrantedPassives(IReadOnlyList<Item> activeItems)
+        {
+            bool anyTree = false;
+            for (int i = 0; i < activeItems.Count; i++)
+                if (activeItems[i].WeaponPassiveTree is { HasTree: true, Allocation: not 0 }) { anyTree = true; break; }
+            if (!anyTree) return null;
+            HashSet<ushort>? granted = null;
+            foreach (ushort graphId in ItemModStats.GrantedPassives(activeItems, catalog.Mods))
+                if (!allocated.Contains(graphId) && tree.Find(graphId) is not null)
+                    (granted ??= []).Add(graphId);
+            return granted;
+        }
+
+        void AddItemGrantedAttributes(Dictionary<string, long> target, IReadOnlyList<Item> activeItems)
+        {
+            if (ItemGrantedPassives(activeItems) is not { } granted) return;
+            foreach (ushort graphId in granted)
+                if (tree.Find(graphId) is { } grantedNode)
+                    foreach (var (key, value) in grantedNode.Stats)
+                        if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
+                            target[name] = target.GetValueOrDefault(name) + value;
+        }
+
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
         {
             var items = active.ToArray();
             var raw = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
+            AddItemGrantedAttributes(raw, items);
             // Independent equipment-count modifiers settle before comparisons that read those final attributes.
             // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
             for (int pass = 0; pass < 4; pass++)
             {
                 var next = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods, ConditionSubject(raw, items), Stats.Has);
                 foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
+                AddItemGrantedAttributes(next, items);
                 bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
                 raw = next;
                 if (same) break;
@@ -749,6 +774,14 @@ public static partial class Game
         // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
         active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
             catalog).ToArray();
+        if (ItemGrantedPassives(active) is { } itemGrantedPassives)
+        {
+            foreach (ushort graphId in itemGrantedPassives)
+                if (tree.Find(graphId) is { } grantedNode)
+                    foreach (var (key, value) in grantedNode.Stats)
+                        passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
+            PassiveBuffAuras.WithSelfBuffs(passives, itemGrantedPassives, LeagueFor(conn).HardMode);
+        }
         var rawAttributes = RawAttributes(active);
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.

@@ -22,11 +22,24 @@ public static class InstanceProtocol
     public static byte[] StartEncryption() => new LoginWriter().U16(StartEncryptionId).ToArray();
 
     public const ushort AddRulesetId = 0x1f;
+    public const ushort RulesetMessageId = 0x02c9;
 
     /// <summary>S→C 0x1f: u8 Rulesets row, u32 (big-endian, unused by the factories). Unless the instance already holds a
     /// ruleset of that row, the client builds it from its factory table and adds it to the instance's ruleset list
     /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
     public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
+
+    /// <summary>S→C 0x02c9 (factory 0x1421bc5b0, vtable 0x1435ca360, reader 0x141fa7ca0, dispatch 0x1415a6ed8 →
+    /// Ruleset::vtable[8]): delivers a custom little-endian payload to an active ruleset registered via <see cref="AddRuleset"/>.
+    /// Wire layout: u16 BE 0x02c9, u8 Rulesets row, CompactUInt payload length (&lt;= 0xFFFF), raw payload bytes.</summary>
+    public static byte[] RulesetMessage(byte row, ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(payload), payload.Length, "0x02c9 ruleset message payload max is 65535 bytes.");
+        var w = new LoginWriter().U16(RulesetMessageId).U8(row);
+        CompactUInt(w, (uint)payload.Length);
+        return w.Bytes(payload).ToArray();
+    }
 
     /// <summary>0x1d's extra data (<see cref="AreaInstance.TerrainData"/>) holding only terrain plugin states: flag bytes
     /// 0x00, 0x01 (second byte bit 0), u8 count, then per plugin its TerrainPlugins <c>__col1</c> id (u16), the state's
@@ -163,6 +176,8 @@ public static class InstanceProtocol
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
         InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
         InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,
+        InstanceCrucible.WeaponPassiveUnallocateId => InstanceCrucible.WeaponPassiveUnallocateLength,
+        InstanceCrucible.CombineRequestId => InstanceCrucible.CombineRequestLength,
         InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
         InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
         InstanceCurrencyExchange.RequestMarketId => InstanceCurrencyExchange.RequestMarketLength, InstanceCurrencyExchange.RequestPartnersId => InstanceCurrencyExchange.RequestPartnersLength,

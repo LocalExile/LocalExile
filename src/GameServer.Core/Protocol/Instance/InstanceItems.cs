@@ -119,6 +119,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>Mods flag bit 10: a vestigial item, which the client excludes from currency modification.</summary>
     public bool Vestigial { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
+    /// <summary>Mods flag bit 7 (0x0080): weapon/shield passive skill tree (0x1424bd880 / 0x1424bdb90).</summary>
+    public WeaponPassiveTreeState? WeaponPassiveTree { get; init; }
+    /// <summary>StoredExperience component (vtable 0x143648350, read 0x141ebaec0): u32 LE stored experience (e.g. Magmatic Ore).</summary>
+    public uint StoredExperience { get; init; }
 
     /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30 the Area Level its tooltip shows, u8 +0x31
     /// the rotation, u8 a DeepwaterRooms row (+0x20). The client crashes drawing a chart whose row is out of range (0xff), so null
@@ -162,7 +166,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "StoredExperience"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -233,10 +237,12 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // properties 0x142208700 (MagicProperties), u8, u8.
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
-                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)
-                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
+                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (WeaponPassiveTree is not null ? 0x80 : 0)
+                            | (Foreseeing ? 0x100 : 0) | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
                     if (RelicStyle is byte relic) w.U8(relic);
-                    MagicProperties(w); w.U8(MemoryStrands).U8(Intangibility);
+                    MagicProperties(w);
+                    WeaponPassiveTree?.Write(w);
+                    w.U8(MemoryStrands).U8(Intangibility);
                     break;
                 case "Quality": w.U8(AlternateQualityType is null ? Quality : (byte)0); break; // 0x1424b5720
                 // The transformed original uses an unframed ordinary item payload.
@@ -248,6 +254,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20. Stored tinctures are inactive.
                 case "Tincture": w.U8(0); break;
                 case "Stack": w.U16(StackSize); break;                // 0x1423fb5f0
+                case "StoredExperience": w.U32(StoredExperience); break; // 0x141ebaec0 (vtable 0x143648350 slot 5): u32 LE
                 // 0x1423fa9d0 (write 0x1423fa920): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
                 case "Map": w.U8(0).U8(0).U8(0); break;
