@@ -32,12 +32,13 @@ public static partial class Game
     public static IReadOnlyList<EssenceSummonCast> EssenceSummonsDueLocked(ClientState conn, double now)
     {
         List<EssenceSummonCast> due = [];
-        if (conn.Closed || conn.LeavingArea || conn.Paused || !IsMonsterRunner(conn)) return due;
+        if (conn.Closed || conn.LeavingArea || conn.Paused || !IsMonsterRunner(conn)
+            || EssenceKaruiModHash.Value is not ushort mod) return due;
         var catalog = SkillsFor(conn);
         foreach (var (id, source) in conn.Monsters)
         {
             if (!source.Hostile || source.Dead || source.Life == 0 || source.WorldHidden
-                || EssenceKaruiModHash.Value is not ushort mod || !source.Mods.Mods.Any(m => m.Hash == mod)) continue;
+                || source.Mods.Mods.Count == 0 || !source.Mods.Mods.Any(m => m.Hash == mod)) continue;
             var cycle = EssenceSummonCycles.GetValue(source, s =>
                 new(catalog.MonsterSummon(catalog.EffectRow("EssenceDaemonSummonMovingKaruiSpirit"), s.Level)));
             if (!source.Aggro || source.Asleep || source.EntranceGrace)
