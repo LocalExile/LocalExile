@@ -39,5 +39,7 @@
     <ProjectReference Include="..\..\Modules\Core\World\Shrines\Shrines.csproj" />
     <!-- The tattoo vendor recipe (VendorTattooRecipeTests). -->
     <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
+    <!-- Sacred Grove Crop Rotation (HarvestCropRotationTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
   </ItemGroup>
 </Project>
