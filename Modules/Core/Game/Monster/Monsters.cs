@@ -2251,6 +2251,7 @@ public static partial class Game
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
+        MapEssences.CorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);

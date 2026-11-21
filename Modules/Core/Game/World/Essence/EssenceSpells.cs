@@ -312,6 +312,13 @@ public static partial class MapEssences
         public ushort MiseryBuff;
         public int MiserySentCount;
         public double MiseryShare;
+        /// <summary>Greed's Corrupted Blood: a stacking physical degeneration (buff 238), its share of TrapDegenPerSecond.</summary>
+        public int BloodStacks;
+        public double BloodUntil;
+        public double BloodDps;
+        public ushort BloodBuff;
+        public double BloodShare;
+        public int BloodSentStacks;
     }
     static readonly RuleTable<ClientState, EssenceEffects> Effects = new();
 
@@ -342,6 +349,7 @@ public static partial class MapEssences
             { effects.Debuffs.Remove(gone); goneBuffs.Add(gone.Buff); debuffChanged = true; }
         }
         TickMisery(conn, effects);
+        TickBlood(conn, effects);
         if (conn.Closed) return;
         var (remote, stream, ciphers) = conn.Wire;
         foreach (ushort buff in goneBuffs)
@@ -354,11 +362,12 @@ public static partial class MapEssences
     {
         if (Effects.TryGetValue(conn, out var effects))
         {
-            lock (conn.Monsters) conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - effects.MiseryShare);
+            lock (conn.Monsters) conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - effects.MiseryShare - effects.BloodShare);
             lock (effects)
             {
                 effects.Debuffs.Clear(); effects.MiseryStacks.Clear();
                 effects.MiseryShare = 0; effects.MiseryBuff = 0; effects.MiserySentCount = 0;
+                effects.BloodStacks = 0; effects.BloodUntil = 0; effects.BloodDps = 0; effects.BloodBuff = 0; effects.BloodShare = 0; effects.BloodSentStacks = 0;
             }
         }
         Effects.Remove(conn);
