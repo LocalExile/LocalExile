@@ -1178,6 +1178,8 @@ public static partial class Game
 
     public static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
+        if (SkillsFor(conn).EffectId(effect) is "AnimateGuardian" or "AnimateGuardianAltX"
+            && AnimatedGuardianUnavailable(conn)) return "the Animated Guardian died in this area";
         if (VaalMinionProxyDisabled(conn, effect, skillId) is { } proxy) return proxy;
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(conn).EffectId(effect)) is { } beastKind)
