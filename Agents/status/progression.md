@@ -60,7 +60,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
 - Passive mastery effects on defences, attributes and equipment: slot increases (helmet ES, gloves and boots armour,
   body evasion), the all-equipment and socket conditions, per-mastery attributes, six Life masteries, the full-life
-  threshold, per-dagger suppression and the shield, claw and dual-wield effects (only the helmet ES checked live).
+  threshold, per-dagger suppression and the shield, claw and dual-wield effects.
+  Not checked live: the socket, ring and amulet conditions, Claw2, Leech2 and Reservation2.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
 - Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).
