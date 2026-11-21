@@ -163,13 +163,14 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `ObjectUse` | a click on an object the Gateway's own objects did not take | `true`: it was this owner's |
 | `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
 | `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled) |
+| `Gambles` | a gamble window as it opens (an NPC whose shop is the black market, window kind 10), with `CharacterLevel` and `PriceLevel` | `Offers` (add, remove or reprice offers) |
 | `FeatureFilled` | asked with an `ExtraTerrainFeatures` row's Id when a map links that row's sub-area to it (the Sacred Grove) | `true`: this owner fills it; without one the gates into it are not shown |
 | `InventorySlot` | each of the player's inventories as it is registered with the client on entering an area (S→C 0xc0) | another kind or flags for the row; the first answer wins |
-| `InventoryRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a) | a reason refuses it; the first one wins |
+| `InventoryRefusal`, `InventoryPlacementRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a); `InventoryPlacementRefusal` also carries `Replaced`, the single item swapped onto the cursor if any | a reason refuses it; the first one wins |
 | `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like the `gm-commands` mod's `/god`: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 | `CharacterAtRest` | the character has left the game (a logout or a disconnect, not an area change) and its save is written; a login of it waits for the subscribers | the character's save, which nothing of the ended connection writes again |
-| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area, the area header, a picked NPC option | |
+| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `BeforeEnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area (after 0x21, or before it for what the client's UI reads as it attaches to the area), the area header, a picked NPC option | |
 
 The other `GameEvents` entries (kills, damage, skills, items, travel, …) are the game module's hand-overs to the other
 modules; a mod subscribes to them the same way.

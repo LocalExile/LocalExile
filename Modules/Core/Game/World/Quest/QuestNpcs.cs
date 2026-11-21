@@ -46,14 +46,20 @@ public static partial class Game
     static string NpcAppearanceKey(string variety) => "quest-npc-kill:" + variety;
 
     // A character's old kill flags do not mean a new instance's boss has died. Keep the death site in the instance;
-    // corpses are omitted from its saved monster list. A later visit uses the NPC's completed entrance state.
-    public static IEnumerable<QuestNpc> AppearedBefore(ClientState conn)
+    // corpses are omitted from its saved monster list. When a rule names a fallback room object (AtObject) for a
+    // story-critical hand-off (SinInnocence giving a5q6), a fresh instance still places the NPC there until GoneWith
+    // is set. A later visit uses the NPC's completed entrance state.
+    public static IEnumerable<QuestNpc> AppearedBefore(ClientState conn, QuestObjectTypes.AreaPlacements? placed = null)
     {
         string area = conn.Layout.Id;
         foreach (var rule in QuestsOf(conn).Appearing(area).Where(r => r.GoneWith is not null))
         {
             if (!QuestsOf(conn).OnMonsterKilled(area, rule.Variety).Any(f => ClientHasQuestFlag(conn, f))) continue;
-            if (conn.Instance.RememberedPosition(NpcAppearanceKey(rule.Variety)) is not { } at
+            var pos = conn.Instance.RememberedPosition(NpcAppearanceKey(rule.Variety));
+            if (pos is null && rule.AtObject is { } fallback && placed is not null && !ClientHasQuestFlag(conn, rule.GoneWith!)
+                && placed.Of(fallback).FirstOrDefault() is { } spot)
+                pos = (spot.X, spot.Y);
+            if (pos is not { } at
                 || Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType) continue;
             var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
             if (npc.Components?.Contains("Transitionable") == true)

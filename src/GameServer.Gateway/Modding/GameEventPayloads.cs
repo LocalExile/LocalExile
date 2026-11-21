@@ -33,17 +33,30 @@ public sealed record NpcOption(ClientState Conn, string Npc, string Category, st
 }
 
 /// <summary>A gamble window as it opens (<see cref="GameEvents.Gambles"/>).</summary>
-public sealed class GambleWindow(ClientState conn, string npc, int characterLevel)
+public sealed class GambleWindow
 {
-    public ClientState Conn { get; } = conn;
+    public GambleWindow(ClientState conn, string npc, int characterLevel) : this(conn, npc, characterLevel, characterLevel) { }
+
+    public GambleWindow(ClientState conn, string npc, int characterLevel, int priceLevel)
+    {
+        Conn = conn;
+        Npc = npc;
+        CharacterLevel = characterLevel;
+        PriceLevel = Math.Max(characterLevel, priceLevel);
+    }
+
+    public ClientState Conn { get; }
 
     public IPlayer Player => Program.PlayerOf(Conn);
 
     /// <summary>The NPC's <c>NPCs</c> id.</summary>
-    public string Npc { get; } = npc;
+    public string Npc { get; }
 
-    /// <summary>The level the prices and the items go by.</summary>
-    public int CharacterLevel { get; } = characterLevel;
+    /// <summary>The character's level, which rolled item levels and offer unlock levels go by.</summary>
+    public int CharacterLevel { get; }
+
+    /// <summary>The level prices go by: at least <see cref="CharacterLevel"/>, raised to the account's league floor for a lower-level character.</summary>
+    public int PriceLevel { get; }
 
     /// <summary>What the window offers, in order.</summary>
     public List<GambleOffer> Offers { get; } = [];
@@ -52,6 +65,14 @@ public sealed class GambleWindow(ClientState conn, string npc, int characterLeve
 /// <summary>One offer of a gamble window: the item it shows (a <c>HiddenItem</c> row such as "Random Ring"), its price in gold,
 /// what a purchase gives (null: nothing is bought) and the tab it is in.</summary>
 public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Random, GameServer.Core.Protocol.Instance.Item?> Roll, string Tab = "Gamble");
+
+/// <summary>An item about to be placed into an inventory row (<see cref="GameEvents.InventoryPlacementRefusal"/>):
+/// <paramref name="Replaced"/> is the single item that will be swapped onto the cursor, or null when none is displaced.</summary>
+public sealed record InventoryPlacement(ClientState Conn, byte Row, GameServer.Core.Protocol.Instance.Item Item,
+    GameServer.Core.Protocol.Instance.InventoryItem? Replaced)
+{
+    public IPlayer Player => Program.PlayerOf(Conn);
+}
 
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
 public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets)
@@ -100,6 +121,10 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>Scales the gold pile (1: the server's own).</summary>
     public double Gold { get; set; } = 1;
 
+    /// <summary>Scales the chance of a map-related drop (a map; 1: the server's own), as the monster stat
+    /// <c>map_related_item_drop_chance_+%_final_from_league</c> does.</summary>
+    public double MapRelated { get; set; } = 1;
+
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
 
@@ -112,6 +137,28 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 
     /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
     public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
+
+    Action<List<ItemDrops.Drop>>? _transforms;
+
+    /// <summary>True when at least one post-roll transform was registered.</summary>
+    public bool HasTransforms => _transforms is not null;
+
+    /// <summary>Registers a post-roll callback that inspects or mutates the kill's rolled drops before they are
+    /// stacked and placed on the ground. Multiple transforms run in registration order.</summary>
+    public void AddTransform(Action<List<ItemDrops.Drop>> transform)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+        _transforms += transform;
+    }
+
+    /// <summary>Runs every registered post-roll transform on <paramref name="drops"/>, in registration order.
+    /// A transform that throws is logged and skipped so later transforms and drop placement still run.</summary>
+    public void ApplyTransforms(List<ItemDrops.Drop> drops)
+    {
+        if (_transforms is null) return;
+        foreach (var transform in Delegate.EnumerateInvocationList(_transforms))
+            GameEventOwners.Guard(nameof(DropRoll), nameof(ApplyTransforms), () => transform(drops));
+    }
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>

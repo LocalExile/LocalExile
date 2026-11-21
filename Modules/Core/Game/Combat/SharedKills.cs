@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using Progression = GameServer.Core.World.Progression;
 
@@ -69,6 +70,14 @@ public static partial class Game
             });
         }
     }
+
+    // The 0x1b1 death kind of a monster's life after damage over time: DeathFromDegen at life 0.
+    // shortcut: a variety whose DeathFromDegen clip frees its body later than its Death clip (five Faridun Flesh Hulks,
+    // 166 against 150 ms) keeps the plain death, since the corpse is timed by the Death clip (KeepCorpseLocked); send
+    // the kind for them too once the corpse takes the time of the clip that plays.
+    public static byte DotDeathKind(SpawnedMonster m, uint life) =>
+        life == 0 && !(m.Variety is { } variety && Monsters.DegenDeathClipDiffers(variety.Id))
+            ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal;
 
     // An ignite, bleed or poison killed the monster on the runner's tick: the kill is the one's whose hit landed last,
     // on their own connection (their client gets the corpse, their kill effects and rewards; the others their shares).

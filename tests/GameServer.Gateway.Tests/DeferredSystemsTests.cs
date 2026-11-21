@@ -111,9 +111,10 @@ public sealed class DeferredSystemsTests
             Assert.Equal(1, released);
 
             // 3. General's Cry & Mirage Warriors: non-blocking wire flags, corpse consumption, rush & strike
-            var nonBlockingBlob = new MonsterObject(100, 100, 100, MonsterObject.BaseComponents) { NonBlocking = true }.Blob();
-            // Object header (2) + Positioned: x(4) y(4) rot(4) team(2) flags0(1) flags1(1 @17) hidden(1) shown(1) noWalkerBlock(1 @20)
+            var nonBlockingBlob = new MonsterObject(100, 100, 100, MonsterObject.BaseComponents) { Blocking = false }.Blob();
+            // Object header (2) + Positioned: x(4) y(4) rot(4) team(2) flags0(1) flags1(1 @17) hidden(1) blocking(1) noWalkerBlock(1 @20)
             Assert.Equal((byte)0x0a, nonBlockingBlob[17]);
+            Assert.Equal((byte)0, nonBlockingBlob[19]);
             Assert.Equal((byte)1, nonBlockingBlob[20]);
 
             EquipLinked(conn, "OneHandSword1", "General's Cry", "Heavy Strike");

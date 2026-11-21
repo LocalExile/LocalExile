@@ -276,7 +276,7 @@ static partial class Game
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life, u2c: DotDeathKind(m, life)),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of {effect}" : null);
             // The owner's kill (on its own frame when it is another player); with the owner gone, the death without any
             // player's on-kill effects.

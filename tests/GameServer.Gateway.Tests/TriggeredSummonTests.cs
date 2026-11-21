@@ -113,6 +113,100 @@ public sealed class TriggeredSummonTests
             Assert.Equal(3, f.Conn.Summons.Fighters.Count); Assert.Equal(action, f.Conn.ActionCount);
         }
     }
+
+    [Fact]
+    public async Task Desecrate_creates_corpses_with_nonzero_wire_life_then_zeroes_them()
+    {
+        using var f = new Fixture();
+        ushort source = f.Equip(("Desecrate", 20)).First();
+        var wire = new ConnectionCiphers(new byte[64], false);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, wire)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            Assert.True(await Game.Desecrate("test", f.Stream, wire, f.Conn, source, (100, 100), () => true, triggered: true));
+            Assert.Equal(5, f.Conn.Summons.Corpses.Count);
+            foreach (uint id in f.Conn.Summons.Corpses)
+            {
+                var corpse = f.Conn.Monsters[id];
+                var origin = f.Conn.Instance.World.MonsterOrigins[id];
+                Assert.True(corpse.Dead);
+                Assert.Equal(0u, corpse.Life);
+                Assert.Equal(1u, origin.Object.Life);
+                Assert.Equal(0u, f.Conn.MonsterViews[id].Life);
+                byte[] expected =
+                [
+                    .. InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob()),
+                    .. InstanceProtocol.EnterWakeZone(id),
+                    .. InstanceProtocol.LifeUpdate(id, 0),
+                ];
+                Assert.Contains(packets, p => p.SequenceEqual(expected));
+            }
+
+            // Guard in SpawnMonster: an owned spawn with damagedLife: 0 still puts life 1 in 0x02bb and zeroes it after.
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            uint guarded = await Game.SpawnMonster("test", f.Stream, wire, f.Conn, zombie, 1, MonsterRarity.Normal,
+                100, 100, damagedLife: 0, mods: MonsterModSet.None, unrisen: false,
+                owned: (_, m) => { m.Dead = true; m.Life = 0; m.NoRewards = true; });
+            Assert.NotEqual(0u, guarded);
+            var guardedOrigin = f.Conn.Instance.World.MonsterOrigins[guarded];
+            Assert.Equal(1u, guardedOrigin.Object.Life);
+            Assert.Equal(0u, f.Conn.MonsterViews[guarded].Life);
+            byte[] guardedExpected =
+            [
+                .. InstanceEntities.CreateObject(guarded, guardedOrigin.Type, guardedOrigin.Object.Blob()),
+                .. InstanceProtocol.EnterWakeZone(guarded),
+                .. InstanceProtocol.LifeUpdate(guarded, 0),
+            ];
+            Assert.Contains(packets, p => p.SequenceEqual(guardedExpected));
+
+            // A lockstep party member first sees these actors after the caster has already created the corpses.
+            var peer = new ClientState(f.Conn.Layout, 1, 2)
+            {
+                Instance = f.Conn.Instance, PlayerLife = 100, PlayerSent = true,
+                LockstepClient = true, Wire = ("peer", f.Stream, wire),
+            };
+            await Program.BeginWorldFrames(peer, .033);
+            packets.Clear();
+            var sync = Game.SyncInstanceMonsters("peer", f.Stream, wire, peer, reveal: false);
+            await Program.EndWorldFrame(peer, (.033, .066));
+            await sync;
+            foreach (uint id in f.Conn.Summons.Corpses)
+            {
+                var origin = peer.Instance.World.MonsterOrigins[id];
+                var create = InstanceEntities.CreateObject(id, origin.Type, origin.Object.Blob(), headerU32: uint.MaxValue);
+                Assert.Contains(packets, p => p.SequenceEqual(create));
+                Assert.DoesNotContain(packets, p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0)));
+            }
+            Assert.DoesNotContain(guarded, peer.MonsterViews.Keys);
+            packets.Clear();
+            await Program.EndWorldFrame(peer, (.066, .099));
+            foreach (uint id in f.Conn.Summons.Corpses)
+            {
+                int wake = packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.EnterWakeZone(id)));
+                Assert.True(wake >= 0 && packets.FindIndex(p => p.SequenceEqual(InstanceProtocol.LifeUpdate(id, 0))) > wake);
+            }
+            packets.Clear();
+            uint consumed = f.Conn.Summons.Corpses.Peek();
+            uint expired = f.Conn.Summons.Corpses.Skip(1).First();
+            peer.Monsters[consumed].CorpseConsumed = true;
+            peer.Monsters.Remove(expired);
+            peer.Instance.World.MonsterOrigins.TryRemove(expired, out _);
+            await Game.SyncInstanceMonsters("peer", f.Stream, wire, peer, reveal: false);
+            await Program.EndWorldFrame(peer, (.099, .132));
+            foreach (uint removed in new[] { consumed, expired })
+            {
+                Assert.DoesNotContain(removed, peer.MonsterViews.Keys);
+                Assert.Single(packets, p => p.Length == 12 && p[0] == 2 && p[1] == 0xbd
+                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)) == removed);
+            }
+        }
+        finally
+        {
+            Program.Outgoing = outgoing;
+        }
+    }
     internal sealed class Fixture : IDisposable
     {
         readonly string save = Path.Combine(Path.GetTempPath(), $"animated-admission-{Guid.NewGuid():N}.db");
