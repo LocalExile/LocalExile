@@ -178,7 +178,6 @@ public static class InstanceProtocol
         InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,
         InstanceCrucible.WeaponPassiveUnallocateId => InstanceCrucible.WeaponPassiveUnallocateLength,
         InstanceCrucible.CombineRequestId => InstanceCrucible.CombineRequestLength,
-        InstanceCrucible.UniqueForgeRequestId => InstanceCrucible.UniqueForgeRequestLength,
         InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
         InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
         InstanceCurrencyExchange.RequestMarketId => InstanceCurrencyExchange.RequestMarketLength, InstanceCurrencyExchange.RequestPartnersId => InstanceCurrencyExchange.RequestPartnersLength,

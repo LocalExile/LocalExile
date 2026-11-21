@@ -125,8 +125,6 @@ public static class InstanceWaypoints
     public const ushort DescendancyChosenId = 0x3a, DescendancyChosenLength = 3;
     /// <summary>S→C 0x7b kind 0x4a: CrucibleCombiningWindow (0x14216b497 → HUD+0x960). arg1 = 0 normal, 1 uber.</summary>
     public const byte CrucibleCombiningUi = 0x4a;
-    /// <summary>S→C 0x7b kind 0x4b: CrucibleAddWeaponTreeToItemCraftingWindow (0x14216b505). arg1 = mode (0/1/2), arg2 = forge entity id.</summary>
-    public const byte CrucibleUniqueForgeUi = 0x4b;
     /// <summary>S→C 0x7b kind 0x4c: the Bloodline/Wildwood class selector (<c>DescendancyClassSelectorWindow</c>). Its
     /// first u32 is the 0-based <c>Descendancy.dat</c> row the client previews (0 = None); the handler
     /// <c>0x142169dd0</c> reads the row and notifies the listeners at instance +0x1af8. Accept sends 0x3a.</summary>

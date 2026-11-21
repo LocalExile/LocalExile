@@ -148,26 +148,11 @@ public static class CrucibleItemActions
             return true;
         }
 
-        // Check exact inventory id first, then fall back to RowOf(itemId) (some panels send 0-based vs 1-based ids).
         if (PlayerInventories.Row(inventoryId) is byte directRow
             && items.Items(directRow).FirstOrDefault(i => i.Id == itemId) is { } direct)
         {
             row = directRow;
             found = direct;
-            return true;
-        }
-        if (PlayerInventories.Row(inventoryId + 1) is byte shiftedRow
-            && items.Items(shiftedRow).FirstOrDefault(i => i.Id == itemId) is { } shifted)
-        {
-            row = shiftedRow;
-            found = shifted;
-            return true;
-        }
-        if (items.RowOf(itemId) is byte fallbackRow
-            && items.Items(fallbackRow).FirstOrDefault(i => i.Id == itemId) is { } fallback)
-        {
-            row = fallbackRow;
-            found = fallback;
             return true;
         }
         return false;

@@ -96,6 +96,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [game/drop-research-roadmap.md](game/drop-research-roadmap.md) | the working checklist for currency, card, boss and penalty research |
 | [game/king-in-the-mists.md](game/king-in-the-mists.md) | The King in the Mists: Crux entry, both forms, phase data, skills, loot and implementation boundaries |
 | [game/sirus.md](game/sirus.md) | Sirus: arena, forms, kit, clips and their events, storms, mods; the client code side in [game/sirus-client.md](game/sirus-client.md) |
+| [game/crucible.md](game/crucible.md) | Crucible (3.21): what the 3.29 client lacks, the tree on an item, the Forge's objects, Forge of the Titans, our own numbers |
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |
 | [game/ancestral-commander.md](game/ancestral-commander.md) | Ancestral Commander node checklist: every node but Spirit of Rakiata has a consumer (Deathrattle, the strike nodes, the four Spirits and Forest of Ancestors partly); read-only opt-in |

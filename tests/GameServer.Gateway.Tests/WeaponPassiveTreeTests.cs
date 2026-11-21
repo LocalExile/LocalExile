@@ -49,19 +49,16 @@ public class WeaponPassiveTreeTests : IDisposable
         Assert.Throws<InvalidDataException>(() => (new Item(1, ["Mods"], 0)
             { WeaponPassiveTree = new(1, 0, true, Layout: 0x0003, Nodes: [n0]) }).Payload());
 
-        // 2. Crucible C→S framing (0x0116, 0x0299, 0x029b), S→C (0x007b 0x4a/0x4b, 0x029a, 0x029c, 0x02c9) and ControlZone blob.
+        // 2. Crucible C→S framing (0x0116, 0x0299), S→C (0x007b 0x4a, 0x029a, 0x02c9) and ControlZone blob.
         byte[] unalloc = Convert.FromHexString("0116" + "000000010000002A00000002000000070000000300000002");
         byte[] combineReq = Convert.FromHexString("0299" + "00000001000000100000000100000020");
-        byte[] uniqueReq = Convert.FromHexString("029B" + "0000000100000033");
         Assert.Equal(new InstanceCrucible.WeaponPassiveUnallocate(1, 0x2A, 2, 7, 3, 2), InstanceCrucible.ReadWeaponPassiveUnallocate(unalloc));
         Assert.Equal(new InstanceCrucible.CombineRequest(1, 0x10, 1, 0x20), InstanceCrucible.ReadCombineRequest(combineReq));
-        Assert.Equal(new InstanceCrucible.UniqueForgeRequest(1, 0x33), InstanceCrucible.ReadUniqueForgeRequest(uniqueReq));
-        var split = InstanceProtocol.SplitClientMessages([.. unalloc, .. combineReq, .. uniqueReq], out var partial, out var unknown);
-        Assert.Equal([26, 18, 10], split.Select(m => m.Bytes.Length).ToArray());
+        var split = InstanceProtocol.SplitClientMessages([.. unalloc, .. combineReq], out var partial, out var unknown);
+        Assert.Equal([26, 18], split.Select(m => m.Bytes.Length).ToArray());
         Assert.Empty(partial);
         Assert.Empty(unknown);
         Assert.Equal("007B4A00000001000000000000000000000000", Convert.ToHexString(InstanceCrucible.OpenCombiningUi(uber: true)));
-        Assert.Equal("007B4B00000002000012340000000000000000", Convert.ToHexString(InstanceCrucible.OpenUniqueForgeUi(InstanceCrucible.ScouringForgeMode, 0x1234)));
         Assert.Equal(
             "029A000000010000002002000000000000000001000000020000000106",
             Convert.ToHexString(InstanceCrucible.CombineResult(1, 0x20,
@@ -69,7 +66,6 @@ public class WeaponPassiveTreeTests : IDisposable
                 new(0, 0, InstanceCrucible.NodeMutationFlags.UpgradedTier),
                 new(2, 1, InstanceCrucible.NodeMutationFlags.DowngradedTier | InstanceCrucible.NodeMutationFlags.Mutated),
             ])));
-        Assert.Equal("029C0000000100000033", Convert.ToHexString(InstanceCrucible.UniqueForgeResult(1, 0x33)));
         Assert.Equal("02C9890100", Convert.ToHexString(InstanceCrucible.ForgeEnterZone()));
         Assert.Equal("02C9890101", Convert.ToHexString(InstanceCrucible.ForgeLeaveZone()));
         Assert.Equal("02C9890102", Convert.ToHexString(InstanceCrucible.ForgeLockWeapon()));
@@ -295,6 +291,22 @@ public class WeaponPassiveTreeTests : IDisposable
             Assert.True(CrucibleTreeEngine.CanHaveTree(uniqueBow, unlistedType, mods));
             Assert.False(CrucibleTreeEngine.CanChannelInForge(uniqueBow, unlistedType, mods));
             Assert.True(CrucibleTreeEngine.CanChannelInForge(uniqueBow with { WeaponPassiveTree = path }, unlistedType, mods));
+
+            // The combining bench refuses what the client's window refuses, by its ClientStrings row: another class
+            // category always, a corrupted or unique item only on the normal bench. A combined tree keeps its root.
+            ItemCatalog.BaseType Weapon(string id) => catalog.Find("Metadata/Items/Weapons/OneHandWeapons/" + id)!;
+            var (sword, rapier, axe) = (Weapon("OneHandSwords/OneHandSword1"), Weapon("OneHandThrustingSwords/Rapier1"), Weapon("OneHandAxes/OneHandAxe1"));
+            Item Forged(ItemCatalog.BaseType type) => ItemCatalog.Create(type) with { ItemLevel = 84, WeaponPassiveTree = path };
+            Assert.Equal(0, CrucibleTreeEngine.CombineRefusal(Forged(rapier), rapier, Forged(sword), sword, mods, uber: false));
+            Assert.Equal(6789, CrucibleTreeEngine.CombineRefusal(Forged(axe), axe, Forged(sword), sword, mods, uber: true));
+            Assert.Equal(6785, CrucibleTreeEngine.CombineRefusal(ItemCatalog.Create(sword), sword, Forged(sword), sword, mods, uber: true));
+            Assert.Equal(1203, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { Corrupted = true }, sword, Forged(sword), sword, mods, uber: false));
+            Assert.Equal(0, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { Corrupted = true }, sword, Forged(sword), sword, mods, uber: true));
+            Assert.Equal(6791, CrucibleTreeEngine.CombineRefusal(Forged(sword) with { Rarity = ItemRarity.Unique }, sword, Forged(sword), sword, mods, uber: true));
+            var combined = CrucibleTreeEngine.CombineTrees(Forged(rapier), Forged(sword), sword, mods,
+                CrucibleTreeEngine.CombineModifiers.From(MapMods.None), new Random(1)).Result;
+            Assert.True(combined.WeaponPassiveTree!.IsAllocated(0, 0));
+            Assert.NotEmpty(combined.Payload());
 
             // The "sells for an additional Unique" skill pays a unique of the base its value names (0: the item's own).
             var sellMod = mods.ById("WeaponTreeSellPriceSpecificUnique")!;

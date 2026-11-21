@@ -89,7 +89,7 @@ public static class CrucibleSellRewards
                 int stack = Math.Min(total, maxStack);
                 var item = ItemCatalog.Create(type) with { StackSize = (ushort)stack };
                 if (baseId.Equals(CrucibleTables.MagmaticOreId, StringComparison.OrdinalIgnoreCase))
-                    item = item with { StoredExperience = CrucibleTables.RemnantOreExperience };
+                    item = item with { StoredExperience = CrucibleTables.SellNodeOreExperience };
                 rewards.Add(item);
                 total -= stack;
             }

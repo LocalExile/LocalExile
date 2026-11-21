@@ -79,72 +79,22 @@ public static class CrucibleMonsters
         return new MonsterModSet([], [], new MonsterModEffects(stats));
     }
 
-    /// <summary>
-    /// Rolls a monster pack for one Forge of the Titans spawner node using <c>CrucibleEndgameMonsterPacks.dat</c>.
-    /// </summary>
-    public static List<(string VarietyId, MonsterRarity Rarity)> RollEndgamePack(
-        CrucibleTables tables, ThemePool theme, bool uber, int moreUniquePercent, Random random)
+    /// <summary>One pack of Forge of the Titans: a row of <c>CrucibleEndgameMonsterPacks</c> by its weight, and the
+    /// theme's monsters it counts. The theme's two bosses are Unique, the rest Normal.</summary>
+    public static List<(MonsterCatalog.Variety Variety, MonsterRarity Rarity)> RollEndgamePack(
+        CrucibleTables tables, ThemePool theme, Random random)
     {
-        var packs = tables.EndgamePacks;
-        if (packs.Count == 0 || theme.Normal.Count == 0) return [];
-
-        // Weighted pick across the 8 tiers; moreUniquePercent boosts boss tiers (Tier8/Tier9).
-        int totalWeight = 0;
-        var weights = new int[packs.Count];
-        for (int i = 0; i < packs.Count; i++)
+        var result = new List<(MonsterCatalog.Variety, MonsterRarity)>();
+        int roll = random.Next(Math.Max(1, tables.EndgamePacks.Sum(p => p.Weight)));
+        foreach (var pack in tables.EndgamePacks)
         {
-            int w = Math.Max(1, packs[i].Weight);
-            if (packs[i].IsBossTier && moreUniquePercent > 0)
-                w = w * (100 + moreUniquePercent) / 100;
-            if (uber && packs[i].IsBossTier)
-                w = w * 3 / 2;
-            weights[i] = w;
-            totalWeight += w;
-        }
-
-        int roll = random.Next(totalWeight);
-        var chosen = packs[^1];
-        for (int i = 0; i < packs.Count; i++)
-        {
-            if (roll < weights[i]) { chosen = packs[i]; break; }
-            roll -= weights[i];
-        }
-
-        var result = new List<(string, MonsterRarity)>();
-        if (chosen.IsBossTier && theme.Bosses.Count > 0)
-        {
-            string boss = theme.Bosses[random.Next(theme.Bosses.Count)];
-            result.Add((boss, MonsterRarity.Unique));
-            // Boss packs get a small escort of normal/magic monsters.
-            for (int k = 0; k < 2; k++)
-                result.Add((theme.Normal[random.Next(theme.Normal.Count)], MonsterRarity.Magic));
-            return result;
-        }
-
-        int count = Math.Max(2, chosen.MinPack + random.Next(2));
-        // Higher tiers (lower row index in CrucibleEndgameMonsterPacks) spawn rarer monsters.
-        MonsterRarity leadRarity = chosen.Row <= 3 ? MonsterRarity.Rare
-            : chosen.Row <= 5 ? MonsterRarity.Magic
-            : MonsterRarity.Normal;
-
-        for (int k = 0; k < count; k++)
-        {
-            string variety = theme.Normal[random.Next(theme.Normal.Count)];
-            var rarity = k == 0 ? leadRarity : (leadRarity == MonsterRarity.Rare && k == 1 ? MonsterRarity.Magic : MonsterRarity.Normal);
-            result.Add((variety, rarity));
+            if ((roll -= pack.Weight) >= 0) continue;
+            for (int i = 0; i < pack.TierCounts.Length; i++)
+                for (int n = 0; n < pack.TierCounts[i]; n++)
+                    if (VarietyForTier(theme, i + 1) is { } variety)
+                        result.Add((variety, i >= theme.Normal.Count ? MonsterRarity.Unique : MonsterRarity.Normal));
+            break;
         }
         return result;
-    }
-
-    /// <summary>Finds a supported <see cref="MonsterCatalog.Variety"/> from a variety path list, falling back to any supported Crucible variety.</summary>
-    public static MonsterCatalog.Variety? ResolveVariety(string preferredId, ThemePool fallbackTheme)
-    {
-        if (Monsters.Find(preferredId) is { Supported: true } direct) return direct;
-        foreach (string id in fallbackTheme.Normal)
-            if (Monsters.Find(id) is { Supported: true } found) return found;
-        foreach (var pool in Pools)
-            foreach (string id in pool.Normal)
-                if (Monsters.Find(id) is { Supported: true } found) return found;
-        return null;
     }
 }

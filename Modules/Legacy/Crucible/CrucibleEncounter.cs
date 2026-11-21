@@ -23,8 +23,7 @@ namespace GameServer.Modules.Crucible;
 /// </summary>
 public static class CrucibleEncounter
 {
-    /// <summary>Masked granted skill id (&lt;= 0x3fff) matching SkillCatalog's ActionTypes.HASH16 &amp; 0x3fff convention.</summary>
-    public const ushort CrucibleChannelSkillId = (ushort)(InstanceCrucible.CrucibleChannelSkillHash & 0x3fff);
+    const ushort CrucibleChannelSkillId = InstanceCrucible.CrucibleChannelSkillHash;
 
     // Our own numbers: GGG never published them, and no client table holds them.
     const double ZoneEnterRadius = 18.0;
@@ -137,7 +136,7 @@ public static class CrucibleEncounter
         Views.Clear();
     }
 
-    static IEnumerable<ClientState> Members(ClientState conn) =>
+    internal static IEnumerable<ClientState> Members(ClientState conn) =>
         conn.Instance.PlayersExcept(conn.PeerId)
             .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
             .Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, conn.Instance)).Distinct();
@@ -159,9 +158,8 @@ public static class CrucibleEncounter
         if (devicePlacement is null) return;
 
         var (remote, stream, ciphers) = conn.Wire;
-        byte ruleset = CrucibleTables.Current.CrucibleRulesRow ?? InstanceCrucible.CrucibleRulesetRow;
-        await Send(remote, stream, ciphers, InstanceProtocol.AddRuleset(ruleset),
-            $"0x001f ruleset CrucibleRules (row {ruleset})");
+        await Send(remote, stream, ciphers, InstanceProtocol.AddRuleset(InstanceCrucible.CrucibleRulesetRow),
+            "0x001f ruleset CrucibleRules");
 
         var encounter = Instances.GetOrCreateValue(conn.Instance);
         WorldObj[] objects;
@@ -297,7 +295,8 @@ public static class CrucibleEncounter
         return skill is not null ? [skill] : [];
     }
 
-    /// <summary>Binds <c>crucible_channel</c> onto the first open skill-bar slot when granted.</summary>
+    /// <summary>Binds <c>crucible_channel</c> onto the first open skill-bar slot when granted. Ours: the real game
+    /// channels by click-and-hold in the popup, which the 3.29 client's empty popup cannot start.</summary>
     public static void OnSkillBarBuilding(ClientState conn, ushort[] ids)
     {
         if (!HasForge(conn, out var encounter) || encounter.Phase is Phase.Completed) return;
@@ -312,8 +311,7 @@ public static class CrucibleEncounter
 
     /// <summary>The pick of a changed client's Forge popup, as the action of ruleset 0x89 (little-endian). The 3.21
     /// client sent two: u8 0, u32 item id, u32 inventory id for the item (both 0 for Back: no item, so nothing changes),
-    /// and u8 1, u8 column, u8 row for a skill of the item sent last. Our own first form is read too: u8 1,
-    /// u32 inventory id, u32 item id, u8 column (0xff: no skill, unlock the tree), u8 row.</summary>
+    /// and u8 1, u8 column, u8 row for a skill of the item sent last.</summary>
     static (uint InventoryId, uint ItemId, int Column, int Row)? ReadSelection(ReadOnlySpan<byte> payload, PlayerView view) =>
         payload.Length switch
         {
@@ -321,9 +319,6 @@ public static class CrucibleEncounter
                 (BinaryPrimitives.ReadUInt32LittleEndian(payload[5..]), BinaryPrimitives.ReadUInt32LittleEndian(payload[1..]), -1, 0),
             3 when payload[0] == 1 && view.TargetItemId != 0 =>
                 (PlayerInventories.InventoryId(view.TargetRow), view.TargetItemId, payload[1], payload[2]),
-            11 when payload[0] == 1 =>
-                (BinaryPrimitives.ReadUInt32LittleEndian(payload[1..]), BinaryPrimitives.ReadUInt32LittleEndian(payload[5..]),
-                    payload[9] == 0xff ? -1 : payload[9], payload[10]),
             _ => null,
         };
 
@@ -331,7 +326,7 @@ public static class CrucibleEncounter
     public static async Task<bool> HandleRulesetAction(ClientState conn, byte[] bytes)
     {
         var (rules, payload) = InstanceRulesets.ReadAction(bytes);
-        if (rules != (CrucibleTables.Current.CrucibleRulesRow ?? InstanceCrucible.CrucibleRulesetRow)) return false;
+        if (rules != InstanceCrucible.CrucibleRulesetRow) return false;
         if (Views.TryGetValue(conn, out var view) && ReadSelection(payload, view) is var (inventory, item, column, row)
             && PlayerInventories.Row(inventory) is byte itemRow)
             await SelectTarget(conn, itemRow, item, column, row);
@@ -438,7 +433,7 @@ public static class CrucibleEncounter
     /// frame of the popup's click-and-hold.</summary>
     public static async Task<bool> HandleChannelSkill(ClientState conn, ushort skillId, ushort sequence, ushort flags)
     {
-        if (skillId != CrucibleChannelSkillId && skillId != InstanceCrucible.CrucibleChannelSkillHash) return false;
+        if (skillId != CrucibleChannelSkillId) return false;
         if (!HasForge(conn, out var encounter) || encounter.Device is not { } device) return true;
         var view = Views.GetOrCreateValue(conn);
         if (view.Holding)
@@ -492,9 +487,6 @@ public static class CrucibleEncounter
         }
         return true;
     }
-
-    /// <summary>Takes a channeller's C→S <c>0x0197</c>/<c>0x0198</c> aim updates while they hold <c>CrucibleChannel</c>.</summary>
-    public static Task<bool> HandleChannelUpdate(ClientState conn) => Task.FromResult(IsHolding(conn));
 
     public static bool IsHolding(ClientState conn) =>
         HasForge(conn, out _) && Views.TryGetValue(conn, out var view) && view.Holding;
@@ -556,6 +548,10 @@ public static class CrucibleEncounter
     {
         var view = Views.GetOrCreateValue(conn);
         var (remote, stream, ciphers) = conn.Wire;
+        // Who dies gets no experience, also when resurrected before the last kill. Ours: GGG only says "if you
+        // complete the encounter" (Q&A).
+        if (conn.PlayerLife == 0)
+            lock (encounter.Channellers) encounter.Channellers.Remove(conn);
 
         if (encounter.Phase is Phase.Idle or Phase.Channeling)
         {
@@ -580,8 +576,10 @@ public static class CrucibleEncounter
             }
             else if (view.InZone && distanceSquared > ZoneLeaveRadius * ZoneLeaveRadius)
             {
-                // Any channeller leaving the ring starts the wave (GGG Q&A).
-                if (view.Holding) await Release(conn, encounter);
+                // "Once anyone who has channelled steps outside of the molten ring" the wave starts (GGG Q&A).
+                bool channelled;
+                lock (encounter.Channellers) channelled = encounter.Channellers.Contains(conn);
+                if (channelled) await Release(conn, encounter);
                 else
                 {
                     view.InZone = false;

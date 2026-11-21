@@ -4,7 +4,7 @@ namespace GameServer.Modules.Crucible;
 
 /// <summary>
 /// Crucible Weapon Passive Tree generation, XP progression, node allocation/unallocation, Magmatic Ore application,
-/// Antique/Scouring Furnace operations, and Forge of the Titans tree combining with mutations &amp; Remnant modifiers.
+/// and Forge of the Titans tree combining.
 /// </summary>
 public static class CrucibleTreeEngine
 {
@@ -13,7 +13,6 @@ public static class CrucibleTreeEngine
     static readonly HashSet<int> OneHandWeaponClasses = [6, 7, 8, 9, 10, 11, 12, 32, 56];
     static readonly HashSet<int> TwoHandWeaponClasses = [13, 14, 15, 16, 17, 37, 57];
     const int ShieldClass = 26;
-    const int QuiverClass = 20;
 
     const string UniqueShieldTreeStat = "local_unique_can_have_shield_weapon_passive_tree";
     const string Unique2HSwordTreeStat = "local_unique_can_have_two_handed_sword_weapon_passive_tree";
@@ -24,7 +23,6 @@ public static class CrucibleTreeEngine
     /// <summary>Weapon/shield category used for eligibility and Forge of the Titans combining compatibility.</summary>
     public static WeaponCategory CategoryOf(Item item, ItemCatalog.BaseType type, ModCatalog mods)
     {
-        if (type.ClassRow == QuiverClass) return WeaponCategory.None;
         if (type.ClassRow == ShieldClass) return WeaponCategory.Shield;
         if (OneHandWeaponClasses.Contains(type.ClassRow)) return WeaponCategory.OneHand;
         if (TwoHandWeaponClasses.Contains(type.ClassRow)) return WeaponCategory.TwoHand;
@@ -97,7 +95,7 @@ public static class CrucibleTreeEngine
         {
             var (col, _) = CrucibleTreeTopology.Coords(bit);
             if (PickSkillForColumn(tables, mods, tags, ilvl, col + 1, usedFamilies, usedSkillIds,
-                allowMutations: false, forceSellBonus: false, random) is { } chosen)
+                allowMutations: false, random) is { } chosen)
             {
                 usedSkillIds.Add(chosen.Skill.Id);
                 foreach (int fam in chosen.Mod.Families) usedFamilies.Add(fam);
@@ -273,67 +271,55 @@ public static class CrucibleTreeEngine
         return AwardExperience(target, type, mods, storedExperience, random, out _, out _);
     }
 
-    /// <summary>Remnant combining modifiers active in the current Forge of the Titans instance.</summary>
-    public sealed record CombineModifiers(
-        bool CannotDowngradeTiers,
-        int ExtraUpgradeTierChance,
-        bool MoreLikelySkillsKept,
-        bool AdditionalSellNode,
-        bool Quality30,
-        bool CorruptionImplicit,
-        bool FullyLinked,
-        bool RerollModValues)
+    /// <summary>The Remnant modifiers that change a combine in this Forge of the Titans.</summary>
+    public sealed record CombineModifiers(bool CannotDowngradeTiers, int ExtraUpgradeTierChance, bool MoreLikelySkillsKept, bool Quality30)
     {
         public static CombineModifiers From(MapMods mods) => new(
             CannotDowngradeTiers: mods.Get("map_crucible_combining_tiers_cannot_be_downgraded") > 0,
             ExtraUpgradeTierChance: Math.Max(0, mods.Get("map_crucible_combining_+_chance_%_for_upgraded_tiers")),
             MoreLikelySkillsKept: mods.Get("map_crucible_combining_more_likely_skills_are_kept") > 0,
-            AdditionalSellNode: mods.Get("map_crucible_combining_additional_sell_node") > 0,
-            Quality30: mods.Get("map_crucible_combining_item_has_30_quality") > 0,
-            CorruptionImplicit: mods.Get("map_crucible_combining_item_has_corruption_implicit") > 0,
-            FullyLinked: mods.Get("map_crucible_combining_item_is_fully_linked") > 0,
-            RerollModValues: mods.Get("map_crucible_combining_item_has_mod_values_rerolled") > 0);
+            Quality30: mods.Get("map_crucible_combining_item_has_30_quality") > 0);
     }
 
-    /// <summary>Checks whether two items are eligible to be combined at the Crucible Combining Bench.</summary>
-    public static bool CanCombinePair(
+    // ESTIMATE, in per mille: the only measured combining odds, counted over 30 to 40 combines by the player Poe Noob
+    // (poewiki "Crucible Passive Skill Tree" gives the same model without numbers). GGG never published any.
+    const int KeptOnBothSides = 930, KeptOnOneSide = 700;
+    const int AllocatedSideChosen = 700;
+    const int MutateChance = 66, TierUpChance = 21, TierDownChance = 16;
+    // Our own number, GGG never published it: what the Remnant's "more likely to be retained" adds to both keep chances.
+    const int RetainedMore = 150;
+
+    /// <summary>Why the combining bench refuses this pair: the ClientStrings row the client's window shows for it, 0
+    /// when it enables Forge. The client's checks in their order: each item <c>0x1424bb530</c>, the surviving item
+    /// <c>0x1424bb770</c>, the pair <c>0x1424bb850</c>. The uber bench lifts the unique and corrupted checks.</summary>
+    public static int CombineRefusal(
         Item top, ItemCatalog.BaseType topType,
         Item bottom, ItemCatalog.BaseType bottomType,
-        ModCatalog mods, bool uber, out string reason)
+        ModCatalog mods, bool uber)
     {
-        reason = "";
-        if (top.WeaponPassiveTree is not { HasTree: true } || bottom.WeaponPassiveTree is not { HasTree: true })
+        foreach (var (item, type) in new[] { (bottom, bottomType), (top, topType) })
         {
-            reason = "Both items must have revealed Crucible Passive Trees.";
-            return false;
+            if (item.SkinTransferSource is not null) return 6384;
+            if (type.Components.Contains("Transformed")) return 1265;
+            if (!item.Components.Contains("Mods")) return 1237;
+            if (!item.Identified) return 1211;
+            if (item.Sockets.Any(s => s.Gem is not null)) return 1229;
+            // The client tests the tree's layout ([+0x140] == 0): a tree whose first skill could not be filled is none.
+            if (item.WeaponPassiveTree is not { HasTree: true, Layout: not 0 }) return 6785;
+            if (item.Mirrored) return 1223;
+            if (uber) continue;
+            if (item.Rarity == ItemRarity.Unique) return 1392;
+            if (item.Corrupted && !HasModStat(item, mods, "local_item_allow_modification_while_corrupted")) return 1203;
         }
-        if (top.Mirrored || bottom.Mirrored)
+        if (bottomType.Unmodifiable) return 6401;
+        if (!CanHaveTree(bottom, bottomType, mods)) return 6792;
+        if (CrucibleTables.Current.ClassCategory(topType.ClassRow) != CrucibleTables.Current.ClassCategory(bottomType.ClassRow)) return 6789;
+        if (top.Rarity == ItemRarity.Unique || bottom.Rarity == ItemRarity.Unique)
         {
-            reason = "Mirrored items cannot be combined.";
-            return false;
+            static IEnumerable<ushort> Explicit(Item item) => item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => m.Hash);
+            if (top.Rarity != bottom.Rarity || top.TypeHash != bottom.TypeHash || !Explicit(top).SequenceEqual(Explicit(bottom))) return 6791;
         }
-        bool anyUnique = top.Rarity == ItemRarity.Unique || bottom.Rarity == ItemRarity.Unique;
-        if (anyUnique)
-        {
-            if (!uber)
-            {
-                reason = "This Crucible Forge cannot combine Unique items.";
-                return false;
-            }
-            if (top.Rarity != ItemRarity.Unique || bottom.Rarity != ItemRarity.Unique || top.TypeHash != bottom.TypeHash)
-            {
-                reason = "Unique items can only be combined with another copy of the same Unique base.";
-                return false;
-            }
-        }
-        var topCat = CategoryOf(top, topType, mods);
-        var botCat = CategoryOf(bottom, bottomType, mods);
-        if (topCat == WeaponCategory.None || topCat != botCat)
-        {
-            reason = "Both items must be of the same weapon or shield category.";
-            return false;
-        }
-        return true;
+        return 0;
     }
 
     /// <summary>
@@ -344,17 +330,15 @@ public static class CrucibleTreeEngine
         Item top,
         Item bottom,
         ItemCatalog.BaseType bottomType,
-        ItemCatalog catalog,
-        ItemRolls rolls,
-        UniqueCatalog uniques,
+        ModCatalog mods,
         CombineModifiers modifiers,
         Random random)
     {
         var tables = CrucibleTables.Current;
-        var mods = catalog.Mods;
         var tTop = top.WeaponPassiveTree!;
         var tBot = bottom.WeaponPassiveTree!;
 
+        // Ours: a new or stepped skill may be of the higher item level of the two.
         int ilvl = Math.Clamp((int)Math.Max(top.ItemLevel, bottom.ItemLevel), 1, 100);
         var tags = RollTagsFor(bottom, bottomType, mods);
 
@@ -366,153 +350,75 @@ public static class CrucibleTreeEngine
         ushort rawLeft = 0;
         ushort rawRight = 0;
 
+        // A mutation gives a skill neither tree has.
         var usedFamilies = new HashSet<int>();
         var usedSkillIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in tTop.Nodes.Concat(tBot.Nodes))
+        {
+            if (ResolveSkill(tables, mods, node.ModHash) is { } skill) usedSkillIds.Add(skill.Id);
+            if (mods.ByHash(node.ModHash) is { } mod) usedFamilies.UnionWith(mod.Families);
+        }
 
-        int allocKeepChance = modifiers.MoreLikelySkillsKept ? 85 : 70;
-        int unallocKeepChance = modifiers.MoreLikelySkillsKept ? 55 : 40;
-        int upgradeChance = Math.Clamp(10 + modifiers.ExtraUpgradeTierChance, 0, 85);
-        int sameSkillUpgradeChance = Math.Clamp(25 + modifiers.ExtraUpgradeTierChance, 0, 95);
+        int retained = modifiers.MoreLikelySkillsKept ? RetainedMore : 0;
+        int tierUp = TierUpChance + modifiers.ExtraUpgradeTierChance * 10;
+        int tierDown = modifiers.CannotDowngradeTiers ? 0 : TierDownChance;
 
         for (int bit = 0; bit < CrucibleTreeTopology.MaxSlots; bit++)
         {
             var (col, row) = CrucibleTreeTopology.Coords(bit);
-            int spawnCol = col + 1;
-            bool hasTop = tTop.HasNode(col, row);
-            bool hasBot = tBot.HasNode(col, row);
-            if (!hasTop && !hasBot) continue;
+            var topNode = tTop.NodeAt(col, row);
+            var botNode = tBot.NodeAt(col, row);
+            if (topNode is null && botNode is null) continue;
+            bool both = topNode is not null && botNode is not null;
+            if (random.Next(1000) >= (both ? KeptOnBothSides : KeptOnOneSide) + retained) continue;
 
-            var topNode = hasTop ? tTop.NodeAt(col, row) : null;
-            var botNode = hasBot ? tBot.NodeAt(col, row) : null;
-            bool topAlloc = hasTop && tTop.IsAllocated(col, row);
-            bool botAlloc = hasBot && tBot.IsAllocated(col, row);
-
-            WeaponPassiveTreeNode? chosen = null;
+            bool topAlloc = tTop.IsAllocated(col, row);
+            bool botAlloc = tBot.IsAllocated(col, row);
+            int topChance = topAlloc == botAlloc ? 500 : topAlloc ? AllocatedSideChosen : 1000 - AllocatedSideChosen;
+            var chosen = (both ? random.Next(1000) < topChance ? topNode : botNode : topNode ?? botNode)!;
             var mutFlags = InstanceCrucible.NodeMutationFlags.None;
 
-            if (topNode is not null && botNode is not null)
+            int roll = random.Next(1000);
+            if (roll < MutateChance)
             {
-                var topSkill = ResolveSkill(tables, mods, topNode.ModHash);
-                var botSkill = ResolveSkill(tables, mods, botNode.ModHash);
-
-                if (topSkill is not null && botSkill is not null && topSkill.Id == botSkill.Id)
-                {
-                    // Matching skill in both trees: keep the higher tier and roll for a tier upgrade.
-                    chosen = topSkill.Tier >= botSkill.Tier ? topNode : botNode;
-                    var higherSkill = topSkill.Tier >= botSkill.Tier ? topSkill : botSkill;
-                    if (random.Next(100) < sameSkillUpgradeChance && TryStepTier(tables, mods, higherSkill, +1, ilvl, random) is { } upgraded)
-                    {
-                        chosen = upgraded;
-                        mutFlags |= InstanceCrucible.NodeMutationFlags.UpgradedTier;
-                    }
-                }
-                else
-                {
-                    int wTop = topAlloc ? (modifiers.MoreLikelySkillsKept ? 80 : 70) : 30;
-                    int wBot = botAlloc ? (modifiers.MoreLikelySkillsKept ? 80 : 70) : 30;
-                    chosen = random.Next(wTop + wBot) < wTop ? topNode : botNode;
-                }
-                slotAllocCandidate[bit] = topAlloc || botAlloc;
-            }
-            else
-            {
-                bool isAlloc = topAlloc || botAlloc;
-                int keepChance = col == 0 ? 100 : (isAlloc ? allocKeepChance : unallocKeepChance);
-                if (random.Next(100) < keepChance)
-                {
-                    chosen = topNode ?? botNode;
-                    slotAllocCandidate[bit] = isAlloc;
-                }
-            }
-
-            if (chosen is null) continue;
-
-            // Avoid duplicate mod family across slots; if duplicated, mutate into a fresh skill.
-            var chosenMod = mods.ByHash(chosen.ModHash);
-            var chosenSkill = ResolveSkill(tables, mods, chosen.ModHash);
-            bool duplicate = (chosenSkill is not null && usedSkillIds.Contains(chosenSkill.Id))
-                || (chosenMod is not null && chosenMod.Families.Any(usedFamilies.Contains));
-
-            if (duplicate || (mutFlags == InstanceCrucible.NodeMutationFlags.None && random.Next(100) < 10))
-            {
-                if (PickSkillForColumn(tables, mods, tags, ilvl, spawnCol, usedFamilies, usedSkillIds,
-                    allowMutations: true, forceSellBonus: false, random) is { } mutated)
+                // Only where both trees have a skill (poewiki).
+                if (both && PickSkillForColumn(tables, mods, tags, ilvl, col + 1, usedFamilies, usedSkillIds,
+                    allowMutations: true, random) is { } mutated)
                 {
                     chosen = new WeaponPassiveTreeNode(mutated.Mod.Hash, mutated.Mod.Roll(ModSection.Implicit, random).Values);
-                    chosenSkill = mutated.Skill;
-                    chosenMod = mutated.Mod;
-                    mutFlags |= InstanceCrucible.NodeMutationFlags.Mutated;
+                    usedSkillIds.Add(mutated.Skill.Id);
+                    usedFamilies.UnionWith(mutated.Mod.Families);
+                    mutFlags = InstanceCrucible.NodeMutationFlags.Mutated;
                 }
             }
-            else if (mutFlags == InstanceCrucible.NodeMutationFlags.None && chosenSkill is not null)
+            else if (roll < MutateChance + tierUp + tierDown && ResolveSkill(tables, mods, chosen.ModHash) is { } skill)
             {
-                int tierRoll = random.Next(100);
-                if (tierRoll < upgradeChance && TryStepTier(tables, mods, chosenSkill, +1, ilvl, random) is { } up)
+                bool up = roll < MutateChance + tierUp;
+                if (TryStepTier(tables, mods, skill, up ? +1 : -1, ilvl, random) is { } stepped)
                 {
-                    chosen = up;
-                    mutFlags |= InstanceCrucible.NodeMutationFlags.UpgradedTier;
-                }
-                else if (!modifiers.CannotDowngradeTiers && tierRoll < upgradeChance + 8
-                    && TryStepTier(tables, mods, chosenSkill, -1, ilvl, random) is { } down)
-                {
-                    chosen = down;
-                    mutFlags |= InstanceCrucible.NodeMutationFlags.DowngradedTier;
+                    chosen = stepped;
+                    mutFlags = up ? InstanceCrucible.NodeMutationFlags.UpgradedTier : InstanceCrucible.NodeMutationFlags.DowngradedTier;
                 }
             }
-
-            if (chosenSkill is not null) usedSkillIds.Add(chosenSkill.Id);
-            if (chosenMod is not null)
-                foreach (int fam in chosenMod.Families) usedFamilies.Add(fam);
 
             slotNode[bit] = chosen;
             slotMut[bit] = mutFlags;
+            slotAllocCandidate[bit] = topAlloc || botAlloc;
             rawLayout |= (ushort)(1 << bit);
-            rawLeft |= (ushort)(((tTop.LeftParentConnections | tBot.LeftParentConnections) & (1 << bit)));
-            rawRight |= (ushort)(((tTop.RightParentConnections | tBot.RightParentConnections) & (1 << bit)));
+            // Ours: a kept skill has the links of both trees.
+            rawLeft |= (ushort)((tTop.LeftParentConnections | tBot.LeftParentConnections) & (1 << bit));
+            rawRight |= (ushort)((tTop.RightParentConnections | tBot.RightParentConnections) & (1 << bit));
         }
 
-        // Guarantee root node (0, 0) exists.
+        // Ours: the first skill always survives, a tree has a root.
         if ((rawLayout & 1) == 0)
         {
             rawLayout |= 1;
-            slotNode[0] = tBot.NodeAt(0, 0) ?? tTop.NodeAt(0, 0)
-                ?? GenerateTree(bottom, bottomType, mods, random).NodeAt(0, 0)!;
+            slotNode[0] = (tBot.NodeAt(0, 0) ?? tTop.NodeAt(0, 0))!;
+            slotAllocCandidate[0] = true;
         }
 
         var clean = CrucibleTreeTopology.Normalize(rawLayout, rawLeft, rawRight);
-
-        // Optional Remnant mod: guarantee at least one SellBonus node in columns 3-4 (col index 2-3).
-        if (modifiers.AdditionalSellNode)
-        {
-            bool hasSell = false;
-            var candidateBits = new List<int>();
-            foreach (int b in CrucibleTreeTopology.BitsInOrder(clean.Layout))
-            {
-                var (c, _) = CrucibleTreeTopology.Coords(b);
-                if (c is 2 or 3) candidateBits.Add(b);
-                if (slotNode[b] is { } sn && ResolveSkill(tables, mods, sn.ModHash)?.Type == CrucibleTables.SkillTypeSellBonus)
-                    hasSell = true;
-            }
-            if (!hasSell && candidateBits.Count > 0)
-            {
-                int targetBit = candidateBits[random.Next(candidateBits.Count)];
-                var (tc, _) = CrucibleTreeTopology.Coords(targetBit);
-                if (PickSkillForColumn(tables, mods, tags, ilvl, tc + 1, usedFamilies, usedSkillIds,
-                    allowMutations: false, forceSellBonus: true, random) is { } sell)
-                {
-                    slotNode[targetBit] = new WeaponPassiveTreeNode(sell.Mod.Hash, sell.Mod.Roll(ModSection.Implicit, random).Values);
-                    slotMut[targetBit] |= InstanceCrucible.NodeMutationFlags.Mutated;
-                }
-            }
-        }
-
-        // Assemble final ascending-bit-order mod list (pruning any null slot so ModHash=0 is never emitted),
-        // mutations list, and preserved valid allocations.
-        ushort validLayout = clean.Layout;
-        foreach (int b in CrucibleTreeTopology.BitsInOrder(clean.Layout))
-            if (slotNode[b] is null) validLayout &= (ushort)~(1 << b);
-        clean = CrucibleTreeTopology.Normalize(validLayout, clean.LeftParents, clean.RightParents);
-
         var finalBits = CrucibleTreeTopology.BitsInOrder(clean.Layout);
         var finalNodes = new List<WeaponPassiveTreeNode>(finalBits.Count);
         var mutations = new List<InstanceCrucible.NodeMutation>();
@@ -528,13 +434,13 @@ public static class CrucibleTreeEngine
 
         uint newBalanceLevel = (uint)Math.Clamp(bottom.ItemLevel == 0 ? ilvl : bottom.ItemLevel, 1, 100);
         var balance = tables.BalanceFor((int)newBalanceLevel);
-        // Our own rule, GGG never published one: the result keeps the higher experience of the two, and no unlocked column stays empty.
+        // Our own rule, GGG never published one: the result keeps the higher experience of the two, a skill allocated
+        // on either side stays allocated where the path allows, and no unlocked column stays empty.
         uint newXp = Math.Min((uint)balance.Bar5, Math.Max(tTop.Experience, tBot.Experience));
         int unlocked = CrucibleTreeTopology.UnlockedDepth(newXp, balance);
 
-        // Preserve a single valid connected allocated path from surviving allocated candidates.
         ushort newAlloc = 0;
-        for (int col = 0; col < unlocked && col < CrucibleTreeTopology.Columns; col++)
+        for (int col = 0; col < unlocked; col++)
         {
             for (int row = 0; row <= col; row++)
             {
@@ -561,80 +467,9 @@ public static class CrucibleTreeEngine
         combinedTree = ResolvePendingAllocations(combinedTree, balance, out _);
 
         Item result = bottom with { WeaponPassiveTree = combinedTree };
-
-        // Apply Remnant item-level combining modifiers to the surviving bottom item.
         if (modifiers.Quality30 && result.Components.Contains("Quality") && result.Quality < 30)
             result = result with { Quality = 30 };
-
-        if (modifiers.FullyLinked && result.Sockets.Count > 1)
-            result = result with { Links = [(byte)result.Sockets.Count] };
-
-        if (modifiers.RerollModValues && !result.Corrupted)
-        {
-            if (rolls.Reforge(result, random, uniques.RollsOf(result)) is { } reforged)
-                result = reforged with { WeaponPassiveTree = combinedTree };
-        }
-
-        if (modifiers.CorruptionImplicit && !result.Corrupted)
-        {
-            if (CurrencyEffects.Vaal(result, bottomType, catalog.Requirements(bottomType), rolls, random) is { } corrupted)
-                result = corrupted with { WeaponPassiveTree = combinedTree };
-            else
-                result = result with { Corrupted = true };
-        }
-
         return (result, mutations);
-    }
-
-    /// <summary>Applies an Antique Furnace (add tree to Unique) or Scouring Furnace (remove tree from non-Unique).</summary>
-    public static Item? ApplyUniqueForge(Item target, ItemCatalog.BaseType type, ModCatalog mods, uint mode, Random random, out string reason)
-    {
-        reason = "";
-        if (target.Mirrored)
-        {
-            reason = "Mirrored items cannot be modified here.";
-            return null;
-        }
-
-        if (mode == InstanceCrucible.ScouringForgeMode)
-        {
-            if (target.Rarity == ItemRarity.Unique)
-            {
-                reason = "The Scouring Furnace can only remove trees from non-Unique items.";
-                return null;
-            }
-            if (target.WeaponPassiveTree is null)
-            {
-                reason = "This item has no Crucible Passive Tree to remove.";
-                return null;
-            }
-            return target with { WeaponPassiveTree = null };
-        }
-
-        // Antique Furnace (mode 0 = non-corrupted unique; mode 1 = corrupted unique allowed).
-        if (target.Rarity != ItemRarity.Unique)
-        {
-            reason = "The Antique Furnace can only add a Crucible Passive Tree to a Unique item.";
-            return null;
-        }
-        if (mode == InstanceCrucible.AntiqueForgeMode && target.Corrupted)
-        {
-            reason = "This Antique Furnace cannot modify Corrupted Unique items.";
-            return null;
-        }
-        if (target.WeaponPassiveTree is { HasTree: true })
-        {
-            reason = "This Unique item already has a Crucible Passive Tree.";
-            return null;
-        }
-        if (!CanHaveTree(target, type, mods))
-        {
-            reason = "This Unique item cannot receive a Crucible Passive Tree.";
-            return null;
-        }
-
-        var tree = GenerateTree(target, type, mods, random);
-        return target with { WeaponPassiveTree = tree };
     }
 
     static CrucibleTables.SkillRow? ResolveSkill(CrucibleTables tables, ModCatalog mods, ushort modHash) =>
@@ -660,7 +495,6 @@ public static class CrucibleTreeEngine
         HashSet<int> usedFamilies,
         HashSet<string> usedSkillIds,
         bool allowMutations,
-        bool forceSellBonus,
         Random random)
     {
         var pool = new List<(CrucibleTables.SkillRow Skill, ModCatalog.Mod Mod, int Weight)>();
@@ -669,7 +503,6 @@ public static class CrucibleTreeEngine
         foreach (var skill in tables.Skills)
         {
             if (Array.IndexOf(skill.SpawnColumns, spawnCol) < 0) continue;
-            if (forceSellBonus && skill.Type != CrucibleTables.SkillTypeSellBonus) continue;
             if (mods.Row(skill.ModRow) is not { } mod) continue;
             if (mod.Level > ilvl) continue;
             // GenerationType 32 is WEAPON_TREE_RECOMBINED in the schema: those skills exist only through combining.
@@ -691,7 +524,6 @@ public static class CrucibleTreeEngine
             if (roll < weight) return (skill, mod);
             roll -= weight;
         }
-        var last = pool[^1];
-        return (last.Skill, last.Mod);
+        return null;
     }
 }

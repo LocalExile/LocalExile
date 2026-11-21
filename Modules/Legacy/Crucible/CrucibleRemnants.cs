@@ -9,8 +9,6 @@ namespace GameServer.Modules.Crucible;
 /// </summary>
 public static class CrucibleRemnants
 {
-    public const string OpenGeodeAction = "open_crucible_geode";
-
     /// <summary>Handles C→S 0x58 right-click on an Igneous Geode or Crystalline Geode.</summary>
     public static async Task<bool> TryOpenGeode(ClientState conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
@@ -45,12 +43,11 @@ public static class CrucibleRemnants
 
         PlayerInventories.Consumption? consumed;
         InventoryItem? created;
-        lock (conn.Monsters)
-        {
-            consumed = items.ConsumeOne(row, item.Id);
-            if (consumed is null) return true;
-            created = items.Put(targetRow, new InventoryItem(items.NewItemId(), tx, ty, remnant));
-        }
+        // One save: a failed write never takes the geode without giving the Remnant.
+        (consumed, created) = Saves.Atomically(() => items.ConsumeOne(row, item.Id) is { } taken
+            ? (taken, items.Put(targetRow, new InventoryItem(items.NewItemId(), tx, ty, remnant)))
+            : default((PlayerInventories.Consumption?, InventoryItem?)));
+        if (consumed is null || created is null) return true;
 
         var (remote, stream, ciphers) = conn.Wire;
         if (targetRow == row)
@@ -78,28 +75,23 @@ public static class CrucibleRemnants
     }
 
     /// <summary>
-    /// Rolls a <c>Primeval Remnant</c> (ilvl 80, 2–3 prefixes + 2–3 suffixes) or <c>Primordial Remnant</c>
-    /// (ilvl 84, 3–4 prefixes via <c>local_hidden_maximum_prefixes_allowed_+</c> + 2–3 suffixes) with its
-    /// combining-forge implicit, identified and corrupted (matching 3.21 Geode behavior).
+    /// Rolls a rare <c>Primeval Remnant</c> with six mods ("half of their mods are upsides and half are downsides",
+    /// GGG's Crucible video, 2:38; three and three, Q&amp;A) or <c>Primordial Remnant</c> (one more prefix: its implicit
+    /// has <c>local_hidden_maximum_prefixes_allowed_+</c> 1) at its base's <c>DropLevel</c>, 80 and 84.
     /// </summary>
     public static Item RollRemnant(ItemCatalog.BaseType remnantBase, ItemRolls rolls, bool uber, Random random)
     {
-        byte ilvl = (byte)(uber ? 84 : 80);
+        byte ilvl = (byte)remnantBase.DropLevel;
         var blank = ItemCatalog.Create(remnantBase) with
         {
             ItemLevel = ilvl,
             Identified = true,
             Rarity = ItemRarity.Rare,
         };
-        var rolled = rolls.Roll(blank, ItemRarity.Rare, random);
+        var rolled = rolls.Roll(blank, ItemRarity.Rare, random, (6, 3));
         if (uber && rolls.AddAffix(rolled, (4, 3), random) is { } extra)
             rolled = extra;
-        return rolled with
-        {
-            ItemLevel = ilvl,
-            Identified = true,
-            Corrupted = true,
-        };
+        return rolled with { ItemLevel = ilvl, Identified = true };
     }
 
     /// <summary>
@@ -141,20 +133,18 @@ public static class CrucibleRemnants
         foreach (var (k, v) in opening.Mods.Stats)
             if (!sum.ContainsKey(k)) sum[k] = v;
 
-        bool uber = CrucibleTables.IsUberForgeArea(opening.Area.Id);
-        int level = uber ? 84 : 80;
         var updatedMods = new MapMods(sum, remnantSlot.Quality)
         {
             ExplicitMods = explicitMods,
             Implicit = implicitStats,
+            Fragments = opening.Mods.Fragments,
+            FragmentCount = opening.Mods.FragmentCount,
+            ScarabCount = opening.Mods.ScarabCount,
+            ScarabKinds = opening.Mods.ScarabKinds,
             MapRarity = remnantSlot.Rarity,
             Corrupted = remnantSlot.Corrupted,
         };
-        request.Opening = opening with
-        {
-            Area = opening.Area with { Level = level },
-            Mods = updatedMods,
-        };
+        request.Opening = opening with { Mods = updatedMods };
         request.ReturnToSource = true;
     }
 
