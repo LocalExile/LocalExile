@@ -143,6 +143,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) §10f, [20](../docs/protocol/20-damage.md) §2e.
 - Player minions: Conviction novas, Multistrike, Ruthless and Melee Splash. Docs: [11](../docs/protocol/11-skills.md) §10h.
+  Infernal Legion causes self-burn and burning damage nearby, and Minion Instability explodes a living minion at Low Life.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) §5.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) §4.
