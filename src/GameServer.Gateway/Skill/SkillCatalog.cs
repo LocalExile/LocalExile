@@ -600,6 +600,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has the Retaliation type (row 120).</summary>
+    public bool IsRetaliation(int effectRow) => HasType(effectRow, "Retaliation");
+
     /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
     /// stat the client's own strike virtuals test (<c>0x14289ced0</c>, <c>0x1428b7e90</c>). The default attack is one
     /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
