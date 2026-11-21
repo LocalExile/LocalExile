@@ -98,7 +98,7 @@ public static partial class MapStrongboxes
         return new(now.Ticks, daemon, aim.X, aim.Y, conn.TakeObjectId(), [.. steps.Select(legs => legs.ToArray())]);
     }
 
-    static async Task TickCausticArrows(ClientState conn, Area area, Box box, TimeSpan now)
+    static async Task TickCausticArrows(ClientState conn, Area area, Box box, TimeSpan now, bool currentView)
     {
         foreach (var cast in box.CausticArrows.ToArray())
         {
@@ -107,7 +107,7 @@ public static partial class MapStrongboxes
             long release = cast.Started + skill.ReleaseTicks;
             if (now.Ticks < release)
             {
-                await ShowVesselCast(conn, area, box, cast, skill.Skill);
+                if (currentView) await ShowVesselCast(conn, area, box, cast, skill.Skill);
                 continue;
             }
             int count = (int)Math.Min(cast.Steps.Length, (now.Ticks - release) / skill.StepTicks);

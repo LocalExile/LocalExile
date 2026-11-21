@@ -99,7 +99,7 @@ public static partial class MapStrongboxes
         return new(now.Ticks, FissureCaster, aim.X, aim.Y, end.X, end.Y) { Terrain = new(VesselWallSnapshot(c)) };
     }
 
-    static async Task TickFissures(ClientState conn, Area area, Box box, TimeSpan now)
+    static async Task TickFissures(ClientState conn, Area area, Box box, TimeSpan now, bool currentView)
     {
         var skill = area.FissureSkill ??= ReadFissure(conn);
         foreach (var cast in box.Fissures.ToArray())
@@ -107,7 +107,7 @@ public static partial class MapStrongboxes
             if (!await PublishVesselHits(conn, area, cast)) return;
             if (now.Ticks < cast.Started + skill.ReleaseTicks)
             {
-                await ShowVesselCast(conn, area, box, cast, skill.Slam);
+                if (currentView) await ShowVesselCast(conn, area, box, cast, skill.Slam);
                 continue;
             }
 
@@ -182,18 +182,11 @@ public static partial class MapStrongboxes
 
     static (int X, int Y) NextFissureEnd(ClientState conn, Box box, VaalFissure cast, FissureLeg leg, FissureSkill skill, long due)
     {
-        var time = due / (double)TimeSpan.TicksPerSecond;
-        var targets = from player in Members(conn)
-                      where player.PlayerSent && ViewFor(player).Entered is long entered && entered <= due
-                          && !player.Paused && player.PlayerLife > 0 && !player.Immune && !InGracePeriod(player)
-                      let at = player.Walk.WatchedPosition((box.Id, cast.Started), time)
-                      let distance = Dist(leg.End, at)
-                      where distance <= skill.AggroRange
-                      orderby distance == 0, distance, player.PeerId
-                      select ((int X, int Y)?)at;
+        var origin = new ProjectileVector(leg.EndX, leg.EndY);
+        var target = VesselTargetAt(conn, box, cast, due, origin, skill.AggroRange, preferAnotherPosition: true);
         // With no opponent in range the remaining cracks carry on along the last heading.
         var heading = (new ProjectileVector(leg.EndX - leg.FromX, leg.EndY - leg.FromY)).Unit;
-        var aim = targets.FirstOrDefault() ?? Cell(new ProjectileVector(leg.EndX, leg.EndY) + heading * GroundSlamWave.Length(skill.Radius));
+        var aim = target ?? Cell(origin + heading * GroundSlamWave.Length(skill.Radius));
         return VolcanicFissureSweep.End(conn.Layout, leg.End, aim, skill.Radius);
     }
 }

@@ -46,11 +46,11 @@ public static partial class MapStrongboxes
         return new(started, daemon, x, y, [.. Enumerable.Range(0, skill.Profile.Count).Select(_ => c.TakeObjectId())], walls);
     }
 
-    static Task TickSparks(ClientState conn, Area area, Box box, TimeSpan now)
+    static Task TickSparks(ClientState conn, Area area, Box box, TimeSpan now, bool currentView)
     {
         var skill = area.SparkSkill ??= ReadSpark(conn);
         return TickVesselProjectiles(conn, area, box, now, box.Sparks, skill,
-            cast => Task.WhenAll(Members(conn).Select(p => PresentSparks(conn.Instance, p, cast, skill.Art))));
+            cast => Task.WhenAll(Members(conn).Select(p => PresentSparks(conn.Instance, p, cast, skill.Art))), currentView);
     }
 
     static Task PresentSparks(InstanceState instance, ClientState player, VaalSpark cast, ProjectilePresentation? art) =>

@@ -197,6 +197,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   after each flight window. It samples positions at the decision frame, prefers the nearest opponent away from the
   current endpoint within the caster's aggro range, and keeps the previous heading if nobody is in range. The
   original crack shape, repeat cadence, target selection, individual hit damage and visuals still need client measurements.
+- The separate *Of the Vaal* suffix grants Vaal Blade Vortex. It opens alongside any Vaalsmithed prefix, including
+  when both casts share a timestamp. At level 84 the suffix casts for 800 ms and has five seconds of
+  200 ms physical spell hits. The server starts the vortex at the chest, advances it towards the nearest eligible
+  resident each interval and hits from the resulting position. It uses the named moving daemon's 45 cells/s speed
+  and 135-cell aggro range. Its projectile hull stops at terrain. The cast and each committed pulse survive
+  runner departure and a rules reload. The 36-cell hit radius uses Path of Building's 15-cell base and the chest's
+  native modifiers. A delayed instance tick interleaves pulse damage with the prefix. The original origin, steering,
+  first hit frame and moving visual still need client observation. [Path of Building radius](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/343b054ce6f6d9abab9e101d17cd27e2cf15f8a5/src/Data/Skills/act_dex.lua#L2449)
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

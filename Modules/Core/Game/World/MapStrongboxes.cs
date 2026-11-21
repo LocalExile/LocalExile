@@ -29,6 +29,7 @@ public static partial class MapStrongboxes
         public List<Wave> Waves { get; init; } = [];
         public List<VaalSpark> Sparks { get; init; } = [];
         public List<VesselProjectileCast> ThrownWeapons { get; init; } = [];
+        public List<VaalBladeVortex> Vortices { get; init; } = [];
         public List<VaalFissure> Fissures { get; init; } = [];
         public List<VaalFirestorm> Firestorms { get; init; } = [];
         public List<VaalCausticArrow> CausticArrows { get; init; } = [];
@@ -73,6 +74,7 @@ public static partial class MapStrongboxes
         public SparkSkill? SparkSkill;
         public VesselProjectileSkill? ThrownWeaponSkill;
         public FissureSkill? FissureSkill;
+        public BladeVortexSkill? VortexSkill;
         public FirestormSkill? FirestormSkill;
         public FlameblastSkill? FlameblastSkill;
         public CausticArrowSkill? CausticArrowSkill;
@@ -85,7 +87,7 @@ public static partial class MapStrongboxes
         public readonly HashSet<uint> Boxes = [];
         public readonly HashSet<uint> Casts = [];
         public Dictionary<uint, int> SparkLegs = [];
-        public readonly HashSet<(uint Source, long Started)> PositionWatches = [];
+        public readonly HashSet<object> PositionWatches = [];
         public long? Entered;
     }
     sealed record KeptView(long? Entered, uint[] Boxes, uint[] Casts)
@@ -211,7 +213,10 @@ public static partial class MapStrongboxes
         return result;
     }
 
-    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || b.Firestorms.Count > 0 || b.Flameblasts.Count > 0 || b.CausticArrows.Count > 0 || b.Sparks.Count > 0 || b.ThrownWeapons.Count > 0 || b.Fissures.Count > 0);
+    static bool HasVesselPrefix(Box box) => box.Firestorms.Count > 0 || box.Flameblasts.Count > 0
+        || box.CausticArrows.Count > 0 || box.Sparks.Count > 0 || box.ThrownWeapons.Count > 0 || box.Fissures.Count > 0;
+
+    static bool Active(List<Box> boxes) => boxes.Any(b => b.Phase == 1 || HasVesselPrefix(b) || b.Vortices.Count > 0);
 
     static void Keep(ClientState conn, Area area)
     {
@@ -489,10 +494,10 @@ public static partial class MapStrongboxes
             return;
         }
         box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
-        var spell = type?.Id == ExquisiteVessel ? PrepareVesselSpell(conn, area, type, box) : null;
+        var spells = type?.Id == ExquisiteVessel ? PrepareVesselSpells(conn, area, type, box).ToArray() : [];
         area.Boxes![box.Index] = box;
         Keep(conn, area);
-        if (spell.HasValue)
+        if (spells.Length > 0)
         {
             // Area entry can finish before the party's public player record arrives.
             lock (conn.Monsters)
@@ -500,7 +505,7 @@ public static partial class MapStrongboxes
                     WatchVesselPositions(member, area, box);
         }
         foreach (var member in Members(conn)) await Present(member, box, true);
-        if (spell is { } prepared) await ShowVesselCast(conn, area, box, prepared.Cast, prepared.Skill);
+        foreach (var prepared in spells) await ShowVesselCast(conn, area, box, prepared.Cast, prepared.Skill);
         await SpawnPending(conn, area, box);
         if (StrongboxCatalog.Find(box.Type) is { } exiled
             && StrongboxMods.Stat(ItemsFor(conn).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
@@ -707,18 +712,7 @@ public static partial class MapStrongboxes
         try
         {
             foreach (var box in boxes)
-            {
-                if (box.Firestorms.Count != 0) await TickFirestorms(conn, area, box, now);
-                if (box.Flameblasts.Count != 0) await TickFlameblasts(conn, area, box, now);
-                if (box.CausticArrows.Count != 0) await TickCausticArrows(conn, area, box, now);
-                if (box.Sparks.Count != 0) await TickSparks(conn, area, box, now);
-                if (box.Fissures.Count != 0) await TickFissures(conn, area, box, now);
-                if (box.ThrownWeapons.Count != 0)
-                {
-                    var skill = area.ThrownWeaponSkill ??= ReadThrownWeapon(conn, box.ThrownWeapons[0].Daemon);
-                    await TickVesselProjectiles(conn, area, box, now, box.ThrownWeapons, skill);
-                }
-            }
+                if (HasVesselPrefix(box) || box.Vortices.Count != 0) await TickVesselCasts(conn, area, box, now);
             bool hasZones;
             lock (area.Zones) hasZones = area.Zones.Count > 0;
             if (hasZones || ZoneShare.TryGetValue(conn, out var share) && (share.Dps > 0 || share.Art.Count > 0))

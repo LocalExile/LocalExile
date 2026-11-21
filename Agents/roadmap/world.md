@@ -143,8 +143,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   one shared two-projectile volley and keeps its flight and contacts through a runner change. The Thrown Weapon
   prefix emits thirteen mirrored pairs from its axe daemon. The party shares their outgoing and return contacts.
   Volcanic Fissure sends six wall-bounded cracks and eleven landing-only mortars per eruption.
+  The independent *Of the Vaal* suffix sends a chasing Blade Vortex for five seconds alongside a prefix.
   See the [strongbox status](../status/world.md) for boss selection, spell geometry and client coverage.
-- **Next.** Implement Blade Vortex from the separate *Of the Vaal* suffix. Measure the fissure daemon's release, turns,
+- **Next.** Measure Blade Vortex targeting, movement and presentation in the client. Measure the fissure daemon's release, turns,
   repeat cadence and mortar placement, the axe daemon's release and spiral spacing, and the Spark daemon's empty
   action and repeat schedule. Check the Valdo completion reward.
   Check vessel hits on allied minions and animated weapons. Measure the caustic arrows' turns and trail spacing.

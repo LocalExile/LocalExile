@@ -24,7 +24,7 @@ public static partial class MapStrongboxes
         return new(spell, burstTicks, bursts);
     }
 
-    static async Task TickFlameblasts(ClientState conn, Area area, Box box, TimeSpan now)
+    static async Task TickFlameblasts(ClientState conn, Area area, Box box, TimeSpan now, bool currentView)
     {
         var skill = area.FlameblastSkill ??= ReadFlameblast(conn);
         foreach (var blast in box.Flameblasts.ToArray())
@@ -33,7 +33,7 @@ public static partial class MapStrongboxes
             // Count the first stage after one cast interval. The target stays at the vessel across runner handoff.
             // An awake observer joining during the cast gets its native action once. Retire it on the original
             // timeline; the protocol's action start supplies no elapsed-stage offset.
-            if (blast.Landed < skill.Bursts.Length && now.Ticks < blast.Started + skill.Bursts.Length * skill.BurstTicks)
+            if (currentView && blast.Landed < skill.Bursts.Length && now.Ticks < blast.Started + skill.Bursts.Length * skill.BurstTicks)
                 await ShowVesselCast(conn, area, box, blast, skill.Spell);
             while (blast.Landed < skill.Bursts.Length)
             {

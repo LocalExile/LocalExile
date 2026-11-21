@@ -184,6 +184,12 @@ public sealed class ScarabEncounterTests
             Assert.Equal(1, active.Phase);
             Assert.NotEmpty(active.Guards);
             Assert.Empty(active.Pending);
+            var vortexMod = Program.Items.Mods.ById("ChestSupporterVaalBladeVortex")!;
+            Assert.Contains(firstBox.Mods, m => m.Hash == vortexMod.Hash);
+            var vortex = Assert.Single(active.Vortices);
+            var vortexGrant = Assert.Single(boxInstance.World.MonsterOrigins[vortex.Actor].Object.Skills!);
+            Assert.Equal((54795u, 54294u), (vortexGrant.EffectsPerLevelRow, vortexGrant.StatSetsPerLevelRow));
+            Assert.DoesNotContain(vortex.Actor, active.Guards);
             var storm = Assert.Single(active.Firestorms);
             Assert.Equal(24, storm.Ground.Distinct().Count());
             Assert.Equal("Metadata/Monsters/Daemon/ChestDaemonVaalFirestorm", boxOwner.Conn.Monsters[storm.Actor].Variety!.Id);
@@ -197,6 +203,11 @@ public sealed class ScarabEncounterTests
             int guardCount = boxOwner.Conn.Monsters.Count;
             Assert.True(await MapStrongboxes.Use(boxPeer.Conn, new(firstBox.Id, 0, 1, 0), 0));
             Assert.Equal(guardCount, boxOwner.Conn.Monsters.Count);
+            var vortexStart = TimeSpan.FromTicks(vortex.Started);
+            await MapStrongboxes.Tick(boxPeer.Conn, vortexStart + TimeSpan.FromMilliseconds(999));
+            Assert.Equal(0, Boxes()[firstBox.Index].Vortices[0].Landed);
+            await MapStrongboxes.Tick(boxPeer.Conn, vortexStart + TimeSpan.FromSeconds(1));
+            Assert.Equal(1, Boxes()[firstBox.Index].Vortices[0].Landed);
             var sideBosses = ClientTables.Table("WorldAreas").Where(a => a.Bool("IsVaalArea"))
                 .SelectMany(a => a.Ints("Bosses_MonsterVarietiesKeys")).ToHashSet();
             uint vesselBoss = Assert.Single(active.Guards, id => boxOwner.Conn.Monsters[id] is
@@ -223,6 +234,8 @@ public sealed class ScarabEncounterTests
             var lastImpact = firstImpact + TimeSpan.FromMilliseconds(23 * 500);
             await MapStrongboxes.Tick(boxPeer.Conn, lastImpact);
             Assert.Equal(24, Boxes()[firstBox.Index].Firestorms[0].Landed);
+            Assert.Empty(Boxes()[firstBox.Index].Vortices);
+            Assert.DoesNotContain(vortex.Actor, boxInstance.World.MonsterOrigins.Keys);
             Assert.DoesNotContain(storm.Actor, boxInstance.World.MonsterOrigins.Keys);
             await MapStrongboxes.Tick(boxPeer.Conn, lastImpact + TimeSpan.FromSeconds(6));
             Assert.Empty(Boxes()[firstBox.Index].Firestorms);

@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 using static Game;
@@ -12,6 +13,7 @@ public static partial class MapStrongboxes
         public HashSet<uint>? Removals { get; set; }
         public uint Actor { get; set; }
         public int Landed { get; set; }
+        internal virtual object PositionKey(Box box) => (box.Id, Started);
         internal virtual (int X, int Y) Target(Box box) => (box.X, box.Y);
     }
 
@@ -44,7 +46,7 @@ public static partial class MapStrongboxes
         return new(effect, action, level, native.Stats, attack, native.Crit, timing);
     }
 
-    static (VesselCast Cast, VesselSkill Skill)? PrepareVesselSpell(ClientState conn, Area area, StrongboxCatalog.Definition type, Box box)
+    static IEnumerable<(VesselCast Cast, VesselSkill Skill)> PrepareVesselSpells(ClientState conn, Area area, StrongboxCatalog.Definition type, Box box)
     {
         // The Vaalsmithed prefixes share one native mod family. The suffix has its own family.
         foreach (var (_, daemon, effects) in Daemons(conn, type, box))
@@ -55,31 +57,31 @@ public static partial class MapStrongboxes
                 var skill = area.FissureSkill ??= ReadFissure(conn);
                 var cast = PrepareFissure(conn, box, skill);
                 box.Fissures.Add(cast);
-                return (cast, skill.Slam);
+                yield return (cast, skill.Slam);
             }
-            if (effects.Contains(ThrownWeaponEffect))
+            else if (effects.Contains(ThrownWeaponEffect))
             {
                 var skill = area.ThrownWeaponSkill ??= ReadThrownWeapon(conn, daemon);
                 var (started, x, y, walls) = VesselProjectileStart(conn, box);
                 var cast = new VesselProjectileCast(started, daemon, x, y, walls);
                 box.ThrownWeapons.Add(cast);
-                return (cast, skill.Action);
+                yield return (cast, skill.Action);
             }
-            if (effects.Contains(VaalSparkEffect))
+            else if (effects.Contains(VaalSparkEffect))
             {
                 var skill = area.SparkSkill ??= ReadSpark(conn);
                 var cast = PrepareSpark(conn, box, daemon, skill);
                 box.Sparks.Add(cast);
-                return (cast, skill.Action);
+                yield return (cast, skill.Action);
             }
-            if (effects.Contains(VaalCausticArrowEffect))
+            else if (effects.Contains(VaalCausticArrowEffect))
             {
                 var skill = area.CausticArrowSkill ??= ReadCausticArrow(conn, daemon);
                 var cast = PrepareCausticArrow(conn, box, daemon, skill);
                 box.CausticArrows.Add(cast);
-                return (cast, skill.Skill);
+                yield return (cast, skill.Skill);
             }
-            if (effects.Contains(VaalFirestormEffect))
+            else if (effects.Contains(VaalFirestormEffect))
             {
                 var skill = area.FirestormSkill ??= ReadFirestorm(conn);
                 var random = new Random(unchecked((int)conn.Seed ^ box.Index * 9973 ^ box.Cycle * 31));
@@ -87,17 +89,59 @@ public static partial class MapStrongboxes
                 for (int i = 0; i < ground.Length; i++) ground[i] = conn.TakeObjectId();
                 var storm = new VaalFirestorm(conn.Clock.Elapsed.Ticks, random.NextDouble() * Math.Tau, daemon, ground);
                 box.Firestorms.Add(storm);
-                return (storm, skill.Spell);
+                yield return (storm, skill.Spell);
             }
-            if (effects.Contains(VaalFlameblastEffect))
+            else if (effects.Contains(VaalFlameblastEffect))
             {
                 var skill = area.FlameblastSkill ??= ReadFlameblast(conn);
                 var blast = new VaalFlameblast(conn.Clock.Elapsed.Ticks, daemon);
                 box.Flameblasts.Add(blast);
-                return (blast, skill.Spell);
+                yield return (blast, skill.Spell);
+            }
+            else if (effects.Contains(VortexEffect))
+            {
+                var skill = area.VortexSkill ??= ReadBladeVortex(conn);
+                var now = conn.Clock.Elapsed;
+                var aim = conn.Walk.Position(now.TotalSeconds);
+                var terrain = new VesselTerrain(VesselWallSnapshot(conn));
+                var cast = new VaalBladeVortex(now.Ticks, daemon, aim.X, aim.Y, terrain) { X = box.X, Y = box.Y };
+                box.Vortices.Add(cast);
+                yield return (cast, skill.Spell);
             }
         }
-        return null;
+    }
+
+    static async Task TickVesselCasts(ClientState conn, Area area, Box box, TimeSpan now)
+    {
+        if (box.Vortices.Count > 0 && HasVesselPrefix(box))
+        {
+            var skill = area.VortexSkill ??= ReadBladeVortex(conn);
+            // A delayed tick must interleave the suffix's hits with an active prefix. Do not replay old windups
+            // or projectile movement to observers while catching up. Tied contacts settle the prefix first.
+            var cuts = box.Vortices.SelectMany(v => Enumerable.Range(v.Landed + 1, skill.Pulses - v.Landed)
+                .Select(step => skill.Pulse(v, step)).TakeWhile(t => t < now.Ticks)).Distinct().Order().ToArray();
+            foreach (long cut in cuts)
+            {
+                await Step(TimeSpan.FromTicks(cut), currentView: false);
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
+            }
+        }
+        await Step(now, currentView: true);
+
+        async Task Step(TimeSpan at, bool currentView)
+        {
+            if (box.Firestorms.Count != 0) await TickFirestorms(conn, area, box, at, currentView);
+            if (box.Flameblasts.Count != 0) await TickFlameblasts(conn, area, box, at, currentView);
+            if (box.CausticArrows.Count != 0) await TickCausticArrows(conn, area, box, at, currentView);
+            if (box.Sparks.Count != 0) await TickSparks(conn, area, box, at, currentView);
+            if (box.Fissures.Count != 0) await TickFissures(conn, area, box, at, currentView);
+            if (box.ThrownWeapons.Count != 0)
+            {
+                var skill = area.ThrownWeaponSkill ??= ReadThrownWeapon(conn, box.ThrownWeapons[0].Daemon);
+                await TickVesselProjectiles(conn, area, box, at, box.ThrownWeapons, skill, currentView: currentView);
+            }
+            if (box.Vortices.Count != 0) await TickBladeVortices(conn, area, box, at, currentView);
+        }
     }
 
     static void WatchVesselPositions(ClientState player, Area area, Box box)
@@ -126,6 +170,13 @@ public static partial class MapStrongboxes
             Register(cast, skill.WatchTimes(cast, box));
         }
 
+        foreach (var cast in box.Vortices.Where(v => v.Removals is null))
+        {
+            var skill = area.VortexSkill ??= ReadBladeVortex(player);
+            Register(cast, Enumerable.Range(cast.Landed, skill.Pulses - cast.Landed + 1)
+                .Select(step => skill.Pulse(cast, step) / (double)TimeSpan.TicksPerSecond));
+        }
+
         foreach (var cast in box.Sparks)
             WatchProjectile(cast, area.SparkSkill ??= ReadSpark(player));
         foreach (var cast in box.ThrownWeapons)
@@ -140,7 +191,7 @@ public static partial class MapStrongboxes
 
         void Register(VesselCast cast, IEnumerable<double> times)
         {
-            var key = (box.Id, cast.Started);
+            var key = cast.PositionKey(box);
             lock (player.Monsters)
             {
                 ViewFor(player).PositionWatches.Add(key);
@@ -180,9 +231,11 @@ public static partial class MapStrongboxes
 
     // All current recipients and the cast advance in one combat commit, before one peer's socket can interrupt another.
     static async Task<bool> LandVesselImpact(ClientState conn, Area area, Box box, VesselCast cast, VesselSkill skill,
-        VesselImpact impact, (int X, int Y) at, long due, Func<ClientState, (int X, int Y), (int X, int Y)?>? contact = null)
+        VesselImpact impact, (int X, int Y) at, long due, Func<ClientState, (int X, int Y), (int X, int Y)?>? contact = null,
+        Action? onCommit = null)
     {
         var instance = conn.Instance;
+        var key = cast.PositionKey(box);
         double landing = due / (double)TimeSpan.TicksPerSecond;
         var players = Members(conn).Where(p => p.PlayerSent && ViewFor(p).Entered is long entered && entered <= due).ToArray();
         if (players.Length != 0 && cast.Actor == 0)
@@ -211,7 +264,7 @@ public static partial class MapStrongboxes
                     if (player.Closed || player.LeavingArea || player.Instance != conn.Instance || player.Paused
                         || player.PlayerLife == 0 || player.Immune || InGracePeriod(player)) continue;
                     double now = player.Clock.Elapsed.TotalSeconds;
-                    var here = player.Walk.WatchedPosition((box.Id, cast.Started), landing);
+                    var here = player.Walk.WatchedPosition(key, landing);
                     if (contact is null && Distance(here, at) > impact.Attack.Range) continue;
                     var source = contact is null ? at : contact(player, here);
                     if (source is not { } from) continue;
@@ -219,6 +272,7 @@ public static partial class MapStrongboxes
                         impact.Attack, now, here, from, false, MonsterActionSequence, impact.AilmentBase, skill.Critical, cast.CriticalRoll);
                     if (hit is not null) cast.Pending.Add(new(player.PeerId, player.IncomingHitEpoch, hit));
                 }
+                onCommit?.Invoke();
                 cast.Landed++;
                 Keep(conn, area);
             }
@@ -226,16 +280,33 @@ public static partial class MapStrongboxes
         }
     }
 
+    // Caller holds the instance combat lock while reading the positions sampled at the decision.
+    static (int X, int Y)? VesselTargetAt(ClientState conn, Box box, VesselCast cast, long due, ProjectileVector centre,
+        int range, bool preferAnotherPosition = false)
+    {
+        var key = cast.PositionKey(box);
+        double time = due / (double)TimeSpan.TicksPerSecond;
+        return (from player in Members(conn)
+                where player.PlayerSent && ViewFor(player).Entered is long entered && entered <= due
+                    && !player.Paused && player.PlayerLife > 0 && !player.Immune && !InGracePeriod(player)
+                let at = player.Walk.WatchedPosition(key, time)
+                let distance = (new ProjectileVector(at.X, at.Y) - centre).Length
+                where distance <= range
+                orderby preferAnotherPosition && distance == 0, distance, player.PeerId
+                select ((int X, int Y)?)at).FirstOrDefault();
+    }
+
     static async Task<bool> RemoveVesselActor(ClientState conn, Area area, Box box, VesselCast cast)
     {
         uint actor = cast.Actor;
+        var key = cast.PositionKey(box);
         var members = Members(conn).ToDictionary(p => p.PeerId);
         lock (conn.Monsters)
         {
             foreach (var p in area.Visitors.Concat(members.Values).Distinct())
             {
-                p.Walk.EndPositionWatch((box.Id, cast.Started));
-                if (Presented.TryGetValue(p, out var view)) view.PositionWatches.Remove((box.Id, cast.Started));
+                p.Walk.EndPositionWatch(key);
+                if (Presented.TryGetValue(p, out var view)) view.PositionWatches.Remove(key);
             }
             if (cast.Removals is null)
             {

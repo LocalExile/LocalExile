@@ -126,7 +126,7 @@ public static partial class MapStrongboxes
     }
 
     static async Task TickVesselProjectiles<T>(ClientState conn, Area area, Box box, TimeSpan now, List<T> casts,
-        VesselProjectileSkill skill, Func<T, Task>? present = null) where T : VesselProjectileCast
+        VesselProjectileSkill skill, Func<T, Task>? present = null, bool currentView = true) where T : VesselProjectileCast
     {
         foreach (var cast in casts.ToArray())
         {
@@ -134,7 +134,7 @@ public static partial class MapStrongboxes
             long elapsed = now.Ticks - cast.Started - skill.ReleaseTicks;
             if (elapsed < 0)
             {
-                await ShowVesselCast(conn, area, box, cast, skill.Action);
+                if (currentView) await ShowVesselCast(conn, area, box, cast, skill.Action);
                 continue;
             }
             if (cast.Removals is null)
@@ -147,7 +147,7 @@ public static partial class MapStrongboxes
                         () => AdvanceVesselProjectiles(conn, area, box, cast, skill, elapsed))) return;
                 }
                 if (!await PublishVesselHits(conn, area, cast)) return;
-                if (present is not null) await present(cast);
+                if (present is not null && (currentView || !cast.Flight!.Active)) await present(cast);
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
                 if (cast.Flight!.Active) continue;
             }

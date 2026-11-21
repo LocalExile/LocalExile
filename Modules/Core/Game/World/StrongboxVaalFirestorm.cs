@@ -33,7 +33,7 @@ public static partial class MapStrongboxes
         return (target.X + (int)Math.Round(radius * Math.Cos(phase)), target.Y + (int)Math.Round(radius * Math.Sin(phase)));
     }
 
-    static async Task TickFirestorms(ClientState conn, Area area, Box box, TimeSpan now)
+    static async Task TickFirestorms(ClientState conn, Area area, Box box, TimeSpan now, bool currentView)
     {
         var skill = area.FirestormSkill ??= ReadFirestorm(conn);
         long interval = skill.DelayMs * TimeSpan.TicksPerMillisecond;
@@ -44,7 +44,7 @@ public static partial class MapStrongboxes
             long first = storm.Started + skill.Spell.Timing!.Value.DurationMilliseconds!.Value * TimeSpan.TicksPerMillisecond;
             if (now.Ticks < first)
             {
-                await ShowVesselCast(conn, area, box, storm, skill.Spell);
+                if (currentView) await ShowVesselCast(conn, area, box, storm, skill.Spell);
                 continue;
             }
             int count = (int)Math.Min(storm.Ground.Length, 1 + (now.Ticks - first) / interval);
