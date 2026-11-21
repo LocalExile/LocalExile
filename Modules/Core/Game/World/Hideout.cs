@@ -34,6 +34,8 @@ public static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0024 guild stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
+        conn.StashOpen = false;
+        conn.BenchOpen = false;
         conn.GuildStashOpen = true;
         var guild = GuildStashOf(conn);
         var tabs = guild.Records(null, conn.GuildStashTabsSent);

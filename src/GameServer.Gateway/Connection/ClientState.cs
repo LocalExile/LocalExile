@@ -1164,7 +1164,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public void MoveWaypoint(WaypointObject waypoint) => Layout = Layout with { Waypoint = waypoint };
     public (int X, int Y) CraftingBenchAt;
     public readonly HashSet<int> GuildStashTabsSent = [];
+    public bool StashOpen;
     public bool GuildStashOpen;
+    public int InteractionClosing;
     // Whether this connection opened the stash already (only the first open selects the account's last tab), and while
     // that first open runs (until StashForcedUntil, Clock seconds) the tab it selects: the panel's own request for the
     // tab it was on is then not the player's choice.

@@ -180,9 +180,13 @@ public static partial class Game
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepObjectStart(from, use, sequence), $"0x01ab lockstep use of object 0x{use.TargetId:x} from ({from.X}, {from.Y})");
             _ = OnUseObject(remote, stream, ciphers, conn, use with { Sequence = sequence, Started = true }, at);
         }
-        else await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepActionStart(conn, from, target, sequence),
-            $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
-            still: () => PlayerActionCurrent(conn, action));
+        else
+        {
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepActionStart(conn, from, target, sequence),
+                $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
+                still: () => PlayerActionCurrent(conn, action));
+            await CloseInteractionsIfMovingAway(remote, stream, ciphers, conn, target, at);
+        }
     }
 
     // A player Move due at `at`: placed and its start cell returned when the client takes it (LockstepTakesMove). The

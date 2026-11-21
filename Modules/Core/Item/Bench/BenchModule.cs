@@ -97,6 +97,8 @@ static class BenchFeature
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (conn.Closed || !PlayerActionCurrent(conn, action)
             || !PlayerWalk.InWalkUpRange(stop, conn.CraftingBenchAt, conn.StationaryInteractionSize(conn.CraftingBenchObject))) return;
+        conn.StashOpen = false;
+        conn.GuildStashOpen = false;
         conn.BenchOpen = true;
         conn.ModuleWindow = null;
         await RefreshBenchBalance(remote, stream, ciphers, conn);

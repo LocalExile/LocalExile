@@ -87,6 +87,7 @@ public static partial class Game
         Console.WriteLine($"[gateway] {remote} <= 0x0024 stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
+        conn.StashOpen = true;
         conn.GuildStashOpen = false;
         var stash = StashOf(conn);
         // The panel keeps its tab while this connection lasts; only its first open here is moved to the account's last tab.

@@ -368,6 +368,8 @@ public static partial class Game
                 await echo();
                 Mark("echo");
                 if (!projectileRuntime && !acknowledged) continue;
+                if (!cast && SkillsFor(conn).ActionName(use.SkillId) == "Move")
+                    await CloseInteractionsIfMovingAway(remote, stream, ciphers, conn, (use.X, use.Y), at);
                 if (cooldownUse?.Current(conn) == false) continue;
                 if (flickerTo is { } flickerDestination)
                 {

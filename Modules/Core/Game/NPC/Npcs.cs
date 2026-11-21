@@ -77,6 +77,9 @@ public static partial class Game
         }
         uint id;
         lock (conn.Npcs) id = conn.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
+        conn.StashOpen = false;
+        conn.GuildStashOpen = false;
+        conn.BenchOpen = false;
         conn.AutomaticNpcTalkRows.Clear();
         conn.TalkingTo = id;
         conn.InNpcTalk = false;
