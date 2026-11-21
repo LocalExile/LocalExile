@@ -201,6 +201,10 @@ public static class SideAreaVessels
                 rewards.Add(new(ItemCatalog.Create(type) with { ItemLevel = 1, Corrupted = true, GemExperience = experience }, type));
             }
 
+        int incursionRares = Count("map_vaal_vessel_drop_X_rare_temple_items");
+        if (incursionRares > 0)
+            rewards.AddRange(VaalVesselIncursionItems.Roll(catalog, RollsFor(conn), level, incursionRares, Random.Shared));
+
         int cards = Count("map_vaal_vessel_drop_X_divination_cards");
         if (cards > 0 && !LeagueFor(conn).HardMode)
             rewards.AddRange(DivinationCards(catalog, level, cards, Random.Shared));

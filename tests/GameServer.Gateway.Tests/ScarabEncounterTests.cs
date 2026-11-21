@@ -160,6 +160,7 @@ public sealed class ScarabEncounterTests
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
             await CheckTempleVessels();
             await CheckSideAreaVessel("1_SideArea5_3_2", 44, 31451);
+            await CheckSideAreaVessel("MapSideArea5_3_2", 69, 47923, "MapCorruptedSideAreaVesselTempleItemDrop_");
             await CheckSideAreaVessel("MapSideArea5_3_2", 74, 47923, "MapCorruptedSideAreaVesselDoubleImplicitDrop_");
             await CheckSideAreaVessel("MapSideArea5_3_2", 83, 47923, "MapCorruptedSideAreaVesselVaalOrbDrop_",
                 "MapCorruptedSideAreaVesselVaalGemDrop", "MapCorruptedSideAreaVesselLevelledGemDrop");
@@ -550,6 +551,19 @@ public sealed class ScarabEncounterTests
                 Assert.False(card.Corrupted);
                 Assert.True(DivinationRewards.Find(type.Id) is { Enabled: true, Corrupted: true });
             }
+            var rares = drops.Where(item => item.Rarity == ItemRarity.Rare).ToArray();
+            Assert.Equal(Count("MapCorruptedSideAreaVesselTempleItemDrop_", 2), rares.Length);
+            foreach (var item in rares)
+            {
+                Assert.True(item.Corrupted && item.Identified);
+                Assert.Equal(level, item.ItemLevel);
+                var type = Program.Items.ByHash(item.TypeHash)!;
+                var affixes = item.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => Program.Items.Mods.ByHash(m.Hash)!).ToArray();
+                Assert.InRange(affixes.Length, 4, 6);
+                var architect = Assert.Single(affixes, m => m.SpawnWeights.Count > 0 && m.SpawnWeights.All(w => w.Weight == 0));
+                Assert.Contains(GameData.Store!.LoadRows("incursion_item_mods", "item_class, mod_id"),
+                    r => (string)r["item_class"]! == type.Class && (string)r["mod_id"]! == architect.Id);
+            }
             var uniques = drops.Where(item => item.Rarity == ItemRarity.Unique).ToArray();
             int singles = Count("MapCorruptedSideAreaVesselSingleImplicitDrop", 2);
             int doubles = Count("MapCorruptedSideAreaVesselDoubleImplicitDrop_");
@@ -576,7 +590,7 @@ public sealed class ScarabEncounterTests
                 }
             }
             Assert.Equal(Enumerable.Repeat(1, singles).Concat(Enumerable.Repeat(2, doubles)), implicitCounts.Order());
-            var rewards = drops.Where(item => item.Rarity != ItemRarity.Unique && item.TypeHash != vaalOrb && item.Quality != 23
+            var rewards = drops.Where(item => item.Rarity is not (ItemRarity.Rare or ItemRarity.Unique) && item.TypeHash != vaalOrb && item.Quality != 23
                 && Program.Items.GemLevel(item) != 21 && Program.Items.ByHash(item.TypeHash)!.Class != "DivinationCard").ToArray();
             int levelledGems = Count("MapCorruptedSideAreaVesselLevelledGemDrop");
             int gems = Count("MapCorruptedSideAreaVesselVaalGemDrop", 2) + levelledGems;

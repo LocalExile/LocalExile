@@ -81,6 +81,10 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     ];
     public static readonly HashSet<string> EquipmentClasses = [.. Slots.Select(s => s.Class)];
 
+    /// <summary>Choose an eligible equipment class using the ordinary slot weights.</summary>
+    public static string? EquipmentClass(Random random, Predicate<string> eligible) =>
+        Pick(Slots.Where(s => eligible(s.Class)).ToList(), random);
+
     // Bases that exist in the tables but never drop (event, league and test items) and carry no not_for_sale tag.
     static readonly string[] NotDropped = ["Royale", "Demigod", "Talisman", "Breach", "Synthesis", "Fishing", "Test", "Unarmed", "Atlas",
         "Expedition", "Heist", "Relic", "Basilisk", "Crusader", "Eyrie", "Elder", "Shaper", "Necropolis", "Sanctum", "Ultimatum", "Legion"];

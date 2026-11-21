@@ -151,6 +151,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   *Of Chiselling* adds a corrupted gem with 23% quality and *of the Facetor* adds a level 21 corrupted gem.
   *Of Divination* adds one to three cards for corrupted items outside Ruthless. The individual vessel rates
   still need a direct sample.
+  *Of Atzoatl* adds the saved count of corrupted rare equipment with a native Incursion affix.
   *Of Dark Blessings* adds one or two level-eligible uniques, each with one corruption implicit.
   *Of the Locus* adds one unique with two corruption implicits from distinct families. A kept area uses its saved count.
   The map device opens the named layout for the resulting maps and recognises saved identities on shared map keys.
@@ -164,7 +165,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Verify cast timing, targeting and visuals in
   the client, along with the level-70 Ice Nova and ordinary Firestorm box spells. Check the Vaal Temple corruption
   reward pool. Trace natural side-area entrance modifier rolls. Measure the vessel's base reward weights, other
-  bonus rewards and the exit portal in the client.
+  bonus rewards and the exit portal in the client. Sample the Incursion reward's class frequencies and spell-trigger bases.
   Trace the `OrnateVaalBox*` Vaal Reliquaries.
 - **Done when:** Valdo's Exquisite Vaal Vessels spawn and their Vaalsmithed prefixes act.
 

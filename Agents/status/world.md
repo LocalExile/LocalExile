@@ -141,6 +141,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   league's ordinary gem drop pool. *Of the Facetor* adds one corrupted level 21 gem from bases that can reach
   that level. *Of Divination* adds one to three level-eligible cards that redeem for corrupted items outside
   Ruthless. Their relative weights use a 3.29 Stacked Deck sample. The vessel's own rates are unknown.
+  *Of Atzoatl* adds one or two identified corrupted rares at area level. Each has a class-eligible Incursion
+  affix. Equipment uses the ordinary slot weights and each eligible Incursion affix has the same chance.
+  The vessel's own distribution and the spell-trigger affix on sceptres and warstaves still need direct observations.
   *Of Dark Blessings* adds one or two unidentified corrupted uniques at area level. Each gains a single native
   corruption implicit for its base. *Of the Locus* adds one unidentified unique with two corruption implicits.
   Both come from the base's item-level pool and have distinct modifier families. Both suffixes use the league's
