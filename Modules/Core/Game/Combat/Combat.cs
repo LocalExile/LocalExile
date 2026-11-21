@@ -3440,6 +3440,7 @@ public static partial class Game
         {
             tinctureKill = playerKill && byHit ? TakeTinctureKill(conn, m) : null;
             destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
+            QueueEssenceDeathSpawnLocked(conn, id, m);
             if (playerKill) QueueMadnessExplosionLocked(conn, id, m);
         }
         StopCorpseBlocking(remote, stream, ciphers, conn, id, m);

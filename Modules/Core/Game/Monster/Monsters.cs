@@ -83,7 +83,8 @@ public static partial class Game
 
     // Native projectile actions read final counts from the actor record. The raw base/additional stats alone do
     // not emit a shot. Keep simulated mortars on their own publication path.
-    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack,
+        MonsterModEffects? effects = null)
     {
         var catalog = SkillsFor(conn);
         IReadOnlyList<(uint, int)> Art(IReadOnlyList<(uint, int)> stats) =>
@@ -91,6 +92,7 @@ public static partial class Game
                 && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
         if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
+        if (catalog.EffectId(effect) == "InsectSuicideExplosionHuge") return EssenceInsectSkillStats(conn, attack, own, effects);
         if (!attack.Ranged) return own;
         var raw = catalog.EffectStats(effect, level);
         int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
@@ -395,9 +397,10 @@ public static partial class Game
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
+        if (variety.Id == EssenceExplosiveInsect) attack = EssenceInsectAttack(conn, level, skillId, mods.Effects);
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
-                MonsterActionSkillStats(conn, effect, level, attack)) : null;
+                MonsterActionSkillStats(conn, effect, level, attack, mods.Effects)) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights). A scripted
         // encounter drives its own phases: the built-in stage would heal it and fight the controller for its actions.
         var stage = scripted || atlas ? null : BossFights.For(variety.Id);
@@ -2032,6 +2035,12 @@ public static partial class Game
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, conn.MonsterOrderFlags, targetObjectId: PlayerId);
         }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
+        if (m.Variety?.Id == EssenceExplosiveInsect)
+        {
+            if (await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds))
+                await ExplodeEssenceInsect(remote, stream, ciphers, conn, id, m, a, action);
+            return;
+        }
         if (BossKits.EffectOf(m, a) == BossKits.PietyBeamEffect)
         {
             // All recipients use the original cast's aim and the shared instance clock. Each owns its hit gate,
@@ -2111,15 +2120,19 @@ public static partial class Game
         (int X, int Y) at;
         lock (conn.Monsters)
         {
+            if (!MonsterSummonerCurrentLocked(conn, id, m)) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (from, player) = (m.Walk.Position(now), conn.Walk.Position(now));
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
             at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
         }
+        int created = 0;
         for (int k = 0; k < summon.Count; k++)
-            await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
-                owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
-        Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
+            if (await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
+                extraMods: EssenceSummonModifiers(variety),
+                ownedAdmission: () => MonsterSummonerCurrentLocked(conn, id, m) && EssenceSummonCanSpawnLocked(conn, id, variety),
+                owned: (_, summoned) => RegisterMonsterSummonLocked(summoned, id, m, summon)) != 0) created++;
+        Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {created}/{summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
 
     /// <summary>Piety, the Abomination's rotating 360-degree beam (<c>PietyCorruptedLightningBeam</c>): aims at the
@@ -2298,6 +2311,7 @@ public static partial class Game
     {
         // A retired producer is refused before recording an accepted hit or touching any current resource state.
         if (!CurrentGameWork) return null;
+        bool spellHit = a.Spell && !a.Secondary, attackHit = !a.Spell && !a.Secondary;
         int priorContacts = conn.RecentEnemyHits.Count(now);
         using var defenceTime = FortificationOf(conn).Capture(now);
         // Resolve lazy final defences here, never at AI collection or before a queued echo/pause wait.
@@ -2317,7 +2331,7 @@ public static partial class Game
         int evasion = TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn, stats).Less);
         evasion = EvasionKeystones.Rating(evasion, a.Projectile is not null, !a.Ranged && !a.Spell, StatOf);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
-        if (!a.Spell && EvadesLocked(conn, hitChance, now))
+        if (attackHit && EvadesLocked(conn, hitChance, now))
         {
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) evaded: accuracy {monsterAccuracy} " +
                 $"vs evasion {evasion}, {hitChance}% chance to hit, entropy {conn.EvasionEntropy:0}");
@@ -2350,8 +2364,8 @@ public static partial class Game
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
         // Then each type taken may be avoided, and ignite reads only the damage dealt that lands.
-        var suppression = a.Spell ? Suppression(conn) : default;
-        bool suppressed = a.Spell && suppression.Chance > 0
+        var suppression = spellHit ? Suppression(conn) : default;
+        bool suppressed = spellHit && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
         // "when you Suppress Spell Damage from a Unique Enemy" (Loyalty Tattoo of Ahuana).
         if (suppressed && m.Rarity == MonsterRarity.Unique && conn.PlayerLife > 0)
@@ -2366,7 +2380,7 @@ public static partial class Game
         var immune = PlayerImmunities(conn, stats);
         // This remains the original next RNG draw when the feature is absent. Blocking never
         // consumes an armour draw; one lazy decision is shared by the whole rolled packet.
-        bool blocked = DamageModel.Blocks(a.Spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance,
+        bool blocked = !a.Secondary && DamageModel.Blocks(a.Spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance,
             conn.IncomingHitRandom.NextDouble() * 100, a.Spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky,
             a.Spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky);
         bool armourRelevant = mitigated.Components.Any(c => !immune.Contains(c.Type)
@@ -2386,11 +2400,11 @@ public static partial class Game
             // Flat damage taken after resistance and armour, then the multipliers: the increased damage taken adds to the
             // shock's, and a blocked hit deals only its share (PlayerDamageTaken). Monster hits are attacks, and melee
             // unless ranged.
-            if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: !a.Spell, StatOf));
+            if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: attackHit, StatOf));
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
-                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf, spell: a.Spell))
+                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
                 * reservationFactor * ReservationTypedHitTakenFactor(conn, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -2406,7 +2420,7 @@ public static partial class Game
         damage = FortificationDamageTaken(conn, damage);
         chaosDamage = FortificationDamageTaken(conn, chaosDamage);
         physicalDamage = Math.Min(FortificationDamageTaken(conn, physicalDamage), Math.Max(0, damage - chaosDamage));
-        if (!a.Spell && !a.Ranged && damage > 0)
+        if (attackHit && !a.Ranged && damage > 0)
         {
             int before = damage; damage = GolemSafeguardLocked(conn, damage, now);
             chaosDamage = (int)((long)chaosDamage * damage / before);
@@ -2437,10 +2451,10 @@ public static partial class Game
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
         AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
-        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
+        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         ApplyCorruptedBloodOnHit(conn, a, baseHit, blocked, now, stats);
-        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
+        RecordIncomingHitLocked(conn, now, spellHit, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

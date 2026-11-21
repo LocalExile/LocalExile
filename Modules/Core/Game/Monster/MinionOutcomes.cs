@@ -31,6 +31,7 @@ public static partial class Game
     public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         HitSummonsOnDeathLocked(conn, victimId, monster, now);
+        QueueEssenceDeathSpawnLocked(conn, victimId, monster);
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));

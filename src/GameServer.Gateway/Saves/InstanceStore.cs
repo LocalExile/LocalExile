@@ -10,6 +10,11 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
     readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
 
+    public InstanceState[] Snapshot()
+    {
+        lock (_instances) return [.. _instances.Values];
+    }
+
     /// <summary>Reads a retained instance without admitting another connection.</summary>
     public InstanceState? Find(ulong id, long created, string? soloOwner = null)
     {
