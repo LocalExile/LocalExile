@@ -825,6 +825,7 @@ public static partial class Game
         AttributeDefenceSources.Apply(sources, Stats, finalAttributes.Strength);
         LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
         OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts, dev);
+        ProjectCorruptedSoul(sources, dev);
         ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
@@ -1293,7 +1294,8 @@ public static partial class Game
         ConfigureFortificationRecovery(conn, pools.Life, sources);
         pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
             pools.Life, pools.Mana, pools.EnergyShieldPct,
-            EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield"),
+            EquipmentInput("maximum_life_%_to_add_as_maximum_energy_shield")
+                + (EquipmentInput(CorruptedSoul) != 0 ? 15 : 0),
             EquipmentInput("mana_%_to_add_as_energy_shield")) };
         return pools with
         {
@@ -1405,6 +1407,7 @@ public static partial class Game
         int accuracyMoreVsUnique = Get("accuracy_rating_+%_final_vs_unique_enemies_from_mastery");
         int accuracyMoreCloseRange = Get("accuracy_rating_+%_final_vs_enemies_in_close_range_from_mastery");
         int allMax = Get("additional_maximum_all_resistances_%"), allElemMax = Get("additional_maximum_all_elemental_resistances_%");
+        if (Get(PlayerHitMitigation.Transcendence) != 0) allElemMax -= 15;
         // The pair-resistance stats: one input adds to both named elements (Cold and Lightning is Sea Legs').
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
         int fireColdRes = Get("fire_and_cold_damage_resistance_%");

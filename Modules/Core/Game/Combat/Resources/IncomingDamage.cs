@@ -2,6 +2,15 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const string CorruptedSoul = "keystone_corrupted_defences";
+
+    static void ProjectCorruptedSoul(Dictionary<uint, int> sources, IReadOnlyDictionary<uint, int> replacements)
+    {
+        if (Stats.Key(CorruptedSoul) is uint flag && replacements.GetValueOrDefault(flag, sources.GetValueOrDefault(flag)) != 0
+            && Stats.Key(IncomingResourceDefences.BypassStat) is uint bypass)
+            sources[bypass] = ActorScale.Saturate((long)sources.GetValueOrDefault(bypass) + 50);
+    }
+
     public static bool ChaosDamageBypassesEnergyShield(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;

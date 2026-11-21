@@ -55,7 +55,8 @@ public static partial class Game
             if (blocked) RecoverOnBlockLocked(conn, stats);
             var taken = DamagePacket.Of(type, dealt, dealt);
             RecoupHitLocked(conn, taken, now, stats);
-            if (type == DamageType.Physical) PreventedDamageOf(conn).Add(now, amount - dealt);
+            int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        if (type == DamageType.Physical) PreventedDamageOf(conn).Add(now, amount - dealt);
             uint lifeBefore = conn.PlayerLife;
             int lifeDamage = DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0,
                 type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0,
@@ -78,9 +79,9 @@ public static partial class Game
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats)
     {
         var (physical, elemental) = PlayerDamageReduction(conn, stats);
-        if (type == DamageType.Physical)
-            return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
         int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        if (type == DamageType.Physical)
+            return $"{DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
         return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
             (share > 0
                 ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
