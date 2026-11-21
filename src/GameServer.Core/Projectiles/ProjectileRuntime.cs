@@ -105,7 +105,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 if (sharedSeries && last) pendingEmissions.Remove(emission);
                 if (clear && use.CanEmit?.Invoke() != false)
                     Spawn(projectileUse, useId, group, 0, origin, direction, index: index,
-                        piercesAll: piercesAll, additionalForks: additionalForks, additionalChains: additionalChains);
+                        piercesAll: piercesAll, additionalForks: additionalForks,
+                        branches: new() { FiringPointChains = additionalChains });
             }
             if (use.Profile.SequentialDelay > 0 && contact > 0) Schedule(Now + contact * use.Profile.SequentialDelay, Emit);
             else Emit();
@@ -137,14 +138,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileEntity Spawn(ProjectileUse use, long useId, long emission, long parent,
         ProjectileVector position, ProjectileVector direction, ProjectileEntity? continuing = null, bool split = false,
-        int index = 0, bool piercesAll = false, int additionalForks = 0, int additionalChains = 0,
-        bool hasForkedOrChained = false)
+        int index = 0, bool piercesAll = false, int additionalForks = 0, ProjectileBranchState branches = default)
     {
         var p = new ProjectileEntity(++sequence, useId, emission, parent, use, position, direction, Now)
         {
             VolleyIndex = index,
             PiercesAllFromLaunch = continuing?.PiercesAllFromLaunch ?? piercesAll,
-            HasForkedOrChained = continuing?.HasForkedOrChained ?? hasForkedOrChained
+            Branches = continuing?.Branches ?? branches
         };
         projectiles.Add(p.Id, p);
         if (continuing is { } previous)
@@ -156,14 +156,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.OutboundContacts = previous.OutboundContacts;
             p.Phase = previous.Phase; p.ReturnContacts = previous.ReturnContacts;
             p.TurnaroundTarget = previous.TurnaroundTarget;
-            p.Pierce = previous.Pierce; p.Fork = previous.Fork; p.Chain = previous.Chain; p.Split = 0;
+            p.Pierce = previous.Pierce; p.Fork = previous.Fork; p.Split = 0;
             p.Contacts.UnionWith(previous.Contacts); p.Interactions.UnionWith(previous.Interactions);
         }
-        else
-        {
-            if (!p.Profile.CannotFork) p.Fork += additionalForks;
-            if (!p.Profile.CannotChain) p.Chain += additionalChains;
-        }
+        else if (!p.Profile.CannotFork) p.Fork += additionalForks;
         if (split && p.Profile.SplitForm is { } splitForm)
         {
             p.Form = 1; p.Speed *= splitForm.SpeedMultiplier; p.Pierce = splitForm.Pierce;
@@ -444,7 +440,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             // projectile's remaining chains, and its target must be in sight of the point hit (as a terrain split's). Every
             // wall it meets with chains left may chain it again, and the client's terminal tries the Chain before a Bounce
             // (Agents/docs/re/projectiles/continuation-and-memory.md: eligibility 0x141bb0250, "Chain before Bounce").
-            if (p.TerrainChainChance > 0 && !p.Profile.CannotChain && p.Chain > 0
+            if (p.TerrainChainChance > 0 && p.CanChain
                 && Nearby(p, actors).FirstOrDefault(a => world.TraceTerrain(p.Position + c.Normal * .001, a.Position(Now)) is null)
                     is { } chainTarget
                 && p.Random.Next(100) < p.TerrainChainChance)
@@ -502,7 +498,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
         || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors).Any()))
         || p.PierceTarget(consume: false) || (!p.Profile.CannotFork && p.Fork > 0)
-        || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any());
+        || (p.CanChain && Nearby(p, actors).Any());
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
         long? group = null, ProjectileHitRule? rule = null, double multiplier = 1, string? admissionStage = null,
@@ -542,7 +538,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             Fork(p, target);
             return true;
         }
-        if (!profile.CannotChain && p.Chain > 0 && Nearby(p, actors).FirstOrDefault() is { } next)
+        if (p.CanChain && Nearby(p, actors).FirstOrDefault() is { } next)
         {
             Chain(p, next, target.Position(Now));
             return true;
@@ -552,8 +548,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     void Chain(ProjectileEntity p, ProjectileActor next, ProjectileVector contact)
     {
-        p.Chain--;
-        p.HasForkedOrChained = true;
+        p.Branches.ChainsUsed++;
         p.Direction = (next.Position(Now) - p.Position).Unit;
         // A chain jump gets a fresh range cap. Distance stays cumulative for Far Shot.
         p.Remaining = p.Profile.Range;
@@ -588,7 +583,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void Fork(ProjectileEntity p, ProjectileActor contact)
     {
         p.Fork--;
-        p.HasForkedOrChained = true;
+        p.Branches.HasForked = true;
         int chance = p.Profile.ForkExtraProjectileChancePercent;
         int count = chance >= 100 || chance > 0 && p.Random.Next(100) < chance ? 3 : 2;
         var (origin, end) = p.ForkSegment;

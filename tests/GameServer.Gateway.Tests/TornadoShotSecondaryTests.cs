@@ -7,14 +7,14 @@ public sealed class TornadoShotSecondaryTests
     sealed class Arena(bool wall) : IProjectileWorld
     {
         public readonly List<ProjectileActor> Targets = [];
-        public readonly List<uint> Hits = [];
+        public readonly List<(long Arrow, uint Target)> Hits = [];
         public readonly List<long> Redirects = [];
         public IReadOnlyList<ProjectileActor> Actors(long from, long until) => Targets;
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
             wall && from.X < 60 && to.X >= 60 ? new((60 - from.X) / (to.X - from.X), new(-1, 0)) : null;
         public ProjectileHitResult Hit(ProjectileDamage damage)
         {
-            Hits.Add(damage.Target.Id);
+            Hits.Add((damage.Projectile.Id, damage.Target.Id));
             return ProjectileHitResult.Hit;
         }
         public void Publish(ProjectileEvent value)
@@ -58,11 +58,16 @@ public sealed class TornadoShotSecondaryTests
     [Fact]
     public void Tornado_shot_children_continue_the_primary_distance()
     {
-        foreach (var (grant, forbid, wall) in new[] { (0, 0, false), (1, 0, false), (1, 1, false), (1, 0, true) })
+        foreach (var (chains, wall, grant, forbid, redirects, hits) in new[]
+        {
+            (1, false, 0, 0, 1, 2), (1, false, 1, 0, 1, 4), (1, false, 1, 1, 1, 2),
+            (1, true, 0, 0, 0, 1), (2, true, 0, 0, 1, 2), (3, true, 0, 0, 2, 3),
+            (1, true, 1, 0, 0, 4), (2, true, 1, 1, 1, 2)
+        })
         {
             int Get(string key) => key switch
             {
-                "number_of_chains" => 1,
+                "number_of_chains" => chains,
                 "projectile_chain_from_terrain_chance_%" => wall ? 100 : 0,
                 "arrows_always_pierce_after_forking" => grant,
                 "virtual_projectiles_cannot_pierce" => forbid,
@@ -85,20 +90,26 @@ public sealed class TornadoShotSecondaryTests
             if (wall)
             {
                 Assert.Equal([primary.Id], arena.Redirects);
-                Assert.Equal([50u], arena.Hits);
+                Assert.Equal([(primary.Id, 50u)], arena.Hits);
                 arena.Redirects.Clear();
                 arena.Hits.Clear();
+                arena.Targets.Clear();
             }
-            // The secondary can pierce from its first hit only if the primary already chained off the wall.
-            var arrow = children[0];
-            for (uint id = 1; id <= 4; id++)
+            // The primary already hit target 50 at the wall. The secondary group has a fresh target ledger.
+            for (int i = 0; i < children.Length; i++)
+            for (int rank = 0; rank < 4; rank++)
             {
-                var point = arrow.Position + arrow.Direction * (id * 5);
-                arena.Targets.Add(new(new(id), 2, _ => point, 0));
+                var point = children[i].Position + children[i].Direction * ((rank + 1) * 5);
+                arena.Targets.Add(new(new((uint)(50 + i * 10 + rank)), 2, _ => point, 0));
             }
             runtime.AdvanceTo(ProjectileRuntime.Time(sample + .3));
-            Assert.Equal(wall ? Array.Empty<long>() : [arrow.Id], arena.Redirects);
-            Assert.Equal(grant != 0 && forbid == 0 ? new uint[] { 1, 2, 3, 4 } : [1, 2], arena.Hits);
+            for (int i = 0; i < children.Length; i++)
+            {
+                long id = children[i].Id;
+                Assert.Equal(redirects, arena.Redirects.Count(arrow => arrow == id));
+                Assert.Equal(Enumerable.Range(50 + i * 10, hits).Select(n => (uint)n),
+                    arena.Hits.Where(h => h.Arrow == id).Select(h => h.Target));
+            }
         }
     }
 }

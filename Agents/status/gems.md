@@ -80,7 +80,8 @@ Nothing yet.
   With Reach of the Council, first-point arrows pierce, second-point arrows fork once more, third-point arrows return,
   and fourth-point arrows chain twice more. These apply on both sides of a simultaneous volley, including Barrage's
   extra endpoint volleys. Gateway tests follow both fourth-point arrows through two targets outside their original lanes.
-  Slivertongue arrows pierce after a fork or a completed chain. Tornado Shot's secondary arrows can inherit that state from the primary.
+  Slivertongue arrows pierce after a fork or a completed chain. Tornado Shot's secondary arrows inherit the primary's
+  completed chains. The group can hit a target the primary hit, and each arrow spends its own remaining chains.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.

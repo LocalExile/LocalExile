@@ -59,7 +59,7 @@ public sealed record ProjectileSweep(long Duration, double Radians, Func<Project
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
-    /// <summary>The new stage copies whether the source has already forked or chained.</summary>
+    /// <summary>The new stage copies the source's fork history and number of completed chains.</summary>
     public bool InheritForkOrChain { get; init; }
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
@@ -279,6 +279,13 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public uint RepeatsLeft { get; init; }
 }
 
+internal struct ProjectileBranchState
+{
+    public bool HasForked;
+    public int ChainsUsed;
+    public int FiringPointChains;
+}
+
 public sealed class ProjectileEntity
 {
     internal ProjectileEntity(long id, long useId, long emissionId, long parent, ProjectileUse use,
@@ -287,7 +294,7 @@ public sealed class ProjectileEntity
         Id = id; UseId = useId; EmissionId = emissionId; ParentId = parent; Use = use;
         Position = position; Direction = direction.Unit; CreatedAt = at;
         Remaining = use.Profile.Range; Pierce = use.Profile.Pierce;
-        Fork = use.Profile.Fork; Chain = use.Profile.Chain; Split = use.Profile.Split;
+        Fork = use.Profile.Fork; Split = use.Profile.Split;
         TerrainBounces = use.Profile.TerrainBounces;
         TerrainChainChance = use.Profile.TerrainChainChance;
         GroundChains = use.Profile.GroundChains;
@@ -323,12 +330,14 @@ public sealed class ProjectileEntity
     public int Form { get; internal set; }
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
-    internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal int Pierce, Fork, Split, TerrainBounces;
     internal ((int X, int Y) Origin, (int X, int Y) End) ForkSegment { get; private set; }
     internal void SetForkSegment(ProjectileVector origin) =>
         ForkSegment = (origin.Cell, (Position + Direction * Remaining).Cell);
     internal bool PiercesAllFromLaunch { get; init; }
-    internal bool HasForkedOrChained;
+    internal ProjectileBranchState Branches;
+    internal bool CanChain => !Profile.CannotChain && Branches.ChainsUsed < Profile.Chain + Branches.FiringPointChains;
+    internal bool HasForkedOrChained => Branches.HasForked || Branches.ChainsUsed > 0;
     readonly Random? pierceRandom;
     int nextPierceRoll;
 
