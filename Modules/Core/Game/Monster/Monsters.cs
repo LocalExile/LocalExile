@@ -199,9 +199,16 @@ public static partial class Game
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
         uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
+        IReadOnlyList<MonsterKitSkill>? extraKit = null,
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        // A monster the client is never told to wake: it renders but shows no life bar and takes no orders (an
+        // imprisoned essence monster before its crystal breaks).
+        bool asleep = false,
+        // The rarity glow buff (magic blue, rare yellow) tints the encased effect; an imprisoned monster keeps its
+        // own crystal colour instead.
+        bool rarityGlow = true,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
         bool bulk = false)
@@ -342,15 +349,20 @@ public static partial class Game
         // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
         // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        if (extraKit is { Count: > 0 }) kit = [.. kit, .. extraKit];
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
             : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
+        // An extra kit (an essence monster's spells) is specials on top of the default attack, not a replacement: the
+        // default attack is not one of its entries, so keep its own skill alongside the kit's.
+        if (extraKit is { Count: > 0 } && kingSkills is null && skill is not null)
+            skills = [skill, .. (skills ?? [])];
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = Yugul.AddSkills(conn, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(conn, variety, level, skills);
-        List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
+        List<(uint, int)>? stats = skill is null || attack is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
@@ -429,11 +441,11 @@ public static partial class Game
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
             // A boss waiting to rise (Yugul) stays out of conn.Monsters until it does, where nothing would wake it: it is
             // created awake, as every other buried monster is; its bar only comes after the rise.
-            bool farBoss = !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            bool farBoss = asleep || !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
             // Bulk (an area's population): the create carries its wake and its rarity glow, so the client reads them in the
             // same admission and the producer waits for neither — each waited for a birth otherwise, a frame per object on
             // a lockstep client (746 monsters, 3.2 s). A far boss still wakes when the player comes near.
-            ushort glow = MonsterRarityBuffs.Row(rarity) ?? 0;
+            ushort glow = rarityGlow ? MonsterRarityBuffs.Row(rarity) ?? 0 : (ushort)0;
             ushort buff = 0;
             if (glow != 0) lock (conn.Monsters) buff = conn.NextBuff++;
             byte[]? glowBytes = glow != 0 ? InstanceEntities.AddBuff(id, buff, glow) : null;
@@ -458,7 +470,7 @@ public static partial class Game
         }
         if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
             (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.Value.NameOf(mods.NameWords)}" : ""));
-        if (log && attack.Projectile is { } shot)
+        if (log && attack?.Projectile is { } shot)
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ranged attack projectile {shot.Metadata} ({shot.Speed} units/s{(shot.Lobbed ? ", mortar" : "")})");
         if (owned is null)
             using (ProjectileMutation(conn))
@@ -1965,10 +1977,10 @@ public static partial class Game
     /// Immolators keep bringing skeletons while the player is near).</summary>
     public const int MaxSummoned = 5;
 
-    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than MaxSummoned
+    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than its alive cap
     // of its monsters alive); any other attack may.
     public static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned;
+        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < (m.SummonCap > 0 ? m.SummonCap : MaxSummoned);
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
@@ -1989,8 +2001,24 @@ public static partial class Game
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
             at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
         }
+        // A summon fights with its whole usable kit, not only its cooldown spells: a totem casts its Arc (0-cooldown) as
+        // well as its shocked ground, a spider its Viper Strike, a summoned daemon its nova / ball lightning / storm cascade.
+        // BossKits.Effects drops movement / on-death / daemon-link skills; an effect that hits for nothing, summons nothing
+        // and fires nothing is no action. A cooldown spell stays a kit special (idles between casts); a 0-cooldown one is
+        // rotated at its cast time, so a spell-only summon does not spam it every tick.
+        var catalog = SkillsFor(conn);
+        var kit = new List<MonsterKitSkill>();
+        foreach (int ef in BossKits.Effects(catalog, variety))
+        {
+            int efLevel = catalog.MaxLevelAt(ef, m.Level);
+            double cd = catalog.CooldownMs(ef, efLevel) / 1000.0;
+            var attack = BossKits.AttackFor(conn, variety, m.Level, ef, (ushort)(0x4000 + kit.Count));
+            if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
+            kit.Add(new(ef, attack, cd));
+        }
         for (int k = 0; k < summon.Count; k++)
             await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
+                extraKit: kit.Count > 0 ? kit : null,
                 owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
@@ -2056,7 +2084,12 @@ public static partial class Game
             outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, conn.Walk.Position(now), m.Walk.Position(now), checkRange: true, sequence: sequence);
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} hit on the player (kind 3, sequence 0x{sequence:x4})")) return;
-        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (outcome is not null)
+        {
+            // A Misery rare's attack applies an extra «Essence of Misery» stack to the player it hit (a no-op otherwise).
+            MapEssences.MiseryOnAttack(conn, m, conn);
+            await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        }
     }
 
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
@@ -2218,6 +2251,7 @@ public static partial class Game
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
+        MapEssences.CorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);

@@ -193,8 +193,16 @@ public static class BossKits
             bestTier = special ? 1 : 0;
             bestUsed = used;
         }
-        return best?.Attack ?? (Arakaali.IsBoss(monster.Variety)
-            ? monster.Kit.FirstOrDefault(entry => Arakaali.Allowed(monster, entry.Effect))?.Attack : monster.Attack);
+        if (best is not null) return best.Attack;
+        var fallback = Arakaali.IsBoss(monster.Variety)
+            ? monster.Kit.FirstOrDefault(entry => Arakaali.Allowed(monster, entry.Effect))?.Attack : monster.Attack;
+        // A cooldown special that is not ready must not be re-cast: a spell-only caster (an essence's Energy Locus) idles
+        // between its spell's cooldowns rather than firing it every attack cycle.
+        if (fallback is not null
+            && monster.Kit.FirstOrDefault(e => e.Attack.SkillId == fallback.SkillId) is { CooldownSeconds: > 0 } fbEntry
+            && monster.KitReadyAt.GetValueOrDefault(fbEntry.Effect) > now)
+            return null;
+        return fallback;
     }
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown

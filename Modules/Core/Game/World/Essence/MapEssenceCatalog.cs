@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 public static class MapEssenceCatalog
 {
     public sealed record Essence(int Row, uint Hash, string Item, int Type, int Tier, bool Corrupted,
-        IReadOnlyList<int> DropLevels, IReadOnlyList<int> MonsterMods);
+        IReadOnlyList<int> DropLevels, IReadOnlyList<int> MonsterMods, int DisplayMod);
     static readonly Lazy<IReadOnlyList<Essence>> Data = new(Load);
     public static IReadOnlyList<Essence> All => Data.Value;
     public static Essence? Find(int row) => All.FirstOrDefault(e => e.Row == row);
@@ -32,6 +32,10 @@ public static class MapEssenceCatalog
         .OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct()
         .Where(PendingBehaviours.Value.ContainsKey).Select(row => PendingBehaviours.Value[row])];
 
+    /// <summary>The Remnant of Corruption essence (Essences' CurrencyCorruptMonolith row): tier 0, so the ordinary pool
+    /// never rolls it, but the atlas Remnant-of-Corruption chance puts it on a monolith.</summary>
+    public const string RemnantItem = "Metadata/Items/Currency/CurrencyCorruptMonolith";
+
     static IReadOnlyList<Essence> Load()
     {
         if (!ClientTables.Has("Essences") || !ClientTables.Has("EssenceType")) return [];
@@ -41,14 +45,16 @@ public static class MapEssenceCatalog
         foreach (var row in ClientTables.Table("Essences"))
         {
             int key = row.Int("EssenceTypeKey"), tier = row.Int("Level"), at = index++;
-            if (key < 0 || key >= types.Count || tier <= 0 || Program.Items.Row(row.Int("BaseItemTypesKey")) is not { Supported: true } item) continue;
+            if (key < 0 || key >= types.Count || Program.Items.Row(row.Int("BaseItemTypesKey")) is not { Supported: true } item) continue;
+            // Keep the tier-0 Remnant of Corruption (the atlas chance adds it); every other tier-0 row stays out.
+            if (tier <= 0 && item.Id != RemnantItem) continue;
             result.Add(new(at, row.UInt("HASH32"), item.Id, key, tier, types[key].Bool("IsCorruptedEssence"),
-                row.Ints("DropLevel"), row.Ints("Monster_ModsKeys")));
+                row.Ints("DropLevel"), row.Ints("Monster_ModsKeys"), row.IntOrNull("Display_Monster_ModsKey") ?? -1));
         }
         return result;
     }
 
-    public static IReadOnlyList<Essence> Pool(int level) => [.. All.Where(e => !e.Corrupted
+    public static IReadOnlyList<Essence> Pool(int level) => [.. All.Where(e => !e.Corrupted && e.Tier > 0
         && e.DropLevels.Any(l => l <= level))];
 
     public static Essence Higher(Essence essence) => All.FirstOrDefault(e => e.Type == essence.Type
@@ -97,20 +103,36 @@ public static class MapEssenceCatalog
                 || random.Next(100) < mods.Get("map_essences_are_1_tier_higher_chance_%")) pick = Higher(pick);
             chosen.Add(pick);
         }
+        // Amplified Energies (atlas_essence_2_4, map_essence_X_essences_at_highest_tier): X of the essences sit at the
+        // highest tier their type reaches in this area's pool.
+        for (int i = 0; i < mods.Get("map_essence_X_essences_at_highest_tier") && i < chosen.Count; i++)
+            chosen[i] = pool.Where(e => e.Type == chosen[i].Type).OrderByDescending(e => e.Tier).First();
+        // Remnant of Corruption Essence Chance (atlas_essence_3_4/3_6, map_essence_monolith_contains_essence_of_corruption_%):
+        // the monolith also holds the Remnant of Corruption essence. It is tier 0 (the ordinary pool never rolls it) and
+        // carries the RemnantOfCorruption monster mods; its on-death fleshmonster summon is a separate mechanic.
+        if (random.Next(100) < mods.Get("map_essence_monolith_contains_essence_of_corruption_%")
+            && All.FirstOrDefault(e => e.Item == RemnantItem) is { } remnant)
+            chosen.Add(remnant);
         return [.. chosen.Select(e => e.Row)];
     }
 
     public static MonsterModSet Mods(ClientState conn, MonsterCatalog.Variety variety, byte level, IReadOnlyList<int> essences)
     {
         var basis = Game.MonsterModsFor(conn, variety, level, MonsterRarity.Rare, null, false);
+        var list = essences.Select(Find).OfType<Essence>().ToArray();
         var seen = new HashSet<int>();
-        var extra = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods)
+        var extra = list.SelectMany(e => e.MonsterMods)
             .Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
             // Common damage/toughness and reward bonuses belong to every essence, even when their row is shared.
             // A repeated aura/daemon is still one behaviour, rather than another independently ticking copy.
             .Where(m => m.Id.StartsWith("EssenceDaemonModLifeAndDamage", StringComparison.Ordinal)
                 || m.Id.StartsWith("EssenceDaemonModRarityAndQuantity", StringComparison.Ordinal) || seen.Add(m.Row))
             .Select(m => m.Roll(ModSection.Implicit, Random.Shared));
-        return Game.MonsterModRolls.Value.Create([.. basis.Mods, .. extra], basis.NameWords, MonsterRarity.Rare, level);
+        // The essence-named display mod (Display_Monster_ModsKey) carries no stats but is what shows the essence on the
+        // monster's hover panel; the stat mods above have empty names and would leave the essences invisible.
+        var display = list.Select(e => e.DisplayMod).Where(r => r >= 0).Distinct()
+            .Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
+            .Select(m => m.Roll(ModSection.Explicit, Random.Shared));
+        return Game.MonsterModRolls.Value.Create([.. basis.Mods, .. extra, .. display], basis.NameWords, MonsterRarity.Rare, level);
     }
 }

@@ -24,9 +24,13 @@ public static partial class MapEssences
             essences = [.. essences.Select(row => MapEssenceCatalog.Find(row) is { } e ? MapEssenceCatalog.Transform(e, random).Row : row)];
         else if (outcome == CorruptionOutcome.Add && MapEssenceCatalog.Additional(level, essences, mods, random) is { } extra)
             essences.Add(extra.Row);
-        // Crystal Resonance retains the count, but every essence becomes one of the resulting essences.
+        // Crystal Resonance (3.29; the 3.30 Commensurate Corruption node) replaces the whole list with one of the
+        // essences the monster ALREADY had — an original essence, not a transformed one, keeping the original count.
+        // That is why it disables the transform-to-corrupted outcome (the farming guides recommend avoiding the node
+        // when after corrupted essences): pick from monolith.Essences, before the outcome's upgrade/transform/add, so a
+        // group-E essence transformed to the corrupted group F cannot become the one everything is replaced with.
         if (mods.Get("map_essence_remnant_convert") > 0)
-            essences = Enumerable.Repeat(essences[random.Next(essences.Count)], essences.Count).ToList();
+            essences = Enumerable.Repeat(monolith.Essences[random.Next(monolith.Essences.Count)], monolith.Essences.Count).ToList();
         return new(monolith with { Corrupted = true, ForcedRelease = outcome == CorruptionOutcome.Release
             && mods.Get("map_essence_corruption_cannot_release_monsters") <= 0, Essences = essences }, outcome);
     }
@@ -92,20 +96,43 @@ public static partial class MapEssences
     static async Task<bool> Release(ClientState conn, Area area, Monolith monolith)
     {
         if (monolith.Stage >= 4 || monolith.Monster != 0 || Monsters.Find(monolith.Variety) is not { Supported: true } variety) return false;
-        byte level = (byte)Math.Clamp(MapRunOf(conn)?.Area.Level ?? ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+        byte level = (byte)AreaLevel(conn);
         var mods = MapEssenceCatalog.Mods(conn, variety, level, monolith.Essences);
         if (monolith.ForcedRelease && ItemsFor(conn).Mods.ById("RemnantOfCorruptionMonsterStats") is { } empowered)
             mods = MonsterModRolls.Value.Create([.. mods.Mods, empowered.Roll(ModSection.Implicit, Random.Shared)], mods.NameWords, MonsterRarity.Rare, level);
+        // Only the rare casts the essences' spells: they go into its kit as specials with the skill's cooldown.
+        var essenceKit = EssenceKit(conn, variety, level, monolith.Essences);
+        RemoveEncasedPreviews(conn, monolith);
         var w = conn.Wire;
+        // Established: the rare emerges from the crystal's own cell. The monolith's blocker is still registered until
+        // the break is presented, so the proposed placement's nearest-clear search would spawn it offset from the crystal.
         uint monster = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, variety, level, MonsterRarity.Rare,
-            monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false, owned: (id, _) =>
+            monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false, extraKit: essenceKit,
+            placement: MonsterPlacement.Established, owned: (id, m) =>
             {
+                // The rare keeps only the tier-scaled count of its summon spell alive (not the default summoner cap).
+                m.SummonCap = essenceKit.Where(e => e.Attack.Summon is not null).Select(e => e.Attack.Summon!.Count).DefaultIfEmpty(0).Max();
                 area.Monoliths![monolith.Index] = monolith with { Stage = 4, Monster = id, ForcedRelease = false };
                 area.Dirty.Add(monolith.Index);
                 ApplyReleaseEffects(conn, area, monolith.Index);
                 Keep(conn, area);
             });
         if (monster == 0) return false;
+        // The pack's magic monsters release with the rare: each mini crystal breaks and spawns its monster. Essence
+        // modifiers can only appear on rare or unique monsters (the wiki), so the minis are ordinary magic monsters of
+        // the pack — no essence mods; the essence reward still drops only from the rare, through Drops.
+        var current = area.Monoliths![monolith.Index];
+        var minis = current.Minis.ToList();
+        for (int i = 0; i < minis.Count; i++)
+        {
+            var mini = minis[i];
+            if (mini.Stage >= 2 || mini.Monster != 0 || Monsters.Find(mini.Variety) is not { Supported: true } mv) continue;
+            uint mid = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, conn, mv, level, MonsterRarity.Magic,
+                mini.X, mini.Y, unrisen: false, alone: false, placement: MonsterPlacement.Established);
+            if (mid != 0) minis[i] = mini with { Stage = 2, Monster = mid };
+        }
+        area.Monoliths![monolith.Index] = current with { Minis = minis };
+        Keep(conn, area);
         var pending = MapEssenceCatalog.PendingEffects(monolith.Essences);
         if (pending.Count > 0)
             Console.WriteLine($"[map-content] essence source=0x{monolith.Id:x} monster=0x{monster:x}: unsupported behaviours=[{string.Join(',', pending)}]; ordinary stats and essence rewards remain active");
@@ -155,7 +182,19 @@ public static partial class MapEssences
 
     public static async Task Tick(ClientState conn, double now)
     {
-        if (conn.Closed || conn.LeavingArea || !Areas.TryGetValue(conn.Instance, out var area)
+        if (conn.Closed || conn.LeavingArea) return;
+        // The essence pulses' player debuffs/degen expire on their own timer, and the released rares cast their ready
+        // special spells (pulses/grab) alongside their ordinary AI. Runs before the release/dirty work below.
+        TickEffects(conn);
+        TickBuffs(conn);
+        TickTrail(conn);
+        TickRunes(conn);
+        await CastSpecialSpells(conn);
+        // Crystal Resonance: apply pending inherited essences to the map boss once it exists (it may be held back far
+        // from the player until approached); a cheap check, the Monsters scan runs only while something is pending.
+        if (Inherited.TryGetValue(conn.Instance, out var inh) && inh.Applied < inh.Essences.Count)
+            await ApplyBossEssences(conn, inh);
+        if (!Areas.TryGetValue(conn.Instance, out var area)
             || area.Monoliths is null || area.Dirty.Count == 0 && !area.Monoliths.Any(m => m.ForcedRelease && m.Monster == 0)) return;
         await area.Gate.WaitAsync();
         try

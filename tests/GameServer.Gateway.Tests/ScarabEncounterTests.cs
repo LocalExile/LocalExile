@@ -208,7 +208,8 @@ public sealed class ScarabEncounterTests
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
             var converted = Monoliths()[^1];
             Assert.Equal(Game.Monsters.Find(naturalRare.Variety.ToString())!.Id, converted.Variety);
-            Assert.Empty(essenceOwner.Conn.Monsters);
+            // The encased previews are instance monsters too (NoRewards, invulnerable); only a released monster counts.
+            Assert.DoesNotContain(essenceOwner.Conn.Monsters, m => !m.Value.NoRewards);
             Assert.True(await MapEssences.Imprison(essencePeer.Conn, naturalRare));
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
             Assert.False(await MapEssences.Imprison(essenceOwner.Conn, naturalRare with { Rarity = GameServer.Core.Protocol.Instance.MonsterRarity.Unique }));
@@ -218,7 +219,8 @@ public sealed class ScarabEncounterTests
             {
                 Assert.True(await MapEssences.Use(essenceOwner.Conn, new(firstMonolith.Id, 0, stage, 0), 0));
                 Assert.Equal(stage, Monoliths()[0].Stage);
-                Assert.Equal(stage == 4 ? 1 : 0, essenceOwner.Conn.Monsters.Count);
+                // The rare and its pack's magic monsters release together (the essence daemons are friendly casters).
+                Assert.Equal(stage == 4 ? 1 + firstMonolith.Minis.Count : 0, essenceOwner.Conn.Monsters.Count(m => m.Value.Hostile && !m.Value.NoRewards));
             }
             var released = Monoliths()[0];
             Assert.True(released.Monster > 0);
@@ -238,7 +240,7 @@ public sealed class ScarabEncounterTests
             MapEssences.Drops(duplicate);
             Assert.Empty(duplicate.Items);
             await MapEssences.Use(essencePeer.Conn, new(firstMonolith.Id, 0, 5, 0), 0);
-            Assert.Single(essenceOwner.Conn.Monsters);
+            Assert.Equal(1 + released.Minis.Count, essenceOwner.Conn.Monsters.Count(m => m.Value.Hostile && !m.Value.NoRewards));
             MapEssences.Leave(essenceOwner.Conn);
             await MapEssences.Enter(essenceOwner.Conn);
             Assert.Equal((released.Id, released.Stage, released.Monster), (Monoliths()[0].Id, Monoliths()[0].Stage, Monoliths()[0].Monster));

@@ -28,9 +28,25 @@ public static partial class Game
         if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
     }
 
+    /// <summary>A summoner's death takes its own summons with it (an essence rare's totems / spiders / daemons): they die
+    /// without a kill, reward or experience, as the encounter's own adds do. Player minions are owned, not summoned, and are
+    /// untouched. Direct children only (essence summons do not themselves summon).</summary>
+    static void KillSummonsOfLocked(ClientState conn, uint summonerId)
+    {
+        foreach (var (id, m) in conn.Monsters.Where(p => p.Value.SummonerId == summonerId && !p.Value.Dead).ToArray())
+        {
+            m.Dead = true; m.Life = 0; m.ActionGeneration++;
+            conn.Monsters.Remove(id);
+            conn.MonsterViews.Remove(id); conn.AsleepMonsters.Remove(id);
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "its summoner died", id, m,
+                PlayerMinions.OutputKind.Remove, WorldId: id, RemovesObject: true));
+        }
+    }
+
     public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         HitSummonsOnDeathLocked(conn, victimId, monster, now);
+        KillSummonsOfLocked(conn, victimId);
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));

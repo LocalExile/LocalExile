@@ -71,6 +71,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapEssences.UseItemOn);
         GameEvents.Tick.Add(module.Manifest.Id, MapEssences.Tick);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapEssences.EssenceDebuffStats);
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
